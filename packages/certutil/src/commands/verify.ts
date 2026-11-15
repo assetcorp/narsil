@@ -114,9 +114,11 @@ async function verifyChain(cert: forge.pki.Certificate, caCertPath: string): Pro
     return false
   }
   try {
-    return forge.pki.verifyCertificateChain(forge.pki.createCaStore([caCert]), [withNameExtensionsChecked(cert)], {
-      validityCheckDate: null,
-    })
+    return forge.pki.verifyCertificateChain(
+      forge.pki.createCaStore([caCert]),
+      [withNameExtensionsChecked(cert), withNameExtensionsChecked(caCert)],
+      { validityCheckDate: null },
+    )
   } catch {
     return false
   }
