@@ -27,17 +27,17 @@ reporting) lives in `src/ir_bench/core`, and each engine is a small driver in
 ## Engines and pinned versions
 
 Each engine runs from a pinned image. Every version was checked against the
-engine's release source on 2026-09-21.
+engine's release source on 2026-11-15.
 
 | Engine | Image (pinned) | Version | Source |
 | ------ | -------------- | ------- | ------ |
 | Narsil | built from this repo (`node:24-trixie-slim` base) | working tree | local source |
-| Elasticsearch | `docker.elastic.co/elasticsearch/elasticsearch:9.5.4` | 9.5.4 | [release notes](https://www.elastic.co/docs/release-notes/elasticsearch), [GitHub releases](https://github.com/elastic/elasticsearch/releases) |
-| OpenSearch | `opensearchproject/opensearch:3.8.0` | 3.8.0 | [opensearch.org/releases](https://opensearch.org/releases/), [GitHub releases](https://github.com/opensearch-project/OpenSearch/releases) |
-| Qdrant | `qdrant/qdrant:v1.19.1` | 1.19.1 | [GitHub releases](https://github.com/qdrant/qdrant/releases), [Docker Hub](https://hub.docker.com/r/qdrant/qdrant/tags) |
-| Weaviate | `cr.weaviate.io/semitechnologies/weaviate:1.39.5` | 1.39.5 | [GitHub releases](https://github.com/weaviate/weaviate/releases) |
+| Elasticsearch | `docker.elastic.co/elasticsearch/elasticsearch:9.5.6` | 9.5.6 | [release notes](https://www.elastic.co/docs/release-notes/elasticsearch), [GitHub releases](https://github.com/elastic/elasticsearch/releases) |
+| OpenSearch | `opensearchproject/opensearch:3.9.0` | 3.9.0 | [opensearch.org/releases](https://opensearch.org/releases/), [GitHub releases](https://github.com/opensearch-project/OpenSearch/releases) |
+| Qdrant | `qdrant/qdrant:v1.20.1` | 1.20.1 | [GitHub releases](https://github.com/qdrant/qdrant/releases), [Docker Hub](https://hub.docker.com/r/qdrant/qdrant/tags) |
+| Weaviate | `cr.weaviate.io/semitechnologies/weaviate:1.40.5` | 1.40.5 | [GitHub releases](https://github.com/weaviate/weaviate/releases) |
 | Typesense | `typesense/typesense:30.2` | 30.2 | [GitHub releases](https://github.com/typesense/typesense/releases) |
-| Meilisearch | `getmeili/meilisearch:v1.54.0` | 1.54.0 | [GitHub releases](https://github.com/meilisearch/meilisearch/releases) |
+| Meilisearch | `getmeili/meilisearch:v1.56.2` | 1.56.2 | [GitHub releases](https://github.com/meilisearch/meilisearch/releases) |
 
 ## Tracks and which engines run them
 
@@ -71,11 +71,25 @@ names the method per engine.
   and the recorded value together so the number in the results always matches what
   was enforced. Engines run one at a time, so the cap never contends and latency
   compares directly. At the small corpus sizes no engine approaches the cap.
+- Each engine takes its vendor's memory setting inside that cap. Elasticsearch and
+  OpenSearch take the Java heap that `BENCH_JVM_HEAP` sets, and every results file
+  records the heap that each node reports. Weaviate runs with
+  `LIMIT_RESOURCES=true`, so it reads the container's memory limit at startup and
+  sets its Go soft memory limit (`GOMEMLIMIT`) to 80% of it, the low end of the
+  80 to 90% that Weaviate's documentation recommends. That limit covers only the Go
+  heap, so the other 20% of the cap stays free for the memory that Weaviate holds
+  outside it. Weaviate logs the limit that it set, and `run-all.sh` saves that log
+  beside each run. The setting changes Weaviate's CPU count only under a CPU quota,
+  and the compose file sets none.
 - One run-file ordering rule applies to every engine. `trec_eval` ignores the rank
   column, re-sorts hits by score, and breaks equal-score ties by document id in
   reverse-lexical order, which can reshuffle a ranking and change nDCG. The harness
-  rewrites each query's scores to decrease strictly in the engine's returned order,
-  so the scorer honours that order. The rule lives in `core/runfile.py` and runs
+  replaces each query's scores with whole numbers that fall by one at each step of
+  the engine's returned order, so the scorer honours that order. Smaller nudges are
+  not enough, because the scorer treats scores that differ by one step of a 64-bit
+  float as ties, and it does the same with scores as large as Typesense's
+  text-match values. The saved run files therefore hold those rank scores in place
+  of the engine's own. The rule lives in `core/runfile.py` and runs
   over whatever hits a driver returns, whether they came from keyword, vector, or
   hybrid retrieval.
 
