@@ -48,7 +48,7 @@ export function applyGrouping<T = AnyDocument>(
   documents: GroupedDocuments,
 ): GroupResult[] {
   if (!group.fields || group.fields.length === 0) {
-    return [{ values: {}, hits: hits as Array<Hit> }]
+    return group.limit === 0 ? [] : [{ values: {}, hits: hits.slice(0, hitsKeptPerGroup(group.maxPerGroup)) as Hit[] }]
   }
 
   if (hits.length > 0xffffffff)
