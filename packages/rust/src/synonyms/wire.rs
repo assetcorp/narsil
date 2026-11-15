@@ -75,6 +75,17 @@ fn rule_of(value: &Value, rule: usize, source: &str) -> Result<SynonymRule> {
     ))
 }
 
+/// Reads a synonym set from its JSON form, a list whose rules each hold `words` alone or `word` and `synonyms`, as
+/// TypeScript's `IndexConfig.synonyms` takes it.
+///
+/// # Errors
+///
+/// Returns `CONFIG_INVALID`, with the message that TypeScript raises, for a value that is no list, for a malformed
+/// rule, and for a set beyond 100,000 rules, 500,000 words, or 4,194,304 bytes of words in UTF-8.
+pub fn synonym_rules_from_json(value: &Value) -> Result<Vec<SynonymRule>> {
+    synonym_rules_of(value, "")
+}
+
 /// Reads a stored synonym set, refusing a malformed one with `CONFIG_INVALID` and a message that opens with `source`.
 pub(crate) fn synonym_rules_of(value: &Value, source: &str) -> Result<Vec<SynonymRule>> {
     let Value::Array(items) = value else {
