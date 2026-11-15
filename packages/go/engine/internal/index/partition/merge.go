@@ -79,7 +79,7 @@ func mergedOutput(result *segments.MergeResult, inputs []*frozenSegment) (*froze
 func (p *Partition) Merge(ctx context.Context, sides *Sides, pick func(sizes []SegmentSize) []int) (bool, error) {
 	p.merging.Lock()
 	defer p.merging.Unlock()
-	read, err := sides.readWithoutLease()
+	read, err := sides.readWithoutLease(ctx)
 	if err != nil {
 		return false, err
 	}

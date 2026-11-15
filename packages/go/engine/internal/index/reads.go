@@ -36,7 +36,7 @@ func (ix *Index) read(ctx context.Context) (*partition.Read, error) {
 			return borrowed, nil
 		}
 	}
-	return ix.sides.Read()
+	return ix.sides.Read(ctx)
 }
 
 func (ix *Index) leaveKeywordSide(ctx context.Context) {
@@ -61,7 +61,7 @@ func (ix *Index) Pin(ctx context.Context) (context.Context, func(), error) {
 	if _, pinned := ix.pinnedRead(ctx); pinned {
 		return ctx, func() {}, nil
 	}
-	read, err := ix.sides.Read()
+	read, err := ix.sides.Read(ctx)
 	if err != nil {
 		return nil, nil, err
 	}

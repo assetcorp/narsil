@@ -178,12 +178,12 @@ type Read struct {
 	hold  *sideHold
 }
 
-func (s *Sides) Read() (*Read, error) {
-	return s.read(true)
+func (s *Sides) Read(ctx context.Context) (*Read, error) {
+	return s.read(ctx, true)
 }
 
-func (s *Sides) readWithoutLease() (*Read, error) {
-	return s.read(false)
+func (s *Sides) readWithoutLease(ctx context.Context) (*Read, error) {
+	return s.read(ctx, false)
 }
 
 func (s *Sides) viewForRead(leased bool) (*vector.Lease, int64, error) {
@@ -197,7 +197,7 @@ func (s *Sides) viewForRead(leased bool) (*vector.Lease, int64, error) {
 	return lease, lease.Pin(), nil
 }
 
-func (s *Sides) read(leased bool) (*Read, error) {
+func (s *Sides) read(ctx context.Context, leased bool) (*Read, error) {
 	waited := false
 	defer func() {
 		if waited {
@@ -205,6 +205,9 @@ func (s *Sides) read(leased bool) (*Read, error) {
 		}
 	}()
 	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		lease, pin, err := s.viewForRead(leased)
 		if err != nil {
 			return nil, err
@@ -222,7 +225,11 @@ func (s *Sides) read(leased bool) (*Read, error) {
 			waited = true
 			s.waiting.Add(1)
 		}
-		<-*gate
+		select {
+		case <-*gate:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
 	}
 }
 
