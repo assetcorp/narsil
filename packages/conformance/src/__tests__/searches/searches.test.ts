@@ -7,6 +7,7 @@ import { type CosineScan, cosineScan, recallAgainst } from '../../independent/ne
 import {
   EXACT_NEIGHBOURS,
   FIELD_THAT_NO_DOCUMENT_HOLDS,
+  FIELDLESS_GROUP_MAX_PER_GROUP,
   GROUP_FIELDS,
   GROUP_LIMIT,
   GROUP_MAX_PER_GROUP,
@@ -14,8 +15,9 @@ import {
   SCORE_RELATIVE_TOLERANCE,
   SIMILARITY_TOLERANCE,
   TEXT_RESULT_LIMIT,
+  TEXT_THAT_NO_DOCUMENT_HOLDS,
 } from '../../searches/constants'
-import { type ExpectedSearches, readExpectedSearches } from '../../searches/expected'
+import { type ExpectedSearches, fieldlessGroupCases, readExpectedSearches } from '../../searches/expected'
 import { groupedHits, openReferenceIndex, textHits, vectorHitIds } from '../../searches/reference-index'
 
 const SETUP_TIMEOUT_MS = 900_000
@@ -109,6 +111,27 @@ describe('the reference over the pinned dataset', () => {
         for (const id of group.ids) expect(titleOf.get(id), `query ${query.id} hit ${id}`).toBe(group.values.title)
       }
       expect(await groupedHits(referenceIndex(), query.text), `query ${query.id}`).toEqual(query.groups)
+    }
+  })
+
+  it('returns one group of the top hits, or no group at all, for a query that groups by no field', async () => {
+    const cases = expected.grouped.withoutFields
+    expect(cases.map(entry => ({ id: entry.id, text: entry.text, group: entry.group }))).toEqual(
+      fieldlessGroupCases(dataset.queries.textQueries[0]),
+    )
+    const [oneGroup, limitZero, noHits] = cases
+    const topHits = expected.text.queries[0].hits.slice(0, FIELDLESS_GROUP_MAX_PER_GROUP).map(hit => hit.id)
+    expect(oneGroup.text).toBe(expected.text.queries[0].text)
+    expect(oneGroup.groups).toEqual([{ values: {}, ids: topHits }])
+    expect(limitZero.groups).toEqual([])
+    const holdsText = (document: { title: string; summary: string }) =>
+      `${document.title} ${document.summary}`.toLowerCase().includes(TEXT_THAT_NO_DOCUMENT_HOLDS)
+    expect(dataset.documents.some(holdsText)).toBe(false)
+    expect(noHits.groups).toEqual([])
+    for (const fieldless of cases) {
+      expect(await groupedHits(referenceIndex(), fieldless.text, fieldless.group), fieldless.id).toEqual(
+        fieldless.groups,
+      )
     }
   })
 

@@ -9,6 +9,9 @@ export const FIELD_THAT_NO_DOCUMENT_HOLDS = 'sponsor'
 export const GROUP_FIELDS = ['title', FIELD_THAT_NO_DOCUMENT_HOLDS] as const
 export const GROUP_LIMIT = 3
 export const GROUP_MAX_PER_GROUP = 2
+export const FIELDLESS_GROUP_MAX_PER_GROUP = 1
+export const FIELDLESS_GROUP_LIMIT_THAT_RETURNS_NO_GROUPS = 0
+export const TEXT_THAT_NO_DOCUMENT_HOLDS = 'qzxwvjk'
 export const EXACT_NEIGHBOURS = 100
 export const RECALL_FLOORS = [
   { k: 10, floor: 0.95 },

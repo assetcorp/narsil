@@ -219,11 +219,22 @@ pub(crate) fn group_hits(
     hits: &mut [Ranked],
 ) -> Result<Vec<GroupDraft>> {
     if config.fields.is_empty() {
+        if hits.is_empty() || config.limit == Some(0) {
+            return Ok(Vec::new());
+        }
+        let (reduced, reducer_error) = match &config.reduce {
+            Some(reduce) => fold_reducer(run, reduce, hits.iter())?,
+            None => (None, None),
+        };
         return Ok(vec![GroupDraft {
             values: Vec::new(),
-            hits: hits.to_vec(),
-            reduced: None,
-            reducer_error: None,
+            hits: hits
+                .iter()
+                .take(hits_kept_per_group(config.max_per_group))
+                .cloned()
+                .collect(),
+            reduced,
+            reducer_error,
         }]);
     }
     let count = u32::try_from(hits.len()).map_err(|_| layout_exceeded())?;

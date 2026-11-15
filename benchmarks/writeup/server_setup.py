@@ -12,7 +12,13 @@ from narsil_servers import (
     narsil_row,
 )
 from render import and_join, dataset_name, gibibytes, integer
-from run_conditions import SINGLE_SERVER_LABEL, java_heap_sentence, load_sentence, narsil_vector_search_bullets
+from run_conditions import (
+    SINGLE_SERVER_LABEL,
+    java_heap_sentence,
+    load_sentence,
+    narsil_heap_sentence,
+    narsil_vector_search_bullets,
+)
 from sources import Source
 
 
@@ -181,7 +187,8 @@ def setup_block(source: Source, best: Source | None = None) -> str:
         _engines_bullet(engines, best.data if best is not None else None),
         f"- **Equal conditions.** Every engine receives the same {cap} memory cap, the same run depth of "
         f"{integer(config.get('run_depth'))}, and the same run-file ordering. The harness tests one engine at a "
-        f"time, so each engine has the machine to itself.{java_heap_sentence(engines)}",
+        f"time, so each engine has the machine to itself.{java_heap_sentence(engines)}"
+        f"{narsil_heap_sentence(narsil, label)}",
         f"- **Load.** {load_sentence(config)}",
         *([f"- **{label} threads.** {_threads_sentence(narsil, label)}"] if narsil and not is_unmeasured(narsil) else []),
         *narsil_vector_search_bullets(narsil, label),

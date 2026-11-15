@@ -29,6 +29,8 @@ export interface TransformersRerankerConfig {
   maxLength?: number
   /** Receives the download and load progress of the model files. */
   progress?: (data: unknown) => void
+  /** The adapter keeps the model and tokenizer files that it downloads in this folder, in place of the Transformers.js default. */
+  cacheDir?: string
   /** Extra options passed to the model loader of Transformers.js. */
   modelOptions?: Record<string, unknown>
 }
@@ -124,11 +126,13 @@ export function createTransformersReranker(config: TransformersRerankerConfig = 
     loading = (async () => {
       const transformers = await import('@huggingface/transformers')
       const progress = config.progress === undefined ? {} : { progress_callback: config.progress }
-      const tokenizer = await transformers.AutoTokenizer.from_pretrained(model, progress)
+      const cache = config.cacheDir === undefined ? {} : { cache_dir: config.cacheDir }
+      const tokenizer = await transformers.AutoTokenizer.from_pretrained(model, { ...progress, ...cache })
       const modelOptions: Record<string, unknown> = {
         dtype: config.dtype ?? DEFAULT_DTYPE,
         ...(config.device === undefined ? {} : { device: config.device }),
         ...progress,
+        ...cache,
         ...config.modelOptions,
       }
       const classifier = await transformers.AutoModelForSequenceClassification.from_pretrained(model, modelOptions)

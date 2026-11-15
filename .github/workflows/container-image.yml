@@ -1,0 +1,208 @@
+name: Container image
+
+on:
+  workflow_call:
+    inputs:
+      push:
+        description: 'Push the image to the registry, which needs a caller with packages write'
+        required: true
+        type: boolean
+      ref:
+        description: 'The commit to build, where empty means the commit of the calling run'
+        required: false
+        type: string
+        default: ''
+      version:
+        description: 'The release version that the image reports on /version'
+        required: true
+        type: string
+      tags:
+        description: 'Tags to push, separated by spaces, beside sha-<short commit>'
+        required: false
+        type: string
+        default: ''
+      moving-tags:
+        description: 'Tags that move with the npm dist-tag, which the image takes only while that dist-tag names this version'
+        required: false
+        type: string
+        default: ''
+      npm-dist-tag:
+        description: 'The dist-tag of @delali/narsil that the moving tags follow'
+        required: false
+        type: string
+        default: ''
+
+env:
+  IMAGE: ghcr.io/assetcorp/narsil
+
+jobs:
+  build:
+    name: Build for ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+            label: amd64
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            label: arm64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Record the commit that the image builds from
+        id: commit
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build the image and load it into Docker
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: packages/container/Dockerfile
+          platforms: ${{ matrix.platform }}
+          build-args: |
+            NARSIL_BUILD_VERSION=${{ inputs.version }}
+            NARSIL_BUILD_GIT_SHA=${{ steps.commit.outputs.sha }}
+          load: true
+          provenance: false
+          sbom: false
+          tags: narsil-container:check
+
+      - name: Start the image, search through it, and stop it
+        env:
+          VERSION: ${{ inputs.version }}
+          COMMIT: ${{ steps.commit.outputs.sha }}
+        run: node .github/scripts/container-image-smoke.js narsil-container:check "$VERSION" "$COMMIT"
+
+      - name: Sign in to the GitHub Container Registry
+        if: inputs.push
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Build the image with its provenance and SBOM attestations
+        id: attested
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: packages/container/Dockerfile
+          platforms: ${{ matrix.platform }}
+          build-args: |
+            NARSIL_BUILD_VERSION=${{ inputs.version }}
+            NARSIL_BUILD_GIT_SHA=${{ steps.commit.outputs.sha }}
+          provenance: mode=max
+          sbom: true
+          outputs: ${{ inputs.push && format('type=image,name={0},push-by-digest=true,name-canonical=true,push=true', env.IMAGE) || format('type=oci,dest={0}/narsil-image.tar', runner.temp) }}
+
+      - name: Record the pushed digest
+        if: inputs.push
+        env:
+          DIGEST: ${{ steps.attested.outputs.digest }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/digests"
+          touch "$RUNNER_TEMP/digests/${DIGEST#sha256:}"
+
+      - name: Upload the pushed digest
+        if: inputs.push
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: container-image-digest-${{ matrix.label }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  manifest:
+    name: Tag the image for every platform
+    needs: build
+    if: inputs.push
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Download the pushed digests
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: container-image-digest-*
+          path: ${{ runner.temp }}/digests
+          merge-multiple: true
+
+      - name: Choose the tags
+        id: tags
+        env:
+          VERSION: ${{ inputs.version }}
+          TAGS: ${{ inputs.tags }}
+          MOVING_TAGS: ${{ inputs.moving-tags }}
+          NPM_DIST_TAG: ${{ inputs.npm-dist-tag }}
+        run: |
+          chosen="sha-$(git rev-parse --short=7 HEAD) $TAGS"
+          if [ -n "$MOVING_TAGS" ]; then
+            held="$(npm view "@delali/narsil@$NPM_DIST_TAG" version --prefer-online)"
+            if [ "$held" = "$VERSION" ]; then
+              chosen="$chosen $MOVING_TAGS"
+            else
+              echo "The $NPM_DIST_TAG dist-tag holds $held, so this run leaves $MOVING_TAGS on the image that $held built."
+            fi
+          fi
+          for tag in $chosen; do
+            if ! echo "$tag" | grep -qE '^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$'; then
+              echo "::error::$tag is not a valid image tag"
+              exit 1
+            fi
+          done
+          echo "list=$chosen" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Sign in to the GitHub Container Registry
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Push one index that covers every platform under each tag
+        env:
+          TAG_LIST: ${{ steps.tags.outputs.list }}
+          DIGESTS: ${{ runner.temp }}/digests
+        run: |
+          tag_arguments=()
+          for tag in $TAG_LIST; do tag_arguments+=(--tag "$IMAGE:$tag"); done
+          sources=()
+          for digest in "$DIGESTS"/*; do sources+=("$IMAGE@sha256:$(basename "$digest")"); done
+          if [ "${#sources[@]}" -ne 2 ]; then
+            echo "::error::Expected one digest for each of the 2 platforms, found ${#sources[@]}"
+            exit 1
+          fi
+          docker buildx imagetools create \
+            --annotation "index:org.opencontainers.image.source=https://github.com/assetcorp/narsil" \
+            --annotation "index:org.opencontainers.image.licenses=Apache-2.0" \
+            --annotation "index:org.opencontainers.image.description=Narsil search engine, serving one node over HTTP" \
+            "${tag_arguments[@]}" "${sources[@]}"
+
+      - name: Show the pushed index
+        env:
+          TAG_LIST: ${{ steps.tags.outputs.list }}
+        run: docker buildx imagetools inspect "$IMAGE:${TAG_LIST%% *}"

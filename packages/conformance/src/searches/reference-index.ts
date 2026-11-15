@@ -70,12 +70,18 @@ export interface ReferenceGroup {
   ids: string[]
 }
 
-export async function groupedHits(narsil: Narsil, text: string): Promise<ReferenceGroup[]> {
-  const result = await narsil.query(INDEX_NAME, {
-    term: text,
-    limit: TEXT_RESULT_LIMIT,
-    group: { fields: [...GROUP_FIELDS], limit: GROUP_LIMIT, maxPerGroup: GROUP_MAX_PER_GROUP },
-  })
+export interface CommittedGroupConfig {
+  fields: string[]
+  maxPerGroup: number
+  limit?: number
+}
+
+export async function groupedHits(
+  narsil: Narsil,
+  text: string,
+  group: CommittedGroupConfig = { fields: [...GROUP_FIELDS], limit: GROUP_LIMIT, maxPerGroup: GROUP_MAX_PER_GROUP },
+): Promise<ReferenceGroup[]> {
+  const result = await narsil.query(INDEX_NAME, { term: text, limit: TEXT_RESULT_LIMIT, group: { ...group } })
   if (result.groups === undefined) throw new Error('the reference returned no groups for a grouped query')
   return result.groups.map(group => ({ values: { ...group.values }, ids: group.hits.map(hit => hit.id) }))
 }

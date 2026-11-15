@@ -42,13 +42,20 @@ type expectedSearches struct {
 			MaxPerGroup int      `json:"maxPerGroup"`
 		} `json:"group"`
 		Queries []struct {
-			ID     string `json:"id"`
-			Text   string `json:"text"`
-			Groups []struct {
-				Values map[string]any `json:"values"`
-				IDs    []string       `json:"ids"`
-			} `json:"groups"`
+			ID     string           `json:"id"`
+			Text   string           `json:"text"`
+			Groups []committedGroup `json:"groups"`
 		} `json:"queries"`
+		WithoutFields []struct {
+			ID    string `json:"id"`
+			Text  string `json:"text"`
+			Group struct {
+				Fields      []string `json:"fields"`
+				MaxPerGroup int      `json:"maxPerGroup"`
+				Limit       *int     `json:"limit"`
+			} `json:"group"`
+			Groups []committedGroup `json:"groups"`
+		} `json:"withoutFields"`
 	} `json:"grouped"`
 	Vector struct {
 		Field  string `json:"field"`
@@ -145,27 +152,51 @@ func requireCommittedGroups(t *testing.T, ctx context.Context, narsil *engine.Na
 		if err != nil {
 			t.Fatalf("grouped query %s failed: %v", query.ID, err)
 		}
-		if len(result.Groups) != len(query.Groups) {
-			t.Fatalf("grouped query %s returned %d groups, not %d", query.ID, len(result.Groups), len(query.Groups))
+		requireSameGroups(t, query.ID, result.Groups, query.Groups)
+	}
+	if len(committed.WithoutFields) == 0 {
+		t.Fatal("queries.json holds no query that groups by no field")
+	}
+	for _, query := range committed.WithoutFields {
+		group := &engine.GroupConfig{Fields: query.Group.Fields, MaxPerGroup: engine.Some(query.Group.MaxPerGroup)}
+		if query.Group.Limit != nil {
+			group.Limit = engine.Some(*query.Group.Limit)
 		}
-		for at, group := range result.Groups {
-			want := query.Groups[at]
-			if len(group.Values) != len(want.Values) {
-				t.Fatalf("group %d of query %s holds values %v, where the reference holds %v", at, query.ID, group.Values, want.Values)
+		result, err := narsil.Query(ctx, searchesIndexName, engine.QueryParams{Term: query.Text, Limit: engine.Some(expected.Text.Limit), Group: group})
+		if err != nil {
+			t.Fatalf("query %s, which groups by no field, failed: %v", query.ID, err)
+		}
+		requireSameGroups(t, query.ID, result.Groups, query.Groups)
+	}
+}
+
+type committedGroup struct {
+	Values map[string]any `json:"values"`
+	IDs    []string       `json:"ids"`
+}
+
+func requireSameGroups(t *testing.T, queryID string, found []engine.GroupResult, wanted []committedGroup) {
+	t.Helper()
+	if len(found) != len(wanted) {
+		t.Fatalf("grouped query %s returned %d groups, not %d", queryID, len(found), len(wanted))
+	}
+	for at, group := range found {
+		want := wanted[at]
+		if len(group.Values) != len(want.Values) {
+			t.Fatalf("group %d of query %s holds values %v, where the reference holds %v", at, queryID, group.Values, want.Values)
+		}
+		for field, value := range want.Values {
+			held, present := group.Values[field]
+			if !present || held != value {
+				t.Fatalf("group %d of query %s holds %v under %q, where the reference holds %v", at, queryID, held, field, value)
 			}
-			for field, wanted := range want.Values {
-				found, present := group.Values[field]
-				if !present || found != wanted {
-					t.Fatalf("group %d of query %s holds %v under %q, where the reference holds %v", at, query.ID, found, field, wanted)
-				}
-			}
-			if len(group.Hits) != len(want.IDs) {
-				t.Fatalf("group %d of query %s holds %d hits, not %d", at, query.ID, len(group.Hits), len(want.IDs))
-			}
-			for rank, hit := range group.Hits {
-				if hit.ID != want.IDs[rank] {
-					t.Fatalf("group %d of query %s holds %s at %d, where the reference holds %s", at, query.ID, hit.ID, rank+1, want.IDs[rank])
-				}
+		}
+		if len(group.Hits) != len(want.IDs) {
+			t.Fatalf("group %d of query %s holds %d hits, not %d", at, queryID, len(group.Hits), len(want.IDs))
+		}
+		for rank, hit := range group.Hits {
+			if hit.ID != want.IDs[rank] {
+				t.Fatalf("group %d of query %s holds %s at %d, where the reference holds %s", at, queryID, hit.ID, rank+1, want.IDs[rank])
 			}
 		}
 	}

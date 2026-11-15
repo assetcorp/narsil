@@ -197,6 +197,7 @@ Returns an object conforming to Narsil's `EmbeddingAdapter` interface.
 | `documentPrefix` | `string` | `''` | Text prepended to input when `purpose` is `'document'`. |
 | `queryPrefix` | `string` | `''` | Text prepended to input when `purpose` is `'query'`. |
 | `progress` | `(data: unknown) => void` | - | Callback for model download progress events. |
+| `cacheDir` | `string` | the Transformers.js cache | The folder where the adapter keeps the model files that it downloads, which the adapter also makes the default cache of Transformers.js, because the pipeline reads the list of model files from that default cache. |
 | `pipelineOptions` | `Record<string, unknown>` | - | Additional options passed through to the Transformers.js `pipeline()` constructor. |
 
 ### Returned adapter methods
@@ -233,6 +234,7 @@ const results = await narsil.query('articles', {
 | `batchSize` | `number` | `32` | How many pairs the adapter scores in one model call. |
 | `maxLength` | `number` | the model's limit | The longest pair, in tokens, before the tokenizer cuts the document. |
 | `progress` | `(data: unknown) => void` | - | Receives the model download progress. |
+| `cacheDir` | `string` | the Transformers.js cache | The folder where the adapter keeps the model and tokenizer files that it downloads. |
 | `modelOptions` | `Record<string, unknown>` | - | Extra options for the Transformers.js model loader. |
 
 See the [reranking guide](https://github.com/assetcorp/narsil/blob/main/docs/reranking.md) for the query option and the engine settings.

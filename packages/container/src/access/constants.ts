@@ -1,0 +1,9 @@
+export const SHA256_BYTES = 32
+export const NOT_BEFORE_LEEWAY_SECONDS = 60
+export const MAX_TOKEN_BYTES = 16_384
+export const MAX_TOKEN_INDEXES = 1_024
+export const MAX_PERSON_UTF16_UNITS = 256
+export const GROUP_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$/
+export const PERSON_HEADER = 'narsil-person'
+export const GROUP_HEADER = 'narsil-group'
+export const FEED_SUBPROTOCOLS: readonly string[] = ['narsil.sync.v1', 'narsil.changes.v1']
