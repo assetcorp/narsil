@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use futures_util::FutureExt;
-use http::header::{CONTENT_TYPE, ORIGIN};
+use http::header::ORIGIN;
 use http::{HeaderMap, Method, Request};
 use hyper::body::Incoming;
 use narsil::{Map, Value};
@@ -23,7 +23,6 @@ pub(crate) struct RouteContext {
     pub(crate) params: Vec<String>,
     pub(crate) query: Vec<(String, String)>,
     pub(crate) headers: HeaderMap,
-    pub(crate) content_type: String,
     pub(crate) body: Option<Bytes>,
     pub(crate) spooled: Option<SpooledBody>,
     pub(crate) hook_context: Option<RequestContext>,
@@ -39,18 +38,6 @@ impl RouteContext {
             .iter()
             .find(|(key, _)| key == name)
             .map(|(_, value)| value.as_str())
-    }
-
-    pub(crate) fn query_values(&self, name: &str) -> Vec<&str> {
-        self.query
-            .iter()
-            .filter(|(key, _)| key == name)
-            .map(|(_, value)| value.as_str())
-            .collect()
-    }
-
-    pub(crate) fn header(&self, name: &str) -> Option<&str> {
-        self.headers.get(name).and_then(|value| value.to_str().ok())
     }
 }
 
@@ -296,17 +283,10 @@ async fn route(
             }
         }
     };
-    let content_type = parts
-        .headers
-        .get(CONTENT_TYPE)
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or("")
-        .to_string();
     let context = RouteContext {
         params,
         query: query_pairs(parts.uri.query()),
         headers: parts.headers,
-        content_type,
         body,
         spooled,
         hook_context,

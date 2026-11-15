@@ -17,10 +17,8 @@ pub const DEFAULT_MAX_IMPORT_ERRORS: u64 = 100;
 pub const DEFAULT_MAX_TASK_PAGE_SIZE: u64 = 1_000;
 pub const DEFAULT_MAX_CONCURRENT_TASKS: u64 = 4;
 pub const MIN_COUNTED_SERVER_LIMIT: u64 = 1;
-pub const MIN_UNBOUNDED_SERVER_LIMIT: u64 = 0;
 pub const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 
-pub const SPOOL_PAUSE_ABOVE_BYTES: u64 = 8 * 1024 * 1024;
 pub const REFUSED_BODY_DRAIN_BYTES: u64 = 64 * 1024 * 1024;
 pub const REFUSED_BODY_DRAIN_MS: u64 = 10_000;
 pub const RESPONSE_STREAM_CHUNK_BYTES: usize = 64 * 1024;
@@ -41,6 +39,4 @@ pub const DEFAULT_CORS_HEADERS: &str = "Content-Type, Authorization";
 
 pub const SNAPSHOT_ARCHIVE_CONTENT_TYPE: &str = "application/x-tar";
 pub const DOCUMENT_EXPORT_CONTENT_TYPE: &str = "application/x-ndjson";
-pub const PROMETHEUS_TEXT_CONTENT_TYPE: &str = "text/plain; version=0.0.4; charset=utf-8";
 pub const JSON_CONTENT_TYPE: &str = "application/json";
-pub const BINARY_CONTENT_TYPE: &str = "application/octet-stream";

@@ -72,7 +72,9 @@ fn ranged<'a>(path: &'a str, case: (Option<&str>, Option<&str>), tag: &str) -> C
     call
 }
 
-fn compared(reply: &Reply) -> (u16, Vec<(&'static str, Option<String>)>, Vec<u8>) {
+type ComparedReply = (u16, Vec<(&'static str, Option<String>)>, Vec<u8>);
+
+fn compared(reply: &Reply) -> ComparedReply {
     let headers = COMPARED_HEADERS
         .iter()
         .map(|name| (*name, reply.header(name).map(str::to_string)))
