@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 from dataclasses import replace
 
+from comparison_input import validated_comparison
 from render import engine_name
 from sources import Source, load_server_best_config_source, load_server_source
 
@@ -86,6 +87,9 @@ def with_every_narsil_server(comparison: dict) -> dict:
 def load_server_sources(include_every_narsil_server: bool = False) -> tuple[Source, Source | None]:
     server = load_server_source()
     best = load_server_best_config_source()
+    server = replace(server, data=validated_comparison(server.data))
+    if best is not None:
+        best = replace(best, data=validated_comparison(best.data))
     present = narsil_servers_in(server.data) | narsil_servers_in(best.data if best is not None else None)
     if not include_every_narsil_server and NARSIL_RUST not in present:
         return server, best
