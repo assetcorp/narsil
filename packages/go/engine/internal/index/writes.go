@@ -45,6 +45,10 @@ func (ix *Index) prepare(documents []DocumentWrite) ([]PreparedDocument, []error
 	return prepared, failures
 }
 
+func (ix *Index) WriteGrowth(documents int) partition.WriteGrowth {
+	return ix.sides.WriteGrowth(documents)
+}
+
 func (ix *Index) Write(apply func(w *Write) error) error {
 	return ix.sides.Write(func(write *partition.Write) error {
 		return apply(&Write{ix: ix, write: write})

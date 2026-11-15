@@ -78,10 +78,18 @@ func (n *Narsil) Insert(ctx context.Context, indexName string, document *Documen
 	}
 	defer func() { release() }()
 	defer n.emitWrite(indexName)
+	if err := n.memory.refuseWhileFull(indexName); err != nil {
+		return "", err
+	}
 	working := codec.SnapshotDocument(document)
 	if err := schema.RequireDocument(working); err != nil {
 		return "", err
 	}
+	reservation, err := n.memory.reserveDocument(entry, working)
+	if err != nil {
+		return "", err
+	}
+	defer reservation.Release()
 	id, err := n.resolveInsertID(working, docID)
 	if err != nil {
 		return "", err
@@ -104,7 +112,7 @@ func (n *Narsil) Insert(ctx context.Context, indexName string, document *Documen
 		return "", err
 	}
 	write.DocumentID = id
-	if err := n.heap.admit(indexName); err != nil {
+	if err := n.memory.refuseWhileFull(indexName); err != nil {
 		return "", err
 	}
 	entry.writeMu.Lock()
@@ -156,6 +164,9 @@ func (n *Narsil) Update(ctx context.Context, indexName string, docID string, doc
 	}
 	defer func() { release() }()
 	defer n.emitWrite(indexName)
+	if err := n.memory.refuseWhileFull(indexName); err != nil {
+		return err
+	}
 	if err := schema.ValidateDocID(docID); err != nil {
 		return err
 	}
@@ -163,6 +174,11 @@ func (n *Narsil) Update(ctx context.Context, indexName string, docID string, doc
 	if err := schema.RequireDocument(working); err != nil {
 		return err
 	}
+	reservation, err := n.memory.reserveDocument(entry, working)
+	if err != nil {
+		return err
+	}
+	defer reservation.Release()
 	var update *model.UpdateContext
 	var write persist.Write
 	entry, release, update, write, err = n.replaceDocument(ctx, entry, release, n.holderOf(indexName), docID, working)
@@ -217,7 +233,7 @@ func (n *Narsil) replaceDocument(ctx context.Context, entry *indexEntry, release
 		return entry, release, nil, persist.Write{}, err
 	}
 	write.DocumentID = docID
-	if err := n.heap.admit(indexName); err != nil {
+	if err := n.memory.refuseWhileFull(indexName); err != nil {
 		return entry, release, nil, persist.Write{}, err
 	}
 	entry.writeMu.Lock()
@@ -272,6 +288,7 @@ func (n *Narsil) Remove(ctx context.Context, indexName string, docID string, opt
 	if err != nil {
 		return err
 	}
+	n.memory.memoryReleased()
 	if n.plugins.hasHook(hookAfterRemove) {
 		release()
 		release = releasedNothing

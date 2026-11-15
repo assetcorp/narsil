@@ -93,17 +93,16 @@ func (n *Narsil) InsertBatch(ctx context.Context, indexName string, documents []
 	}
 	defer func() { release() }()
 	defer n.emitWrite(indexName)
+	if err := n.memory.refuseWhileFull(indexName); err != nil {
+		return model.BatchResult{}, err
+	}
 	outcome := newBatchOutcome()
 	defer func() {
 		if entry != nil {
 			entry.scheduleVectorBuilds(outcome.touched)
 		}
 	}()
-	err = eachBatchChunk(ctx, documents, func(chunk []*model.Document) error {
-		var chunkErr error
-		entry, release, chunkErr = n.insertChunk(ctx, n.holderOf(indexName), entry, release, chunk, outcome)
-		return chunkErr
-	})
+	entry, release, err = n.insertInGroups(ctx, n.holderOf(indexName), entry, release, documents, outcome)
 	if err != nil {
 		return outcome.result, err
 	}
@@ -144,11 +143,14 @@ func (n *Narsil) insertChunk(ctx context.Context, holder indexHolder, entry *ind
 		write.DocumentID = hooked.contexts[at].DocID
 		pending = append(pending, pendingInsert{id: write.DocumentID, context: hooked.contexts[at], write: write})
 	}
-	if err := n.heap.admit(entry.name); err != nil {
-		for _, insert := range pending {
-			outcome.fail(insert.id, err)
+	if len(pending) > 0 {
+		if err := n.memory.refuseWhileFull(entry.name); err != nil {
+			for _, insert := range pending {
+				outcome.fail(insert.id, err)
+			}
+			outcome.memoryRefusal = err
+			return entry, release, nil
 		}
-		return entry, release, nil
 	}
 	inserted, err := n.applyInsertChunk(ctx, entry, pending, outcome)
 	if err != nil || len(inserted) == 0 || !n.plugins.hasHook(hookAfterInsert) {

@@ -12,8 +12,9 @@ import (
 )
 
 type batchOutcome struct {
-	result  model.BatchResult
-	touched touchedVectors
+	result        model.BatchResult
+	touched       touchedVectors
+	memoryRefusal error
 }
 
 func newBatchOutcome() *batchOutcome {
@@ -56,25 +57,18 @@ func (n *Narsil) UpdateBatch(ctx context.Context, indexName string, updates []Do
 	}
 	defer func() { release() }()
 	defer n.emitWrite(indexName)
+	if err := n.memory.refuseWhileFull(indexName); err != nil {
+		return model.BatchResult{}, err
+	}
 	outcome := newBatchOutcome()
 	defer func() {
 		if entry != nil {
 			entry.scheduleVectorBuilds(outcome.touched)
 		}
 	}()
-	for _, update := range updates {
-		if err := ctx.Err(); err != nil {
-			return outcome.result, err
-		}
-		entry, release, err = n.updateOne(ctx, n.holderOf(indexName), entry, release, update, outcome.touched)
-		if err != nil {
-			if entry == nil || !isPerDocument(err) {
-				return outcome.result, err
-			}
-			outcome.fail(update.DocID, err)
-			continue
-		}
-		outcome.result.Succeeded = append(outcome.result.Succeeded, update.DocID)
+	entry, release, err = n.updateInGroups(ctx, n.holderOf(indexName), entry, release, updates, outcome)
+	if err != nil {
+		return outcome.result, err
 	}
 	n.afterWriteOn(entry, indexName)
 	return outcome.result, nil
@@ -131,6 +125,9 @@ func (n *Narsil) RemoveBatch(ctx context.Context, indexName string, docIDs []str
 		entry, release, chunkErr = n.removeChunk(ctx, n.holderOf(indexName), entry, release, chunk, outcome)
 		return chunkErr
 	})
+	if len(outcome.result.Succeeded) > 0 {
+		n.memory.memoryReleased()
+	}
 	return outcome.result, err
 }
 
