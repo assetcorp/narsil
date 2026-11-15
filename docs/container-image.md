@@ -232,13 +232,9 @@ docker compose up -d
 
 Compose replaces the container with one from the new image, and the new container mounts the same volume.
 
-### The Rust server
+## Cluster mode
 
-The tag `<version>-rust` holds the Rust server of that release, while the tag `<version>` holds the TypeScript server. Both servers read the same environment variables, so you switch between them by changing the tag alone. Set `NARSIL_IMAGE_TAG` in `.env` to the release followed by `-rust`, and start the node again with `docker compose up -d`.
-
-### Cluster mode
-
-Cluster mode works on the TypeScript server alone, so a deployment that needs a cluster must use a tag without the `-rust` suffix. The image serves one node, and the [cluster guide](cluster.md) shows how you build the nodes of a cluster in code.
+The image serves one node, and cluster mode works only on the TypeScript server. The [cluster guide](cluster.md) shows how you build the nodes of a cluster in code.
 
 ## Change a setting
 
