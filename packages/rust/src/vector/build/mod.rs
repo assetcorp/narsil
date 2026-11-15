@@ -113,6 +113,13 @@ pub(crate) fn schedule_build(shared: &Arc<Shared>) {
     if shared.disposed.load(Ordering::Acquire) || !build_due(shared) {
         return;
     }
+    let mut thread = shared
+        .build_thread
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if shared.disposed.load(Ordering::Acquire) {
+        return;
+    }
     {
         let mut running = lock_flag(shared);
         if *running {
@@ -120,12 +127,26 @@ pub(crate) fn schedule_build(shared: &Arc<Shared>) {
         }
         *running = true;
     }
+    if let Some(previous) = thread.take() {
+        let _ = previous.join();
+    }
     let held = Arc::clone(shared);
     let spawned = std::thread::Builder::new()
         .name("narsil-vector-build".to_string())
         .spawn(move || build_in_background(&held));
-    if spawned.is_err() {
-        stop_running(shared);
+    match spawned {
+        Ok(spawned) => *thread = Some(spawned),
+        Err(_) => stop_running(shared),
+    }
+}
+
+pub(crate) fn join_build(shared: &Shared) {
+    let mut thread = shared
+        .build_thread
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(thread) = thread.take() {
+        let _ = thread.join();
     }
 }
 
