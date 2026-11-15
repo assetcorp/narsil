@@ -175,11 +175,11 @@ impl<'a> Parser<'a> {
         match self.bytes.get(self.at) {
             Some(b'{') => {
                 self.at += 1;
-                let mut map = Map::new();
+                let mut entries = Vec::new();
                 self.whitespace();
                 if self.bytes.get(self.at) == Some(&b'}') {
                     self.at += 1;
-                    return Ok(Value::Object(map));
+                    return Ok(Value::Object(Map::new()));
                 }
                 loop {
                     self.whitespace();
@@ -187,13 +187,13 @@ impl<'a> Parser<'a> {
                     self.whitespace();
                     self.expect(b':')?;
                     let entry = self.value(depth + 1)?;
-                    map.insert(key, entry);
+                    entries.push((key, entry));
                     self.whitespace();
                     match self.bytes.get(self.at) {
                         Some(b',') => self.at += 1,
                         Some(b'}') => {
                             self.at += 1;
-                            return Ok(Value::Object(map));
+                            return Ok(Value::Object(Map::from_inserted(entries)));
                         }
                         _ => {
                             return Err(invalid(format!(

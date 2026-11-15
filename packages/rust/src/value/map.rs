@@ -1,4 +1,7 @@
+use std::collections::HashMap;
+
 use super::Value;
+use super::constants::LINEAR_KEY_SEARCH_MAX_ENTRIES;
 
 const LARGEST_ARRAY_INDEX: u64 = 4_294_967_294;
 
@@ -128,10 +131,70 @@ impl IntoIterator for Map {
 
 impl<K: Into<String>> FromIterator<(K, Value)> for Map {
     fn from_iter<I: IntoIterator<Item = (K, Value)>>(iter: I) -> Map {
-        let mut map = Map::new();
-        for (key, value) in iter {
-            map.insert(key, value);
-        }
-        map
+        Map::from_inserted(
+            iter.into_iter()
+                .map(|(key, value)| (key.into(), value))
+                .collect(),
+        )
     }
+}
+
+impl Map {
+    pub(crate) fn from_inserted(inserted: Vec<(String, Value)>) -> Map {
+        if inserted.len() <= LINEAR_KEY_SEARCH_MAX_ENTRIES {
+            let mut map = Map::with_capacity(inserted.len());
+            for (key, value) in inserted {
+                map.insert(key, value);
+            }
+            return map;
+        }
+        let mut indexed = Vec::new();
+        let mut named = Vec::with_capacity(inserted.len());
+        for (key, value) in inserted {
+            match array_index_of(&key) {
+                Some(index) => indexed.push((index, key, value)),
+                None => named.push((key, value)),
+            }
+        }
+        indexed.sort_by_key(|(index, _, _)| *index);
+        let mut entries: Vec<(String, Value)> = Vec::with_capacity(indexed.len() + named.len());
+        let mut last_index = None;
+        for (index, key, value) in indexed {
+            match entries.last_mut() {
+                Some(last) if last_index == Some(index) => last.1 = value,
+                _ => entries.push((key, value)),
+            }
+            last_index = Some(index);
+        }
+        entries.extend(without_repeated_keys(named));
+        Map { entries }
+    }
+}
+
+fn without_repeated_keys(mut named: Vec<(String, Value)>) -> Vec<(String, Value)> {
+    let mut repeats = Vec::new();
+    {
+        let mut first_places: HashMap<&str, usize> = HashMap::with_capacity(named.len());
+        for (place, (key, _)) in named.iter().enumerate() {
+            if let Some(&first) = first_places.get(key.as_str()) {
+                repeats.push((first, place));
+            } else {
+                first_places.insert(key, place);
+            }
+        }
+    }
+    if repeats.is_empty() {
+        return named;
+    }
+    let mut dropped = vec![false; named.len()];
+    for (first, place) in repeats {
+        let value = std::mem::take(&mut named[place].1);
+        named[first].1 = value;
+        dropped[place] = true;
+    }
+    named
+        .into_iter()
+        .zip(dropped)
+        .filter_map(|(entry, dropped)| (!dropped).then_some(entry))
+        .collect()
 }
