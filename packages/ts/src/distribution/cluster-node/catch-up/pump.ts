@@ -241,7 +241,11 @@ async function pumpPartition(
  * the tick forget a replica that has just left the in-sync set, and nothing would feed that replica again. The pump
  * keeps the cursor of a replica that the controller has admitted until a live read that began after the admission
  * reply arrived, because only such a read can show whether the controller removed that replica after it admitted it,
- * and the write path stops sending to the replica once that read leaves it out of the in-sync set. A tick that is
+ * and the write path stops sending to the replica once that read leaves it out of the in-sync set. Where that read
+ * shows the replica in the in-sync set, the pump leaves the record of the admission in place, because a write that
+ * read the allocation table before the admission sends its later chunks from that older table. The write path drops
+ * the record once the table that a write reads shows the replica in the in-sync set or shows a later change to that
+ * set. A tick that is
  * already reading the allocation returns that same tick in place of starting a second one.
  *
  * @param state - The catch-up state that holds the cursors and the in-flight byte total.
