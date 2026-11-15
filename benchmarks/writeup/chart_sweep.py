@@ -33,7 +33,7 @@ from chart_style import (
     style_axes,
 )
 from matplotlib.ticker import FuncFormatter
-from narsil_servers import is_unmeasured
+from narsil_servers import DISPLAY_NAME_FIELD, is_unmeasured
 from render import dataset_name
 
 BAND_ALPHA = 0.18
@@ -105,6 +105,8 @@ def sweep_figure(repo_root: Path, run_id: str, profile: str, track: str, dataset
         marker = engine_marker(engine)
         label = row_label(row, profile)
         xs, qps = _series(row, lambda level: number(level.get("qps")))
+        if not qps and DISPLAY_NAME_FIELD in row:
+            label += ", no throughput recorded"
         _band(throughput_axes, row, colour)
         throughput_axes.plot(xs, qps, color=colour, marker=marker, markersize=MARKER_SIZE, linewidth=LINE_WIDTH, label=label)
         xs, p99 = _series(row, _server_p99)
