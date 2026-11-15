@@ -2,10 +2,11 @@ use std::sync::Arc;
 
 use super::PagedSections;
 use super::cache::{Cached, Kind, cached, remember};
-use crate::error::{Result, load_failed};
+use crate::error::{Result, load_failed, load_failed_with};
 use crate::ffi;
 use crate::format::paged_segment::POSTING_WIDTH_BYTES;
 use crate::util::bytes::le_values;
+use crate::value::Value;
 
 #[derive(Debug, Default)]
 pub(crate) struct PostingList {
@@ -115,10 +116,13 @@ impl PagedSections {
             .file
             .read_u32(offsets_section, u64::from(start) + u64::from(count))?;
         if end < first || u64::from(end) * 4 > values_section.length {
-            return load_failed(format!(
-                "The positions of token {token} of \"{}\" leave their section",
-                self.key
-            ));
+            return load_failed_with(
+                format!(
+                    "The positions of token {token} of \"{}\" leave their section",
+                    self.key
+                ),
+                [("token", Value::from(token))],
+            );
         }
         let mut offsets = vec![0u32; count as usize + 1];
         let mut values = vec![0u32; (end - first) as usize];

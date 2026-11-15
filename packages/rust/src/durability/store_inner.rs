@@ -6,6 +6,7 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use crate::error::{ErrorCode, NarsilError, Result};
+use crate::value::Value;
 
 use super::constants::SINGLE_NODE_PRIMARY_TERM;
 use super::files::DurableDirectory;
@@ -152,6 +153,7 @@ impl StoreInner {
             failed(format!(
                 "The engine cannot check the durability directory \"{root}\", so it cannot confirm that a write is durable: {error}"
             ))
+            .map(|failure| failure.with_details([("cause", Value::from(error.to_string()))]))
         };
         let lost = || {
             failed(format!(

@@ -6,7 +6,7 @@ use crate::format::manifest::{
     MAX_SEGMENTS_PER_PARTITION, PartitionCheckpoint, schema_and_language,
 };
 use crate::format::manifest_refs::{
-    VECTOR_FILE_MAX_VECTORS, dead_bytes_for, id_of, invalid_manifest,
+    VECTOR_FILE_MAX_VECTORS, dead_bytes_for, id_of, invalid_manifest, invalid_manifest_with,
 };
 use crate::value::{Map, Value};
 
@@ -92,11 +92,17 @@ fn checkpoint_of(raw: Option<&Value>) -> Vec<PartitionCheckpoint> {
         .collect()
 }
 
-fn segments_of(raw: Option<&Value>) -> Result<Vec<EarlierSegmentRef>> {
+fn segments_of(raw: Option<&Value>, partition_id: u32) -> Result<Vec<EarlierSegmentRef>> {
+    let partition = || [("partitionId", Value::from(partition_id))];
     let segments = match raw {
         None => return Ok(Vec::new()),
         Some(Value::Array(segments)) if segments.len() <= MAX_SEGMENTS_PER_PARTITION => segments,
-        Some(_) => return Err(invalid_manifest("has malformed segment references")),
+        Some(_) => {
+            return Err(invalid_manifest_with(
+                "has malformed segment references",
+                partition(),
+            ));
+        }
     };
     let mut seen = BTreeSet::new();
     let mut out = Vec::with_capacity(segments.len());
@@ -111,7 +117,10 @@ fn segments_of(raw: Option<&Value>) -> Result<Vec<EarlierSegmentRef>> {
             })
         });
         let Some(parsed) = parsed.filter(|parsed| seen.insert(parsed.id)) else {
-            return Err(invalid_manifest("has an invalid segment reference"));
+            return Err(invalid_manifest_with(
+                "has an invalid segment reference",
+                partition(),
+            ));
         };
         out.push(parsed);
     }
@@ -130,10 +139,15 @@ fn partitions_of(raw: Option<&Value>) -> Result<Vec<EarlierPartitionEntry>> {
         else {
             return Err(invalid_manifest("has a partition without a valid id"));
         };
-        let segments = segments_of(map.get("segments"))?;
+        let segments = segments_of(map.get("segments"), partition_id)?;
         let next_segment_id = id_of(map.get("nextSegmentId"))
             .filter(|next| segments.iter().all(|segment| segment.id < *next))
-            .ok_or_else(|| invalid_manifest("has an invalid next segment id"))?;
+            .ok_or_else(|| {
+                invalid_manifest_with(
+                    "has an invalid next segment id",
+                    [("partitionId", Value::from(partition_id))],
+                )
+            })?;
         out.push(EarlierPartitionEntry {
             partition_id,
             next_segment_id,

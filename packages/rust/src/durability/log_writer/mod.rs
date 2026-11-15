@@ -182,6 +182,7 @@ impl PartitionLog {
     }
 
     fn write_pending(
+        &self,
         state: &mut LogState,
         directory: &DurableDirectory,
         pending: &mut Vec<u8>,
@@ -193,7 +194,7 @@ impl PartitionLog {
         let Some(active) = state.active.as_mut() else {
             return Err(poisoned());
         };
-        let written = active.write_frames(pending);
+        let written = active.write_frames(pending, &self.index_name, self.partition_id);
         let measured = match &written {
             Ok(()) => Some(active.bytes),
             Err(_) => directory.byte_length(&active.key).ok().flatten(),
@@ -249,12 +250,12 @@ impl PartitionLog {
             let held = active_bytes + pending.len() as u64;
             let holds_records = held > SEGMENT_HEADER_BYTES as u64;
             if holds_records && held + frame.len() as u64 > self.segment_max_bytes {
-                Self::write_pending(state, directory, &mut pending, seq_no - 1)?;
+                self.write_pending(state, directory, &mut pending, seq_no - 1)?;
                 self.start_segment(state, directory, seq_no, version)?;
             }
             pending.extend_from_slice(&frame);
         }
-        Self::write_pending(state, directory, &mut pending, seq_no)?;
+        self.write_pending(state, directory, &mut pending, seq_no)?;
         Ok((first, seq_no))
     }
 

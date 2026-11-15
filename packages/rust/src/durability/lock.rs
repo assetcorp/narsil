@@ -6,6 +6,7 @@ use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 use crate::error::{ErrorCode, NarsilError, Result};
+use crate::value::Value;
 
 use super::constants::{
     DIRECTORY_LOCK_ATTEMPTS, DIRECTORY_LOCK_PROCESS_START_TOLERANCE_MS, DIRECTORY_LOCK_SETTLE_MS,
@@ -261,6 +262,7 @@ impl DirectoryLock {
                     root.display()
                 ),
             )
+            .with_details([("cause", Value::from(error.to_string()))])
         };
         std::fs::create_dir_all(root).map_err(cannot_lock)?;
         let identity = directory_identity(root).map_err(cannot_lock)?;

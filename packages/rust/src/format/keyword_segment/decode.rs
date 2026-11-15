@@ -8,6 +8,7 @@ use crate::format::keyword_columns::{
     decode_boolean_columns, decode_enum_columns, decode_field_lengths, decode_geopoint_columns,
     decode_partial_words, decode_pattern_columns, decode_surface_forms, decode_value_columns,
 };
+use crate::format::manifest_refs::listed_detail;
 use crate::format::segment_checks::{
     require_entries_ascend, require_offsets, require_ordinals, require_permutation,
     require_utf8_entries,
@@ -75,20 +76,27 @@ fn decode_postings(segment: &Fields<'_>, out: &mut KeywordSegment) -> Result<()>
         "postingDocuments",
     )?;
     let field_count = out.field_names.len();
-    if let Some(field) = posting_fields
+    if let Some(at) = posting_fields
         .iter()
-        .find(|field| **field as usize >= field_count)
+        .position(|field| *field as usize >= field_count)
     {
-        return Err(segment.error(format!(
-            "postingFields names field {field} of {field_count}"
-        )));
+        return Err(segment.field_error(
+            format!(
+                "postingFields names field {} of {field_count}",
+                posting_fields[at]
+            ),
+            [("at", Value::from(at))],
+        ));
     }
     for (token, frequency) in document_frequencies.iter().enumerate() {
         let postings = posting_offsets[token + 1] - posting_offsets[token];
         if *frequency == 0 || *frequency > postings {
-            return Err(segment.error(format!(
-                "documentFrequencies gives token {token} a count of {frequency} over {postings} postings"
-            )));
+            return Err(segment.field_error(
+                format!(
+                    "documentFrequencies gives token {token} a count of {frequency} over {postings} postings"
+                ),
+                [("token", Value::from(token))],
+            ));
         }
     }
     let position_offsets = segment.bytes_or_nil("positionOffsets", 4)?;
@@ -160,8 +168,11 @@ fn decode_documents(segment: &Fields<'_>, out: &mut KeywordSegment) -> Result<()
 
 fn safe_u64_list(segment: &Fields<'_>, bytes: &[u8], key: &str) -> Result<Vec<u64>> {
     let values = u64_list(bytes, key)?;
-    if values.iter().any(|value| *value > MAX_SAFE_INTEGER) {
-        return Err(segment.error(format!("{key} holds a value above 2^53 - 1")));
+    if let Some(at) = values.iter().position(|value| *value > MAX_SAFE_INTEGER) {
+        return Err(segment.field_error(
+            format!("{key} holds a value above 2^53 - 1"),
+            [("at", Value::from(at))],
+        ));
     }
     Ok(values)
 }
@@ -184,9 +195,10 @@ fn decode_write_records(segment: &Fields<'_>, document_count: u32) -> Result<Opt
     segment.require_count(primary_terms.len(), document_count as usize, "primaryTerms")?;
     for (at, (seq_no, term)) in seq_nos.iter().zip(&primary_terms).enumerate() {
         if *seq_no == 0 && *term != 0 {
-            return Err(segment.error(format!(
-                "primaryTerms gives document {at} a term without a seqNo"
-            )));
+            return Err(segment.field_error(
+                format!("primaryTerms gives document {at} a term without a seqNo"),
+                [("at", Value::from(at))],
+            ));
         }
     }
     Ok(Some(WriteRecords {
@@ -219,7 +231,8 @@ pub(crate) fn decode_keyword_segment(payload: &[u8]) -> Result<KeywordSegment> {
             format!("{ERROR_PREFIX}payload must be a map"),
         ));
     };
-    let segment = Fields::new(map, ErrorCode::PERSISTENCE_LOAD_FAILED, ERROR_PREFIX);
+    let segment =
+        Fields::new(map, ErrorCode::PERSISTENCE_LOAD_FAILED, ERROR_PREFIX).naming_fields();
     if !matches!(segment.raw("v"), Some(Value::Number(version)) if *version == KEYWORD_SEGMENT_PAYLOAD_VERSION as f64)
     {
         return Err(NarsilError::new(
@@ -228,7 +241,8 @@ pub(crate) fn decode_keyword_segment(payload: &[u8]) -> Result<KeywordSegment> {
                 "This keyword segment payload was written in layout {}, and this build reads layout {KEYWORD_SEGMENT_PAYLOAD_VERSION} alone",
                 describe_version(segment.raw("v"))
             ),
-        ));
+        )
+        .with_details(listed_detail("version", segment.raw("v"))));
     }
     let mut out = KeywordSegment {
         schema: decode_schema(&segment)?,
