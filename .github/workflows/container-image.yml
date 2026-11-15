@@ -31,9 +31,17 @@ on:
         required: false
         type: string
         default: ''
+      server:
+        description: 'The server that the image holds, typescript or rust, where rust adds -rust to every tag'
+        required: false
+        type: string
+        default: typescript
 
 env:
   IMAGE: ghcr.io/assetcorp/narsil
+  DOCKERFILE: ${{ inputs.server == 'rust' && 'packages/rust-container/Dockerfile' || 'packages/container/Dockerfile' }}
+  TAG_SUFFIX: ${{ inputs.server == 'rust' && '-rust' || '' }}
+  IMAGE_DESCRIPTION: ${{ inputs.server == 'rust' && 'Narsil search engine, serving one node over HTTP from the Rust server' || 'Narsil search engine, serving one node over HTTP' }}
 
 jobs:
   build:
@@ -52,6 +60,15 @@ jobs:
             label: arm64
 
     steps:
+      - name: Refuse a server that has no image
+        env:
+          SERVER: ${{ inputs.server }}
+        run: |
+          if [ "$SERVER" != typescript ] && [ "$SERVER" != rust ]; then
+            echo "::error::The server input must be typescript or rust, and it was $SERVER"
+            exit 1
+          fi
+
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -73,7 +90,7 @@ jobs:
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
-          file: packages/container/Dockerfile
+          file: ${{ env.DOCKERFILE }}
           platforms: ${{ matrix.platform }}
           build-args: |
             NARSIL_BUILD_VERSION=${{ inputs.version }}
@@ -102,7 +119,7 @@ jobs:
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
-          file: packages/container/Dockerfile
+          file: ${{ env.DOCKERFILE }}
           platforms: ${{ matrix.platform }}
           build-args: |
             NARSIL_BUILD_VERSION=${{ inputs.version }}
@@ -123,7 +140,7 @@ jobs:
         if: inputs.push
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: container-image-digest-${{ matrix.label }}
+          name: container-image-digest-${{ inputs.server }}-${{ matrix.label }}
           path: ${{ runner.temp }}/digests/*
           if-no-files-found: error
           retention-days: 1
@@ -144,7 +161,7 @@ jobs:
       - name: Download the pushed digests
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          pattern: container-image-digest-*
+          pattern: container-image-digest-${{ inputs.server }}-*
           path: ${{ runner.temp }}/digests
           merge-multiple: true
 
@@ -156,15 +173,18 @@ jobs:
           MOVING_TAGS: ${{ inputs.moving-tags }}
           NPM_DIST_TAG: ${{ inputs.npm-dist-tag }}
         run: |
-          chosen="sha-$(git rev-parse --short=7 HEAD) $TAGS"
+          unsuffixed="sha-$(git rev-parse --short=7 HEAD) $TAGS"
           if [ -n "$MOVING_TAGS" ]; then
             held="$(npm view "@delali/narsil@$NPM_DIST_TAG" version --prefer-online)"
             if [ "$held" = "$VERSION" ]; then
-              chosen="$chosen $MOVING_TAGS"
+              unsuffixed="$unsuffixed $MOVING_TAGS"
             else
-              echo "The $NPM_DIST_TAG dist-tag holds $held, so this run leaves $MOVING_TAGS on the image that $held built."
+              echo "The $NPM_DIST_TAG dist-tag holds $held, so this run leaves $MOVING_TAGS$TAG_SUFFIX on the image that $held built."
             fi
           fi
+          chosen=""
+          for tag in $unsuffixed; do chosen="$chosen $tag$TAG_SUFFIX"; done
+          chosen="${chosen# }"
           for tag in $chosen; do
             if ! echo "$tag" | grep -qE '^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$'; then
               echo "::error::$tag is not a valid image tag"
@@ -199,7 +219,7 @@ jobs:
           docker buildx imagetools create \
             --annotation "index:org.opencontainers.image.source=https://github.com/assetcorp/narsil" \
             --annotation "index:org.opencontainers.image.licenses=Apache-2.0" \
-            --annotation "index:org.opencontainers.image.description=Narsil search engine, serving one node over HTTP" \
+            --annotation "index:org.opencontainers.image.description=$IMAGE_DESCRIPTION" \
             "${tag_arguments[@]}" "${sources[@]}"
 
       - name: Show the pushed index
