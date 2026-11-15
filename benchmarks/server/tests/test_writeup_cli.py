@@ -174,3 +174,16 @@ def test_input_cannot_relabel_a_competitor_as_a_narsil_server(checkout):
     completed = command(checkout, "generate.py")
     assert completed.returncode != 0
     assert "display_name and unmeasured are reserved for generated rows" in completed.stderr
+
+
+def test_zero_throughput_is_a_measurement_in_the_chart(checkout):
+    rust = row("narsil-rust", 0)
+    rust["throughput"]["levels"].append({"concurrency": 2, "qps": 0})
+    write_comparison(checkout, comparison([row("narsil"), rust]))
+    completed = command(checkout, "charts.py")
+    assert completed.returncode == 0, completed.stderr
+    chart = checkout / "benchmarks/server/results/runs" / RUN / "charts/equal-precision-keyword-scifact-sweep.svg"
+    text = chart.read_text()
+    assert "Narsil Rust" in text
+    assert "Narsil Rust, no throughput recorded" not in text
+    assert "No positive server latency recorded." in text

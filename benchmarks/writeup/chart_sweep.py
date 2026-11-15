@@ -41,13 +41,13 @@ LEGEND_COLUMNS = 3
 LEGEND_ANCHOR_BELOW_AXES = (0.5, -0.36)
 
 
-def _series(row: dict, pick) -> tuple[list[float], list[float]]:
+def _series(row: dict, pick, allow_zero: bool = False) -> tuple[list[float], list[float]]:
     xs: list[float] = []
     ys: list[float] = []
     for level in levels(row):
         concurrency = number(level.get("concurrency"))
         value = pick(level)
-        if concurrency is None or value is None or value <= 0:
+        if concurrency is None or value is None or value < 0 or (value == 0 and not allow_zero):
             continue
         xs.append(concurrency)
         ys.append(value)
@@ -104,7 +104,7 @@ def sweep_figure(repo_root: Path, run_id: str, profile: str, track: str, dataset
         colour = engine_colour(engine)
         marker = engine_marker(engine)
         label = row_label(row, profile)
-        xs, qps = _series(row, lambda level: number(level.get("qps")))
+        xs, qps = _series(row, lambda level: number(level.get("qps")), allow_zero=True)
         if not qps and DISPLAY_NAME_FIELD in row:
             label += ", no throughput recorded"
         _band(throughput_axes, row, colour)
@@ -119,7 +119,11 @@ def sweep_figure(repo_root: Path, run_id: str, profile: str, track: str, dataset
     throughput_axes.yaxis.set_major_formatter(FuncFormatter(rate_label))
     throughput_axes.set_ylim(bottom=0)
     style_axes(latency_axes, "Server p99 under load (ms)")
-    latency_axis(latency_axes)
+    if any(_series(row, _server_p99)[1] for row in rows):
+        latency_axis(latency_axes)
+    else:
+        latency_axes.set_yticks([])
+        latency_axes.text(0.5, 0.5, "No positive server latency recorded.", transform=latency_axes.transAxes, ha="center")
     if with_cores:
         style_axes(panels[2], "Engine cores busy")
         allowed = cores_allowed(rows)
