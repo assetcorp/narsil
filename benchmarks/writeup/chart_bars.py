@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import matplotlib.pyplot as plt
-from chart_data import has_bars, number, peak_interval, peak_level, profile_title, row_label, track_title
+from chart_data import has_bars, number, peak_interval, peak_level, profile_title, recall_unrecorded, row_label, track_title
 from chart_paths import bars_chart, server_chart_dir
 from chart_legend import missing_measurements
 from chart_style import (
@@ -34,6 +34,8 @@ def _below_recall_target(row: dict) -> bool:
 
 def _throughput_label(row: dict, profile: str) -> str:
     label = row_label(row, profile)
+    if recall_unrecorded(row):
+        return f"{label}\nrecall not recorded"
     return f"{label}\nbelow recall target" if _below_recall_target(row) else label
 
 
@@ -42,11 +44,12 @@ def _recall_target_note(rows: list[dict]) -> str:
         number((row.get("operating_point") or {}).get("target")) for row in rows if _below_recall_target(row)
     ]
     known = [target for target in targets if target is not None]
+    unknown = " · bars with unrecorded recall are unranked" if any(recall_unrecorded(row) for row in rows) else ""
     if not targets:
-        return ""
+        return unknown
     if known:
-        return f" · pale bars missed the {max(known):g} recall target, so no ranking counts them"
-    return " · pale bars missed the recall target, so no ranking counts them"
+        return f" · pale bars missed the {max(known):g} recall target, so no ranking counts them{unknown}"
+    return f" · pale bars missed the recall target, so no ranking counts them{unknown}"
 
 
 def _quality_entries(rows: list[dict]) -> list[tuple[dict, float]]:

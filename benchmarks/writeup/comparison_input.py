@@ -51,7 +51,7 @@ def _numbers(entry: dict, keys) -> None:
             raise SystemExit(f"benchmark writeup: {key} must be a finite non-negative number")
 
 
-def _row(row: dict, target: object) -> None:
+def _row(row: dict, target: object, requires_recall: bool) -> None:
     metrics = _object(row, "metrics")
     _numbers(metrics, ("ndcg_cut_10", "recall_100", "map", "recip_rank"))
     _object(row, "operational")
@@ -67,8 +67,10 @@ def _row(row: dict, target: object) -> None:
         raise SystemExit("benchmark writeup: met_target must be a boolean")
     recall = point.get("achieved_recall")
     required = point.get("target") if point.get("target") is not None else target
-    if recall is not None and required is not None and recall < required:
-        point["met_target"] = False
+    if recall is not None and required is not None and (recall < required or met is None):
+        point["met_target"] = recall >= required
+    elif requires_recall:
+        point.setdefault("met_target", None)
     for sample in _objects(point, "sweep"):
         _numbers(sample, ("recall", "qps"))
 
@@ -92,5 +94,5 @@ def validated_comparison(comparison: dict) -> dict:
             rows = _objects(dataset, "rows")
             _unique(rows, "engine")
             for row in rows:
-                _row(row, config.get("recall_target"))
+                _row(row, config.get("recall_target"), track["track"] == "vector")
     return result

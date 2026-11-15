@@ -16,7 +16,7 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
-from chart_data import dataset_rows, peak_qps, tracks
+from chart_data import dataset_rows, peak_qps, recall_unrecorded, tracks
 from narsil_servers import (
     NARSIL_RUST,
     NARSIL_TYPESCRIPT,
@@ -75,7 +75,12 @@ def _ndcg10(row: dict | None) -> float | None:
 
 def _met_its_recall_target(row: dict) -> bool:
     point = row.get("operating_point")
-    return not isinstance(point, dict) or point.get("met_target") is not False
+    return not recall_unrecorded(row) and (not isinstance(point, dict) or point.get("met_target") is not False)
+
+
+def _unranked_sentence(row: dict, subject: str) -> str:
+    reason = "has no recorded recall result" if recall_unrecorded(row) else "misses the recall target"
+    return f"{subject} {reason}, so the comparison leaves its speed unranked."
 
 
 def _quality_sentences(rows: list[dict], reference: float | None) -> list[str]:
@@ -107,7 +112,7 @@ def _rust_sentence(rust: dict | None, queries: str) -> str:
     if rust_peak is None:
         return ""
     if not _met_its_recall_target(rust):
-        return " Narsil's Rust server misses the recall target, so the comparison leaves its speed unranked."
+        return " " + _unranked_sentence(rust, "Narsil's Rust server")
     return f" Narsil's Rust server answers {integer(rust_peak)} {queries} a second at its peak."
 
 
@@ -124,10 +129,7 @@ def _speed_sentence(rows: list[dict], opening: str, queries: str) -> str | None:
     subject = "Narsil" if rust is None else "Narsil's TypeScript server"
     rust_sentence = _rust_sentence(rust, queries)
     if not _met_its_recall_target(narsil):
-        return (
-            f"{opening}, {subject} misses the recall target, so the comparison leaves its speed unranked."
-            f"{rust_sentence}"
-        )
+        return f"{opening}, {_unranked_sentence(narsil, subject)}{rust_sentence}"
     others = [
         row
         for row in rows
