@@ -3,7 +3,7 @@ use std::sync::Arc;
 use bytes::Bytes;
 use narsil::SyncSnapshot;
 
-use super::errors::{indexed, preparing};
+use super::errors::preparing;
 use super::range::{RangeAnswer, range_of};
 use super::stream::{Chunk, ChunkBody, ChunkSender, chunk_channel, deliver};
 use crate::constants::{RESPONSE_STREAM_CHUNK_BYTES, SNAPSHOT_ARCHIVE_CONTENT_TYPE};
@@ -86,7 +86,7 @@ pub(crate) async fn sync_snapshot(
     let wanted = name.clone();
     let snapshot = engine_call(state, move |engine| engine.sync_snapshot(&wanted))
         .await
-        .map_err(|failure| preparing(indexed(failure, &name), SYNC_SNAPSHOT_PREPARING))?;
+        .map_err(|failure| preparing(failure, SYNC_SNAPSHOT_PREPARING))?;
     let snapshot = Arc::new(snapshot);
     let length = snapshot.byte_length();
     let entity_tag = snapshot.entity_tag().to_string();
@@ -105,7 +105,7 @@ pub(crate) async fn sync_snapshot(
     let first = tokio::task::spawn_blocking(move || read_chunk(&reader, start, end_exclusive))
         .await
         .map_err(|_| ServerError::internal())?
-        .map_err(|failure| indexed(ServerError::from(failure), &name))?;
+        .map_err(ServerError::from)?;
     if first.is_empty() && start < end_exclusive {
         return Err(ServerError::internal());
     }

@@ -1,6 +1,6 @@
 use narsil::{Narsil, Value, VectorMaintenanceStatus};
 
-use super::errors::{after_engine_checks, indexed};
+use super::errors::after_engine_checks;
 use super::js_text::{is_falsy, string_of};
 use crate::errors::{Outcome, ServerError};
 use crate::handlers::common::object;
@@ -37,27 +37,18 @@ fn field_not_found(index_name: &str, shown: &str, field: Value) -> ServerError {
     .with_detail("fieldName", field)
 }
 
-fn with_field_details(failure: ServerError, index_name: &str, field: &str) -> ServerError {
-    let missing = format!("Vector field \"{field}\" not found in index \"{index_name}\"");
-    if failure.code == INDEX_NOT_FOUND && failure.message == missing && failure.details.is_none() {
-        return field_not_found(index_name, field, Value::String(field.to_string()));
-    }
-    indexed(failure, index_name)
-}
-
 pub(crate) fn compact(engine: &Narsil, index_name: &str, target: CompactTarget) -> Outcome<()> {
     match target {
         CompactTarget::Every => engine
             .compact_vectors(index_name, None)
-            .map_err(|raised| indexed(ServerError::from(raised), index_name)),
+            .map_err(ServerError::from),
         CompactTarget::Field(field) => engine
             .compact_vectors(index_name, Some(&field))
-            .map_err(|raised| with_field_details(ServerError::from(raised), index_name, &field)),
+            .map_err(ServerError::from),
         CompactTarget::Unnamable(field) => {
             let failure = field_not_found(index_name, &string_of(&field), field);
             Err(after_engine_checks(
                 engine,
-                index_name,
                 failure,
                 |engine| engine.vector_maintenance_status(index_name),
                 |_| false,
