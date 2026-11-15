@@ -235,7 +235,7 @@ jobs:
 
       - name: Upload the snapshot behind any missed vector search
         if: failure() && env.SUITE_NEEDED == 'true'
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: vector-misses-shard-${{ matrix.shard }}
           path: packages/ts/test-evidence/vector-misses/
