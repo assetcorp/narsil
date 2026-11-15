@@ -70,9 +70,10 @@ impl Narsil {
     ///
     /// Fails with `INDEX_NOT_FOUND` where the index holds no vector field at `field`.
     pub fn compact_vectors(&self, index: &str, field: Option<&str>) -> Result<()> {
-        let state = self.inner.open_index(index)?;
-        let outcome = state.vectors.compact(&state.name, field);
-        self.inner.events.wrote(&state.name);
+        let outcome = self
+            .inner
+            .read_index(index, |state| Ok(state.vectors.compact(&state.name, field)))?;
+        self.inner.events.wrote(index);
         outcome
     }
 
@@ -81,14 +82,16 @@ impl Narsil {
     ///
     /// Fails with `INDEX_NOT_FOUND` where the index holds no vector field at `field`.
     pub fn optimize_vectors(&self, index: &str, field: Option<&str>) -> Result<()> {
-        let state = self.inner.open_index(index)?;
-        let outcome = state.vectors.optimize(&state.name, field);
-        self.inner.events.wrote(&state.name);
+        let outcome = self.inner.read_index(index, |state| {
+            Ok(state.vectors.optimize(&state.name, field))
+        })?;
+        self.inner.events.wrote(index);
         outcome
     }
 
     /// Returns the upkeep state of each vector field of the index, in schema order.
     pub fn vector_maintenance_status(&self, index: &str) -> Result<Vec<VectorMaintenanceStatus>> {
-        Ok(self.inner.open_index(index)?.vectors.maintenance_status())
+        self.inner
+            .read_index(index, |state| Ok(state.vectors.maintenance_status()))
     }
 }
