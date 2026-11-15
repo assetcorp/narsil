@@ -65,8 +65,10 @@ fn shutdown_wakes_reads_already_waiting_for_a_restore_to_drain_a_search() {
 
     let (entered, searching) = channel();
     let (release, released) = channel();
+    let (listed, listing) = channel();
     let released = Mutex::new(released);
     let query_engine = Arc::clone(&engine);
+    let callback_engine = Arc::clone(&engine);
     let search = answered(move || {
         query_engine.query(
             INDEX,
@@ -78,6 +80,7 @@ fn shutdown_wakes_reads_already_waiting_for_a_restore_to_drain_a_search() {
                         initial_value: Arc::new(move || {
                             entered.send(()).unwrap();
                             released.lock().unwrap().recv().unwrap();
+                            listed.send(callback_engine.list_indexes()).unwrap();
                             Value::Null
                         }),
                         reducer: Arc::new(|value, _, _| Ok(value)),
@@ -171,6 +174,7 @@ fn shutdown_wakes_reads_already_waiting_for_a_restore_to_drain_a_search() {
     let search = search.recv_timeout(ANSWER_WAIT).unwrap();
     restored.recv_timeout(ANSWER_WAIT).unwrap().unwrap();
     stopped.recv_timeout(ANSWER_WAIT).unwrap().unwrap();
+    let listed = listing.recv_timeout(ANSWER_WAIT).unwrap();
     if let Ok(search) = search {
         assert_eq!(search.hits[0].document, expected);
     } else {
@@ -179,6 +183,10 @@ fn shutdown_wakes_reads_already_waiting_for_a_restore_to_drain_a_search() {
     let reopened = Narsil::open(configuration(&scratch)).unwrap();
     assert_eq!(reopened.get(INDEX, "kept").unwrap(), Some(expected));
     reopened.shutdown().unwrap();
+    assert!(
+        listed.is_empty(),
+        "a callback listed an index after shutdown began"
+    );
     assert_eq!(
         awakened.len(),
         3,
