@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { getJson, postJson, postRaw, startTestServer, type TestServer } from './helpers'
+import { getJson, postJson, postRaw, putJson, startTestServer, type TestServer } from './helpers'
 
 const SCHEMA = { title: 'string', embedding: 'vector[4]' }
 
@@ -116,6 +116,62 @@ describe('Narsil HTTP server error mapping and limits', () => {
     const res = await getJson<ErrorBody>(srv.base, '/does/not/exist')
     expect(res.status).toBe(404)
     expect(res.body.error.code).toBe('NOT_FOUND')
+  })
+})
+
+describe('Narsil HTTP server search option types', () => {
+  let srv: TestServer
+
+  beforeAll(async () => {
+    srv = await startTestServer()
+    await postJson(srv.base, '/indexes', { name: 'notes', config: { schema: { title: 'string', year: 'number' } } })
+    await putJson(srv.base, '/indexes/notes/documents/a', { document: { title: 'harbor stone', year: 2020 } })
+    await putJson(srv.base, '/indexes/notes/documents/b', { document: { title: 'harbor light', year: 2011 } })
+  })
+
+  afterAll(async () => {
+    await srv.stop()
+  })
+
+  it('answers 400 with the field path to a search option of the wrong type, on search and preflight', async () => {
+    const cases: Array<[Record<string, unknown>, string]> = [
+      [{ term: 5 }, 'Field "term" must be a string'],
+      [{ term: 'harbor', limit: '5' }, 'Field "limit" must be a number'],
+      [{ term: 'harbor', fields: 'title' }, 'Field "fields" must be a list of strings'],
+      [{ term: 'harbor', termMatch: 'some' }, 'Field "termMatch" must be "all", "any", or a number'],
+      [{ term: 'harbor', mode: 'semantic' }, 'Field "mode" must be one of "vector", "hybrid", or "fulltext"'],
+      [{ term: 'harbor', highlight: {} }, 'Field "highlight.fields" is required and must be a list of strings'],
+      [
+        { term: 'harbor', facets: { year: { ranges: [{ from: 0 }] } } },
+        'Field "facets.year.ranges.0.to" is required and must be a number',
+      ],
+      [{ term: 'harbor', sort: 'year' }, 'Field "sort" must be an object keyed by field name, or a list of fields'],
+      [{ term: 'harbor', document: 'yes' }, 'Field "document" must be true, false, or an object'],
+      [{ term: 'harbor', group: { fields: ['year'], maxPerGroup: '2' } }, 'Field "group.maxPerGroup" must be a number'],
+    ]
+    for (const [body, message] of cases) {
+      for (const path of ['/indexes/notes/search', '/indexes/notes/search/preflight']) {
+        const res = await postJson<ErrorBody>(srv.base, path, body)
+        expect({ path, body, status: res.status, error: res.body.error }).toEqual({
+          path,
+          body,
+          status: 400,
+          error: { code: 'INVALID_REQUEST', message },
+        })
+      }
+    }
+  })
+
+  it('reads a search option set to null as absent', async () => {
+    const res = await postJson<{ hits: Array<{ id: string }>; count: number }>(srv.base, '/indexes/notes/search', {
+      term: 'harbor',
+      limit: null,
+      highlight: null,
+      sort: { year: 'asc' },
+    })
+    expect(res.status).toBe(200)
+    expect(res.body.count).toBe(2)
+    expect(res.body.hits.map(hit => hit.id)).toEqual(['b', 'a'])
   })
 })
 
