@@ -29,14 +29,14 @@
   "dependencies": {
     "@delali/narsil": "workspace:*",
     "@delali/narsil-embeddings-transformers": "workspace:*",
-    "@huggingface/transformers": "4.3.0",
+    "@huggingface/transformers": "4.3.2",
     "uWebSockets.js": "github:uNetworking/uWebSockets.js#b1092c70692ddbcc87464a77da44848614f6342a"
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.4",
-    "@types/node": "25.6.0",
+    "@types/node": "22.20.5",
     "tsup": "8.5.1",
     "typescript": "6.0.2",
-    "vitest": "4.1.4"
+    "vitest": "4.1.12"
   }
 }
