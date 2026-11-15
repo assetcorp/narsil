@@ -1,0 +1,42 @@
+{
+  "name": "@delali/narsil-container",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The startup program and Dockerfile of the Narsil container image, which serves one Narsil node over HTTP and takes every setting from environment variables.",
+  "author": "Delali (https://sondelali.com)",
+  "license": "Apache-2.0",
+  "homepage": "https://narsil.sondelali.com",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/assetcorp/narsil.git",
+    "directory": "packages/container"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "lint": "biome check src/",
+    "typecheck:src": "tsc --noEmit",
+    "typecheck:tests": "tsc --noEmit -p tsconfig.test.json",
+    "typecheck": "pnpm run typecheck:src && pnpm run typecheck:tests"
+  },
+  "dependencies": {
+    "@delali/narsil": "workspace:*",
+    "@delali/narsil-embeddings-transformers": "workspace:*",
+    "@huggingface/transformers": "4.3.0",
+    "uWebSockets.js": "github:uNetworking/uWebSockets.js#b1092c70692ddbcc87464a77da44848614f6342a"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.4.4",
+    "@types/node": "25.6.0",
+    "tsup": "8.5.1",
+    "typescript": "6.0.2",
+    "vitest": "4.1.4"
+  }
+}

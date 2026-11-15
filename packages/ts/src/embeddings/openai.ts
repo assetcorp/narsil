@@ -1,5 +1,5 @@
 import { ErrorCodes, NarsilError } from '../errors'
-import { buildSignal, postJsonWithRetry, resolveApiKey } from '../http-retry'
+import { type ApiKeySource, buildSignal, postJsonWithRetry, resolveApiKey } from '../http-retry'
 import type { EmbeddingAdapter } from '../types/adapters'
 import { DEFAULT_REQUEST_TIMEOUT_MS, MAX_INPUTS_PER_REQUEST } from './constants'
 
@@ -11,8 +11,12 @@ import { DEFAULT_REQUEST_TIMEOUT_MS, MAX_INPUTS_PER_REQUEST } from './constants'
 export interface OpenAIEmbeddingConfig {
   /** This points the adapter at OpenAI, at Azure, or at a compatible service you host. */
   baseUrl: string
-  /** This holds the key, or a function returning it, which is how you rotate a key or fetch a short-lived token per request. */
-  apiKey: string | (() => string | Promise<string>)
+  /**
+   * This holds the key, or a function returning it, which is how you rotate a key or fetch a short-lived token per
+   * request. Leave it out for a service that you host without a key, and the adapter then sends no `Authorization`
+   * header.
+   */
+  apiKey?: string | (() => string | Promise<string>)
   /** The adapter embeds with this model. */
   model: string
   /** The model returns vectors this long, which must match the schema's `vector[N]`. */
@@ -99,7 +103,7 @@ export function createOpenAIEmbedding(config: OpenAIEmbeddingConfig): EmbeddingA
   if (typeof config.apiKey === 'string' && config.apiKey.trim().length === 0) {
     throw new NarsilError(ErrorCodes.EMBEDDING_CONFIG_INVALID, 'OpenAI embedding adapter requires a non-empty apiKey')
   }
-  if (typeof config.apiKey !== 'string' && typeof config.apiKey !== 'function') {
+  if (config.apiKey !== undefined && typeof config.apiKey !== 'string' && typeof config.apiKey !== 'function') {
     throw new NarsilError(
       ErrorCodes.EMBEDDING_CONFIG_INVALID,
       'OpenAI embedding adapter apiKey must be a string or a function returning a string',
@@ -111,6 +115,11 @@ export function createOpenAIEmbedding(config: OpenAIEmbeddingConfig): EmbeddingA
   const dimensionCount = config.dimensions
   const timeoutMs = config.timeout ?? DEFAULT_REQUEST_TIMEOUT_MS
   const maxRetries = config.maxRetries ?? 3
+  const apiKeySource: ApiKeySource | undefined = config.apiKey
+  const currentApiKey = (): Promise<string | null> =>
+    apiKeySource === undefined
+      ? Promise.resolve(null)
+      : resolveApiKey(apiKeySource, 'OpenAI embedding adapter', ErrorCodes.EMBEDDING_CONFIG_INVALID)
 
   return {
     get dimensions(): number {
@@ -118,7 +127,7 @@ export function createOpenAIEmbedding(config: OpenAIEmbeddingConfig): EmbeddingA
     },
 
     async embed(input: string, _purpose: 'document' | 'query', signal?: AbortSignal): Promise<Float32Array> {
-      const apiKey = await resolveApiKey(config.apiKey, 'OpenAI embedding adapter', ErrorCodes.EMBEDDING_CONFIG_INVALID)
+      const apiKey = await currentApiKey()
       const body = JSON.stringify({ input: [input], model, dimensions: dimensionCount })
       const combinedSignal = buildSignal(signal, timeoutMs)
       const result = await postJsonWithRetry({
@@ -145,7 +154,7 @@ export function createOpenAIEmbedding(config: OpenAIEmbeddingConfig): EmbeddingA
     async embedBatch(inputs: string[], _purpose: 'document' | 'query', signal?: AbortSignal): Promise<Float32Array[]> {
       if (inputs.length === 0) return []
 
-      const apiKey = await resolveApiKey(config.apiKey, 'OpenAI embedding adapter', ErrorCodes.EMBEDDING_CONFIG_INVALID)
+      const apiKey = await currentApiKey()
       const combinedSignal = buildSignal(signal, timeoutMs)
 
       const executeChunk = async (chunk: string[]): Promise<Float32Array[]> => {

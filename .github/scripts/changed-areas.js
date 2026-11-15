@@ -26,6 +26,8 @@ const AREAS_BY_PREFIX = [
   ['packages/go/changes/', []],
   ['packages/react-native/', []],
   ['packages/embeddings-transformers/', ['typescript', 'check']],
+  ['packages/container/', []],
+  ['.dockerignore', []],
   ['packages/native/fuzz/', []],
   ['packages/native/test/', []],
   ['packages/conformance/samples/earlier-releases/', ['typescript', 'conformance']],
@@ -183,6 +185,23 @@ const PATHS_BY_LANGUAGE_AREA = {
       '.github/workflows/react-native.yml',
     ],
     except: ['packages/ts/src/__tests__/', 'packages/ts/src/react/'],
+  },
+  container: {
+    paths: [
+      'packages/container/',
+      'packages/ts/src/',
+      'packages/embeddings-transformers/src/',
+      'packages/embeddings-transformers/package.json',
+      'packages/embeddings-transformers/tsup.config.ts',
+      'packages/native/src/',
+      'packages/native/include/',
+      'packages/native/build.mjs',
+      'packages/native/toolchain.mjs',
+      'packages/native/npm/',
+      '.dockerignore',
+      ...BUILD_CONFIG_FILES,
+    ],
+    except: ['packages/ts/src/__tests__/', 'packages/embeddings-transformers/src/__tests__/'],
   },
   cluster: {
     paths: [
