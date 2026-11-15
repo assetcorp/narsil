@@ -108,6 +108,7 @@ class NarsilHttpServer implements NarsilServer {
   private stopIdleHeapCleanup: () => void = () => undefined
   private listening: Promise<void> | null = null
   private closing: Promise<void> | null = null
+  private cancelListen: (() => void) | null = null
 
   constructor(engine: Narsil, options: ServerOptions = {}) {
     assertServerEngine(engine)
@@ -150,14 +151,22 @@ class NarsilHttpServer implements NarsilServer {
     this.listening = (async () => {
       if (closing !== null) await closing
       if (this.listenSocket !== null) return
-      await this.startListening()
+      let cancelled = false
+      const cancellation = new Promise<void>(resolve => {
+        this.cancelListen = () => {
+          cancelled = true
+          resolve()
+        }
+      })
+      await this.startListening(cancellation, () => cancelled)
     })().finally(() => {
       this.listening = null
+      this.cancelListen = null
     })
     return this.listening
   }
 
-  private async startListening(): Promise<void> {
+  private async startListening(cancellation: Promise<void>, cancelled: () => boolean): Promise<void> {
     assertFeedHasAuthentication('sync', this.sync, this.options)
     assertFeedHasAuthentication('changes', this.changes, this.options)
     assertSecureBinding(this.host, this.options)
@@ -166,6 +175,7 @@ class NarsilHttpServer implements NarsilServer {
     const app = uws.App()
     this.app = app
     await this.registerRoutes(app)
+    if (cancelled()) return
     await new Promise<void>((resolve, reject) => {
       app.listen(this.host, this.port, socket => {
         if (socket) {
@@ -176,13 +186,15 @@ class NarsilHttpServer implements NarsilServer {
         }
       })
     })
-    await this.deps.tasks.reconcile()
+    await Promise.race([this.deps.tasks.reconcile(cancelled), cancellation])
+    if (cancelled()) return
     this.stopIdleHeapCleanup = startIdleHeapCleanup()
     this.ready = true
   }
 
   close(): Promise<void> {
     if (this.closing !== null) return this.closing
+    this.cancelListen?.()
     const listening = this.listening
     this.closing = (async () => {
       if (listening !== null) await listening.catch(() => undefined)
@@ -203,7 +215,6 @@ class NarsilHttpServer implements NarsilServer {
     }
     this.feeds?.close()
     this.feeds = null
-    this.syncServing = null
     const app = this.app
     const closingRequests = this.closingRequests
     const threads = this.threads
@@ -215,6 +226,7 @@ class NarsilHttpServer implements NarsilServer {
     } finally {
       await new Promise<void>(resolve => setImmediate(resolve))
       app?.close()
+      this.syncServing = null
     }
   }
 

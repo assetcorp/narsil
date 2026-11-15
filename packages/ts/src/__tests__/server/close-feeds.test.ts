@@ -3,6 +3,7 @@ import { Agent, request } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, it } from 'vitest'
+import { createNarsil } from '../../narsil'
 import { openRawChangesFeed, READER_TOKEN } from './changes/fixtures'
 import { scaledOut, startTestServer, waitFor } from './helpers'
 
@@ -90,3 +91,50 @@ it.each([false, true])('closes feeds and refuses upgrades during the drain with 
     await rm(directory, { recursive: true, force: true })
   }
 }, 40_000)
+
+it.each([false, true])('finishes an admitted sync snapshot during close with workers %s', async workers => {
+  const directory = await mkdtemp(join(tmpdir(), 'narsil-close-snapshot-'))
+  let admitted: () => void = () => undefined
+  let release: () => void = () => undefined
+  const started = new Promise<void>(resolve => {
+    admitted = resolve
+  })
+  const released = new Promise<void>(resolve => {
+    release = resolve
+  })
+  const document = { title: 'coastal report' }
+  const server = await startTestServer(
+    {
+      sync: true,
+      async onRequest() {
+        admitted()
+        await released
+        return undefined
+      },
+    },
+    { durability: { directory }, workers: { enabled: workers, count: 2 } },
+    async engine => {
+      await engine.createIndex('articles', { schema: { title: 'string' } })
+      await engine.insert('articles', document, 'report')
+      await engine.updateSync('articles', { enabled: true })
+    },
+  )
+  const device = await createNarsil({ workers: { enabled: false } })
+  try {
+    const download = fetch(`${server.base}/indexes/articles/sync/snapshot`)
+    await started
+    const closing = server.server.close()
+    release()
+    const response = await download
+    const bytes = new Uint8Array(await response.arrayBuffer())
+    await closing
+    expect(response.status).toBe(200)
+    await device.restore('articles', bytes)
+    expect(await device.get('articles', 'report')).toEqual(document)
+  } finally {
+    release()
+    await device.shutdown()
+    await server.stop()
+    await rm(directory, { recursive: true, force: true })
+  }
+})
