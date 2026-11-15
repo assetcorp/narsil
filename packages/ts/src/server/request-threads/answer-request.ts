@@ -1,7 +1,7 @@
 import { rm } from 'node:fs/promises'
 import path from 'node:path'
 import type { MessagePort } from 'node:worker_threads'
-import { ServerErrorCodes } from '../errors'
+import { toHttpError } from '../errors'
 import type { RouteContext, RouteHandler } from '../request'
 import { bindResponseStop } from '../request-signal'
 import { sendError } from '../response'
@@ -46,8 +46,9 @@ export async function answerRequest(
   }
   try {
     await handler(ctx)
-  } catch {
-    sendError(ctx.res, 500, ServerErrorCodes.INTERNAL_ERROR, 'An unexpected error occurred')
+  } catch (err) {
+    const { status, body } = toHttpError(err)
+    sendError(ctx.res, status, body.code, body.message, body.details)
   }
   captured.finishUnanswered()
   const answered = await captured.done

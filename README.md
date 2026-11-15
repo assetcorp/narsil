@@ -134,21 +134,27 @@ All three take the same index settings and the same query parameters as the Type
 
 ### As a server
 
-A REST API wraps the same engine. The [http-server example](packages/ts/examples/http-server) is a production launcher, which binds to 127.0.0.1 by default and takes its configuration from environment variables. It stops with an error when you bind it to a public address without authentication.
+A REST API wraps the same engine. The image `ghcr.io/assetcorp/narsil` serves it as one node and takes every setting from an environment variable, so you can start a server without writing code. From a folder that holds [`compose.yaml`](packages/container/compose.yaml), these commands write an admin key to `.env` and start a node that keeps its indexes on a Docker volume:
 
 ```bash
-pnpm --filter @delali/narsil build
-node --experimental-strip-types packages/ts/examples/http-server/server.ts
+export NARSIL_ADMIN_KEY="$(openssl rand -hex 32)"
+echo "NARSIL_ADMIN_KEY=$NARSIL_ADMIN_KEY" > .env
+docker compose up -d
 ```
+
+Every route other than the probes needs the key:
 
 ```bash
 curl -X POST localhost:7700/indexes \
+  -H "authorization: Bearer $NARSIL_ADMIN_KEY" \
   -H 'content-type: application/json' \
   -d '{"name":"products","config":{"schema":{"title":"string","price":"number"}}}'
 curl -X POST localhost:7700/indexes/products/documents \
+  -H "authorization: Bearer $NARSIL_ADMIN_KEY" \
   -H 'content-type: application/json' \
   -d '{"document":{"id":"p1","title":"Mechanical Keyboard","price":129.99}}'
 curl -X POST localhost:7700/indexes/products/search \
+  -H "authorization: Bearer $NARSIL_ADMIN_KEY" \
   -H 'content-type: application/json' \
   -d '{"term":"keyboard"}'
 ```
@@ -156,14 +162,16 @@ curl -X POST localhost:7700/indexes/products/search \
 From Python, the same search goes through `narsil-client`:
 
 ```python
+import os
+
 from narsil_client import NarsilClient
 
-with NarsilClient("http://localhost:7700") as client:
+with NarsilClient("http://localhost:7700", api_key=os.environ["NARSIL_ADMIN_KEY"]) as client:
     results = client.query("products", {"term": "keyboard"})
     print([hit.id for hit in results.hits])
 ```
 
-The [HTTP server guide](docs/http-server.md) covers every route and the embedding API, while the [example's README](packages/ts/examples/http-server/README.md) covers configuring the launcher, containerising it, and binding it safely. The [Python client guide](docs/python-client.md) and the [Go client guide](docs/go-client.md) cover the clients.
+The [container guide](docs/container-image.md) takes a node from `docker compose up` through the TypeScript, Python, and Go clients to a restart. The [HTTP server guide](docs/http-server.md) covers every route and how you serve the engine from a Node.js app that you write, while the [image README](packages/container/README.md) lists the tags and the common settings. The [Python client guide](docs/python-client.md) and the [Go client guide](docs/go-client.md) cover the clients.
 
 Each guide under [`docs/`](docs/) covers one area with working examples. In the list of features below, each feature links to the guide that covers it.
 
@@ -186,7 +194,6 @@ Each guide under [`docs/`](docs/) covers one area with working examples. In the 
 | Example | What it shows |
 | --- | --- |
 | [Live demo](https://narsil.sondelali.com/demo) | The hosted demo works entirely in the browser, so you can try search without installing anything. |
-| [HTTP server](packages/ts/examples/http-server) | The launcher serves the engine as a REST service with durability, API-key auth, and Docker packaging, while every setting comes from the environment. |
 | [Browser](packages/ts/examples/browser) | The app embeds the engine in a browser with IndexedDB persistence and Web Worker search. |
 | [Server app](packages/ts/examples/server-app) | The app calls the HTTP server through the client SDK and the React hooks to load corpora as import tasks. In its Ask view, you can ask questions about those corpora. |
 
@@ -218,6 +225,7 @@ When we measure Narsil in one process against Orama and MiniSearch, with the sam
 | [Persistence and durability](docs/persistence-and-durability.md) | Storage backends, the write-ahead log, checkpoints, recovery, the index lifecycle, snapshots, document exports, and indexes from an earlier release |
 | [Partitions and workers](docs/partitions-and-workers.md) | Partition routing, online rebalancing, worker copies, and multi-instance invalidation |
 | [Language support](docs/language-support.md) | Every language module, analysis revisions and rebuilds, and named tokenizers and stop words |
+| [Container image](docs/container-image.md) | Starting a node from the published image with Docker Compose, connecting each client, and keeping the data across a restart |
 | [HTTP server](docs/http-server.md) | Wrapping an engine in a REST API, every route it serves, and long-running tasks |
 | [Cluster mode](docs/cluster.md) | Multi-node indexes: nodes and roles, etcd over TLS, node identity across restarts, replication, routed writes, distributed searches and reads, cluster health and metrics, and the calls that fail in a cluster |
 | [Client](docs/client.md) | Reaching a server from a browser or Node, following a task, and the codes it raises |
