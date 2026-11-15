@@ -4979,6 +4979,43 @@
      }
     ]
    }
+  ],
+  "withoutFields": [
+   {
+    "id": "test-00000-one-group",
+    "text": "To make technical corrections to the Water Resources Development Act of 1999.",
+    "group": {
+     "fields": [],
+     "maxPerGroup": 1
+    },
+    "groups": [
+     {
+      "values": {},
+      "ids": [
+       "train-07961"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "test-00000-limit-0",
+    "text": "To make technical corrections to the Water Resources Development Act of 1999.",
+    "group": {
+     "fields": [],
+     "maxPerGroup": 1,
+     "limit": 0
+    },
+    "groups": []
+   },
+   {
+    "id": "no-hits",
+    "text": "qzxwvjk",
+    "group": {
+     "fields": [],
+     "maxPerGroup": 1
+    },
+    "groups": []
+   }
   ]
  },
  "vector": {

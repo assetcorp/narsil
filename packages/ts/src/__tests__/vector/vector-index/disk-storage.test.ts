@@ -57,7 +57,7 @@ describe('a vector field kept on disk', () => {
       await new Promise(resolve => setTimeout(resolve, 10))
     }
     const replaced = new Float32Array([0.5, 0.25, 0.125, 0.0625])
-    const handle = await open(await durable.pathOf(key), 'r+')
+    const handle = await open(join(directory, key), 'r+')
     await handle.write(new Uint8Array(replaced.buffer), 0, replaced.byteLength, offset)
     await handle.close()
 

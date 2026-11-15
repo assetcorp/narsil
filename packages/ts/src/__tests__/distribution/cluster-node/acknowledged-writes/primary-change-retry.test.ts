@@ -174,6 +174,39 @@ describe('a write in flight while its partition changes primary', () => {
     await expectEveryCopyHolds(cluster, new Map([['transfer-2', entry('second client', 2)]]))
   }, 90_000)
 
+  for (const operation of ['insert', 'insertBatch'] as const) {
+    it(`answers outcome unknown for a retried ${operation} whose stored copy it cannot read`, async () => {
+      const started = await startHandoverCluster()
+      cluster = started.cluster
+      const router = cluster.node(ROUTER)
+      const lagging = started.settled.inSyncSet[1] ?? ''
+      const held = cluster
+        .transport(started.settled.primary ?? '')
+        .holdWhen((target, message) => target === lagging && entryForDocument('transfer-4')(target, message))
+      const write =
+        operation === 'insert'
+          ? failureOf(router.insert(INDEX, entry('first client', 4), 'transfer-4'))
+          : router
+              .insertBatch(INDEX, [{ id: 'transfer-4', ...entry('first client', 4) }])
+              .then(result => result.failed[0]?.error ?? null)
+      await waitUntil('the entry to stall on its way to one replica', () => held.count() === 1)
+
+      const newPrimary = await handOverLeadership(cluster, started.settled)
+      expect(newPrimary).not.toBe(lagging)
+      const restore = cluster.transport(ROUTER).dropWhen(ofType('query.fetch', newPrimary))
+      let failure: NarsilError | null
+      try {
+        held.release()
+        failure = await write
+      } finally {
+        restore()
+      }
+
+      expect(failure?.code).toBe('REPLICATION_OUTCOME_UNKNOWN')
+      await expectEveryCopyHolds(cluster, new Map([['transfer-4', entry('first client', 4)]]))
+    }, 90_000)
+  }
+
   for (const operation of ['update', 'remove'] as const) {
     it(`refuses a retried ${operation} once another client changed the document, and keeps that write`, async () => {
       const started = await startHandoverCluster()

@@ -18,7 +18,7 @@ import { registerServerRoutes, type ServerHandlers, serverRoutes } from '../rout
 import { loadUWebSockets } from '../runtime'
 import { CHANGES_FEED_ROUTE, registerFeedRoute, SYNC_FEED_ROUTE } from '../sync/feed-route'
 import type { CapabilitiesResponse, LivenessResponse } from '../types'
-import { type QueryLimits, validateSuggest, withServerRerankWindow } from '../validation'
+import { type QueryLimits, validateSuggest, withServerQueryLimits } from '../validation'
 import { type ChildApp, childAppOf } from './acceptor'
 import { acknowledgeThreadClose, closeWhenTheProcessExits } from './close-at-exit'
 import { type ThreadFeedGateway, threadFeedGateway } from './feed-relay'
@@ -86,7 +86,7 @@ async function answerMoved(
   try {
     const answer = await options.answerHere(
       ctx.params[0],
-      withServerRerankWindow(params, limits),
+      withServerQueryLimits(params, limits),
       requestSignal(ctx.abort),
     )
     respondJson(ctx, 'hits' in answer ? encodeQueryResult(answer) : answer)
@@ -107,7 +107,7 @@ export function searchHandler(options: SearchHandlerOptions): RouteHandler {
       return
     }
     try {
-      const result = await answer(ctx.params[0], withServerRerankWindow(params, limits), requestSignal(ctx.abort))
+      const result = await answer(ctx.params[0], withServerQueryLimits(params, limits), requestSignal(ctx.abort))
       respondJson(ctx, 'hits' in result ? encodeQueryResult(result) : result)
     } catch (err) {
       if (ctx.abort.aborted) return

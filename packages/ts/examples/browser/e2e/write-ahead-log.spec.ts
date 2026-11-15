@@ -1,0 +1,164 @@
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import { type BrowserContext, chromium, expect, type Page, test } from '@playwright/test'
+import { BROWSER_E2E_ORIGIN } from './settings'
+import type { LogScenario, LossReport, ReadBack } from './write-ahead-log/page-engine'
+
+const PAGE_ENGINE_MODULE = '/e2e/write-ahead-log/page-engine.ts'
+const ACKNOWLEDGED_BEFORE_THE_CRASH = 300
+const ACKNOWLEDGEMENT_TIMEOUT_MS = 60_000
+
+interface PageEngine {
+  startWriting(scenario: LogScenario, acknowledge: (docId: string, title: string) => Promise<void>): Promise<void>
+  readBack(scenario: LogScenario, docIds: string[]): Promise<ReadBack>
+  openWatched(scenario: LogScenario): Promise<void>
+  insertAfterStorageCleared(): Promise<LossReport>
+  reportedErrors(): string[]
+  writeDuringUpgrade(scenario: LogScenario): Promise<LossReport>
+}
+
+async function openProfile(profile: string): Promise<{ context: BrowserContext; page: Page }> {
+  const context = await chromium.launchPersistentContext(profile, { headless: true })
+  const page = context.pages()[0] ?? (await context.newPage())
+  await page.goto(BROWSER_E2E_ORIGIN)
+  await page.waitForLoadState('networkidle')
+  return { context, page }
+}
+
+async function crashTheBrowser(context: BrowserContext): Promise<void> {
+  const browser = context.browser()
+  if (browser === null) throw new Error('The persistent context reports no browser to crash')
+  const session = await browser.newBrowserCDPSession()
+  const disconnected = new Promise<void>(resolve => browser.once('disconnected', () => resolve()))
+  void session.send('Browser.crash').catch(() => undefined)
+  await disconnected
+}
+
+async function expectEveryAcknowledgedWriteAfterACrash(scenario: LogScenario): Promise<void> {
+  const profile = await mkdtemp(path.join(tmpdir(), 'narsil-write-ahead-log-'))
+  try {
+    const acknowledged = new Map<string, string>()
+    const writer = await openProfile(profile)
+    await writer.page.exposeFunction('acknowledgeWrite', (docId: string, title: string) => {
+      acknowledged.set(docId, title)
+    })
+    await writer.page.evaluate(
+      async ([modulePath, chosen]) => {
+        const engine = (await import(modulePath)) as PageEngine
+        const target = window as unknown as { acknowledgeWrite: (docId: string, title: string) => Promise<void> }
+        await engine.startWriting(chosen, (docId, title) => target.acknowledgeWrite(docId, title))
+      },
+      [PAGE_ENGINE_MODULE, scenario] as const,
+    )
+    await expect
+      .poll(() => acknowledged.size, { timeout: ACKNOWLEDGEMENT_TIMEOUT_MS })
+      .toBeGreaterThanOrEqual(ACKNOWLEDGED_BEFORE_THE_CRASH)
+    await crashTheBrowser(writer.context)
+    const confirmed = new Map(acknowledged)
+
+    const reader = await openProfile(profile)
+    const docIds = [...confirmed.keys()]
+    const found = await reader.page.evaluate(
+      async ([modulePath, chosen, ids]) => {
+        const engine = (await import(modulePath)) as PageEngine
+        return engine.readBack(chosen, ids)
+      },
+      [PAGE_ENGINE_MODULE, scenario, docIds] as const,
+    )
+    await reader.context.close()
+
+    expect(found.titles).toEqual(docIds.map(docId => confirmed.get(docId)))
+    expect(found.count).toBeGreaterThanOrEqual(confirmed.size)
+    expect(found.count).toBeLessThanOrEqual(confirmed.size + 1)
+  } finally {
+    await rm(profile, { recursive: true, force: true })
+  }
+}
+
+test('a browser crash keeps every write that the log acknowledged in sync mode', async () => {
+  await expectEveryAcknowledgedWriteAfterACrash({ dbName: 'narsil-e2e-log-sync' })
+})
+
+test('a browser crash keeps every write that the log acknowledged in async mode before the next flush', async () => {
+  await expectEveryAcknowledgedWriteAfterACrash({
+    dbName: 'narsil-e2e-log-async',
+    durability: { mode: 'async', flushIntervalMs: 600_000 },
+  })
+})
+
+test('clearing the site data under a running engine refuses every later write and reports it', async () => {
+  const profile = await mkdtemp(path.join(tmpdir(), 'narsil-write-ahead-log-'))
+  try {
+    const { context, page } = await openProfile(profile)
+    const scenario: LogScenario = { dbName: 'narsil-e2e-log-cleared' }
+    await page.evaluate(
+      async ([modulePath, chosen]) => {
+        const engine = (await import(modulePath)) as PageEngine
+        await engine.openWatched(chosen)
+      },
+      [PAGE_ENGINE_MODULE, scenario] as const,
+    )
+    const session = await context.newCDPSession(page)
+    await session.send('Storage.clearDataForOrigin', { origin: BROWSER_E2E_ORIGIN, storageTypes: 'indexeddb' })
+
+    const report = await page.evaluate(async modulePath => {
+      const engine = (await import(modulePath)) as PageEngine
+      return engine.insertAfterStorageCleared()
+    }, PAGE_ENGINE_MODULE)
+    expect(report.refusedWith).toBe('PERSISTENCE_SAVE_FAILED')
+    await expect
+      .poll(() =>
+        page.evaluate(async modulePath => {
+          const engine = (await import(modulePath)) as PageEngine
+          return engine.reportedErrors()
+        }, PAGE_ENGINE_MODULE),
+      )
+      .toContain('PERSISTENCE_SAVE_FAILED')
+    await context.close()
+  } finally {
+    await rm(profile, { recursive: true, force: true })
+  }
+})
+
+test('an async write rejects when a version change precedes its transaction commit', async ({ page }) => {
+  await page.goto(BROWSER_E2E_ORIGIN)
+  const report = await page.evaluate(async modulePath => {
+    const engine = (await import(modulePath)) as PageEngine
+    return engine.writeDuringUpgrade({ dbName: 'narsil-e2e-log-upgrade' })
+  }, PAGE_ENGINE_MODULE)
+  expect(report.refusedWith).toBe('PERSISTENCE_SAVE_FAILED')
+  expect(report.reported).toContain('PERSISTENCE_SAVE_FAILED')
+})
+
+test('clearing site data during a strict commit reports connection loss', async ({ page, context }) => {
+  await page.goto(BROWSER_E2E_ORIGIN)
+  const scenario = { dbName: 'narsil-e2e-log-commit-cleared' }
+  await page.evaluate(
+    async ([modulePath, chosen]) => {
+      const engine = (await import(modulePath)) as PageEngine
+      await engine.openWatched(chosen)
+      const opening = indexedDB.open(chosen.dbName)
+      const database = await new Promise<IDBDatabase>((resolve, reject) => {
+        opening.onsuccess = () => resolve(opening.result)
+        opening.onerror = () => reject(opening.error)
+      })
+      const store = database.transaction('partitions', 'readwrite').objectStore('partitions')
+      function keepOpen(): void {
+        store.get('notes/meta').onsuccess = keepOpen
+      }
+      keepOpen()
+    },
+    [PAGE_ENGINE_MODULE, scenario] as const,
+  )
+  const pending = page.evaluate(async modulePath => {
+    const engine = (await import(modulePath)) as PageEngine
+    return engine.insertAfterStorageCleared()
+  }, PAGE_ENGINE_MODULE)
+  await page.waitForTimeout(30)
+  const session = await context.newCDPSession(page)
+  await session.send('Storage.clearDataForOrigin', { origin: BROWSER_E2E_ORIGIN, storageTypes: 'indexeddb' })
+  const report = await pending
+  expect(report.refusedWith).toBe('PERSISTENCE_SAVE_FAILED')
+  expect(report.reported).toContain('PERSISTENCE_SAVE_FAILED')
+})

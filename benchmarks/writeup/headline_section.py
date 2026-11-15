@@ -16,7 +16,15 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
-from chart_data import dataset_rows, peak_qps, tracks
+from chart_data import dataset_rows, peak_qps, recall_unrecorded, tracks
+from narsil_servers import (
+    NARSIL_RUST,
+    NARSIL_TYPESCRIPT,
+    NOT_MEASURED_TEXT,
+    comparison_rows,
+    is_narsil_server,
+    is_unmeasured,
+)
 from render import and_join, dataset_name, decimal, engine_name, integer, is_number
 from sources import Source, repo_root
 
@@ -28,6 +36,7 @@ VECTOR_DATASETS_LARGEST_FIRST = (
     "beir/scifact/test",
 )
 BENCHMARK_CONFIG = "benchmarks/server/config/benchmark.toml"
+REPOSITORY_FILE_URL = "https://github.com/assetcorp/narsil/blob/main"
 _QUALITY_METRIC = "ndcg_cut_10"
 
 
@@ -39,7 +48,7 @@ class ReadmeTarget:
 
 README_TARGETS = (
     ReadmeTarget("README.md", "BENCHMARKS.md"),
-    ReadmeTarget("packages/ts/README.md", "https://github.com/assetcorp/narsil/blob/main/BENCHMARKS.md"),
+    ReadmeTarget("packages/ts/README.md", f"{REPOSITORY_FILE_URL}/BENCHMARKS.md"),
 )
 
 
@@ -66,14 +75,21 @@ def _ndcg10(row: dict | None) -> float | None:
 
 def _met_its_recall_target(row: dict) -> bool:
     point = row.get("operating_point")
-    return not isinstance(point, dict) or point.get("met_target") is not False
+    return not recall_unrecorded(row) and (not isinstance(point, dict) or point.get("met_target") is not False)
+
+
+def _unranked_sentence(row: dict, subject: str) -> str:
+    reason = "has no recorded recall result" if recall_unrecorded(row) else "misses the recall target"
+    return f"{subject} {reason}, so the comparison leaves its speed unranked."
 
 
 def _quality_sentences(rows: list[dict], reference: float | None) -> list[str]:
     narsil = _ndcg10(_row(rows, "narsil"))
     if narsil is None:
         return []
-    sentence = f"On BEIR {dataset_name(KEYWORD_DATASET)}, Narsil's BM25 ranking scores {decimal(narsil, 3)} nDCG@10"
+    rust = _row(rows, NARSIL_RUST)
+    ranking = "Narsil's BM25 ranking" if rust is None or is_unmeasured(rust) else "the BM25 ranking of Narsil's TypeScript server"
+    sentence = f"On BEIR {dataset_name(KEYWORD_DATASET)}, {ranking} scores {decimal(narsil, 3)} nDCG@10"
     if reference is not None:
         sentence += (
             f", which is within {decimal(abs(narsil - reference), 3)} of the Anserini reference "
@@ -90,36 +106,51 @@ def _quality_sentences(rows: list[dict], reference: float | None) -> list[str]:
     return sentences
 
 
+def _rust_sentence(rust: dict | None, queries: str) -> str:
+    if rust is None or is_unmeasured(rust):
+        return ""
+    rust_peak = peak_qps(rust)
+    if rust_peak is None:
+        return ""
+    if not _met_its_recall_target(rust):
+        return " " + _unranked_sentence(rust, "Narsil's Rust server")
+    return f" Narsil's Rust server answers {integer(rust_peak)} {queries} a second at its peak."
+
+
 def _speed_sentence(rows: list[dict], opening: str, queries: str) -> str | None:
     """One sentence for Narsil's peak on a row, beside the fastest other engine that
     met the row's recall target, whether that engine leads Narsil or follows it."""
 
-    narsil = _row(rows, "narsil")
+    narsil = _row(rows, NARSIL_TYPESCRIPT)
     narsil_peak = peak_qps(narsil) if narsil is not None else None
+    rust = _row(rows, NARSIL_RUST)
     if narsil is None or narsil_peak is None:
-        return None
+        sentence = _rust_sentence(rust, queries).strip()
+        return f"{opening}, {sentence}" if sentence else None
+    subject = "Narsil" if rust is None else "Narsil's TypeScript server"
+    rust_sentence = _rust_sentence(rust, queries)
     if not _met_its_recall_target(narsil):
-        return f"{opening}, Narsil misses the recall target, so the comparison leaves its speed unranked."
+        return f"{opening}, {_unranked_sentence(narsil, subject)}{rust_sentence}"
     others = [
         row
         for row in rows
-        if row.get("engine") != "narsil" and peak_qps(row) is not None and _met_its_recall_target(row)
+        if not is_narsil_server(row.get("engine")) and peak_qps(row) is not None and _met_its_recall_target(row)
     ]
-    sentence = f"{opening}, Narsil answers {integer(narsil_peak)} {queries} a second at its peak"
+    sentence = f"{opening}, {subject} answers {integer(narsil_peak)} {queries} a second at its peak"
     fastest = max(others, key=lambda row: peak_qps(row) or 0.0, default=None)
     if fastest is None:
-        return f"{sentence}."
+        return f"{sentence}.{rust_sentence}"
     fastest_peak = peak_qps(fastest) or 0.0
     name = engine_name(fastest.get("engine") or "")
     if fastest_peak > narsil_peak:
-        return f"{sentence}, while {name} leads with {integer(fastest_peak)}."
-    return f"{sentence}, and {name} follows with {integer(fastest_peak)}."
+        return f"{sentence}, while {name} leads with {integer(fastest_peak)}.{rust_sentence}"
+    return f"{sentence}, and {name} follows with {integer(fastest_peak)}.{rust_sentence}"
 
 
 def _largest_vector_dataset(comparison: dict) -> tuple[str, list[dict]] | None:
     for dataset_id in VECTOR_DATASETS_LARGEST_FIRST:
         rows = dataset_rows(comparison, "vector", dataset_id)
-        if _row(rows, "narsil") is not None:
+        if any(is_narsil_server(row.get("engine")) and peak_qps(row) is not None for row in rows):
             return dataset_id, rows
     return None
 
@@ -130,7 +161,14 @@ def _vector_sentence(comparison: dict) -> str | None:
         return None
     dataset_id, rows = largest
     target = (comparison.get("config") or {}).get("recall_target")
-    held = f" with every engine held at {decimal(target, 2)} recall" if is_number(target) else ""
+    measured = [row for row in rows if not is_unmeasured(row)]
+    held = ""
+    if is_number(target):
+        held = (
+            f" with every engine held at {decimal(target, 2)} recall"
+            if all(_met_its_recall_target(row) for row in measured)
+            else f" at a recall target of {decimal(target, 2)}"
+        )
     return _speed_sentence(rows, f"On {dataset_name(dataset_id)}{held}", "vector queries")
 
 
@@ -158,14 +196,17 @@ def _tally(comparison: dict) -> _Tally:
     for entry in tracks(comparison):
         for dataset in entry.get("datasets", []):
             rows = [row for row in dataset.get("rows", []) if peak_qps(row) is not None]
-            if len(rows) < 2 or _row(rows, "narsil") is None:
+            rivals = [row for row in rows if not is_narsil_server(row.get("engine"))]
+            if not rivals or not any(is_narsil_server(row.get("engine")) for row in rows):
                 continue
             compared += 1
             if entry.get("track") not in names:
                 names.append(entry.get("track"))
             ranked = [row for row in rows if _met_its_recall_target(row)]
             best = max(ranked, key=lambda row: peak_qps(row) or 0.0, default=None)
-            if best is not None and best.get("engine") == "narsil":
+            if best is not None and any(
+                is_narsil_server(row.get("engine")) and peak_qps(row) == peak_qps(best) for row in ranked
+            ):
                 led += 1
     return _Tally(led=led, compared=compared, tracks=tuple(names))
 
@@ -221,6 +262,19 @@ def _machine_sentence(comparison: dict) -> str:
     return f"{machine_type} hardware in {and_join(places)} hosted the engines."
 
 
+def _rust_unmeasured_sentence(comparison: dict, production: dict | None) -> str | None:
+    rust_rows = [
+        row
+        for source in (comparison, production)
+        if source is not None
+        for row in comparison_rows(source)
+        if row.get("engine") == NARSIL_RUST
+    ]
+    if not rust_rows or not all(is_unmeasured(row) for row in rust_rows):
+        return None
+    return f"Narsil's Rust server is {NOT_MEASURED_TEXT}."
+
+
 def headline_block(
     source: Source, benchmarks_link: str, reference: float | None, production: Source | None = None
 ) -> str:
@@ -239,6 +293,7 @@ def headline_block(
         _machine_sentence(comparison),
         f"You'll find every dataset, every engine's settings, and the full method in "
         f"[`BENCHMARKS.md`]({benchmarks_link}).",
+        _rust_unmeasured_sentence(comparison, production_comparison),
     ]
     return " ".join(sentence for sentence in sentences if sentence)
 

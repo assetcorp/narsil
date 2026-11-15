@@ -19,11 +19,11 @@ export function directoryCheckpointStore(directory: DurableDirectory): Checkpoin
     write: (key, chunks) => directory.atomicWrite(key, chunks),
     remove: key => directory.remove(key),
     list: prefix => directory.list(prefix),
-    pathOf: key => directory.pathOf(key),
     directory,
   }
-  const byteLength = directory.byteLength
+  const { byteLength, pathOf } = directory
   if (byteLength !== undefined) store.byteLength = key => byteLength.call(directory, key)
+  if (pathOf !== undefined) store.pathOf = key => pathOf.call(directory, key)
   return store
 }
 

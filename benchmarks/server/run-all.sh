@@ -71,7 +71,8 @@ ENGINE_SOURCE_PATHS=(
   packages/ts/package.json
   packages/ts/tsup.config.ts
   packages/ts/tsconfig.json
-  packages/ts/examples/http-server
+  packages/container
+  ':(exclude)packages/container/src/__tests__'
 )
 
 NARSIL_GIT_SHA="$(git rev-parse HEAD 2>/dev/null || echo "")"

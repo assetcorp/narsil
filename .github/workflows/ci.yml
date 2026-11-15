@@ -33,6 +33,7 @@ jobs:
       go_engine: ${{ steps.areas.outputs.go_engine }}
       native_core: ${{ steps.areas.outputs.native_core }}
       clients: ${{ steps.areas.outputs.clients }}
+      container: ${{ steps.areas.outputs.container }}
       cluster: ${{ steps.areas.outputs.cluster }}
       vector_recall: ${{ steps.areas.outputs.vector_recall }}
       engine: ${{ steps.areas.outputs.engine }}
@@ -147,7 +148,7 @@ jobs:
       - name: Compile the code in the TypeScript READMEs and the guides, and run each block marked run
         run: |
           pnpm nx run narsil-embeddings-transformers:build
-          (cd packages/ts && node ../../.github/scripts/check-readme-examples.js typescript README.md examples/http-server/README.md ../embeddings-transformers/README.md)
+          (cd packages/ts && node ../../.github/scripts/check-readme-examples.js typescript README.md ../embeddings-transformers/README.md)
           (cd packages/certutil && node ../../.github/scripts/check-readme-examples.js typescript README.md)
           (cd packages/react-native && node ../../.github/scripts/check-readme-examples.js typescript README.md)
           (cd packages/go/changes && go mod download github.com/coder/websocket)
@@ -492,6 +493,50 @@ jobs:
       - name: Run vector recall tests
         run: pnpm nx run narsil-ts:test:recall
         timeout-minutes: 10
+
+  container-program:
+    name: Container startup program
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.container == 'true') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm nx run narsil-container:lint
+
+      - name: Build the engine, the adapters, and the startup program
+        run: pnpm nx run narsil-container:build
+
+      - name: Typecheck (incl. tests)
+        run: pnpm nx run narsil-container:typecheck
+
+      - name: Test
+        run: pnpm nx run narsil-container:test
+
+  container-image:
+    name: Container image
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.container == 'true') }}
+    uses: ./.github/workflows/container-image.yml
+    with:
+      push: false
+      version: 0.0.0-ci
 
   rust:
     name: Rust crate

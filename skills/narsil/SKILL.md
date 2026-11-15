@@ -20,7 +20,7 @@ Copy this checklist and tick each item as you finish it:
 
 Embed Narsil when a single process writes and searches the index, as a browser page does when it keeps an index for itself. In JavaScript or TypeScript, embed `@delali/narsil`, which is the package that this skill describes. In another language, embed the `delali-narsil` crate in Rust, the `delali-narsil` package from PyPI in Python, or the `github.com/assetcorp/narsil/packages/go/engine` module in Go. Take the API of each of those packages from its README, because this skill describes `@delali/narsil` alone. Each of these packages reads and writes the same `.nrsl` index format, so the TypeScript package can open an index that any of the others saves.
 
-Serve it in every other case, such as when several services share one index, when an index has to outlive the app's deploys, or when the app's language has no Narsil package. The server is a small Node.js service built on `@delali/narsil/server`, and apps call it over HTTP. Read [references/server.md](references/server.md) before you write it.
+Serve it in every other case, such as when several services share one index, when an index has to outlive the app's deploys, or when the app's language has no Narsil package. Apps call the server over HTTP. The image `ghcr.io/assetcorp/narsil` serves one node and takes every setting from an environment variable, while a small Node.js service built on `@delali/narsil/server` covers a server that needs code, such as an embedding adapter that you write. Read [references/server.md](references/server.md) before you choose.
 
 ## 2. Find the installed version and its API
 

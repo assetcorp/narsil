@@ -101,6 +101,11 @@ export function createAllocationView(coordinator: ClusterCoordinator): Allocatio
       watching = true
       const live = await coordinator.listNodes()
       nodes = new Map(live.map(registration => [registration.nodeId, registration]))
+      for (const indexName of await coordinator.listSchemas()) {
+        if (!watching) return
+        if (tables.has(indexName)) continue
+        await readLive(indexName).catch(() => null)
+      }
     },
     stop() {
       watching = false

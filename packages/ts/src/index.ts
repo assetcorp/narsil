@@ -30,6 +30,7 @@ export { isSimdAvailable } from './runtime/simd-support'
 export type { AdapterRegistrationOperations } from './types/adapter-registration'
 export type {
   EmbeddingAdapter,
+  IndexedDBLocation,
   InvalidationAdapter,
   InvalidationEvent,
   PartitionStatistics,
