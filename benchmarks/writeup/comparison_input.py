@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import copy
 import math
+import re
+
+_IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]*\Z")
 
 
 def _object(parent: dict, key: str) -> dict:
@@ -28,6 +31,12 @@ def _unique(entries: list[dict], key: str) -> None:
         value = entry.get(key)
         if not isinstance(value, str) or not value.strip():
             raise SystemExit(f"benchmark writeup: {key} must be a non-empty string")
+        if not _IDENTIFIER.fullmatch(value) or any(part in ("", ".", "..") for part in value.split("/")):
+            raise SystemExit(f"benchmark writeup: invalid {key} {value!r}")
+        if key in ("engine", "name", "track") and "/" in value:
+            raise SystemExit(f"benchmark writeup: invalid {key} {value!r}")
+        if "display_name" in entry or "unmeasured" in entry:
+            raise SystemExit("benchmark writeup: display_name and unmeasured are reserved for generated rows")
         if value in found:
             raise SystemExit(f"benchmark writeup: duplicate {key} {value!r}")
         found.add(value)
@@ -57,7 +66,7 @@ def _row(row: dict, target: object) -> None:
     if met is not None and not isinstance(met, bool):
         raise SystemExit("benchmark writeup: met_target must be a boolean")
     recall = point.get("achieved_recall")
-    required = point.get("target", target)
+    required = point.get("target") if point.get("target") is not None else target
     if recall is not None and required is not None and recall < required:
         point["met_target"] = False
     for sample in _objects(point, "sweep"):
