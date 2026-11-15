@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs'
+import { Agent, request } from 'node:http'
 import { describe, expect, it } from 'vitest'
 import { POOL_RESTART_DELAY_MS } from '../../../engine/orchestration/constants'
 import { waitFor } from '../helpers'
@@ -25,6 +26,64 @@ const SEARCH_SPACING_MS = 50
 const FRESH_CONNECTIONS = 24
 const FRESH_CONNECTION_TIMEOUT_MS = 10_000
 const TEST_TIMEOUT_MS = 2 * REPLACEMENT_BOUND_MS + 2 * SETUP_MS
+const KEPT_ALIVE_READERS = 8
+const READS_AFTER_RECOVERY = 3
+
+type CountOutcome = { status: number; connection: string | undefined; count: unknown } | { failed: string }
+
+function countOnKeptAliveConnection(base: string, agent: Agent): Promise<CountOutcome> {
+  return new Promise(resolve => {
+    const outgoing = request(
+      new URL(`/indexes/${INDEX}/count`, base),
+      { agent, timeout: TEST_TIMEOUT_MS },
+      incoming => {
+        let text = ''
+        incoming.setEncoding('utf8')
+        incoming.on('data', chunk => {
+          text += chunk
+        })
+        incoming.on('end', () => {
+          const parsed: unknown = text.length > 0 ? JSON.parse(text) : undefined
+          resolve({
+            status: incoming.statusCode ?? 0,
+            connection: incoming.headers.connection,
+            count: (parsed as { count?: unknown } | undefined)?.count,
+          })
+        })
+        incoming.on('error', error => resolve({ failed: error.message }))
+      },
+    )
+    outgoing.on('timeout', () => outgoing.destroy(new Error('the count never answered')))
+    outgoing.on('error', error => resolve({ failed: error.message }))
+    outgoing.end()
+  })
+}
+
+function readOnKeptAliveConnections(base: string): {
+  outcomes: CountOutcome[]
+  readsAfter(mark: number): boolean
+  stop(): Promise<void>
+} {
+  const agent = new Agent({ keepAlive: true, maxSockets: KEPT_ALIVE_READERS })
+  const outcomes: CountOutcome[] = []
+  const finishedAt: number[][] = Array.from({ length: KEPT_ALIVE_READERS }, () => [])
+  let stopping = false
+  const readers = Array.from({ length: KEPT_ALIVE_READERS }, async (_, reader) => {
+    while (!stopping) {
+      outcomes.push(await countOnKeptAliveConnection(base, agent))
+      finishedAt[reader].push(Date.now())
+    }
+  })
+  return {
+    outcomes,
+    readsAfter: mark => finishedAt.every(finished => finished.filter(at => at > mark).length >= READS_AFTER_RECOVERY),
+    async stop() {
+      stopping = true
+      await Promise.all(readers)
+      agent.destroy()
+    },
+  }
+}
 
 function startHangingServer(): Promise<ServerWithCopies> {
   return startServerWithCopies(
@@ -88,6 +147,35 @@ describe.skipIf(!existsSync(distEntry))('a request thread that hangs inside a re
         await expectEveryFreshConnectionAnswered(srv)
         expect(srv.crashes).toHaveLength(1)
       } finally {
+        await srv.shutDown()
+      }
+    },
+    TEST_TIMEOUT_MS,
+  )
+
+  it(
+    'answers every request on its kept-alive connections once it recovers from the hang',
+    async () => {
+      const srv = await startHangingServer()
+      const readers = readOnKeptAliveConnections(srv.base)
+      try {
+        await waitFor(async () => readers.readsAfter(0), SETUP_MS)
+        await hangTheThreadAndWaitForItsRetirement(srv)
+        const releasedAt = Date.now()
+        srv.releaseWorker()
+        await waitFor(async () => readers.readsAfter(releasedAt), SETUP_MS)
+        await readers.stop()
+        const outcomes = readers.outcomes
+        const wrong = outcomes.filter(outcome => !('status' in outcome) || outcome.status !== 200)
+        expect(wrong, JSON.stringify(wrong.slice(0, 5))).toEqual([])
+        for (const outcome of outcomes) expect(outcome).toMatchObject({ count: TICKETS })
+        const closedByTheLeavingThread = outcomes.filter(
+          outcome =>
+            'connection' in outcome && (outcome.connection ?? '').split(',').some(token => token.trim() === 'close'),
+        )
+        expect(closedByTheLeavingThread.length).toBeGreaterThan(0)
+      } finally {
+        await readers.stop()
         await srv.shutDown()
       }
     },

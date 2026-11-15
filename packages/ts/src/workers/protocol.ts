@@ -75,7 +75,7 @@ type WorkerCommand =
     }
   | { type: 'serveRequests'; settings: RequestThreadSettings; requestId: string }
   | { type: 'serveLongQueries'; settings: LongQueryThreadSettings; requestId: string }
-  | { type: 'stopServing'; requestId: string }
+  | { type: 'stopServing'; requestId: string; refuseNewRequests?: boolean }
   | { type: 'dropIndex'; indexName: string; requestId: string }
   | { type: 'getStats'; indexName: string; requestId: string }
   | { type: 'clear'; indexName: string; requestId: string }

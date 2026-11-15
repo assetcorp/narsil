@@ -190,14 +190,16 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
     longQueryThread = null
   }
 
-  function retireThread(workerId: number, thread: ServingThread): Promise<void> {
+  function retireThread(workerId: number, thread: ServingThread, refuseNewRequests = false): Promise<void> {
     releaseDescriptor(thread)
     thread.port.unref()
     retiring.add(thread.closed)
     void thread.closed.then(() => retiring.delete(thread.closed))
-    void executeUntilAnswered(thread.executor, { type: 'stopServing', requestId: `stop-serving-${workerId}` }).catch(
-      () => undefined,
-    )
+    void executeUntilAnswered(thread.executor, {
+      type: 'stopServing',
+      requestId: `stop-serving-${workerId}`,
+      refuseNewRequests,
+    }).catch(() => undefined)
     return thread.closed
   }
 
@@ -349,7 +351,7 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
       process.off('exit', closeThreadsAtExit)
       const stopping = [...threads.entries()].map(([workerId, thread]) => {
         threads.delete(workerId)
-        return retireThread(workerId, thread)
+        return retireThread(workerId, thread, true)
       })
       core.orchestrator.stopRequestThreads()
       const longQueries = longQueryThread
