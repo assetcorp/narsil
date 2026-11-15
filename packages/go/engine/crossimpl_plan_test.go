@@ -14,7 +14,7 @@ const (
 	crossHitLimit           = 10
 	crossVectorQueriesTaken = 40
 	crossMaxPartitions      = 3
-	crossDocsPerPartition   = 600
+	crossDocsPerPartition   = 300
 )
 
 type crossScenario struct {

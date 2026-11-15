@@ -93,7 +93,7 @@ func goSave(t *testing.T, scenario crossScenario, plan crossPlan, directory stri
 	if err := settleVectors(ctx, narsil, plan.Index); err != nil {
 		t.Fatal(err)
 	}
-	if stats, err := narsil.GetStats(plan.Index); err != nil || (scenario.partitioned && stats.PartitionCount < 2) {
+	if stats, err := narsil.GetStats(plan.Index); err != nil || (scenario.partitioned && stats.PartitionCount != crossMaxPartitions) {
 		t.Fatalf("the Go index holds %d partitions after its inserts: %v", stats.PartitionCount, err)
 	}
 	if err := narsil.Checkpoint(ctx, plan.Index); err != nil {
