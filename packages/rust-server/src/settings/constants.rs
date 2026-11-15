@@ -1,0 +1,13 @@
+pub(crate) const STREAM_CHUNKS_IN_FLIGHT: usize = 4;
+pub(crate) const PREPARING_RETRY_AFTER_SECONDS: u64 = 1;
+pub(crate) const DISPLAYED_NAME_UTF16_UNITS: usize = 64;
+pub(crate) const MAX_BM25_K1: f64 = 1_000.0;
+pub(crate) const MAX_BM25_B: f64 = 1.0;
+pub(crate) const MAX_PARTITIONS: f64 = 65_536.0;
+pub(crate) const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
+pub(crate) const MAX_SYNONYM_RULES: usize = 100_000;
+pub(crate) const MAX_SYNONYM_WORDS: usize = 500_000;
+pub(crate) const MAX_SYNONYM_WORD_BYTES: usize = 4_194_304;
+pub(crate) const MAX_SYNONYM_RULE_WORDS: usize = 100;
+pub(crate) const MIN_TWO_WAY_SYNONYM_WORDS: usize = 2;
+pub(crate) const MIN_ONE_WAY_SYNONYMS: usize = 1;

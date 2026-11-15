@@ -8,6 +8,7 @@ mod http;
 mod ids;
 mod options;
 mod server;
+mod settings;
 mod state;
 mod tasks;
 
