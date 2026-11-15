@@ -99,18 +99,22 @@ RUST_SERVER_SOURCE_PATHS=(
   packages/rust-server/src
   packages/rust-server/Cargo.toml
   packages/rust-server/Cargo.lock
-  benchmarks/server/narsil-rust-server.Dockerfile
+  packages/rust-container/src
+  packages/rust-container/Cargo.toml
+  packages/rust-container/Cargo.lock
+  packages/rust-container/Dockerfile
 )
-NARSIL_RUST_VERSION="$(sed -n 's/^version = "\([^"]*\)"/\1/p' ../../packages/rust-server/Cargo.toml 2>/dev/null | head -1)"
-NARSIL_RUST_RELEASE_TAG="narsil-rust-server@v${NARSIL_RUST_VERSION}"
 NARSIL_RUST_GIT_DIRTY="true"
-if [ -n "$NARSIL_RUST_VERSION" ] &&
-  git -C ../.. rev-parse --verify --quiet "${NARSIL_RUST_RELEASE_TAG}^{commit}" >/dev/null 2>&1 &&
-  rust_server_changes="$(git -C ../.. diff --name-only "$NARSIL_RUST_RELEASE_TAG" -- "${RUST_SERVER_SOURCE_PATHS[@]}" 2>/dev/null)" &&
+if [ -n "$NARSIL_VERSION" ] &&
+  git -C ../.. rev-parse --verify --quiet "${NARSIL_RELEASE_TAG}^{commit}" >/dev/null 2>&1 &&
+  rust_server_changes="$(git -C ../.. diff --name-only "$NARSIL_RELEASE_TAG" -- "${RUST_SERVER_SOURCE_PATHS[@]}" 2>/dev/null)" &&
   [ -z "$rust_server_changes" ]; then
   NARSIL_RUST_GIT_DIRTY="false"
 fi
-export NARSIL_RUST_VERSION NARSIL_RUST_GIT_DIRTY
+
+engine_git_dirty() {
+  if [ "$1" = narsil-rust ]; then echo "$NARSIL_RUST_GIT_DIRTY"; else echo "$NARSIL_GIT_DIRTY"; fi
+}
 
 # Resolve the immutable image artifact a running engine was started from. A pulled
 # image reports its registry digest; a locally built one (narsil, harness) has no
@@ -227,6 +231,7 @@ for engine in "${ENGINES[@]}"; do
   if docker compose run --rm \
       -e ENGINE="$engine" \
       -e ENGINE_IMAGE_DIGEST="$image_digest" \
+      -e NARSIL_GIT_DIRTY="$(engine_git_dirty "$engine")" \
       "${HARNESS_ENGINE_ARGS[@]}" \
       harness; then
     echo "[${engine}] done (equal precision)"
@@ -239,6 +244,7 @@ for engine in "${ENGINES[@]}"; do
     if docker compose run --rm \
         -e ENGINE="$engine" \
         -e ENGINE_IMAGE_DIGEST="$image_digest" \
+        -e NARSIL_GIT_DIRTY="$(engine_git_dirty "$engine")" \
         "${HARNESS_ENGINE_ARGS[@]}" \
         -e BENCH_VECTOR_PROFILE="best-config" \
         harness; then
