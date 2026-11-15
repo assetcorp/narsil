@@ -34,6 +34,7 @@ jobs:
       native_core: ${{ steps.areas.outputs.native_core }}
       clients: ${{ steps.areas.outputs.clients }}
       container: ${{ steps.areas.outputs.container }}
+      rust_container: ${{ steps.areas.outputs.rust_container }}
       cluster: ${{ steps.areas.outputs.cluster }}
       vector_recall: ${{ steps.areas.outputs.vector_recall }}
       engine: ${{ steps.areas.outputs.engine }}
@@ -536,6 +537,22 @@ jobs:
     uses: ./.github/workflows/container-image.yml
     with:
       push: false
+      version: 0.0.0-ci
+
+  rust-container:
+    name: Rust container
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.rust_container == 'true') }}
+    uses: ./.github/workflows/rust-container.yml
+
+  rust-container-image:
+    name: Rust container image
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.rust_container == 'true') }}
+    uses: ./.github/workflows/container-image.yml
+    with:
+      push: false
+      server: rust
       version: 0.0.0-ci
 
   rust:
