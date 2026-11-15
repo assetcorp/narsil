@@ -129,7 +129,7 @@ Every hit holds the document, its id, and its BM25 score. Beside the hits, `resu
 | [Persistence and durability](https://github.com/assetcorp/narsil/blob/main/docs/persistence-and-durability.md) | Storage backends, the write-ahead log, checkpoints, recovery, snapshots, document exports, and indexes from an earlier release |
 | [Partitions and workers](https://github.com/assetcorp/narsil/blob/main/docs/partitions-and-workers.md) | Partition routing, online rebalancing, worker copies, and multi-instance invalidation |
 | [Language support](https://github.com/assetcorp/narsil/blob/main/docs/language-support.md) | Every language module, analysis revisions and rebuilds, and named tokenizers and stop words |
-| [Container image](https://github.com/assetcorp/narsil/blob/main/docs/container-image.md) | Starting a node from the published image with Docker Compose, connecting each client, keeping the data across a restart, and the tag of the Rust server |
+| [Container image](https://github.com/assetcorp/narsil/blob/main/docs/container-image.md) | Starting a node from the published image with Docker Compose, connecting each client, and keeping the data across a restart |
 | [HTTP server](https://github.com/assetcorp/narsil/blob/main/docs/http-server.md) | Wrapping an engine in a REST API, every route it serves, and long-running tasks |
 | [Cluster mode](https://github.com/assetcorp/narsil/blob/main/docs/cluster.md) | Multi-node indexes: nodes and roles, replication, routed writes, distributed searches and reads, and the calls that fail in a cluster |
 | [Client](https://github.com/assetcorp/narsil/blob/main/docs/client.md) | Reaching a server from a browser or Node, following a task, and the codes it raises |
