@@ -481,7 +481,6 @@ benchmarks/server/
   run-all.sh                 orchestration: embed once, then one engine at a time, then aggregate
   docker-compose.yml         engine services (profiled, 8 GiB cap) plus harness
   Dockerfile                 harness image (wheelhouse build, slim runtime, baked models)
-  narsil-rust-server.Dockerfile  Rust server image from packages/rust-server, built from repo source
   requirements.in / .txt     direct dependencies and the version-pinned lock
   config/benchmark.toml       datasets, BM25 reference, vector config, per-engine tracks
   src/ir_bench/
@@ -559,9 +558,12 @@ pytest
   the image holds the commit but no git history.
 - The `narsil-rust` engine is the Rust server in `packages/rust-server`, which
   serves the same routes as the TypeScript server, so the harness drives both
-  through one driver. Its image comes from
-  [narsil-rust-server.Dockerfile](narsil-rust-server.Dockerfile), and both
-  images preload jemalloc so that the two servers measure on the same allocator.
+  through one driver. The harness builds it through
+  [the Rust image's Dockerfile](../../packages/rust-container/Dockerfile), which
+  builds the image that the `-rust` tags publish, so it takes the same variables
+  as the TypeScript image. Both images preload jemalloc so that the two servers
+  measure on the same allocator, and `run-all.sh` records whether each server's
+  source differs from the release.
   To check that the two servers return the same hits, start one of each and run
   `NARSIL_PARITY_TS_URL=http://127.0.0.1:7700 NARSIL_PARITY_RUST_URL=http://127.0.0.1:7701 pytest tests/test_rust_server_parity.py`,
   which compares both answers with an exact BM25, cosine, and fusion oracle.
