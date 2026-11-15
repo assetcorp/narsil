@@ -192,6 +192,17 @@ func (p *Projection) TakeGroup(indexName string, bounds []float64, start, mostDo
 	}
 }
 
+func (p *Projection) TakeBurst(indexName string, burst Burst) (*Reservation, error) {
+	process.mu.Lock()
+	if process.extraBurstLocked(burst) == 0 {
+		reservation := reserveLocked(nil, 0, 0, burst)
+		process.mu.Unlock()
+		return reservation, nil
+	}
+	process.mu.Unlock()
+	return p.TakeGroup(indexName, []float64{0}, 0, 1, func(int) Burst { return burst }, nil)
+}
+
 func (p *Projection) afterCollection(indexName string, bounds []float64, start, end int, burst BurstForCount,
 	measured Figures) (*Reservation, *fillRefusal) {
 	collectionsBefore := p.monitor.Collections()

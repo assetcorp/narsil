@@ -58,10 +58,7 @@ func (g *memoryGuard) reserveDocument(entry *indexEntry, docID string, document 
 
 func (g *memoryGuard) reserveWriteBurst(entry *indexEntry, docIDs []string) (*memory.Reservation, error) {
 	growth := entry.index().WriteGrowth()
-	burst := func(int) memory.Burst {
-		return memory.Burst{Key: growth, Bytes: growth.Burst(docIDs, burstBytesOf)}
-	}
-	return g.projection.TakeGroup(entry.name, []float64{0}, 0, 1, burst, nil)
+	return g.projection.TakeBurst(entry.name, memory.Burst{Key: growth, Bytes: growth.Burst(docIDs, burstBytesOf)})
 }
 
 type entryBoundShape struct {
