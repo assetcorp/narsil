@@ -156,6 +156,10 @@ export function createAnalysisView(deps: AnalysisViewDeps): AnalysisView {
         }
         void settle(event.indexName)
       })
+      for (const indexName of await coordinator.listSchemas()) {
+        if (stopped) return
+        if (!held.has(indexName)) await refresh(indexName).catch(onError)
+      }
     },
     stop() {
       stopped = true

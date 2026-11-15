@@ -62,4 +62,37 @@ describe('a cluster whose coordinator stops answering', () => {
     }
     expect(Object.fromEntries(held)).toEqual(Object.fromEntries(expected))
   }, 60_000)
+
+  it('answers searches on a node that joined after the index, when the coordinator fails before its first search', async () => {
+    cluster = await createTestCluster()
+    await cluster.start('controller', { roles: ['controller', 'coordinator'], durable: false })
+    for (const nodeId of ['node-a', 'node-b', 'node-c']) await cluster.start(nodeId)
+    await cluster
+      .node('controller')
+      .createIndex(INDEX, { schema: SCHEMA }, { partitionCount: PARTITIONS, replicationFactor: 1 })
+    const everyPartitionInSync = async () => {
+      const table = await cluster.coordinator.getAllocation(INDEX)
+      if (table === null || table.assignments.size !== PARTITIONS) return null
+      for (const assignment of table.assignments.values()) {
+        if (assignment.state !== 'ACTIVE' || assignment.inSyncSet.length !== 1) return null
+      }
+      return table
+    }
+    await waitUntil('every partition to hold two copies in sync', everyPartitionInSync)
+    const expected: string[] = []
+    for (let i = 0; i < SETTLED_WRITES; i++) {
+      await cluster.node('node-a').insert(INDEX, { title: `deposit ${i}`, amount: i }, `account-${i}`)
+      expected.push(`account-${i}`)
+    }
+
+    await cluster.start('router', { roles: ['coordinator'], durable: false })
+
+    const restore = cluster.coordinator.cutOff()
+    try {
+      const found = await cluster.node('router').query(INDEX, { term: 'deposit', limit: SETTLED_WRITES + 5 })
+      expect(found.hits.map(hit => hit.id).sort()).toEqual([...expected].sort())
+    } finally {
+      restore()
+    }
+  }, 60_000)
 })
