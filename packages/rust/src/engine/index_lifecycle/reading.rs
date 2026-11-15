@@ -137,6 +137,9 @@ impl EngineInner {
         list: impl FnOnce(&[&IndexState], Vec<ClosedListing>) -> T,
     ) -> T {
         loop {
+            if self.shut_down.load(Ordering::Acquire) {
+                return list(&[], Vec::new());
+            }
             let (open, closed) = self.held_indexes();
             let mut reading = Vec::with_capacity(open.len());
             let mut swapped = None;
@@ -155,9 +158,6 @@ impl EngineInner {
             };
             drop(reading);
             index.residency.wait_for_swap(&index, &self.shut_down);
-            if self.shut_down.load(Ordering::Acquire) {
-                return list(&[], Vec::new());
-            }
         }
     }
 
