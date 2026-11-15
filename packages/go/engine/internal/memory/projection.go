@@ -25,6 +25,7 @@ func (r *Reservation) Release() {
 		process.mu.Lock()
 		defer process.mu.Unlock()
 		process.reservedBytes -= r.bytes
+		process.completedBytes += r.bytes
 		if r.burstKey == nil {
 			return
 		}
@@ -33,6 +34,7 @@ func (r *Reservation) Release() {
 			return
 		}
 		if held.holders--; held.holders <= 0 {
+			process.completedBytes += held.bytes
 			delete(process.bursts, r.burstKey)
 		}
 	})
@@ -99,7 +101,6 @@ func reserveLocked(bounds []float64, start, count int, burst Burst) *Reservation
 	}
 	reservation := &Reservation{bytes: bytes, Count: count}
 	process.reservedBytes += bytes
-	process.admittedBytes += bytes + process.extraBurstLocked(burst)
 	if burst.Key != nil && burst.Bytes > 0 {
 		if process.bursts == nil {
 			process.bursts = map[any]*heldBurst{}
@@ -181,6 +182,9 @@ func (p *Projection) afterCollection(indexName string, bounds []float64, start, 
 		figures = measured
 	}
 	process.mu.Lock()
+	if recent, available := process.recentLocked(WriteFiguresMaxAge); available {
+		figures = recent
+	}
 	count, _ := p.fittingLocked(figures, bounds, start, end, burst)
 	if count > 0 {
 		reservation := reserveLocked(bounds, start, count, burst)

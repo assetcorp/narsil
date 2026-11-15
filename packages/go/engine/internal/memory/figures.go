@@ -25,17 +25,17 @@ func (f Figures) smallestLimit() float64 {
 }
 
 type figureCache struct {
-	mu             sync.Mutex
-	latest         Figures
-	measured       bool
-	readAt         time.Time
-	admittedAtRead float64
-	limitBytes     uint64
-	limitKnown     bool
-	limitReadAt    time.Time
-	reservedBytes  float64
-	bursts         map[any]*heldBurst
-	admittedBytes  float64
+	mu              sync.Mutex
+	latest          Figures
+	measured        bool
+	readAt          time.Time
+	completedAtRead float64
+	limitBytes      uint64
+	limitKnown      bool
+	limitReadAt     time.Time
+	reservedBytes   float64
+	bursts          map[any]*heldBurst
+	completedBytes  float64
 }
 
 var process = &figureCache{}
@@ -86,7 +86,7 @@ func (c *figureCache) readFreshLocked() (Figures, bool) {
 	}
 	c.latest, c.measured = figures, processKnown || heapKnown
 	c.readAt = now
-	c.admittedAtRead = c.admittedBytes
+	c.completedAtRead = c.completedBytes
 	return figures, c.measured
 }
 
@@ -97,14 +97,14 @@ func (c *figureCache) measure() (Figures, bool) {
 }
 
 func (c *figureCache) recentLocked(maxAge time.Duration) (Figures, bool) {
-	admittedSince := c.admittedBytes - c.admittedAtRead
+	completedSince := c.completedBytes - c.completedAtRead
 	if !c.measured || time.Since(c.readAt) >= maxAge ||
-		admittedSince > recentFiguresMaxAdmittedFraction*c.latest.smallestLimit() {
+		completedSince > recentFiguresMaxCompletedFraction*c.latest.smallestLimit() {
 		return c.readFreshLocked()
 	}
 	recent := c.latest
-	recent.ProcessBytes += admittedSince
-	recent.HeapBytes += admittedSince
+	recent.ProcessBytes += completedSince
+	recent.HeapBytes += completedSince
 	return recent, true
 }
 
