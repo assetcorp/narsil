@@ -219,6 +219,7 @@ export async function serveRequests(
   const departure = watchForDeparture({
     relay,
     departure: new Int32Array(settings.departure),
+    serverClose: new Int32Array(settings.serverClose),
     close: closeRequestThread,
   })
   const local = createThreadReadEngine({

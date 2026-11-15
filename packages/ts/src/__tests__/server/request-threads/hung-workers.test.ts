@@ -132,6 +132,88 @@ async function expectEveryFreshConnectionAnswered(srv: ServerWithCopies): Promis
 
 describe.skipIf(!existsSync(distEntry))('a request thread that hangs inside a request', () => {
   it(
+    'refuses new requests during server close on a thread that already retired',
+    async () => {
+      let release: () => void = () => undefined
+      let admitted = 0
+      const held = new Promise<void>(resolve => {
+        release = resolve
+      })
+      const srv = await startServerWithCopies(
+        'closing-retired-thread',
+        { kind: 'throw' },
+        {
+          server: {
+            async onRequest(ctx) {
+              if (ctx.headers['x-held-request'] === undefined) return
+              admitted += 1
+              await held
+              return undefined
+            },
+          },
+        },
+      )
+      const agent = new Agent({ keepAlive: true, maxSockets: KEPT_ALIVE_READERS })
+      try {
+        await Promise.all(Array.from({ length: KEPT_ALIVE_READERS }, () => countOnKeptAliveConnection(srv.base, agent)))
+        const pending = Array.from({ length: KEPT_ALIVE_READERS }, () =>
+          onNewConnection<{ count: number }>(srv.base, `/indexes/${INDEX}/count`, {
+            headers: { 'x-held-request': 'yes' },
+            timeoutMs: TEST_TIMEOUT_MS,
+          }),
+        )
+        await waitFor(async () => admitted === KEPT_ALIVE_READERS)
+        await srv.armWorker()
+        await srv.engine.update(INDEX, 'ticket-0', { title: `${ARMED_TOKEN} ticket 0` })
+        await waitFor(async () => srv.crashes.length > 0)
+        const closing = srv.server.close()
+        try {
+          const answers = await Promise.all(
+            Array.from({ length: KEPT_ALIVE_READERS }, () => countOnKeptAliveConnection(srv.base, agent)),
+          )
+          for (const answer of answers) {
+            expect(answer).toMatchObject({ status: 503 })
+            if ('connection' in answer)
+              expect(answer.connection?.split(',').map(token => token.trim())).toContain('close')
+          }
+        } finally {
+          release()
+          for (const answer of await Promise.all(pending))
+            expect(answer).toMatchObject({ status: 200, body: { count: TICKETS } })
+          await closing
+        }
+      } finally {
+        release()
+        agent.destroy()
+        await srv.shutDown()
+      }
+    },
+    TEST_TIMEOUT_MS,
+  )
+
+  it(
+    'answers idle connections during the final drain after recovery',
+    async () => {
+      const srv = await startHangingServer()
+      const agent = new Agent({ keepAlive: true, maxSockets: KEPT_ALIVE_READERS })
+      try {
+        await Promise.all(Array.from({ length: KEPT_ALIVE_READERS }, () => countOnKeptAliveConnection(srv.base, agent)))
+        await hangTheThreadAndWaitForItsRetirement(srv)
+        srv.releaseWorker()
+        await sleep(25)
+        const answers = await Promise.all(
+          Array.from({ length: KEPT_ALIVE_READERS }, () => countOnKeptAliveConnection(srv.base, agent)),
+        )
+        for (const answer of answers) expect(answer).toMatchObject({ status: 200, count: TICKETS })
+      } finally {
+        agent.destroy()
+        await srv.shutDown()
+      }
+    },
+    TEST_TIMEOUT_MS,
+  )
+
+  it(
     'is retired, takes no new connection, and is replaced within a fixed time',
     async () => {
       const srv = await startHangingServer()

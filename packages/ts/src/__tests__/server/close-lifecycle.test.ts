@@ -1,7 +1,7 @@
-import { type IncomingMessage, request } from 'node:http'
+import { createServer as createHttpServer, type IncomingMessage, request } from 'node:http'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createNarsil } from '../../narsil'
-import { createServer } from '../../server'
+import { createServer, type TaskRecord } from '../../server'
 import { scaledOut, startTestServer, type TestServer, waitFor } from './helpers'
 
 function signal() {
@@ -164,5 +164,54 @@ it('can listen after closing before listen and after closing an active listener'
     expect((await fetch(`http://127.0.0.1:${server.listeningPort}/livez`)).status).toBe(200)
   } finally {
     await server.shutdown()
+  }
+})
+
+it('closes while the task store is unavailable during listen', async () => {
+  const reachedStore = signal()
+  const releaseStore = signal()
+  const records = new Map<string, TaskRecord>()
+  const store = createHttpServer(async (_request, response) => {
+    reachedStore.resolve()
+    await releaseStore.promise
+    response.end(JSON.stringify([...records.values()]))
+  })
+  await new Promise<void>(resolve => store.listen(0, '127.0.0.1', resolve))
+  const address = store.address()
+  if (address === null || typeof address === 'string') throw new Error('The task store has no TCP port')
+  const engine = await createNarsil({ workers: { enabled: false } })
+  const server = createServer(engine, {
+    port: 0,
+    taskStore: {
+      async get(id) {
+        return records.get(id) ?? null
+      },
+      async set(record) {
+        records.set(record.id, record)
+      },
+      async delete(id) {
+        records.delete(id)
+      },
+      async list() {
+        const response = await fetch(`http://127.0.0.1:${address.port}`)
+        return response.json()
+      },
+    },
+  })
+  const listening = server.listen()
+  try {
+    await reachedStore.promise
+    expect((await fetch(`http://127.0.0.1:${server.listeningPort}/livez`)).status).toBe(200)
+    const closed = await Promise.race([
+      server.close().then(() => true),
+      new Promise<boolean>(resolve => setTimeout(() => resolve(false), 500)),
+    ])
+    expect(closed).toBe(true)
+    expect(server.listeningPort).toBe(-1)
+  } finally {
+    releaseStore.resolve()
+    await listening
+    await server.shutdown()
+    await new Promise<void>((resolve, reject) => store.close(error => (error ? reject(error) : resolve())))
   }
 })

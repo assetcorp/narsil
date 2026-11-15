@@ -8,6 +8,7 @@ import type { ErrorEnvelope } from '../types'
 import { awaitDepartureConfirmation, departureConfirmation, departureConfirmed } from './departure'
 import { LeavingResponse, refuseAndClose } from './leaving-response'
 import type { RelayClient } from './relay-client'
+import { serverCloseSignalled } from './server-close'
 
 const DEPARTURE_REFUSAL: ErrorEnvelope = {
   error: {
@@ -55,6 +56,7 @@ export interface ThreadDeparture {
 export interface ThreadDepartureOptions {
   relay: RelayClient
   departure: Int32Array<SharedArrayBuffer>
+  serverClose: Int32Array<SharedArrayBuffer>
   close: () => void
 }
 
@@ -195,11 +197,16 @@ export function watchForDeparture(options: ThreadDepartureOptions): ThreadDepart
     if (!departureConfirmed(departure)) relay.announceDeparture()
     const deadline = Date.now() + REQUEST_THREAD_DRAIN_DEADLINE_MS
     await settledBy(departureConfirmation(departure), deadline)
-    await settledBy(idle(), deadline)
+    do {
+      await settledBy(idle(), deadline)
+      if (Date.now() >= deadline) break
+      await pause(REQUEST_THREAD_DEPARTURE_DRAIN_MS)
+    } while (running.size > 0)
     closing = true
+    const refused = running.size > 0
     for (const request of running) refuse(request, DRAIN_DEADLINE_REFUSAL)
     running.clear()
-    await pause(REQUEST_THREAD_DEPARTURE_DRAIN_MS)
+    if (refused) await pause(REQUEST_THREAD_DEPARTURE_DRAIN_MS)
   }
 
   const state: Departure = {
@@ -237,7 +244,7 @@ export function watchForDeparture(options: ThreadDepartureOptions): ThreadDepart
   }
 
   function refusalOnConnection(): ErrorEnvelope | null {
-    return refusalOnArrival() ?? (serverClosing ? CLOSING_REFUSAL : null)
+    return refusalOnArrival() ?? (serverClosing || serverCloseSignalled(options.serverClose) ? CLOSING_REFUSAL : null)
   }
 
   function refusingOnceDeparting<A extends unknown[], R>(call: (...args: A) => R): (...args: A) => R {

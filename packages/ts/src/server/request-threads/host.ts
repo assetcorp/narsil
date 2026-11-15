@@ -23,6 +23,7 @@ import { closeEveryThreadAtExit, createCloseAtExitWords } from './close-at-exit'
 import { confirmDeparture, createDepartureWord, departureConfirmed } from './departure'
 import type { RelayRequest, ServeRequestsResult } from './messages'
 import { answerAuthorize, answerAwaitWrites, answerEmbed, answerFeedAdmit, answerRerank } from './relay-answers'
+import { createServerCloseSignal, signalServerClose } from './server-close'
 
 export interface RequestThreadHostOptions {
   core: EngineCore
@@ -99,6 +100,7 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
   let longQueryThread: { workerId: number; port: MessagePort; executor: Executor } | null = null
   const closeAtExit = new Set<Int32Array<SharedArrayBuffer>>()
   const retiring = new Set<Promise<void>>()
+  const serverClose = createServerCloseSignal()
   let stopped = false
 
   function closeThreadsAtExit(): void {
@@ -283,6 +285,7 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
             settings: {
               port: channel.port1,
               departure: thread.departure.buffer,
+              serverClose: serverClose.buffer,
               closeAtExit: thread.closeAtExit.buffer,
               gate: options.gate,
               gateSlot: gateSlotOfWorker(workerId),
@@ -347,6 +350,7 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
       return threads.size
     },
     async stop(): Promise<void> {
+      signalServerClose(serverClose)
       stopped = true
       process.off('exit', closeThreadsAtExit)
       const stopping = [...threads.entries()].map(([workerId, thread]) => {
