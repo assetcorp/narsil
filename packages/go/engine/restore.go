@@ -98,6 +98,7 @@ func (n *Narsil) Restore(ctx context.Context, indexName string, source io.Reader
 		}
 	}
 	if err := hooks.Swap(ctx); err != nil {
+		created.dispose()
 		return err
 	}
 	if replaces {
