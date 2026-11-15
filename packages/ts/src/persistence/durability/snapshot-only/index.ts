@@ -384,12 +384,12 @@ export function createSnapshotOnlyManager(
         checkpointTimer = null
       }
       await restores.settleAll()
-      await metadataWrites.settleAll()
       for (const indexState of indexes.values()) {
         if (indexState.checkpointInFlight !== null) {
           await indexState.checkpointInFlight.catch(() => undefined)
         }
       }
+      await metadataWrites.settleAll()
       indexes.clear()
     },
   }
