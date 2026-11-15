@@ -24,7 +24,7 @@ type Sides struct {
 	readers    [sideCount]atomic.Int64
 	gate       atomic.Pointer[chan struct{}]
 	waiting    atomic.Int64
-	growth     atomic.Pointer[[]partitionFacts]
+	growth     atomic.Pointer[GrowthSnapshot]
 }
 
 func NewSides(slots *vector.Slots) *Sides {

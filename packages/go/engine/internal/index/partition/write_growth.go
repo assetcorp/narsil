@@ -27,6 +27,10 @@ type partitionFacts struct {
 	tableCount int
 }
 
+type GrowthSnapshot struct {
+	partitions []partitionFacts
+}
+
 func (t *documentTable) facts() tableFacts {
 	t.writing.Lock()
 	defer t.writing.Unlock()
@@ -75,7 +79,11 @@ func (s *Sides) noteGrowth(published int) {
 	for at, partition := range s.partitions {
 		facts[at] = partition.growthFacts(published)
 	}
-	s.growth.Store(&facts)
+	s.growth.Store(&GrowthSnapshot{partitions: facts})
+}
+
+func (s *Sides) WriteGrowth() *GrowthSnapshot {
+	return s.growth.Load()
 }
 
 func RouteOf(docID string, partitions int) int {
@@ -103,15 +111,14 @@ func (facts partitionFacts) growthFor(documents int) WriteGrowth {
 	return growth
 }
 
-func (s *Sides) WriteBurst(docIDs []string, burstOf func(WriteGrowth) float64) float64 {
-	held := s.growth.Load()
-	if held == nil || len(*held) == 0 || len(docIDs) == 0 {
+func (snapshot *GrowthSnapshot) Burst(docIDs []string, burstOf func(WriteGrowth) float64) float64 {
+	if snapshot == nil || len(snapshot.partitions) == 0 || len(docIDs) == 0 {
 		return 0
 	}
-	routed, unrouted := routedDocuments(docIDs, len(*held))
+	routed, unrouted := routedDocuments(docIDs, len(snapshot.partitions))
 	total := 0.0
 	var reachable []float64
-	for at, facts := range *held {
+	for at, facts := range snapshot.partitions {
 		total += burstOf(WriteGrowth{CopiedBytes: facts.copied})
 		burst := burstOf(facts.growthFor(routed[at] + unrouted))
 		switch {

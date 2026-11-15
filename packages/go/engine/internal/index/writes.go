@@ -45,8 +45,8 @@ func (ix *Index) prepare(documents []DocumentWrite) ([]PreparedDocument, []error
 	return prepared, failures
 }
 
-func (ix *Index) WriteBurst(docIDs []string, burstOf func(partition.WriteGrowth) float64) float64 {
-	return ix.sides.WriteBurst(docIDs, burstOf)
+func (ix *Index) WriteGrowth() *partition.GrowthSnapshot {
+	return ix.sides.WriteGrowth()
 }
 
 func (ix *Index) Write(apply func(w *Write) error) error {
