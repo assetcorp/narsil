@@ -14,7 +14,7 @@ This package lets you check a Narsil implementation in any language against the 
 | `samples/expected/` | The expected JSON of every sample, one file per entry of `samples.json` |
 | `samples/earlier-releases/` | The files that engine 0.3.0 and commit `a6ddec94` wrote, listed in `releases.json` with the documents that a reader must recover from each |
 | `samples/damaged/cases.json` | Every damaged file and every file that must open, with the rule that it covers and the outcome that a reader must give |
-| `searches/queries.json` | The pinned dataset's digest, the index settings, the text queries with their ranked results, and the vector queries with their nearest neighbours and recall floors |
+| `searches/queries.json` | The pinned dataset's digest, the index settings, the text queries with their ranked results, the grouped queries with their groups, and the vector queries with their nearest neighbours and recall floors |
 
 ## Run the checks
 
@@ -72,7 +72,7 @@ Fetch the pinned dataset, which the command checks against the digest in `datase
 node packages/conformance/dist/cli.mjs fetch
 ```
 
-The command stores the dataset in `packages/conformance/.dataset`. Index the documents with the settings under `index` in `searches/queries.json`, then run each query. Text results must hold the listed IDs in the listed order, and the reference's scores match the listed scores to a relative difference of 10<sup>-9</sup>. Vector results must reach each recall floor under `vector.floors` against the 100 nearest neighbours that a brute-force cosine scan found for each query, and their order is free.
+The command stores the dataset in `packages/conformance/.dataset`. Index the documents with the settings under `index` in `searches/queries.json`, then run each query. Text results must hold the listed IDs in the listed order, and the reference's scores match the listed scores to a relative difference of 10<sup>-9</sup>. Grouped results must hold the listed groups in the listed order, each with its listed values and IDs. Each query under `grouped.queries` groups by the settings in `grouped.group`, while each query under `grouped.withoutFields` sets a separate group that names no field. Vector results must reach each recall floor under `vector.floors` against the 100 nearest neighbours that a brute-force cosine scan found for each query, and their order is free.
 
 The text results come from the reference, and a separate Python oracle under `oracle/` checks every one of them. The oracle shares no code with the reference. It analyses text as the analysis pipeline in `packages/spec/adapters.md` describes, and it scores with BM25 as `packages/spec/algorithms.md` defines it. That specification makes the reference's English module define the language, so the oracle takes each English setting from that module at revision `4026533016c7f4b1`, and it stops with exit code 2 when the revision moves:
 

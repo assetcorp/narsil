@@ -45,16 +45,15 @@ OPENAI_API_KEY=sk-... pnpm --filter @delali/narsil-example-server-app dev
 
 With the key set, a dataset load embeds each document through the OpenAI embedding model. Without a key, the demo server embeds with `Xenova/all-MiniLM-L6-v2` on its own CPU, so the semantic and hybrid modes work either way. The demo server loads that model and the `Xenova/ms-marco-MiniLM-L-6-v2` reranker on their first use, so the server starts without waiting for either one. An index keeps the model that embedded it, so remove a dataset and load it again after you set or remove the key.
 
-## Point it at your own server
+## Point it at another server
 
-With `NARSIL_SERVER_URL` set, the app skips the demo server:
+With `NARSIL_SERVER_URL` set, the app skips the demo server and sends `NARSIL_API_KEY` to the server at that address. The [container guide](../../../../docs/container-image.md) starts a node on port 7700 with an admin key in `NARSIL_ADMIN_KEY`:
 
 ```bash
-node --experimental-strip-types packages/ts/examples/http-server/server.ts
-NARSIL_SERVER_URL=http://127.0.0.1:7700 pnpm --filter @delali/narsil-example-server-app dev
+NARSIL_SERVER_URL=http://127.0.0.1:7700 NARSIL_API_KEY="$NARSIL_ADMIN_KEY" pnpm --filter @delali/narsil-example-server-app dev
 ```
 
-Your own server needs two things. Because the Wikipedia dataset creates one index per language while a stock `http-server` launcher registers English alone, register those language modules yourself or load TMDB or SciFact. Embedded loads and vector queries need an embedding adapter registered under the name `openai` when a key is set, or `minilm` without one, and reranking needs a rerank adapter registered as `cross-encoder`, because an adapter is code and no environment variable carries it across. Device sync needs `sync: true` in `createServer`, plus an `onRequest` hook that accepts the grants that this app signs with `NARSIL_SYNC_GRANT_SECRET`, as `demo-server.ts` shows.
+That server needs the settings that the demo server makes in `demo-server.ts`. Because the Wikipedia dataset creates one index per language while a node registers English alone unless you set more languages, register those language modules or load TMDB or SciFact. Embedded loads and vector queries need an embedding adapter registered under the name `openai` when a key is set, or `minilm` without one, and reranking needs a rerank adapter registered as `cross-encoder`, because an adapter is code and no environment variable carries it across. Device sync needs `sync: true` in `createServer`, plus an `onRequest` hook that accepts the grants that this app signs with `NARSIL_SYNC_GRANT_SECRET`, as `demo-server.ts` shows.
 
 ## Configuration
 

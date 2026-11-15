@@ -10,6 +10,12 @@ export interface TransformersEmbeddingConfig {
   documentPrefix?: string
   queryPrefix?: string
   progress?: (data: unknown) => void
+  /**
+   * The adapter keeps the model files that it downloads in this folder, and it
+   * makes this folder the default cache of Transformers.js, because the
+   * pipeline reads the list of model files from that default cache.
+   */
+  cacheDir?: string
   pipelineOptions?: Record<string, unknown>
 }
 
@@ -56,9 +62,11 @@ export function createTransformersEmbedding(config: TransformersEmbeddingConfig)
 
     pipelinePromise = (async () => {
       const transformers = await import('@huggingface/transformers')
+      if (config.cacheDir !== undefined) transformers.env.cacheDir = config.cacheDir
 
       const pipelineOptions: Record<string, unknown> = {
         dtype,
+        ...(config.cacheDir === undefined ? {} : { cache_dir: config.cacheDir }),
         ...config.pipelineOptions,
       }
 

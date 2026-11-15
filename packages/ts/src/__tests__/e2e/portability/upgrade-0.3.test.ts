@@ -14,7 +14,7 @@ import { copyReleaseFixture, expectedFixtureDocuments, expectFixtureDocuments } 
 const roots = temporaryRoots()
 const engines: Narsil[] = []
 const EARLIER_GRAPH_FILE = 'products/segments/vec-embedding-1l4nfg2-graph-g1'
-const GRAPH_REPAIR_TIMEOUT_MS = 30_000
+const UPGRADE_SETTLE_TIMEOUT_MS = 30_000
 
 afterEach(async () => {
   for (const engine of engines.splice(0)) await engine.shutdown().catch(() => undefined)
@@ -54,8 +54,16 @@ describe('an index that release 0.3 saved with a write-ahead log', () => {
   async function openUpgraded() {
     const directory = await roots.make('narsil-upgrade-wal-')
     await copyReleaseFixture('wal', directory)
-    const config = { workers: { enabled: false }, durability: { directory } }
-    return { directory, config, engine: track(await createNarsil(config)) }
+    const reanalysed = new Set<string>()
+    const recordRebuild = (event: NarsilEventMap['analysisRebuild']): void => {
+      if (event.status === 'completed') reanalysed.add(event.indexName)
+    }
+    const config = {
+      workers: { enabled: false },
+      durability: { directory },
+      events: { analysisRebuild: recordRebuild },
+    }
+    return { directory, config, reanalysed, engine: track(await createNarsil(config)) }
   }
 
   it('opens with every document, every vector, and every write its log held', async () => {
@@ -75,8 +83,14 @@ describe('an index that release 0.3 saved with a write-ahead log', () => {
   })
 
   it('rewrites the index in the current layout, removes the earlier files, and upgrades once', async () => {
-    const { directory, config, engine } = await openUpgraded()
-    await waitFor(async () => (await savedShuffledBuildCount(directory, 'products')) !== null, GRAPH_REPAIR_TIMEOUT_MS)
+    const { directory, config, reanalysed, engine } = await openUpgraded()
+    await waitFor(
+      async () =>
+        reanalysed.has('products') &&
+        reanalysed.has('notes') &&
+        (await savedShuffledBuildCount(directory, 'products')) !== null,
+      UPGRADE_SETTLE_TIMEOUT_MS,
+    )
     await engine.shutdown()
 
     const manifestBytes = new Uint8Array(await readFile(join(directory, 'products', 'manifest')))

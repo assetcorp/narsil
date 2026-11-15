@@ -377,6 +377,8 @@ jobs:
       group: publish-prerelease-to-npm
       cancel-in-progress: false
       queue: max
+    outputs:
+      published: ${{ steps.newest.outputs.newest }}
 
     steps:
       - name: Checkout
@@ -438,6 +440,24 @@ jobs:
           NPM_CONFIG_PROVENANCE: true
         run: node .github/scripts/publish-react-native-package.js "${{ needs.plan.outputs.version }}" next
 
+  prerelease-image:
+    name: Publish the prerelease container image
+    needs: [plan, prerelease]
+    if: needs.prerelease.outputs.published == 'true'
+    permissions:
+      contents: read
+      packages: write
+    concurrency:
+      group: publish-prerelease-container-image
+      cancel-in-progress: false
+    uses: ./.github/workflows/container-image.yml
+    with:
+      push: true
+      version: ${{ needs.plan.outputs.version }}
+      tags: ${{ needs.plan.outputs.version }}
+      moving-tags: next
+      npm-dist-tag: next
+
   publish:
     name: Publish to npm
     needs: [release-proof, release-checks, release-embeddings, native, react-native-checks, typescript-tests, typescript-suites-on-etcd]
@@ -450,6 +470,10 @@ jobs:
     concurrency:
       group: publish-to-npm
       cancel-in-progress: false
+    outputs:
+      narsil-version: ${{ steps.narsil-release.outputs.version }}
+      narsil-minor: ${{ steps.narsil-release.outputs.minor }}
+      narsil-ref: ${{ steps.narsil-release.outputs.ref }}
     env:
       RELEASE_PROJECTS: ${{ inputs.package == '@delali/narsil' && 'narsil-ts' || inputs.package == '@delali/narsil-embeddings-transformers' && 'narsil-embeddings-transformers' || inputs.package == '@delali/narsil-certutil' && 'narsil-certutil' || 'narsil-ts,narsil-embeddings-transformers,narsil-certutil' }}
       RELEASES_NARSIL_TS: ${{ inputs.package == '@delali/narsil' || inputs.package == 'all' }}
@@ -552,11 +576,41 @@ jobs:
           NPM_CONFIG_PROVENANCE: true
         run: npm publish --access public
 
+      - name: Record the @delali/narsil release that the container image builds from
+        id: narsil-release
+        if: ${{ !inputs.dry-run && env.RELEASES_NARSIL_TS == 'true' }}
+        run: |
+          version="$(node -p "require('./packages/ts/package.json').version")"
+          {
+            echo "version=$version"
+            echo "minor=$(echo "$version" | cut -d. -f1,2)"
+            echo "ref=$(git rev-parse HEAD)"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Publish @delali/narsil-react-native
         if: ${{ !inputs.dry-run && env.RELEASES_NARSIL_TS == 'true' }}
         env:
           NPM_CONFIG_PROVENANCE: true
         run: node .github/scripts/publish-react-native-package.js "$(node -p "require('./packages/ts/package.json').version")" latest
+
+  release-image:
+    name: Publish the release container image
+    needs: publish
+    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && !inputs.dry-run && (inputs.package == 'all' || inputs.package == '@delali/narsil') && needs.publish.outputs.narsil-version != '' }}
+    permissions:
+      contents: read
+      packages: write
+    concurrency:
+      group: publish-release-container-image
+      cancel-in-progress: false
+    uses: ./.github/workflows/container-image.yml
+    with:
+      push: true
+      ref: ${{ needs.publish.outputs.narsil-ref }}
+      version: ${{ needs.publish.outputs.narsil-version }}
+      tags: ${{ needs.publish.outputs.narsil-version }}
+      moving-tags: ${{ needs.publish.outputs.narsil-minor }} latest
+      npm-dist-tag: latest
 
   client-checks:
     name: Check the Python or Go client

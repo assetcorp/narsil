@@ -389,6 +389,7 @@ export function createDurabilityManager(
           await closeWriterReportingFailure(closePartitionWriter(partition))
         }
       }
+      await metadataWrites.settleAll()
       indexes.clear()
       terminateCheckpointWorker()
       await directoryWatch.release()
