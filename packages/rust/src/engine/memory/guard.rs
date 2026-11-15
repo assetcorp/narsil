@@ -187,9 +187,20 @@ impl MemoryGuard {
         self.reserved_bytes.load(Ordering::Acquire)
     }
 
-    pub(crate) fn reserve(&self, bytes: u64) {
-        self.reserved_bytes.fetch_add(bytes, Ordering::AcqRel);
-        self.admitted_bytes.fetch_add(bytes, Ordering::AcqRel);
+    pub(crate) fn reserve_if_unchanged(&self, reserved_before: u64, bytes: u64) -> bool {
+        let reserved = self
+            .reserved_bytes
+            .compare_exchange(
+                reserved_before,
+                reserved_before.saturating_add(bytes),
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .is_ok();
+        if reserved {
+            self.admitted_bytes.fetch_add(bytes, Ordering::AcqRel);
+        }
+        reserved
     }
 
     pub(crate) fn release(&self, bytes: u64) {
