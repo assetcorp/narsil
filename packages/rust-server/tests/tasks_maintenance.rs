@@ -6,7 +6,7 @@ use narsil_server::{ServerLimits, ServerOptions};
 use support::{Call, ReferenceServer, Reply, object, parsed, same_status_and_code, send};
 use tasks_common::{
     ARTICLE_SCHEMA, Served, article_lines, at, create_in_engine, create_over_http, keys_of, ndjson,
-    ndjson_call, number_at, stored_ids, text_at, wait_for_task, without_engine_details,
+    ndjson_call, number_at, stored_ids, text_at, wait_for_task,
 };
 
 const MAX_RESTORE_BYTES: u64 = 1024 * 1024;
@@ -60,8 +60,8 @@ impl Pair {
             call.path
         );
         assert_eq!(
-            without_engine_details(&mine.json()),
-            without_engine_details(&theirs.json()),
+            mine.json(),
+            theirs.json(),
             "{} {} carries the same error",
             call.method,
             call.path
@@ -302,8 +302,8 @@ async fn restores_and_document_imports_read_the_spooled_body_and_refuse_damaged_
         let (finished, reference_finished) = pair.finished_alike(&call).await;
         assert_eq!(text_at(&finished, &["status"]).as_deref(), Some(ending));
         assert_eq!(
-            at(&finished, &["result"]).map(without_engine_details),
-            at(&reference_finished, &["result"]).map(without_engine_details),
+            at(&finished, &["result"]),
+            at(&reference_finished, &["result"]),
             "{} reports the same refusals",
             call.path
         );

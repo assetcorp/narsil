@@ -7,7 +7,6 @@ use support::{Call, ReferenceServer, decode_json, object, same_status_and_code, 
 use tasks_common::{
     ARTICLE_SCHEMA, Served, article_lines, at, create_in_engine, create_over_http, json_of,
     keys_of, ndjson, ndjson_call, number_at, stored_ids, text_at, wait_for_task,
-    without_engine_details,
 };
 
 const IMPORT_PATH: &str = "/indexes/articles/documents/_import";
@@ -196,12 +195,7 @@ async fn the_import_limits_refuse_at_the_same_boundaries_as_the_typescript_serve
         ),
     ] {
         let (mine, theirs) = same_status_and_code(rust.port, reference.port, &call).await;
-        assert_eq!(
-            without_engine_details(&mine.json()),
-            without_engine_details(&theirs.json()),
-            "{} answers alike",
-            call.path
-        );
+        assert_eq!(mine.json(), theirs.json(), "{} answers alike", call.path);
     }
     let (mine, theirs) = same_status_and_code(
         rust.port,
@@ -259,8 +253,9 @@ async fn an_asynchronous_import_finishes_as_a_task_with_the_inline_result() {
         Some("succeeded")
     );
     assert_eq!(
-        at(&finished, &["result"]).map(without_engine_details),
-        at(&reference_finished, &["result"]).map(without_engine_details)
+        at(&finished, &["result"]),
+        at(&reference_finished, &["result"]),
+        "both report the repeated document with the engine's details"
     );
     assert_eq!(
         at(&finished, &["progress"]),
