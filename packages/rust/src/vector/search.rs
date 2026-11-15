@@ -57,14 +57,16 @@ impl VectorSearchOptions {
         {
             return Err(invalid(format!(
                 "vector.oversample must be a finite number of at least {MIN_OVERSAMPLE}"
-            )));
+            ))
+            .with_details([("oversample", Value::from(oversample))]));
         }
         if let Some(ef_search) = self.ef_search
             && !(MIN_EF_SEARCH..=MAX_EF_SEARCH).contains(&ef_search)
         {
             return Err(invalid(format!(
                 "vector.efSearch must be a whole number from {MIN_EF_SEARCH} to {MAX_EF_SEARCH}"
-            )));
+            ))
+            .with_details([("efSearch", Value::from(ef_search))]));
         }
         if let Some(window) = self.rescore_window
             && !(MIN_RESCORE_WINDOW..=MAX_RESCORE_WINDOW).contains(&window)
