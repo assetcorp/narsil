@@ -108,7 +108,7 @@ func (n *Narsil) afterSearch(ctx context.Context, indexName string, params model
 // rebalance or an analysis change count toward no limit.
 func (n *Narsil) Query(ctx context.Context, indexName string, params QueryParams) (QueryResult, error) {
 	ctx = callerctx.Shield(ctx)
-	entry, release, err := n.acquire(indexName)
+	entry, release, err := n.acquireContext(ctx, indexName)
 	if err != nil {
 		return model.QueryResult{}, err
 	}
@@ -132,7 +132,7 @@ func (n *Narsil) Query(ctx context.Context, indexName string, params QueryParams
 // embedding.
 func (n *Narsil) Preflight(ctx context.Context, indexName string, params QueryParams) (PreflightResult, error) {
 	ctx = callerctx.Shield(ctx)
-	entry, release, err := n.acquire(indexName)
+	entry, release, err := n.acquireContext(ctx, indexName)
 	if err != nil {
 		return model.PreflightResult{}, err
 	}

@@ -57,7 +57,10 @@ func (n *Narsil) Close(ctx context.Context, indexName string) error {
 		return err
 	}
 	defer leave()
-	unlock := n.names.lock(indexName)
+	unlock, err := n.names.lockContext(ctx, indexName)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 	slot, _ := n.slotOf(indexName)
 	if slot == nil {
@@ -90,7 +93,9 @@ func (n *Narsil) closeSlot(ctx context.Context, slot *indexSlot, automatic bool)
 			return false, nil
 		}
 	} else {
-		entry.useMu.Lock()
+		if err := entry.useMu.LockContext(ctx); err != nil {
+			return false, err
+		}
 	}
 	if entry.retired {
 		entry.useMu.Unlock()

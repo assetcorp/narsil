@@ -217,7 +217,10 @@ func (n *Narsil) acquireContext(ctx context.Context, name string) (*indexEntry, 
 	for {
 		slot, entry := n.slotOf(name)
 		if entry != nil {
-			entry.useMu.RLock()
+			if err := entry.useMu.RLockContext(ctx); err != nil {
+				leave()
+				return nil, nil, err
+			}
 			if !entry.retired {
 				if slot != nil {
 					slot.touch()
@@ -280,7 +283,7 @@ type nameLocks struct {
 }
 
 type nameLock struct {
-	mu    sync.Mutex
+	mu    callerctx.RWMutex
 	users int
 }
 
@@ -316,6 +319,11 @@ func newNameLocks() *nameLocks {
 }
 
 func (l *nameLocks) lock(name string) func() {
+	unlock, _ := l.lockContext(context.Background(), name)
+	return unlock
+}
+
+func (l *nameLocks) lockContext(ctx context.Context, name string) (func(), error) {
 	l.mu.Lock()
 	held, found := l.locks[name]
 	if !found {
@@ -324,9 +332,7 @@ func (l *nameLocks) lock(name string) func() {
 	}
 	held.users++
 	l.mu.Unlock()
-	held.mu.Lock()
-	return func() {
-		held.mu.Unlock()
+	release := func() {
 		l.mu.Lock()
 		held.users--
 		if held.users == 0 {
@@ -334,4 +340,12 @@ func (l *nameLocks) lock(name string) func() {
 		}
 		l.mu.Unlock()
 	}
+	if err := held.mu.LockContext(ctx); err != nil {
+		release()
+		return nil, err
+	}
+	return func() {
+		held.mu.Unlock()
+		release()
+	}, nil
 }

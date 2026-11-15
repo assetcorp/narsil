@@ -29,7 +29,10 @@ func (n *Narsil) DropIndex(ctx context.Context, name string) error {
 }
 
 func (n *Narsil) dropUnannounced(ctx context.Context, name string) (model.IndexConfig, error) {
-	unlock := n.names.lock(name)
+	unlock, err := n.names.lockContext(ctx, name)
+	if err != nil {
+		return model.IndexConfig{}, err
+	}
 	defer unlock()
 	slot, entry := n.slotOf(name)
 	if entry == nil {
@@ -41,7 +44,9 @@ func (n *Narsil) dropUnannounced(ctx context.Context, name string) (model.IndexC
 	if err := n.dropSuggestionIndexesOf(ctx, name); err != nil {
 		return model.IndexConfig{}, err
 	}
-	entry.useMu.Lock()
+	if err := entry.useMu.LockContext(ctx); err != nil {
+		return model.IndexConfig{}, err
+	}
 	if entry.durable != nil {
 		if err := entry.durable.Drop(ctx); err != nil {
 			entry.useMu.Unlock()

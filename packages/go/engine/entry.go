@@ -5,6 +5,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/assetcorp/narsil/packages/go/engine/internal/callerctx"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/analysis"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
@@ -46,7 +47,7 @@ type indexEntry struct {
 	commits          inFlightCommits
 	watermarkLatched int
 
-	useMu   sync.RWMutex
+	useMu   callerctx.RWMutex
 	retired bool
 
 	promoted    atomic.Bool

@@ -30,7 +30,10 @@ func (n *Narsil) Restore(ctx context.Context, indexName string, source io.Reader
 		return err
 	}
 	defer n.emitWrite(indexName)
-	unlock := n.names.lock(indexName)
+	unlock, err := n.names.lockContext(ctx, indexName)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 	var created *indexEntry
 	sink := n.newHistorySink(indexName)
@@ -55,9 +58,11 @@ func (n *Narsil) Restore(ctx context.Context, indexName string, source io.Reader
 		defer endRestore()
 	}
 	swapping := false
-	hooks.Swap = func(context.Context) error {
+	hooks.Swap = func(ctx context.Context) error {
 		if replaces && !swapping {
-			previous.useMu.Lock()
+			if err := previous.useMu.LockContext(ctx); err != nil {
+				return err
+			}
 			swapping = true
 		}
 		return nil
