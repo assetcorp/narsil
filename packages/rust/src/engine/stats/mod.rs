@@ -1,11 +1,10 @@
-mod constants;
 mod memory;
 
 use super::Narsil;
 use super::index::IndexState;
+use crate::engine::memory::{read_process_memory, read_resident_bytes};
 use crate::error::Result;
 use crate::value::Value;
-use constants::{KIBIBYTE_BYTES, PROCESS_STATUS_PATH, RESIDENT_SET_FIELD};
 use memory::partition_bytes;
 
 /// The figures that [`Narsil::get_stats`] reports for one index.
@@ -108,15 +107,6 @@ pub(crate) fn index_bytes(index: &IndexState) -> u64 {
         })
 }
 
-fn process_resident_bytes() -> Option<u64> {
-    let status = std::fs::read_to_string(PROCESS_STATUS_PATH).ok()?;
-    let line = status
-        .lines()
-        .find_map(|line| line.strip_prefix(RESIDENT_SET_FIELD))?;
-    let kibibytes: u64 = line.trim().strip_suffix("kB")?.trim().parse().ok()?;
-    kibibytes.checked_mul(KIBIBYTE_BYTES)
-}
-
 impl Narsil {
     /// Returns the document count, partition count, memory estimate, language, and schema of one index.
     ///
@@ -192,9 +182,8 @@ impl Narsil {
             total.saturating_add(index_bytes(index))
         });
         MemoryStats {
-            process_resident_bytes: process_resident_bytes(),
-            process_limit_bytes: crate::engine::memory::read_process_memory()
-                .map(|memory| memory.limit_bytes),
+            process_resident_bytes: read_resident_bytes(),
+            process_limit_bytes: read_process_memory().map(|memory| memory.limit_bytes),
             estimated_index_bytes,
             open_index_count: indexes.len(),
         }

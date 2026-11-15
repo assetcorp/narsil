@@ -51,6 +51,18 @@ pub(crate) fn read_process_memory() -> Option<ProcessMemory> {
     None
 }
 
+/// Reads the whole resident memory of this process, file-backed pages included, or returns `None` on a system
+/// that reports none.
+#[cfg(any(target_os = "linux", target_os = "macos", windows))]
+pub(crate) fn read_resident_bytes() -> Option<u64> {
+    platform::resident_bytes()
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
+pub(crate) fn read_resident_bytes() -> Option<u64> {
+    None
+}
+
 /// Hands the allocator's free pages back to the system where the allocator allows it, and reports whether any
 /// went back.
 #[cfg(any(target_os = "linux", target_os = "macos", windows))]
