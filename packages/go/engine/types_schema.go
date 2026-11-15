@@ -4,6 +4,9 @@ import "github.com/assetcorp/narsil/packages/go/engine/internal/model"
 
 // Optional holds a setting that a caller may leave out, so that the engine
 // tells an absent value apart from a zero one and applies its own default.
+// It encodes to JSON as its value, or as null when unset, and decoding null
+// leaves it unset, so a config read from JSON keeps an absent field apart
+// from 0.
 type Optional[T any] = model.Optional[T]
 
 // Some returns an Optional that holds value, which is how a caller sets an
