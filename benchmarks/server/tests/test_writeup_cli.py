@@ -129,7 +129,7 @@ def test_rust_only_throughput_appears_in_the_headline(checkout):
 
 def test_different_rankings_and_failed_recall_are_reported_from_the_rows(checkout):
     rust = row("narsil-rust", 1500, 0.4)
-    rust["operating_point"] = {"met_target": True, "achieved_recall": 0.5, "target": 0.99}
+    rust["operating_point"] = {"met_target": True, "achieved_recall": 0.5, "target": None}
     data = comparison([row("narsil", 900), rust, row("qdrant", 1000)])
     data["tracks"][0]["track"] = "vector"
     write_comparison(checkout, data)
@@ -165,3 +165,12 @@ def test_charts_distinguish_missing_metrics_datasets_and_profiles(checkout):
     tail = (charts / "equal-precision-vector-latency-profile.svg").read_text()
     assert "Narsil Rust, no server latency recorded" in tail
     assert "Narsil Rust, not measured yet" in tail
+
+
+def test_input_cannot_relabel_a_competitor_as_a_narsil_server(checkout):
+    rival = row("elasticsearch", 2000)
+    rival["display_name"] = "Narsil Rust"
+    write_comparison(checkout, comparison([row("narsil"), rival]))
+    completed = command(checkout, "generate.py")
+    assert completed.returncode != 0
+    assert "display_name and unmeasured are reserved for generated rows" in completed.stderr
