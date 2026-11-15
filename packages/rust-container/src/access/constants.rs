@@ -1,0 +1,10 @@
+pub const SHA256_BYTES: usize = 32;
+pub const NOT_BEFORE_LEEWAY_SECONDS: f64 = 60.0;
+pub const MAX_TOKEN_BYTES: usize = 16_384;
+pub const MAX_TOKEN_INDEXES: usize = 1_024;
+pub const MAX_PERSON_UTF16_UNITS: usize = 256;
+pub const MAX_GROUP_TAIL_CHARACTERS: usize = 31;
+pub const PERSON_HEADER: &str = "narsil-person";
+pub const GROUP_HEADER: &str = "narsil-group";
+pub const FEED_SUBPROTOCOLS: [&str; 2] = ["narsil.sync.v1", "narsil.changes.v1"];
+pub const SECONDS_TO_MS: f64 = 1_000.0;
