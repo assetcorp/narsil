@@ -102,11 +102,14 @@ pub(super) fn open_locked(
     let (Some(epoch), records_previous) = log.recorded_capture() else {
         return Err(not_enabled(&index.name));
     };
-    let filter = match &request.filter {
-        Some(_) if !records_previous => return Err(previous_document_required(&index.name)),
-        Some(filter) => Some(ChangeFilter::new(filter, index)?),
-        None => None,
-    };
+    let filter = request
+        .filter
+        .as_ref()
+        .map(|filter| ChangeFilter::new(filter, index))
+        .transpose()?;
+    if filter.is_some() && !records_previous {
+        return Err(previous_document_required(&index.name));
+    }
     if let Some(requested) = &request.epoch
         && *requested != epoch
     {

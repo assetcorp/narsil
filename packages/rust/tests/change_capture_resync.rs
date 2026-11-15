@@ -267,6 +267,15 @@ fn malformed_requests_and_settings_fail_with_their_codes() {
         refusal(&narsil, &filtered),
         ErrorCode::CHANGES_PREVIOUS_DOCUMENT_REQUIRED
     );
+    let broken_without_previous = ChangesRequest {
+        filter: Some(Filter::field("absent", FieldTests::new().eq("open"))),
+        ..ChangesRequest::default()
+    };
+    assert_eq!(
+        refusal(&narsil, &broken_without_previous),
+        ErrorCode::SEARCH_INVALID_FIELD,
+        "the filter's own fault comes before the setting that refuses every filter"
+    );
     narsil
         .update_changes(INDEX, &capture(true))
         .expect("previous documents turn on");

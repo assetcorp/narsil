@@ -112,7 +112,7 @@ impl ChangeFeed {
 
     /// Returns the next event as [`ChangeFeed::next_within`] does, reading at most `max_bytes` of documents for it,
     /// and never more than 1 MiB, so that a server can keep each group within the room that its window leaves. A
-    /// read always takes at least one entry, so a group can pass `max_bytes` by one entry.
+    /// read always takes its first entry, so a group of one entry can pass `max_bytes`.
     pub fn next_within_bytes(
         &mut self,
         timeout: Duration,
