@@ -32,11 +32,9 @@ func (entry *indexEntry) attachHitVectors(ctx context.Context, result *model.Que
 
 func (n *Narsil) queryPinned(ctx context.Context, entry *indexEntry, target *index.Index, resolved model.QueryParams,
 	options index.QueryOptions) (model.QueryResult, error) {
-	analysed, err := target.AnalyseQuery(resolved)
-	if err != nil {
+	if err := analysisMatches(target, options); err != nil {
 		return model.QueryResult{}, err
 	}
-	options.Analysed = analysed
 	pinned, unpin, err := target.Pin(ctx)
 	if err != nil {
 		return model.QueryResult{}, err
@@ -142,19 +140,7 @@ func (n *Narsil) Preflight(ctx context.Context, indexName string, params QueryPa
 	if err != nil {
 		return model.PreflightResult{}, err
 	}
-	entry, release, embedded, err := n.embedForQuery(ctx, indexName, entry, release, hooked, nil)
-	if err != nil {
-		return model.PreflightResult{}, err
-	}
-	defer release()
-	result, stale, err := readUnderOneAnalysis(ctx, n, entry, func(target *index.Index) (model.PreflightResult, error) {
-		return target.PreflightWith(ctx, embedded.params, index.QueryOptions{PhraseReady: entry.phraseReady})
-	})
-	if err != nil {
-		return model.PreflightResult{}, err
-	}
-	result.AnalysisStale = stale
-	return result, nil
+	return n.preflightAnalysed(ctx, indexName, entry, release, hooked)
 }
 
 func readUnderOneAnalysis[R any](ctx context.Context, n *Narsil, entry *indexEntry, read func(*index.Index) (R, error)) (R, bool, error) {

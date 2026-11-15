@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index"
@@ -35,11 +36,9 @@ func (staged *stagedRerank) finish(entry *indexEntry, scores []float64, requeste
 
 func (n *Narsil) stageRerank(ctx context.Context, entry *indexEntry, target *index.Index, resolved model.QueryParams,
 	options index.QueryOptions) (*stagedRerank, error) {
-	analysed, err := target.AnalyseQuery(resolved)
-	if err != nil {
+	if err := analysisMatches(target, options); err != nil {
 		return nil, err
 	}
-	options.Analysed = analysed
 	pinned, unpin, err := target.Pin(ctx)
 	if err != nil {
 		return nil, err
@@ -145,16 +144,33 @@ func (n *Narsil) answerQuery(ctx context.Context, indexName string, entry *index
 	params model.QueryParams, options index.QueryOptions) (model.QueryResult, model.QueryParams, func(), error) {
 	var earlier *queryEmbedding
 	replacedReranks := 0
+	analysisChanges := 0
 	for {
 		held, releaseHeld, embedded, err := n.embedForQuery(ctx, indexName, entry, release, params, earlier)
 		if err != nil {
 			return model.QueryResult{}, params, nil, err
 		}
-		options.PhraseReady = held.phraseReady
+		held, releaseHeld, options, err = n.analyseForSearch(ctx, indexName, held, releaseHeld, embedded.params, options)
+		if errors.Is(err, errQueryAnalysisChanged) {
+			analysisChanges++
+			if analysisChanges < maxCallsAcrossIndexChanges {
+				entry, release, earlier = held, releaseHeld, &embedded
+				continue
+			}
+			err = indexReplacedDuringAnalysis(indexName, analysisChanges)
+		}
+		if err != nil {
+			releaseHeld()
+			return model.QueryResult{}, params, nil, err
+		}
 		if embedded.params.Rerank == nil {
 			result, stale, err := readUnderOneAnalysis(ctx, n, held, func(target *index.Index) (model.QueryResult, error) {
 				return n.queryPinned(ctx, held, target, embedded.params, options)
 			})
+			if errors.Is(err, errQueryAnalysisChanged) {
+				entry, release, earlier = held, releaseHeld, &embedded
+				continue
+			}
 			if err != nil {
 				releaseHeld()
 				return model.QueryResult{}, params, nil, err
@@ -163,6 +179,10 @@ func (n *Narsil) answerQuery(ctx context.Context, indexName string, entry *index
 			return result, embedded.params, releaseHeld, nil
 		}
 		result, answered, err := n.queryReranked(ctx, held, embedded.params, options)
+		if errors.Is(err, errQueryAnalysisChanged) {
+			entry, release, earlier = held, releaseHeld, &embedded
+			continue
+		}
 		if err != nil {
 			releaseHeld()
 			return model.QueryResult{}, params, nil, err

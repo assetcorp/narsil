@@ -10,6 +10,10 @@ type AnalysedQuery struct {
 	pass *analysis.Pass
 }
 
+func (q *AnalysedQuery) Matches(ix *Index) bool {
+	return q.ix == ix
+}
+
 func (ix *Index) AnalyseQuery(request model.QueryParams) (*AnalysedQuery, error) {
 	prepared, err := ix.settings.Analyzer.Prepare()
 	if err != nil {

@@ -188,13 +188,13 @@ func fillRerankedDocuments(documents *documentLookup, hits []model.Hit, groups [
 	}
 }
 
-func (ix *Index) highlightReranked(documents *documentLookup, hits []model.Hit, request model.QueryParams) error {
+func (ix *Index) highlightReranked(documents *documentLookup, hits []model.Hit, request model.QueryParams, analysed *AnalysedQuery) error {
 	request.Rerank, request.Pinned, request.SearchAfter = nil, nil, model.Optional[string]{}
 	prepared, err := ix.prepareQuery(request, QueryOptions{})
 	if err != nil {
 		return err
 	}
-	pass, err := ix.settings.Analyzer.Prepare()
+	pass, err := ix.queryPass(QueryOptions{Analysed: analysed})
 	if err != nil {
 		return err
 	}

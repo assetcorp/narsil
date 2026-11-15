@@ -25,6 +25,7 @@ type RerankStage struct {
 	counted    model.QueryResult
 	texts      []string
 	awaits     bool
+	analysed   *AnalysedQuery
 }
 
 func (ix *Index) StageReranked(pinned context.Context, request model.QueryParams, maxWindow int,
@@ -67,7 +68,7 @@ func (ix *Index) StageReranked(pinned context.Context, request model.QueryParams
 		return nil, err
 	}
 	staged := &RerankStage{ix: ix, started: started, request: request, binding: binding, plan: plan, first: first,
-		counted: first, ranked: first.Hits, placesPins: !request.SearchAfter.IsSet() && request.Pinned != nil}
+		counted: first, ranked: first.Hits, placesPins: !request.SearchAfter.IsSet() && request.Pinned != nil, analysed: options.Analysed}
 	if staged.placesPins || (request.Vector != nil && !rerankFusesRankings(&request)) {
 		plain := firstParams
 		if staged.placesPins {
@@ -145,7 +146,7 @@ func (s *RerankStage) Finish(scores []float64) (model.QueryResult, error) {
 	page := toModelHits(pageHits)
 	fillRerankedDocuments(s.documents, page, s.first.Groups, s.request.Document)
 	if s.request.Highlight != nil {
-		if err := s.ix.highlightReranked(s.documents, page, s.request); err != nil {
+		if err := s.ix.highlightReranked(s.documents, page, s.request, s.analysed); err != nil {
 			return model.QueryResult{}, err
 		}
 	}
