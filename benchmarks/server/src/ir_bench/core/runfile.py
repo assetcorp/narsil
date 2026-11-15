@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 from pathlib import Path
 
 from .types import Hit
@@ -15,15 +14,7 @@ from .types import Hit
 # fairness rule of the harness, not a property of any one engine, so it runs over
 # whatever hits a driver produces.
 def strict_ranking(hits: list[Hit]) -> list[tuple[str, float]]:
-    ranked: list[tuple[str, float]] = []
-    previous = math.inf
-    for hit in hits:
-        score = hit.score
-        if not (score < previous):
-            score = math.nextafter(previous, -math.inf)
-        ranked.append((hit.doc_id, score))
-        previous = score
-    return ranked
+    return [(hit.doc_id, float(len(hits) - position)) for position, hit in enumerate(hits)]
 
 
 def run_mapping(ranked: list[tuple[str, float]]) -> dict[str, float]:
