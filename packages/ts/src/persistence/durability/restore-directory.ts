@@ -13,7 +13,7 @@ function storageFailed(code: ErrorCode, message: string, key: string, error: unk
 }
 
 export function directoryRestoreStorage(directory: DurableDirectory): RestoreStorage {
-  return {
+  const storage: RestoreStorage = {
     directory,
     read: key => directory.read(key),
     write: (key, chunks) => directory.atomicWrite(key, chunks),
@@ -21,10 +21,21 @@ export function directoryRestoreStorage(directory: DurableDirectory): RestoreSto
     remove: key => directory.remove(key),
     list: prefix => directory.list(prefix),
     moveKey: (from, to) => directory.move(from, to),
-    pathOf: key => directory.pathOf(key),
+  }
+  const { pathOf } = directory
+  if (pathOf === undefined) return storage
+  return { ...storage, ...fileTreeOperations(directory, key => pathOf.call(directory, key)) }
+}
+
+function fileTreeOperations(
+  directory: DurableDirectory,
+  pathOf: (key: string) => Promise<string>,
+): Pick<RestoreStorage, 'pathOf' | 'moveTree' | 'removeTree'> {
+  return {
+    pathOf,
     async moveTree(from: string, to: string): Promise<void> {
-      const source = await directory.pathOf(from)
-      const target = await directory.pathOf(to)
+      const source = await pathOf(from)
+      const target = await pathOf(to)
       const fs = await getFs()
       try {
         await fs.rename(source, target)
@@ -38,7 +49,7 @@ export function directoryRestoreStorage(directory: DurableDirectory): RestoreSto
       const key = prefix.endsWith('/') ? prefix.slice(0, -1) : prefix
       const fs = await getFs()
       try {
-        await fs.rm(await directory.pathOf(key), { recursive: true, force: true })
+        await fs.rm(await pathOf(key), { recursive: true, force: true })
       } catch (error) {
         throw storageFailed(ErrorCodes.PERSISTENCE_DELETE_FAILED, `Failed to delete "${key}"`, key, error)
       }

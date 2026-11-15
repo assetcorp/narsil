@@ -5,7 +5,7 @@ import { READ_AHEAD_CHUNK_BYTES, READS_AHEAD_AT_ONCE } from './constants'
 import { decodeSections, type FileSection, RECORD_PAGE_BYTES, SEGMENT_PAGE_BYTES } from './format'
 import { residentSectionsOf } from './resident'
 import { readFileRangeLater } from './section-file'
-import { isPagedSegmentFile, pagedListingOf } from './verify'
+import { filePathOf, isPagedSegmentFile, pagedListingOf } from './verify'
 
 const FILE_PAGE_SIZES: ReadonlySet<number> = new Set([SEGMENT_PAGE_BYTES, RECORD_PAGE_BYTES])
 
@@ -56,7 +56,7 @@ async function headOf(path: string, ref: FileRef): Promise<Record<string, unknow
 }
 
 async function levelsOfPart(directory: DurableDirectory, ref: FileRef): Promise<FileRange[]> {
-  const path = await directory.pathOf(ref.key)
+  const path = await filePathOf(directory, ref.key)
   const head = await headOf(path, ref)
   const graphs = head?.graphs
   if (!Array.isArray(graphs) || graphs.length !== 1) return []

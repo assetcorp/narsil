@@ -28,8 +28,13 @@ export async function shutdownEngine(core: EngineCore): Promise<void> {
   await core.querySuggestionHooks?.shutdown()
   core.indexState.dispose()
 
+  let durabilityFailure: { error: unknown } | null = null
   if (durability) {
-    await durability.manager.shutdown()
+    try {
+      await durability.manager.shutdown()
+    } catch (error) {
+      durabilityFailure = { error }
+    }
   }
 
   const vectorDisposals: Promise<void>[] = []
@@ -67,4 +72,5 @@ export async function shutdownEngine(core: EngineCore): Promise<void> {
   await Promise.all(vectorDisposals)
   eventHandlers.clear()
   indexRegistry.clear()
+  if (durabilityFailure !== null) throw durabilityFailure.error
 }
