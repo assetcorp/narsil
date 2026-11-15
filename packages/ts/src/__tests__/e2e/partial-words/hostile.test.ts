@@ -52,9 +52,14 @@ function budgetDocuments(): AnyDocument[] {
   }))
 }
 
-async function searchStatus(server: WorkshopServer, body: unknown): Promise<{ status: number; code: string | null }> {
+async function searchAnswer(server: WorkshopServer, body: unknown) {
   const response = await postJson<ErrorEnvelope>(server.base, `/indexes/${INDEX}/search`, body)
-  return { status: response.status, code: response.body?.error?.code ?? null }
+  return { status: response.status, error: response.body?.error }
+}
+
+async function searchStatus(server: WorkshopServer, body: unknown): Promise<{ status: number; code: string | null }> {
+  const { status, error } = await searchAnswer(server, body)
+  return { status, code: error?.code ?? null }
 }
 
 async function createStatus(server: WorkshopServer, name: string, config: unknown) {
@@ -79,13 +84,17 @@ describe('a server facing hostile partial-word searches', () => {
     await server.stop()
   })
 
-  it('rejects every partialWords value other than true or false with CONFIG_INVALID', async () => {
-    for (const partialWords of ['yes', 'true', 1, 0, null, {}, [], [true]]) {
-      expect(await searchStatus(server, { term: 'proof', partialWords }), JSON.stringify(partialWords)).toEqual({
-        status: 400,
-        code: 'CONFIG_INVALID',
-      })
+  it('rejects every partialWords value other than true or false, and reads null as absent', async () => {
+    for (const partialWords of ['yes', 'true', 1, 0, {}, [], [true]]) {
+      const answer = await searchAnswer(server, { term: 'proof', partialWords })
+      expect([answer.status, answer.error?.code, answer.error?.message], JSON.stringify(partialWords)).toEqual([
+        400,
+        'INVALID_REQUEST',
+        'Field "partialWords" must be true or false',
+      ])
     }
+    const withNull = await server.client.query(INDEX, { term: 'proof', partialWords: null as unknown as boolean })
+    expect(withNull.hits).toEqual((await server.client.query(INDEX, { term: 'proof' })).hits)
     expect((await searchStatus(server, { term: 'proof', partialWords: true })).status).toBe(200)
   })
 
