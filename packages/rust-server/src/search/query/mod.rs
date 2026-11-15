@@ -3,8 +3,8 @@ mod vector;
 
 use narsil::{ErrorCode, Map, QueryParams, ScoringMode, SearchMode, TermMatch, Value};
 
-pub(crate) use clauses::projection;
-use clauses::{facet_specs, group_config, highlight_config, pins, sort_fields};
+use clauses::{facet_specs, group_config, highlight_config, pins};
+pub(crate) use clauses::{projection, sort_fields};
 use vector::{
     bm25_params, bm25_refusal, hybrid_config, rerank_config, rerank_refusal, vector_query,
 };
