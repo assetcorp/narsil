@@ -30,3 +30,4 @@ export const EVENT_TYPES: ReadonlySet<string> = new Set([
 
 export const WEBHOOK_DROPPED_TYPE = 'webhook.dropped'
 export const WEBHOOK_STOPPED_TYPE = 'webhook.stopped'
+export const WEBHOOK_PERSISTENCE_ERROR_TYPE = 'webhook.persistenceError'

@@ -16,3 +16,4 @@ export const MAX_RETRY_JITTER_FRACTION = 0.1
 export const GONE_STATUS = 410
 export const DELIVERY_LOAD_CONCURRENCY = 16
 export const WEBHOOK_USER_AGENT = 'narsil-webhooks'
+export const PERSISTENCE_RETRY_DELAY_MS = 5_000
