@@ -171,6 +171,7 @@ async function pumpPartition(
     forgetSyncSessions(state, indexName, partitionId)
     state.pendingAdmissions.delete(key)
     state.admissionsToWithdraw.delete(key)
+    state.admittedReplicas.delete(key)
     return
   }
   for (const withdrawal of withdrawAppliedAdmissions(state, deps, indexName, partitionId, assignment)) {
@@ -179,18 +180,16 @@ async function pumpPartition(
     started.push(work)
   }
 
+  const admitted = new Set(admittedBeyondTable(state, indexName, partitionId, assignment, generationAtLiveRead))
   for (const [replicaNodeId, cursor] of [...replicas]) {
     if (state.stopped) {
       return
     }
-    const admitted = admittedBeyondTable(state, indexName, partitionId, assignment, generationAtLiveRead).includes(
-      replicaNodeId,
-    )
     if (!assignment.replicas.includes(replicaNodeId)) {
       forgetReplica(state, indexName, partitionId, replicaNodeId)
       continue
     }
-    if (admitted) {
+    if (admitted.has(replicaNodeId)) {
       continue
     }
     if (assignment.inSyncSet.includes(replicaNodeId)) {
@@ -253,7 +252,7 @@ async function pumpPartition(
  * @returns A promise that settles once every feed that this tick started has finished.
  */
 export function runCatchUpTick(state: CatchUpState, deps: WriteRoutingDeps): Promise<void> {
-  const idle = state.cursors.size === 0 && state.admissionsToWithdraw.size === 0
+  const idle = state.cursors.size === 0 && state.admissionsToWithdraw.size === 0 && state.admittedReplicas.size === 0
   if (state.stopped || state.activeTick !== null || idle) {
     return state.activeTick ?? Promise.resolve()
   }
@@ -261,7 +260,12 @@ export function runCatchUpTick(state: CatchUpState, deps: WriteRoutingDeps): Pro
   const started: Promise<void>[] = []
   const tick = (async () => {
     const registered = await registeredNodes(deps)
-    for (const key of new Set([...state.cursors.keys(), ...state.admissionsToWithdraw.keys()])) {
+    const keys = new Set([
+      ...state.cursors.keys(),
+      ...state.admissionsToWithdraw.keys(),
+      ...state.admittedReplicas.keys(),
+    ])
+    for (const key of keys) {
       if (state.stopped) {
         return
       }
