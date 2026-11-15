@@ -151,7 +151,9 @@ stemming, and stop-word choices move them more.
   each engine's search-time knob (`efSearch` for Narsil, `num_candidates` for
   Elasticsearch, `ef_search` for OpenSearch, `hnsw_ef` for Qdrant, and `ef` for
   Weaviate) upward until the engine clears `ann_recall@10 >= 0.99` against that
-  exact top-k. The sweep runs on a seeded sample of `vector.tuning_sample_queries`
+  exact top-k. Every engine walks the same `vector.ef_search_grid` in both
+  profiles, and that grid steps by 32 from 128 to 512, so each engine is measured
+  at the smallest of those values that clears the target. The sweep runs on a seeded sample of `vector.tuning_sample_queries`
   queries, and one timed trip over every query then confirms the chosen value. If
   the full set falls short of the target, the harness moves the knob to the next
   grid value and repeats the trip, so a sample that misses adds a trip and never a
