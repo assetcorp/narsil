@@ -13,7 +13,9 @@ import {
 } from '@delali/narsil/server'
 import { createAccessHook, createCredentialVerifier, createQueryIdentity } from './access'
 import { buildAdapters } from './adapters'
+import { DeferredEventQueue } from './events/deferred-queue'
 import { createEventSink, deliveryBody, engineEventHandlers, TaskEventStore } from './events/publish'
+import { WEBHOOK_DROPPED_TYPE } from './events/types'
 import { MissingLanguageError, registerLanguages } from './languages/load'
 import type { ContainerSettings } from './settings'
 import {
@@ -194,13 +196,22 @@ export async function startNode(settings: ContainerSettings, output: Output): Pr
     throw err
   }
   const folders = await prepareFolders(settings)
-  const queue = await startQueue(settings, folders, output)
-  const sink = createEventSink(output.event, queue, settings.webhook?.events ?? null)
+  let queue: WebhookQueue | null = null
+  const deferred = new DeferredEventQueue(dropped => {
+    output.event(deliveryBody(WEBHOOK_DROPPED_TYPE, { reason: 'queueFull', dropped }, Date.now()))
+  })
+  const sink = createEventSink(
+    output.event,
+    settings.webhook === null ? null : deferred,
+    settings.webhook?.events ?? null,
+  )
   const adapters = await buildAdapters(settings.embedders, settings.rerankers, folders.models)
   const engine = await createEngine(engineConfig(settings, folders, engineEventHandlers(sink), adapters))
   const taskStore = new TaskEventStore(taskStoreOf(folders), sink)
   let server: NarsilServer
   try {
+    queue = await startQueue(settings, folders, output)
+    if (queue !== null) deferred.connect(queue)
     await reconcileLocalTasks(taskStore)
     server = serverOrStartupError(engine, serverOptions(settings, taskStore))
     await server.listen()
