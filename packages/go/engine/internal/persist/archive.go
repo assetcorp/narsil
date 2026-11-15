@@ -47,17 +47,22 @@ func openArchive(ctx context.Context, store checkpoint.Store, name string, relea
 }
 
 func (durable *Durable) OpenArchive(ctx context.Context) (*Archive, error) {
-	hold, release := durable.manager.archives.hold(durable.handle.Name)
 	if err := durable.checkpoint(ctx, true); err != nil {
-		release()
 		return nil, err
 	}
-	opened, err := openArchive(ctx, durable.manager.store, durable.handle.Name, release)
+	if err := durable.checkpointMutex.RLockContext(ctx); err != nil {
+		return nil, err
+	}
+	defer durable.checkpointMutex.RUnlock()
+	opened, err := openArchive(ctx, durable.manager.store, durable.handle.Name, func() {})
 	if err != nil {
-		release()
 		return nil, err
 	}
-	durable.manager.archives.narrow(hold, opened.Manifest.ListedKeys())
+	pinned, release, err := durable.manager.pinArchive(ctx, durable.handle.Name, opened.Manifest.ListedKeys())
+	if err != nil {
+		return nil, err
+	}
+	opened.store, opened.release = pinned, release
 	opened.pagedText = durable.textStoredOnDisk()
 	return opened, nil
 }

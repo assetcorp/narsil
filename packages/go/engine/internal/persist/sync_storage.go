@@ -73,13 +73,12 @@ func (durable *Durable) removeGarbage(ctx context.Context, store checkpoint.Stor
 		}
 	}
 	durable.deferredGarbage = candidates
-	unheld, archived := durable.manager.archives.split(durable.handle.Name, candidates)
-	removable, err := durable.withoutSyncKept(unheld)
+	removable, err := durable.withoutSyncKept(candidates)
 	if err != nil {
 		return err
 	}
 	stillRead, err := checkpoint.RemoveGarbage(ctx, store, removable, durable.handle.vectorFields())
-	durable.deferredGarbage = append(archived, stillRead...)
+	durable.deferredGarbage = stillRead
 	return err
 }
 

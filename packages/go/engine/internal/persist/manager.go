@@ -47,7 +47,6 @@ type Manager struct {
 	lock      *storage.DirectoryLock
 	identity  string
 	sizes     *storedSizes
-	archives  archiveHolds
 
 	mutex   sync.Mutex
 	indexes map[string]*Durable

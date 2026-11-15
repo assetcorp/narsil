@@ -69,6 +69,13 @@ func TestMain(m *testing.M) {
 		}
 		os.Exit(0)
 	}
+	if directory := os.Getenv(pinCrashDirectoryVariable); directory != "" {
+		if err := runPinCrashChild(directory, os.Getenv(pinCrashReadyVariable)); err != nil {
+			fmt.Fprintln(os.Stderr, "the pin crash child stopped:", engine.ErrorCode(err), err)
+			os.Exit(3)
+		}
+		os.Exit(0)
+	}
 	if directory := os.Getenv(crashDirectoryVariable); directory != "" {
 		seed, _ := strconv.ParseInt(os.Getenv(crashSeedVariable), 10, 64)
 		if err := runCrashChild(directory, os.Getenv(crashLogVariable), os.Getenv(crashModeVariable), seed); err != nil {

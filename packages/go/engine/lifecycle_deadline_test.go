@@ -3,8 +3,6 @@ package engine_test
 import (
 	"bytes"
 	"context"
-	"errors"
-	"io"
 	"sync"
 	"testing"
 	"time"
@@ -13,6 +11,7 @@ import (
 )
 
 type pausedArchiveWriter struct {
+	bytes.Buffer
 	once    sync.Once
 	entered chan struct{}
 	proceed chan struct{}
@@ -20,12 +19,11 @@ type pausedArchiveWriter struct {
 
 func (w *pausedArchiveWriter) Write(data []byte) (int, error) {
 	w.once.Do(func() { close(w.entered); <-w.proceed })
-	return io.Discard.Write(data)
+	return w.Buffer.Write(data)
 }
 
 func TestLifecycleCallsBesideAStreamingSnapshotKeepItWhole(t *testing.T) {
-	waitsForTheArchive := map[string]bool{"close": false, "drop": true, "restore": true}
-	for operation, waits := range waitsForTheArchive {
+	for _, operation := range []string{"close", "drop", "restore"} {
 		t.Run(operation, func(t *testing.T) {
 			ctx := context.Background()
 			narsil := startedForCallbacks(t, true)
@@ -66,14 +64,26 @@ func TestLifecycleCallsBesideAStreamingSnapshotKeepItWhole(t *testing.T) {
 			}
 			if !returned {
 				<-finished
-				t.Fatalf("the %s waited beyond its deadline for the snapshot", operation)
+				t.Fatalf("the %s waited for the snapshot", operation)
 			}
-			if waits && !errors.Is(failure, context.DeadlineExceeded) || !waits && failure != nil {
+			if failure != nil {
 				t.Fatalf("the %s returned %v", operation, failure)
 			}
-			result, err := narsil.Query(ctx, callbackIndex, engine.QueryParams{Term: "lighthouse"})
-			if err != nil || len(result.Hits) != 1 || result.Hits[0].ID != "kept" {
-				t.Fatalf("after the %s the index returned %+v, %v", operation, result, err)
+			reader := startedForCallbacks(t, false)
+			if err := restoreArchive(reader, callbackIndex, writer.Bytes()); err != nil {
+				t.Fatalf("restoring the snapshot taken beside the %s failed with %s: %v", operation, codeOrMessage(err), err)
+			}
+			if err := onlyLighthouse(reader, ctx, callbackIndex); err != nil {
+				t.Fatalf("the snapshot taken beside the %s: %v", operation, err)
+			}
+			if operation == "drop" {
+				if listed := narsil.ListIndexes(); len(listed) != 0 {
+					t.Fatalf("after the drop the engine lists %+v", listed)
+				}
+				return
+			}
+			if err := onlyLighthouse(narsil, ctx, callbackIndex); err != nil {
+				t.Fatalf("after the %s: %v", operation, err)
 			}
 		})
 	}

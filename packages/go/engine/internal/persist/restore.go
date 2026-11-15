@@ -266,9 +266,6 @@ func (manager *Manager) restoreStaged(ctx context.Context, read *archiveRead, so
 
 func (manager *Manager) installRestored(ctx context.Context, staging *restoreStaging, handle *Handle,
 	listed manifest.Manifest) (*Durable, error) {
-	if err := manager.archives.awaitReleased(ctx, handle.Name); err != nil {
-		return nil, err
-	}
 	for _, field := range handle.vectorFields() {
 		if err := field.ReleaseVectorFiles(ctx); err != nil {
 			return nil, err
