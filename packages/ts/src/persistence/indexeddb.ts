@@ -23,11 +23,19 @@ interface IDBOpenDBRequest {
 interface IDBDatabaseInstance {
   objectStoreNames: { contains(name: string): boolean }
   createObjectStore(name: string): void
-  transaction(storeName: string, mode: 'readonly' | 'readwrite'): IDBTransactionInstance
+  transaction(
+    storeName: string,
+    mode: 'readonly' | 'readwrite',
+    options?: { durability: 'strict' | 'relaxed' },
+  ): IDBTransactionInstance
 }
 
 interface IDBTransactionInstance {
   objectStore(name: string): IDBObjectStoreInstance
+  error: { message: string } | null
+  oncomplete: (() => void) | null
+  onerror: (() => void) | null
+  onabort: (() => void) | null
 }
 
 interface IDBObjectStoreInstance {
@@ -88,6 +96,11 @@ function validateKey(key: string): void {
  *
  * The adapter opens the database on its first call and keeps the handle, so
  * creating it costs nothing until the engine writes.
+ *
+ * An engine on this adapter keeps a write-ahead log in the same object store,
+ * so a closed tab keeps every write that the engine acknowledged, and only one
+ * engine at a time can open the store. Pass an invalidation adapter, or set
+ * `durability.tier` to `'snapshot'`, where several tabs share the store.
  *
  * @param config - The database and object store to use. Omit it to accept the
  * defaults.
@@ -161,24 +174,35 @@ export function createIndexedDBPersistence(config?: IndexedDBPersistenceConfig):
     })
   }
 
+  async function commitWrite(
+    key: string,
+    code: typeof ErrorCodes.PERSISTENCE_SAVE_FAILED | typeof ErrorCodes.PERSISTENCE_DELETE_FAILED,
+    write: (store: IDBObjectStoreInstance) => void,
+  ): Promise<void> {
+    const db = await openDatabase()
+    return new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(storeName, 'readwrite', { durability: 'strict' })
+      const fail = () =>
+        reject(
+          new NarsilError(
+            code,
+            `Failed to ${code === ErrorCodes.PERSISTENCE_SAVE_FAILED ? 'save' : 'delete'} key "${key}": ${tx.error?.message ?? 'unknown error'}`,
+          ),
+        )
+      tx.oncomplete = () => resolve()
+      tx.onerror = fail
+      tx.onabort = fail
+      write(tx.objectStore(storeName))
+    })
+  }
+
   return {
+    indexedDB: { databaseName: dbName, storeName },
+
     async save(key: string, data: Uint8Array): Promise<void> {
       validateKey(key)
-      const db = await openDatabase()
-      return new Promise<void>((resolve, reject) => {
-        const tx = db.transaction(storeName, 'readwrite')
-        const store = tx.objectStore(storeName)
-        const request = store.put(data, key)
-
-        request.onsuccess = () => resolve()
-        request.onerror = () =>
-          reject(
-            new NarsilError(
-              ErrorCodes.PERSISTENCE_SAVE_FAILED,
-              `Failed to save key "${key}": ${request.error?.message ?? 'unknown error'}`,
-            ),
-          )
-      })
+      const ownedBytes = data.byteOffset === 0 && data.byteLength === data.buffer.byteLength ? data : data.slice()
+      await commitWrite(key, ErrorCodes.PERSISTENCE_SAVE_FAILED, store => store.put(ownedBytes, key))
     },
 
     async load(key: string): Promise<Uint8Array | null> {
@@ -209,21 +233,7 @@ export function createIndexedDBPersistence(config?: IndexedDBPersistenceConfig):
 
     async delete(key: string): Promise<void> {
       validateKey(key)
-      const db = await openDatabase()
-      return new Promise<void>((resolve, reject) => {
-        const tx = db.transaction(storeName, 'readwrite')
-        const store = tx.objectStore(storeName)
-        const request = store.delete(key)
-
-        request.onsuccess = () => resolve()
-        request.onerror = () =>
-          reject(
-            new NarsilError(
-              ErrorCodes.PERSISTENCE_DELETE_FAILED,
-              `Failed to delete key "${key}": ${request.error?.message ?? 'unknown error'}`,
-            ),
-          )
-      })
+      await commitWrite(key, ErrorCodes.PERSISTENCE_DELETE_FAILED, store => store.delete(key))
     },
 
     async list(prefix: string): Promise<string[]> {

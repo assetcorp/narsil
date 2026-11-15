@@ -51,7 +51,7 @@ describe('the vector files of a segmented checkpoint', () => {
   }
 
   async function modifiedAt(key: string): Promise<number> {
-    return (await stat(await createDurableDirectory(root).pathOf(key))).mtimeMs
+    return (await stat(join(root, key))).mtimeMs
   }
 
   it('leaves a written vector file as it is and writes the later vectors into a new file', async () => {
