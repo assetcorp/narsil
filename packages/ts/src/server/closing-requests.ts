@@ -3,6 +3,7 @@ import type { ResponseAbort } from './request'
 import { LeavingResponse, refuseAndClose } from './request-threads/leaving-response'
 import type { ResponseSink } from './response'
 import type { ErrorEnvelope } from './types'
+import { waitUntilWallClock } from './wall-clock-wait'
 
 const CLOSING_REFUSAL: ErrorEnvelope = {
   error: {
@@ -54,14 +55,12 @@ export function watchClosingRequests(): ClosingRequests {
     async close(deadlineMs) {
       closing = true
       if (running.size === 0) return
-      let timer: ReturnType<typeof setTimeout> | undefined
-      await Promise.race([
-        new Promise<void>(resolve => waitingForIdle.push(resolve)),
-        new Promise<void>(resolve => {
-          timer = setTimeout(resolve, deadlineMs)
-        }),
-      ])
-      clearTimeout(timer)
+      const deadline = waitUntilWallClock(Date.now() + deadlineMs)
+      try {
+        await Promise.race([new Promise<void>(resolve => waitingForIdle.push(resolve)), deadline.reached])
+      } finally {
+        deadline.cancel()
+      }
     },
   }
 }
