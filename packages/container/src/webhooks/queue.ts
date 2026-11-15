@@ -1,10 +1,11 @@
 import { createHmac, randomBytes } from 'node:crypto'
-import { WEBHOOK_DROPPED_TYPE, WEBHOOK_STOPPED_TYPE } from '../events/types'
+import { WEBHOOK_DROPPED_TYPE, WEBHOOK_PERSISTENCE_ERROR_TYPE, WEBHOOK_STOPPED_TYPE } from '../events/types'
 import {
   GONE_STATUS,
   MAX_QUEUED_DELIVERIES,
   MAX_RETRY_JITTER_FRACTION,
   MAX_SENDS_IN_FLIGHT,
+  PERSISTENCE_RETRY_DELAY_MS,
   RETRY_DELAYS_MS,
   SEND_TIMEOUT_MS,
   WEBHOOK_USER_AGENT,
@@ -103,8 +104,8 @@ export class WebhookQueue {
     while (this.queued.size >= MAX_QUEUED_DELIVERIES) this.dropOldest()
     const entry: QueuedDelivery = { delivery, timer: null, sending: false }
     this.queued.set(delivery.id, entry)
-    if (persist) this.save(delivery)
-    this.schedule(entry)
+    if (persist) this.persistAndSchedule(entry)
+    else this.schedule(entry)
   }
 
   private dropOldest(): void {
@@ -127,11 +128,28 @@ export class WebhookQueue {
     entry.timer = null
     this.queued.delete(entry.delivery.id)
     this.ready.delete(entry.delivery.id)
-    this.options.store.remove(entry.delivery.id).catch(() => undefined)
+    this.options.store.remove(entry.delivery.id).catch(() => {
+      this.options.report(WEBHOOK_PERSISTENCE_ERROR_TYPE, { operation: 'remove', deliveryId: entry.delivery.id })
+    })
   }
 
-  private save(delivery: Delivery): void {
-    this.options.store.save(delivery).catch(() => undefined)
+  private persistAndSchedule(entry: QueuedDelivery): void {
+    this.options.store
+      .save(entry.delivery)
+      .then(() => {
+        if (this.closed || this.queued.get(entry.delivery.id) !== entry) return
+        this.schedule(entry)
+        this.pump()
+      })
+      .catch(() => {
+        this.options.report(WEBHOOK_PERSISTENCE_ERROR_TYPE, { operation: 'save', deliveryId: entry.delivery.id })
+        if (this.closed || this.queued.get(entry.delivery.id) !== entry) return
+        entry.timer = setTimeout(() => {
+          entry.timer = null
+          this.persistAndSchedule(entry)
+        }, PERSISTENCE_RETRY_DELAY_MS)
+        entry.timer.unref()
+      })
   }
 
   private schedule(entry: QueuedDelivery): void {
@@ -237,7 +255,6 @@ export class WebhookQueue {
     }
     const jittered = Math.round(delay * (1 + this.random() * MAX_RETRY_JITTER_FRACTION))
     entry.delivery = { ...entry.delivery, failedTries, dueAt: this.now() + jittered }
-    this.save(entry.delivery)
-    this.schedule(entry)
+    this.persistAndSchedule(entry)
   }
 }
