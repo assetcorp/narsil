@@ -232,6 +232,7 @@ class NarsilHttpServer implements NarsilServer {
 
   async shutdown(): Promise<void> {
     await this.close()
+    await this.deps.tasks.shutdown()
     await this.engine.shutdown()
   }
 
