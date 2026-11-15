@@ -5,43 +5,83 @@ import (
 	"sync"
 )
 
+type heldBurst struct {
+	bytes   float64
+	holders int
+}
+
 type Reservation struct {
-	once  sync.Once
-	bytes float64
-	Count int
+	once     sync.Once
+	bytes    float64
+	burstKey any
+	Count    int
 }
 
 func (r *Reservation) Release() {
-	if r == nil || r.bytes == 0 {
+	if r == nil || (r.bytes == 0 && r.burstKey == nil) {
 		return
 	}
 	r.once.Do(func() {
 		process.mu.Lock()
+		defer process.mu.Unlock()
 		process.reservedBytes -= r.bytes
-		process.mu.Unlock()
+		if r.burstKey == nil {
+			return
+		}
+		held := process.bursts[r.burstKey]
+		if held == nil {
+			return
+		}
+		if held.holders--; held.holders <= 0 {
+			delete(process.bursts, r.burstKey)
+		}
 	})
 }
 
 type CountExactly func(position int)
 
+type Burst struct {
+	Key   any
+	Bytes float64
+}
+
+func (c *figureCache) reservedLocked() float64 {
+	reserved := c.reservedBytes
+	for _, held := range c.bursts {
+		reserved += held.bytes
+	}
+	return reserved
+}
+
+func (c *figureCache) extraBurstLocked(burst Burst) float64 {
+	if burst.Key == nil || burst.Bytes <= 0 {
+		return 0
+	}
+	if held := c.bursts[burst.Key]; held != nil {
+		return max(0, burst.Bytes-held.bytes)
+	}
+	return burst.Bytes
+}
+
 type Projection struct {
-	monitor   *Monitor
-	fractions Fractions
+	monitor *Monitor
 }
 
 func NewProjection(monitor *Monitor) *Projection {
-	return &Projection{monitor: monitor, fractions: monitor.fractions}
+	return &Projection{monitor: monitor}
 }
 
 func (p *Projection) blockBytesOf(figures Figures) float64 {
-	return math.Floor(math.Min(p.fractions.Block*figures.HeapLimitBytes, p.fractions.Block*figures.ProcessLimitBytes))
+	block := p.monitor.fractions.Block
+	return math.Floor(math.Min(block*figures.HeapLimitBytes, block*figures.ProcessLimitBytes))
 }
 
-func (p *Projection) fittingLocked(figures Figures, bounds []float64, start, end int, burst float64) (int, int) {
-	reserved := process.reservedBytes
-	heapRoom := p.fractions.Block*figures.HeapLimitBytes - figures.HeapBytes - reserved
-	processRoom := p.fractions.Block*figures.ProcessLimitBytes - figures.ProcessBytes - reserved
-	taken := burst
+func (p *Projection) fittingLocked(figures Figures, bounds []float64, start, end int, burst Burst) (int, int) {
+	block := p.monitor.fractions.Block
+	reserved := process.reservedLocked()
+	heapRoom := block*figures.HeapLimitBytes - figures.HeapBytes - reserved
+	processRoom := block*figures.ProcessLimitBytes - figures.ProcessBytes - reserved
+	taken := process.extraBurstLocked(burst)
 	for position := start; position < end; position++ {
 		next := taken + bounds[position]
 		if next > heapRoom || next > processRoom {
@@ -52,20 +92,39 @@ func (p *Projection) fittingLocked(figures Figures, bounds []float64, start, end
 	return end - start, -1
 }
 
-func reserveLocked(bounds []float64, start, count int, burst float64) *Reservation {
-	bytes := burst
+func reserveLocked(bounds []float64, start, count int, burst Burst) *Reservation {
+	bytes := 0.0
 	for position := start; position < start+count; position++ {
 		bytes += bounds[position]
 	}
+	reservation := &Reservation{bytes: bytes, Count: count}
 	process.reservedBytes += bytes
-	process.admittedBytes += bytes
-	return &Reservation{bytes: bytes, Count: count}
+	process.admittedBytes += bytes + process.extraBurstLocked(burst)
+	if burst.Key != nil && burst.Bytes > 0 {
+		if process.bursts == nil {
+			process.bursts = map[any]*heldBurst{}
+		}
+		held := process.bursts[burst.Key]
+		if held == nil {
+			held = &heldBurst{}
+			process.bursts[burst.Key] = held
+		}
+		held.bytes = max(held.bytes, burst.Bytes)
+		held.holders++
+		reservation.burstKey = burst.Key
+	}
+	return reservation
 }
 
 type countedPositions map[int]struct{}
 
+func (c countedPositions) counted(position int) bool {
+	_, done := c[position]
+	return done
+}
+
 func (c countedPositions) count(position int, countExactly CountExactly) bool {
-	if _, done := c[position]; done || countExactly == nil {
+	if countExactly == nil || c.counted(position) {
 		return false
 	}
 	c[position] = struct{}{}
@@ -73,13 +132,12 @@ func (c countedPositions) count(position int, countExactly CountExactly) bool {
 	return true
 }
 
-func (p *Projection) TakeGroup(indexName string, bounds []float64, start, mostDocuments int, burst float64,
+func (p *Projection) TakeGroup(indexName string, bounds []float64, start, mostDocuments int, burst Burst,
 	countExactly CountExactly) (*Reservation, error) {
 	end := min(len(bounds), start+max(1, mostDocuments))
 	if start >= end {
 		return &Reservation{}, nil
 	}
-	burst = max(0, burst)
 	counted := countedPositions{}
 	for {
 		process.mu.Lock()
@@ -98,7 +156,7 @@ func (p *Projection) TakeGroup(indexName string, bounds []float64, start, mostDo
 			return nil, exceedsMemory(indexName, bounds[start], blockBytes)
 		}
 		count, stoppedAt := p.fittingLocked(measured, bounds, start, end, burst)
-		if stoppedAt < 0 || (count > 0 && !p.countable(counted, stoppedAt, countExactly)) {
+		if stoppedAt < 0 || (count > 0 && (countExactly == nil || counted.counted(stoppedAt))) {
 			reservation := reserveLocked(bounds, start, count, burst)
 			process.mu.Unlock()
 			return reservation, nil
@@ -115,12 +173,7 @@ func (p *Projection) TakeGroup(indexName string, bounds []float64, start, mostDo
 	}
 }
 
-func (p *Projection) countable(counted countedPositions, position int, countExactly CountExactly) bool {
-	_, done := counted[position]
-	return !done && countExactly != nil
-}
-
-func (p *Projection) afterCollection(indexName string, bounds []float64, start, end int, burst float64,
+func (p *Projection) afterCollection(indexName string, bounds []float64, start, end int, burst Burst,
 	measured Figures) (*Reservation, *fillRefusal) {
 	collectionsBefore := p.monitor.Collections()
 	figures, found := p.monitor.MeasureWithoutGarbage()
@@ -134,7 +187,7 @@ func (p *Projection) afterCollection(indexName string, bounds []float64, start, 
 		process.mu.Unlock()
 		return reservation, nil
 	}
-	projected := process.reservedBytes + burst
+	projected := process.reservedLocked() + process.extraBurstLocked(burst)
 	process.mu.Unlock()
 	collected := p.monitor.Collections() != collectionsBefore
 	if collected {

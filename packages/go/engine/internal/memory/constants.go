@@ -39,7 +39,7 @@ const (
 
 const (
 	restoreEstimateMargin = 1.25
-	megabyteBytes         = 1 << 20
+	mebibyteBytes         = 1 << 20
 )
 
 const (

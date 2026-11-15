@@ -238,10 +238,12 @@ func (s *Shape) Bound(document *codec.Document) float64 {
 		}
 		return s.builtInTermBytes(text, partial), nil
 	}
-	bound, err := s.boundWith(document, termBytes)
-	if err != nil {
-		return 0
+	if bound, err := s.boundWith(document, termBytes); err == nil {
+		return bound
 	}
+	bound, _ := s.boundWith(document, func(text string, partial bool) (float64, error) {
+		return s.builtInTermBytes(text, partial), nil
+	})
 	return bound
 }
 

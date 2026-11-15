@@ -56,9 +56,7 @@ func (m *Monitor) withoutGarbageLocked(figures Figures) Figures {
 		return figures
 	}
 	m.collectedAt, m.collectedOnce = now, true
-	if !collectGarbage() {
-		return figures
-	}
+	collectGarbage()
 	m.collectionCount++
 	if fresh, found := process.measure(); found {
 		return fresh
