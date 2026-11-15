@@ -2,7 +2,7 @@ const { isAncestor, requireCommit } = require('./suite-inputs.js')
 
 const MAIN_BRANCH = 'main'
 const PER_PAGE = 100
-const MAX_RUN_PAGES = 10
+const NEWEST_RUN_PAGES = 3
 const MAX_JOB_PAGES = 5
 const REQUEST_TIMEOUT_MS = 30_000
 const REQUEST_ATTEMPTS = 3
@@ -35,7 +35,7 @@ async function request(path) {
   }
 }
 
-async function pagesOf(path, field, limit) {
+async function pagesOf(path, field, limit, { newestOnly = false } = {}) {
   const entries = []
   let total = null
   const ids = new Set()
@@ -47,7 +47,7 @@ async function pagesOf(path, field, limit) {
     }
     if (total !== null && total !== body.total_count) throw new Error(`${field} changed during pagination`)
     total = body.total_count
-    if (total > limit * PER_PAGE) throw new Error(`${field} exceeds the lookup limit`)
+    if (!newestOnly && total > limit * PER_PAGE) throw new Error(`${field} exceeds the lookup limit`)
     for (const entry of body[field]) {
       if (!Number.isSafeInteger(entry?.id) || entry.id <= 0 || ids.has(entry.id)) {
         throw new Error(`${field} holds an invalid or repeated ID`)
@@ -59,6 +59,7 @@ async function pagesOf(path, field, limit) {
     if (entries.length === total) return entries
     if (body[field].length !== PER_PAGE) throw new Error(`${field} lists fewer entries than it counts`)
   }
+  if (newestOnly) return entries
   throw new Error(`${field} exceeds the lookup limit`)
 }
 
@@ -110,7 +111,7 @@ function createRunLookup(head) {
 
   async function listRuns(workflow) {
     const path = `/repos/${REPOSITORY}/actions/workflows/${workflow}/runs?branch=${MAIN_BRANCH}&event=push`
-    const runs = await pagesOf(path, 'workflow_runs', MAX_RUN_PAGES)
+    const runs = await pagesOf(path, 'workflow_runs', NEWEST_RUN_PAGES, { newestOnly: true })
     return runs.filter(run => trustedRun(run, workflow))
   }
 
@@ -143,11 +144,19 @@ function createRunLookup(head) {
     return jobs
   }
 
-  async function requireUnchanged(workflows, run) {
+  async function requireUnchanged(workflows, run, testsTheSameInputs) {
     for (const workflow of workflows) {
-      const before = (await runsByWorkflow.get(workflow)).map(runState).sort()
-      const after = (await listRuns(workflow)).map(runState).sort()
-      if (JSON.stringify(before) !== JSON.stringify(after)) throw new Error(`${workflow} changed during the lookup`)
+      const statesBefore = new Map(
+        (await runsOf(workflow)).filter(testsTheSameInputs).map(entry => [entry.id, runState(entry)]),
+      )
+      const runsAfter = (await listRuns(workflow)).filter(entry => isAncestor(entry.head_sha, head))
+      for (const entry of runsAfter.filter(testsTheSameInputs)) {
+        if (statesBefore.get(entry.id) !== runState(entry)) {
+          throw new Error(
+            `${entry.html_url} started or changed while this release read the runs that test the same inputs`,
+          )
+        }
+      }
     }
     const current = await request(`/repos/${REPOSITORY}/actions/runs/${run.id}`)
     if (runState(current) !== runState(run)) throw new Error(`run ${run.id} changed after its jobs were read`)
