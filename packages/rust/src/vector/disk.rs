@@ -5,7 +5,7 @@ use std::sync::atomic::Ordering;
 
 use crate::error::Result;
 
-use super::build::wait_for_builds;
+use super::build::join_build;
 use super::field::{Generation, Shared, VectorField, Writer};
 use super::files::MappedFile;
 
@@ -110,7 +110,7 @@ impl VectorField {
         let shared = &self.shared;
         shared.disposed.store(true, Ordering::Release);
         shared.cancel_cold_hold(true);
-        wait_for_builds(shared);
+        join_build(shared);
         let mut writer = shared.lock_writer();
         writer.job = None;
         writer.placing = None;

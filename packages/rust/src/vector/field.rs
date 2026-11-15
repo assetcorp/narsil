@@ -3,6 +3,7 @@ use std::hash::RandomState;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, RwLock};
+use std::thread::JoinHandle;
 
 use crate::error::Result;
 use crate::pins::IndexSequence;
@@ -253,6 +254,7 @@ pub(crate) struct Shared {
     pub(crate) build_gate: Mutex<()>,
     pub(crate) background: Mutex<bool>,
     pub(crate) background_done: Condvar,
+    pub(crate) build_thread: Mutex<Option<JoinHandle<()>>>,
     pub(crate) disposed: AtomicBool,
     pub(crate) restoring: AtomicBool,
     pub(crate) cold: ColdSlot,
@@ -330,6 +332,7 @@ impl VectorField {
                 build_gate: Mutex::new(()),
                 background: Mutex::new(false),
                 background_done: Condvar::new(),
+                build_thread: Mutex::new(None),
                 disposed: AtomicBool::new(false),
                 restoring: AtomicBool::new(false),
                 cold: ColdSlot::empty(),
