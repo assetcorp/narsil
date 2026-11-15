@@ -151,7 +151,7 @@ def _tune(driver, config: BenchmarkConfig, spec: DatasetSpec, profile: str, inde
     vec = config.vector
     assert vec is not None
     label = f"[{driver.name}:{spec.dataset_id}:vector:{profile}]"
-    sample =sample_indices(len(qset.ids), vec.tuning_sample_queries)
+    sample = sample_indices(len(qset.ids), vec.tuning_sample_queries)
     sample_ids = [qset.ids[i] for i in sample]
 
     def hits_at(i: int, ef: int) -> list[str]:
@@ -258,6 +258,7 @@ def run_vector_track(
         "track": VECTOR,
         "run_tag": run_tag,
         "vector_profile": profile,
+        "ef_search_grid": list(vec.ef_search_grid),
         "setup": getattr(driver, "vector_setup", ""),
         "server_setup": setup_report,
         "quantization": getattr(driver, "vector_quantization", None),
@@ -354,6 +355,7 @@ def run_hybrid_track(
         "track": HYBRID,
         "run_tag": run_tag,
         "vector_profile": profile,
+        "ef_search_grid": list(vec.ef_search_grid),
         "setup": getattr(driver, "hybrid_setup", ""),
         "server_setup": setup_report,
         "quantization": getattr(driver, "vector_quantization", None),
