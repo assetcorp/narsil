@@ -3,14 +3,14 @@ package memory
 import "time"
 
 const (
-	WriteFiguresMaxAge               = 10 * time.Millisecond
-	recentFiguresMaxAdmittedFraction = 0.01
-	fullCollectionInterval           = 5 * time.Second
-	refusalCollectionMinInterval     = time.Second
-	refusalCollectionTimeMultiple    = 10
-	processLimitRefreshInterval      = time.Second
-	processStatusReadCeilingBytes    = 1 << 20
-	kibibyteBytes                    = 1024
+	WriteFiguresMaxAge                = 10 * time.Millisecond
+	recentFiguresMaxCompletedFraction = 0.01
+	fullCollectionInterval            = 5 * time.Second
+	refusalCollectionMinInterval      = time.Second
+	refusalCollectionTimeMultiple     = 10
+	processLimitRefreshInterval       = time.Second
+	processStatusReadCeilingBytes     = 1 << 20
+	kibibyteBytes                     = 1024
 )
 
 const (
