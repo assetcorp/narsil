@@ -32,7 +32,14 @@ export interface RetriedFailure {
   error: unknown
 }
 
-export type SettleRetried = (failures: RetriedFailure[]) => Promise<ReadonlySet<string>>
+export interface RetrySettlement {
+  settled: ReadonlySet<string>
+  unverified: ReadonlySet<string>
+}
+
+export type SettleRetried = (failures: RetriedFailure[]) => Promise<RetrySettlement>
+
+const NOTHING_SETTLED: RetrySettlement = { settled: new Set(), unverified: new Set() }
 
 interface RefusedItem<T> {
   item: T
@@ -148,6 +155,7 @@ export async function retryOnPrimaryChange<T>(
   let retryDelayMs = FORWARD_RETRY_INITIAL_DELAY_MS
   let retried = false
   let interrupted = false
+  let abandonedAttempt: unknown
   let condition: WriteCondition | undefined
   const finalError = (error: unknown): unknown => (interrupted ? interruptedOutcome(indexName, docId, error) : error)
   for (;;) {
@@ -156,8 +164,13 @@ export async function retryOnPrimaryChange<T>(
     try {
       outcome = await beforeWindowEnds(attempt(condition), deadline)
     } catch (error) {
-      if (retried && (await settleRetried([{ docId, error }])).has(docId)) return settledValue()
+      if (retried) {
+        const settlement = await settleRetried([{ docId, error }])
+        if (settlement.settled.has(docId)) return settledValue()
+        if (settlement.unverified.has(docId) && abandonedAttempt !== undefined) throw finalError(abandonedAttempt)
+      }
       interrupted ||= forwardInterrupted(error)
+      if (abandonedAttempt === undefined && abandonedWithTerm(error)) abandonedAttempt = error
       if (!retriable(error, settlesAsEqual) || refusing === null) throw finalError(error)
       let retryable: boolean
       if (retriedAfterDelay(error)) {
@@ -190,6 +203,7 @@ async function retryBatchOnPrimaryChange<T>(
   const failed: BatchResult['failed'] = []
   const conditions = new Map<string, WriteCondition>()
   const interrupted = new Set<string>()
+  const abandonedAttempts = new Map<string, BatchResult['failed'][number]['error']>()
   const failWith = (failure: BatchResult['failed'][number]): void => {
     failed.push(
       interrupted.has(failure.docId)
@@ -209,17 +223,25 @@ async function retryBatchOnPrimaryChange<T>(
       break
     }
     succeeded.push(...result.succeeded)
-    const settled = retried ? await settleRetried(result.failed) : new Set<string>()
+    const settlement = retried ? await settleRetried(result.failed) : NOTHING_SETTLED
     const pendingById = new Map(pending.map(item => [docIdOf(item), item]))
     const refused: RefusedItem<T>[] = []
     for (const failure of result.failed) {
-      if (settled.has(failure.docId)) {
+      if (settlement.settled.has(failure.docId)) {
         succeeded.push(failure.docId)
+        continue
+      }
+      const abandonedAttempt = abandonedAttempts.get(failure.docId)
+      if (settlement.unverified.has(failure.docId) && abandonedAttempt !== undefined) {
+        failWith({ docId: failure.docId, error: abandonedAttempt })
         continue
       }
       const item = pendingById.get(failure.docId)
       const refusing = primaryFor(table, failure.docId)
       if (forwardInterrupted(failure.error)) interrupted.add(failure.docId)
+      if (!abandonedAttempts.has(failure.docId) && abandonedWithTerm(failure.error)) {
+        abandonedAttempts.set(failure.docId, failure.error)
+      }
       if (item === undefined || refusing === null || !retriable(failure.error, settlesAsEqual)) {
         failWith(failure)
         continue
@@ -314,7 +336,7 @@ export async function retryEachPartition<T>(
   return merged
 }
 
-export const settleNothing: SettleRetried = async () => new Set()
+export const settleNothing: SettleRetried = async () => NOTHING_SETTLED
 
 async function derivedFieldsOf(deps: WriteRoutingDeps, indexName: string): Promise<Set<string>> {
   const schema = await deps.coordinator.getSchema(indexName)
@@ -332,23 +354,29 @@ export function settleEqualInserts(
     const existing = failures
       .filter(failure => hasCode(failure.error, ErrorCodes.DOC_ALREADY_EXISTS) && sentById.has(failure.docId))
       .map(failure => failure.docId)
-    if (existing.length === 0 || deps.readPrimaryCopies === undefined) return new Set()
+    if (existing.length === 0) return NOTHING_SETTLED
+    if (deps.readPrimaryCopies === undefined) return { settled: new Set(), unverified: new Set(existing) }
     let stored: Map<string, AnyDocument>
     let derivedFields: Set<string>
     try {
       stored = await deps.readPrimaryCopies(indexName, existing)
       derivedFields = await derivedFieldsOf(deps, indexName)
     } catch (_) {
-      return new Set()
+      return { settled: new Set(), unverified: new Set(existing) }
     }
     const settled = new Set<string>()
+    const unverified = new Set<string>()
     for (const docId of existing) {
       const sent = sentById.get(docId)
       const copy = stored.get(docId)
-      if (sent === undefined || copy === undefined) continue
+      if (sent === undefined) continue
+      if (copy === undefined) {
+        unverified.add(docId)
+        continue
+      }
       const derived = copy.id === docId && sent.id === undefined ? new Set([...derivedFields, 'id']) : derivedFields
       if (storedCopyMatchesSent(sent, copy, derived)) settled.add(docId)
     }
-    return settled
+    return { settled, unverified }
   }
 }
