@@ -3,10 +3,10 @@ use std::sync::Arc;
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::format::envelope::MAX_FILE_BYTES;
 use crate::format::layout::manifest_key;
-use crate::value::Value;
 use crate::format::manifest::{
     DecodedManifest, SegmentManifest, decode_manifest_payload, open_manifest_payload,
 };
+use crate::value::Value;
 
 use super::checkpoint_files::manifest_keys;
 use super::checkpoint_store::CheckpointStore;

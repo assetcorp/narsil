@@ -1,6 +1,8 @@
 use std::io::{Read, Write};
 
-use crate::error::{ErrorCode, NarsilError, Result, fail, fail_with, load_failed, load_failed_with};
+use crate::error::{
+    ErrorCode, NarsilError, Result, fail, fail_with, load_failed, load_failed_with,
+};
 use crate::util::hash::crc32;
 use crate::value::Value;
 

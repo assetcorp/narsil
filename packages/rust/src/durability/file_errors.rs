@@ -113,7 +113,9 @@ pub(crate) fn require_valid_key(key: &str) -> Result<()> {
         return Err(invalid_key(key, "empty"));
     }
     if key.contains('\0') {
-        return Err(invalid_key(key, "null byte detected").with_details([("key", Value::from(key))]));
+        return Err(
+            invalid_key(key, "null byte detected").with_details([("key", Value::from(key))])
+        );
     }
     let traverses = key.split('/').any(|part| {
         part.is_empty() || part == "." || part == ".." || part.contains('\\') || part.contains(':')
