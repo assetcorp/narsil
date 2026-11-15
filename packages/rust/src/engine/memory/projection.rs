@@ -185,7 +185,7 @@ impl<'a> WriteProjection<'a> {
         let bytes = shape.bytes.saturating_add(self.growth_bytes(count, &shape));
         self.guard
             .reserve_if_unchanged(reserved_before, bytes)
-            .then_some(ProjectedGroup {
+            .then(|| ProjectedGroup {
                 guard: Some(self.guard),
                 bytes,
                 count,
