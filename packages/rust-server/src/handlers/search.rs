@@ -54,6 +54,7 @@ async fn search(
     let mut params = with_server_query_limits(params, &state.limits);
     if preflight {
         params.remove("pinned");
+        params.remove("rerank");
     }
     let index = context.param(0).to_string();
     let max_rerank_window = state.engine.max_rerank_window();
