@@ -6,6 +6,7 @@ import { WIRE_BATCH_BUDGET } from '../../../../distribution/constants'
 import type { TransportMessage } from '../../../../distribution/transport/types'
 import {
   createTestCluster,
+  entryForDocument,
   INDEX,
   type MessageRule,
   ofType,
@@ -29,6 +30,11 @@ function batchCarrying(documentId: string): MessageRule {
     const payload = decode(message.payload) as { entries?: Array<{ documentId?: unknown }> }
     return (payload.entries ?? []).some(entry => entry.documentId === documentId)
   }
+}
+
+function chunkCarrying(documentId: string): MessageRule {
+  return (to: string, message: TransportMessage) =>
+    batchCarrying(documentId)(to, message) || entryForDocument(documentId)(to, message)
 }
 
 describe('a replica removed after its admission during a batch', () => {
@@ -89,7 +95,7 @@ describe('a replica removed after its admission during a batch', () => {
       return current !== undefined && !current.replicas.includes('node-c')
     })
     await sleep(CATCH_UP_TICK_MS * PUMP_TICKS_AFTER_ADMISSION)
-    const laterChunks = cluster.transport('node-c').recordArrivalsWhen(batchCarrying('batch-1000'))
+    const laterChunks = cluster.transport('node-c').recordArrivalsWhen(chunkCarrying('batch-1000'))
     heldFirstChunk.release()
 
     expect((await batch).failed).toEqual([])
