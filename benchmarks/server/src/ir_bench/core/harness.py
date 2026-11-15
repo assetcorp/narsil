@@ -48,12 +48,24 @@ def _with_memory(engine_memory: CgroupMemoryCounter | None, run: Callable[[], di
     return measured
 
 
-def _checkpointed(checkpoint_dir: Path | None, label: str, track: str, spec: DatasetSpec, run: Callable[[], dict]) -> dict:
+def _checkpointed(
+    checkpoint_dir: Path | None,
+    label: str,
+    track: str,
+    spec: DatasetSpec,
+    run: Callable[[], dict],
+    ef_search_grid: tuple[int, ...] | None = None,
+) -> dict:
     if checkpoint_dir is None:
         return run()
     path = checkpoint_path(checkpoint_dir, track, spec.dataset_id)
     loaded = _load_checkpoint(path)
     if loaded is not None:
+        if ef_search_grid is not None and loaded.get("ef_search_grid") != list(ef_search_grid):
+            raise EngineError(
+                f"checkpoint {path} has a different or unrecorded ef_search_grid; "
+                "choose a new BENCH_RUN_ID to measure the configured grid"
+            )
         print(f"[{label}:{spec.dataset_id}:{track}] finished earlier under this run id; loaded {path}", flush=True)
         return loaded
     result = run()
@@ -192,6 +204,7 @@ def run_engine(
                             keep_index=keep_index,
                         ),
                     ),
+                    ef_search_grid=config.vector.ef_search_grid,
                 )
                 point = result.get("operating_point")
                 if point and point.get("chosen_value") is not None:
@@ -213,6 +226,7 @@ def run_engine(
                                 loaded=kept.pop() if kept else None,
                             ),
                         ),
+                        ef_search_grid=config.vector.ef_search_grid,
                     )
                 )
         for leftover in kept:
