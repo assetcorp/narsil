@@ -43,16 +43,37 @@ function namesOf(reader: VariableReader, listVariable: string): Array<{ name: st
 function httpUrl(reader: VariableReader, variable: string): string | undefined {
   const raw = reader.text(variable)
   if (raw === undefined) return undefined
-  let protocol: string
+  let parsed: URL
   try {
-    protocol = new URL(raw).protocol
+    parsed = new URL(raw)
   } catch {
     throw new SettingError(variable, 'must be an absolute http or https URL')
   }
-  if (protocol !== 'http:' && protocol !== 'https:') {
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
     throw new SettingError(variable, 'must be an absolute http or https URL')
   }
-  return raw
+  if (parsed.username !== '' || parsed.password !== '' || parsed.search !== '' || parsed.hash !== '') {
+    throw new SettingError(variable, 'must be a base URL without credentials, a query, or a fragment')
+  }
+  return parsed.href
+}
+
+function nonBlankText(reader: VariableReader, variable: string): string | undefined {
+  const value = reader.text(variable)
+  if (value !== undefined && value.trim().length === 0)
+    throw new SettingError(variable, 'must contain non-space characters')
+  return value
+}
+
+function apiKeyOf(reader: VariableReader, variable: string): string | undefined {
+  const key = nonBlankText(reader, variable)
+  if (key === undefined) return undefined
+  try {
+    new Headers({ authorization: `Bearer ${key}` })
+  } catch {
+    throw new SettingError(variable, 'must be a valid HTTP header value')
+  }
+  return key
 }
 
 function required<T>(value: T | undefined, variable: string, rule: string): T {
@@ -84,8 +105,8 @@ function readEmbedder(reader: VariableReader, name: string, infix: string, warni
     'must be set to openai or transformers',
   )
   const url = httpUrl(reader, `${prefix}URL`)
-  const apiKey = reader.text(`${prefix}API_KEY`)
-  const model = reader.text(`${prefix}MODEL`)
+  const apiKey = apiKeyOf(reader, `${prefix}API_KEY`)
+  const model = nonBlankText(reader, `${prefix}MODEL`)
   const dimensions = required(
     reader.wholeNumber(`${prefix}DIMENSIONS`, { min: 1 }),
     `${prefix}DIMENSIONS`,
@@ -118,8 +139,8 @@ function readReranker(reader: VariableReader, name: string, infix: string, warni
     'must be set to http or transformers',
   )
   const url = httpUrl(reader, `${prefix}URL`)
-  const apiKey = reader.text(`${prefix}API_KEY`)
-  const model = reader.text(`${prefix}MODEL`)
+  const apiKey = apiKeyOf(reader, `${prefix}API_KEY`)
+  const model = nonBlankText(reader, `${prefix}MODEL`)
   const timeoutMs = reader.wholeNumber(`${prefix}TIMEOUT_MS`, { min: 1 }) ?? DEFAULT_ADAPTER_TIMEOUT_MS
   const maxRetries = reader.wholeNumber(`${prefix}MAX_RETRIES`, { min: 0 }) ?? DEFAULT_ADAPTER_MAX_RETRIES
   const maxDocumentsPerRequest =

@@ -30,6 +30,27 @@ interface Refusal {
 }
 
 const REFUSALS: Refusal[] = [
+  ...(['EMBEDDER', 'RERANKER'] as const).flatMap(family => {
+    const prefix = `NARSIL_${family}_LOCAL_`
+    const env = memoryEnv({
+      [`NARSIL_${family === 'EMBEDDER' ? 'EMBEDDERS' : 'RERANKERS'}`]: 'local',
+      [`${prefix}KIND`]: family === 'EMBEDDER' ? 'openai' : 'http',
+      [`${prefix}URL`]: 'http://127.0.0.1:9',
+      [`${prefix}MODEL`]: 'local',
+      ...(family === 'EMBEDDER' ? { [`${prefix}DIMENSIONS`]: '2' } : {}),
+    })
+    return [
+      { field: 'URL', value: 'http://private-user:private-password@127.0.0.1:9' },
+      { field: 'URL', value: 'http://127.0.0.1:9/#fragment' },
+      { field: 'MODEL', value: '   ' },
+      { field: 'API_KEY', value: 'private-key\r\ninjected-header: secret' },
+    ].map(({ field, value }) => ({
+      label: `an unusable ${family} ${field}`,
+      env: { ...env, [`${prefix}${field}`]: value },
+      variable: `${prefix}${field}`,
+      secret: value,
+    }))
+  }),
   {
     label: 'no key and no insecure opt-in',
     env: { NARSIL_STORAGE: 'memory', NARSIL_WORKERS: '0' },
