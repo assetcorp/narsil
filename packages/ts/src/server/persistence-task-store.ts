@@ -91,10 +91,11 @@ export class PersistenceTaskStore implements TaskStore {
    * again.
    */
   async set(record: TaskRecord): Promise<void> {
-    await this.ensureLoaded()
+    const id = record.id
     const json = JSON.stringify(record)
-    this.records.set(record.id, JSON.parse(json) as TaskRecord)
-    const written = this.persist(record.id, json)
+    await this.ensureLoaded()
+    this.records.set(id, JSON.parse(json) as TaskRecord)
+    const written = this.persist(id, json)
     this.prune()
     await written
   }
@@ -108,7 +109,7 @@ export class PersistenceTaskStore implements TaskStore {
   async get(id: string): Promise<TaskRecord | null> {
     await this.ensureLoaded()
     const record = this.records.get(id)
-    return record ? { ...record } : null
+    return record ? structuredClone(record) : null
   }
 
   /**
@@ -118,7 +119,7 @@ export class PersistenceTaskStore implements TaskStore {
    */
   async list(): Promise<TaskRecord[]> {
     await this.ensureLoaded()
-    return [...this.records.values()].map(record => ({ ...record }))
+    return [...this.records.values()].map(record => structuredClone(record))
   }
 
   /**
@@ -135,6 +136,7 @@ export class PersistenceTaskStore implements TaskStore {
 
   /** Resolves once every write that the store has started reaches the adapter, failed or not. */
   async shutdown(): Promise<void> {
+    await this.loading
     while (this.pendingWrites.size > 0) {
       await Promise.allSettled([...this.pendingWrites.values()])
     }
