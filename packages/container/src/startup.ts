@@ -26,6 +26,7 @@ import {
 import { limitVariableOf } from './settings/limits'
 import { SettingError } from './settings/variables'
 import { createRecordPersistence } from './storage'
+import { reconcileLocalTasks } from './storage/tasks'
 import { MemoryDeliveryStore, PersistedDeliveryStore } from './webhooks/delivery-store'
 import { WebhookQueue } from './webhooks/queue'
 
@@ -199,6 +200,7 @@ export async function startNode(settings: ContainerSettings, output: Output): Pr
   const taskStore = new TaskEventStore(taskStoreOf(folders), sink)
   let server: NarsilServer
   try {
+    await reconcileLocalTasks(taskStore)
     server = serverOrStartupError(engine, serverOptions(settings, taskStore))
     await server.listen()
   } catch (err) {

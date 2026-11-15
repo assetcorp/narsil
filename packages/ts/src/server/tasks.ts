@@ -75,6 +75,7 @@ interface LiveTask {
   writes: Promise<void>
   lastProgressWriteAt: number
   settled: boolean
+  finished: Promise<void>
 }
 
 function byNewestFirst(left: TaskRecord, right: TaskRecord): number {
@@ -144,15 +145,23 @@ export class TaskRegistry {
       writes: Promise.resolve(),
       lastProgressWriteAt: now,
       settled: false,
+      finished: Promise.resolve(),
     }
     this.live.set(record.id, task)
-    await this.enqueueWrite(task, record, RUNNING_TASK_TTL_MS)
-    void this.drive(task, op)
+    const accepted = this.enqueueWrite(task, record, RUNNING_TASK_TTL_MS)
+    task.finished = accepted.then(() => this.drive(task, op))
+    await accepted
     return record
   }
 
   get(id: string): Promise<TaskRecord | null> {
     return this.store.get(id)
+  }
+
+  async shutdown(): Promise<void> {
+    const tasks = [...this.live.values()]
+    for (const task of tasks) task.controller.abort(new Error('The server is shutting down'))
+    await Promise.all(tasks.map(task => task.finished))
   }
 
   /** Reads one page of task records, newest first, keeping only what the query
