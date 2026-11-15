@@ -2,26 +2,33 @@ use std::io::{self, Write};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
+use std::time::Duration;
 
 use bytes::Bytes;
 use http_body_util::BodyExt;
 use hyper::body::{Body, Frame, SizeHint};
 use narsil::Narsil;
+use tokio::runtime::Handle;
 use tokio::sync::mpsc;
 
-use super::constants::STREAM_CHUNKS_IN_FLIGHT;
+use super::constants::{STALLED_DOWNLOAD_DEADLINE_MS, STREAM_CHUNKS_IN_FLIGHT};
 use crate::constants::RESPONSE_STREAM_CHUNK_BYTES;
 use crate::errors::{Outcome, ServerError};
-use crate::http::respond::{HttpResponse, ResponseBody, with_body};
+use crate::http::respond::{HttpResponse, ResponseBody, empty_body, with_body};
 
-pub(crate) type ChunkSender = mpsc::Sender<io::Result<Bytes>>;
-pub(crate) type ChunkReceiver = mpsc::Receiver<io::Result<Bytes>>;
+pub(crate) enum Chunk {
+    Data(Bytes),
+    End,
+}
+
+pub(crate) type ChunkSender = mpsc::Sender<Chunk>;
+pub(crate) type ChunkReceiver = mpsc::Receiver<Chunk>;
 
 pub(crate) fn chunk_channel() -> (ChunkSender, ChunkReceiver) {
     mpsc::channel(STREAM_CHUNKS_IN_FLIGHT)
 }
 
-pub(crate) fn stream_cut_short() -> io::Error {
+fn stream_cut_short() -> io::Error {
     io::Error::new(
         io::ErrorKind::UnexpectedEof,
         "the engine stopped before the answer ended",
@@ -31,22 +38,35 @@ pub(crate) fn stream_cut_short() -> io::Error {
 fn caller_left() -> io::Error {
     io::Error::new(
         io::ErrorKind::BrokenPipe,
-        "the caller closed the connection",
+        "the caller closed the connection or stopped reading",
     )
+}
+
+pub(crate) async fn deliver(sender: &ChunkSender, chunk: Chunk) -> bool {
+    let deadline = Duration::from_millis(STALLED_DOWNLOAD_DEADLINE_MS);
+    sender.send_timeout(chunk, deadline).await.is_ok()
 }
 
 struct ChunkWriter {
     sender: ChunkSender,
+    runtime: Handle,
     pending: Vec<u8>,
-    sent_any: bool,
 }
 
 impl ChunkWriter {
-    fn new(sender: ChunkSender) -> ChunkWriter {
+    fn new(sender: ChunkSender, runtime: Handle) -> ChunkWriter {
         ChunkWriter {
             sender,
+            runtime,
             pending: Vec::with_capacity(RESPONSE_STREAM_CHUNK_BYTES),
-            sent_any: false,
+        }
+    }
+
+    fn deliver(&self, chunk: Chunk) -> io::Result<()> {
+        if self.runtime.block_on(deliver(&self.sender, chunk)) {
+            Ok(())
+        } else {
+            Err(caller_left())
         }
     }
 
@@ -58,25 +78,14 @@ impl ChunkWriter {
             &mut self.pending,
             Vec::with_capacity(RESPONSE_STREAM_CHUNK_BYTES),
         ));
-        self.sender
-            .blocking_send(Ok(chunk))
-            .map_err(|_| caller_left())?;
-        self.sent_any = true;
-        Ok(())
+        self.deliver(Chunk::Data(chunk))
     }
 
     fn finish(mut self, outcome: narsil::Result<()>) -> narsil::Result<()> {
-        match outcome {
-            Ok(()) => {
-                let _ = self.send_pending();
-                Ok(())
-            }
-            Err(_) if self.sent_any => {
-                let _ = self.sender.blocking_send(Err(stream_cut_short()));
-                Ok(())
-            }
-            Err(failure) => Err(failure),
+        if outcome.is_ok() && self.send_pending().is_ok() {
+            let _ = self.deliver(Chunk::End);
         }
+        outcome
     }
 }
 
@@ -146,12 +155,11 @@ impl Body for ChunkBody {
         }
         match self.receiver.poll_recv(context) {
             Poll::Pending => Poll::Pending,
-            Poll::Ready(Some(Ok(chunk))) => self.counted(chunk),
-            Poll::Ready(Some(Err(failure))) => Poll::Ready(Some(Err(failure))),
-            Poll::Ready(None) if self.remaining.is_some_and(|left| left > 0) => {
-                Poll::Ready(Some(Err(stream_cut_short())))
+            Poll::Ready(Some(Chunk::Data(chunk))) => self.counted(chunk),
+            Poll::Ready(Some(Chunk::End)) if self.remaining.is_none_or(|left| left == 0) => {
+                Poll::Ready(None)
             }
-            Poll::Ready(None) => Poll::Ready(None),
+            Poll::Ready(Some(Chunk::End) | None) => Poll::Ready(Some(Err(stream_cut_short()))),
         }
     }
 
@@ -173,26 +181,22 @@ where
 {
     let (sender, mut receiver) = chunk_channel();
     let engine = Arc::clone(engine);
+    let runtime = Handle::current();
     let writing = tokio::task::spawn_blocking(move || {
-        let mut writer = ChunkWriter::new(sender);
+        let mut writer = ChunkWriter::new(sender, runtime);
         let outcome = work(&engine, &mut writer);
         writer.finish(outcome)
     });
     match receiver.recv().await {
-        Some(Ok(first)) => Ok(with_body(
+        Some(Chunk::Data(first)) => Ok(with_body(
             200,
             content_type,
             ChunkBody::boxed(Some(first), receiver, None),
         )),
-        Some(Err(_)) => Err(ServerError::internal()),
+        Some(Chunk::End) => Ok(with_body(200, content_type, empty_body())),
         None => match writing.await {
-            Ok(Ok(())) => Ok(with_body(
-                200,
-                content_type,
-                ChunkBody::boxed(None, receiver, None),
-            )),
             Ok(Err(failure)) => Err(ServerError::from(failure)),
-            Err(_) => Err(ServerError::internal()),
+            Ok(Ok(())) | Err(_) => Err(ServerError::internal()),
         },
     }
 }
