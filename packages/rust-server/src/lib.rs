@@ -7,6 +7,7 @@ mod handlers;
 mod http;
 mod ids;
 mod options;
+mod search;
 mod server;
 mod state;
 mod tasks;
