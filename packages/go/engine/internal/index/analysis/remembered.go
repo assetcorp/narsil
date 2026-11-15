@@ -27,7 +27,7 @@ func (r *rememberedTokens) keep(source string, tokens []model.Token, err error) 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if _, found := r.entries[source]; !found {
-		r.entries[source] = rememberedTokenization{tokens: tokens, err: err}
+		r.entries[source] = rememberedTokenization{tokens: append([]model.Token(nil), tokens...), err: err}
 	}
 }
 
