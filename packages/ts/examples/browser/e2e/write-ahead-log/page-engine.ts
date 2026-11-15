@@ -96,3 +96,53 @@ export async function readBack(scenario: LogScenario, docIds: string[]): Promise
     await engine.shutdown()
   }
 }
+
+export async function writeDuringUpgrade(scenario: LogScenario): Promise<LossReport> {
+  const engine = await open({ ...scenario, durability: { mode: 'async', flushIntervalMs: 600_000 } })
+  const reported: string[] = []
+  engine.on('durabilityError', ({ error }) => reported.push(codeOf(error)))
+  try {
+    await engine.createIndex(NOTES, { schema: { title: 'string' } })
+    await engine.insert(NOTES, { title: 'before the version change' }, 'kept')
+    const request = indexedDB.open(scenario.dbName)
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () => reject(request.error)
+    })
+    let holding = true
+    const store = database.transaction('partitions', 'readwrite').objectStore('partitions')
+    function keepTransactionOpen(): void {
+      const read = store.get('notes/meta')
+      read.onsuccess = () => {
+        if (holding) keepTransactionOpen()
+      }
+    }
+    keepTransactionOpen()
+    database.onversionchange = () => {
+      holding = false
+      database.close()
+    }
+    const pending = engine.insert(NOTES, { title: 'during the version change' }, 'refused').then(
+      () => null,
+      error => codeOf(error),
+    )
+    try {
+      await new Promise(resolve => setTimeout(resolve, 30))
+      const upgrade = indexedDB.open(scenario.dbName, 2)
+      await new Promise<void>((resolve, reject) => {
+        upgrade.onsuccess = () => {
+          upgrade.result.close()
+          resolve()
+        }
+        upgrade.onerror = () => reject(upgrade.error)
+      })
+      return { refusedWith: await pending, reported }
+    } finally {
+      holding = false
+      database.close()
+      await pending
+    }
+  } finally {
+    await engine.shutdown()
+  }
+}
