@@ -73,16 +73,17 @@ fn untag_tag(tag: &str, value: Value, path: &str, depth: usize) -> Result<Value>
 }
 
 fn untag_map(map: Map, path: &str, depth: usize) -> Result<Value> {
-    let mut out = Map::with_capacity(map.len());
+    let mut entries = Vec::with_capacity(map.len());
     for (key, entry) in map {
         let child = if path.is_empty() {
             key.clone()
         } else {
             format!("{path}.{key}")
         };
-        out.insert(key, untag_value(entry, &child, depth + 1)?);
+        let untagged = untag_value(entry, &child, depth + 1)?;
+        entries.push((key, untagged));
     }
-    Ok(Value::Object(out))
+    Ok(Value::Object(Map::from_inserted(entries)))
 }
 
 /// Replaces each tag object inside `value` with the value that the tag stands for.
