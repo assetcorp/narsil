@@ -7,7 +7,7 @@ import { SERVER_CAPABILITIES } from '../capabilities'
 import { createSharedRequestGate } from '../concurrency-gate'
 import { corsHeaderReader } from '../cors'
 import type { ResolvedLimits } from '../deps'
-import { parseJson, rejectInvalid, respondError, respondJson } from '../handler-utils'
+import { parseJsonObject, rejectInvalid, respondError, respondJson } from '../handler-utils'
 import { createDocumentReadHandlers } from '../handlers/document-reads'
 import { versionReport } from '../handlers/version'
 import { encodeQueryResult } from '../query-response'
@@ -100,7 +100,7 @@ async function answerMoved(
 export function searchHandler(options: SearchHandlerOptions): RouteHandler {
   const { fallback, limits, allowRegex, staysOnThread, answer } = options
   return async ctx => {
-    const params = parseJson<QueryParams>(ctx)
+    const params = parseJsonObject<QueryParams>(ctx)
     if (!params) return
     const failure = validateQuery(params, limits)
     if (failure) {
@@ -126,7 +126,7 @@ export function searchHandler(options: SearchHandlerOptions): RouteHandler {
 
 function suggestHandler(local: ThreadReadEngine, fallback: RouteHandler): RouteHandler {
   return async ctx => {
-    const params = parseJson<SuggestParams>(ctx)
+    const params = parseJsonObject<SuggestParams>(ctx)
     if (!params) return
     const failure = validateSuggest(params)
     if (failure) {

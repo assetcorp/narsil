@@ -34,6 +34,27 @@ export function parseJson<T>(ctx: RouteContext, kind: ParsedBodyKind = 'write'):
   }
 }
 
+function refusesShape(ctx: RouteContext, parsed: unknown): boolean {
+  if (isPlainObject(parsed)) return false
+  if (!ctx.abort.aborted) badRequest(ctx.res, 'The request body must be an object')
+  return true
+}
+
+export function parseJsonObject<T extends object>(ctx: RouteContext, kind: ParsedBodyKind = 'write'): T | undefined {
+  const parsed = parseJson<unknown>(ctx, kind)
+  if (parsed === undefined || refusesShape(ctx, parsed)) return undefined
+  return parsed as T
+}
+
+export async function parseWriteJsonObject<T extends object>(
+  ctx: RouteContext,
+  writeBlock: WriteBlockLookup | undefined,
+): Promise<T | undefined> {
+  const parsed = await parseWriteJson<unknown>(ctx, writeBlock)
+  if (parsed === undefined || refusesShape(ctx, parsed)) return undefined
+  return parsed as T
+}
+
 export async function parseWriteJson<T>(
   ctx: RouteContext,
   writeBlock: WriteBlockLookup | undefined,

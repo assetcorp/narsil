@@ -69,6 +69,49 @@ describe('Narsil HTTP server error mapping and limits', () => {
     expect(tasks.body.total).toBe(0)
   })
 
+  it('answers 400 to a required body that holds JSON other than an object, and creates nothing', async () => {
+    const routes = [
+      ['POST', '/indexes'],
+      ['POST', '/indexes/shapes/documents'],
+      ['POST', '/indexes/shapes/documents/_batch'],
+      ['POST', '/indexes/shapes/documents/_list'],
+      ['POST', '/indexes/shapes/documents/_multi-get'],
+      ['POST', '/indexes/shapes/search'],
+      ['POST', '/indexes/shapes/search/preflight'],
+      ['POST', '/indexes/shapes/suggest'],
+      ['PUT', '/indexes/shapes/documents/one'],
+      ['PATCH', '/indexes/shapes/documents/one'],
+    ]
+    for (const [method, path] of routes) {
+      for (const body of ['null', 'false', '0', '""', '[]', '7', '"text"']) {
+        const res = await fetch(`${srv.base}${path}`, {
+          method,
+          headers: { 'content-type': 'application/json' },
+          body,
+        })
+        const text = await res.text()
+        const answer = text.length === 0 ? null : (JSON.parse(text) as ErrorBody)
+        expect({
+          method,
+          path,
+          body,
+          status: res.status,
+          code: answer?.error.code,
+          message: answer?.error.message,
+        }).toEqual({
+          method,
+          path,
+          body,
+          status: 400,
+          code: 'INVALID_REQUEST',
+          message: 'The request body must be an object',
+        })
+      }
+    }
+    const indexes = await getJson<{ indexes: unknown[] }>(srv.base, '/indexes')
+    expect(indexes.body.indexes).toEqual([])
+  })
+
   it('returns 404 for an unknown route', async () => {
     const res = await getJson<ErrorBody>(srv.base, '/does/not/exist')
     expect(res.status).toBe(404)

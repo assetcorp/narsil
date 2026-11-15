@@ -4,7 +4,7 @@ import type { AnyDocument } from '../../types/schema'
 import type { ListParams } from '../../types/search'
 import { respondAnswer } from '../answer-stream'
 import type { ResolvedLimits } from '../deps'
-import { parseJson, rejectInvalid, respondError, respondJson } from '../handler-utils'
+import { parseJsonObject, rejectInvalid, respondError, respondJson } from '../handler-utils'
 import { refuseRegex } from '../regex-policy'
 import type { RouteContext } from '../request'
 import type {
@@ -60,7 +60,7 @@ export function createDocumentReadHandlers(deps: ReadHandlerDeps) {
   }
 
   async function multiGet(ctx: RouteContext): Promise<void> {
-    const body = parseJson<MultiGetBody>(ctx, 'read')
+    const body = parseJsonObject<MultiGetBody>(ctx, 'read')
     if (!body) return
     const failure = validateMultiGet(body, limits.maxFetchDocuments)
     if (failure) {
@@ -79,7 +79,7 @@ export function createDocumentReadHandlers(deps: ReadHandlerDeps) {
   }
 
   async function list(ctx: RouteContext): Promise<void> {
-    const params = parseJson<ListParams>(ctx, 'read')
+    const params = parseJsonObject<ListParams>(ctx, 'read')
     if (!params) return
     const failure = validateList(params, limits.maxFetchDocuments)
     if (failure) {

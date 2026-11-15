@@ -1,7 +1,7 @@
 import { bindQuerySignal, clearQuerySignal } from '../../narsil/internals'
 import type { QueryParams, SuggestParams } from '../../types/search'
 import { respondAnswer } from '../answer-stream'
-import { parseJson, rejectInvalid, respondError, respondJson } from '../handler-utils'
+import { parseJsonObject, rejectInvalid, respondError, respondJson } from '../handler-utils'
 import { encodeQueryResult } from '../query-response'
 import { refuseRegex } from '../regex-policy'
 import type { RouteContext } from '../request'
@@ -13,7 +13,7 @@ export function createSearchHandlers(deps: ReadHandlerDeps) {
   const { engine, limits, allowRegex } = deps
 
   async function search(ctx: RouteContext): Promise<void> {
-    const params = parseJson<QueryParams>(ctx, 'read')
+    const params = parseJsonObject<QueryParams>(ctx, 'read')
     if (!params) return
     const failure = validateQuery(params, limits)
     if (failure) {
@@ -40,7 +40,7 @@ export function createSearchHandlers(deps: ReadHandlerDeps) {
   }
 
   async function preflight(ctx: RouteContext): Promise<void> {
-    const params = parseJson<QueryParams>(ctx, 'read')
+    const params = parseJsonObject<QueryParams>(ctx, 'read')
     if (!params) return
     const failure = validateQuery(params, limits)
     if (failure) {
@@ -61,7 +61,7 @@ export function createSearchHandlers(deps: ReadHandlerDeps) {
   }
 
   async function suggest(ctx: RouteContext): Promise<void> {
-    const params = parseJson<SuggestParams>(ctx, 'read')
+    const params = parseJsonObject<SuggestParams>(ctx, 'read')
     if (!params) return
     const failure = validateSuggest(params)
     if (failure) {
