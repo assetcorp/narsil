@@ -38,17 +38,6 @@ class Once:
             self.outcomes[0] = outcome_of(self.call)
 
 
-class RaisingOnce:
-    def __init__(self, call: Callable[[], object]) -> None:
-        self.call = call
-        self.raised = False
-
-    def __call__(self) -> None:
-        if not self.raised:
-            self.raised = True
-            self.call()
-
-
 class Store:
     def __init__(self, on_save: Callable[[], None]) -> None:
         self.data: dict[str, bytes] = {}
@@ -136,13 +125,18 @@ def tokenizer_refused() -> Outcome:
 def tokenizer_propagated() -> Outcome:
     holder: list[Narsil] = []
     armed: list[bool] = []
-    raising = RaisingOnce(lambda: insert_inner(holder[0])())
+
+    def insert_while_armed() -> None:
+        if armed:
+            insert_inner(holder[0])()
+
     engine = Narsil()
     holder.append(engine)
-    engine.create_index(INDEX, {"schema": SCHEMA, "tokenizer": Words(lambda: raising() if armed else None)})
+    engine.create_index(INDEX, {"schema": SCHEMA, "tokenizer": Words(insert_while_armed)})
     engine.insert(INDEX, note("seed words"), "seed")
     armed.append(True)
     outer = outcome_of(lambda: engine.insert(INDEX, note("outer words"), "outer"))
+    armed.clear()
     after_failure = count(engine)
     engine.insert(INDEX, note("later words"), "later")
     found = engine.query(INDEX, {"term": "later"})["count"]
