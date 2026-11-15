@@ -234,7 +234,8 @@ fn id_sample(value: &Value, path: &str) -> Result<Vec<(String, u32)>> {
 /// rules of the keyword segment payload.
 pub(super) fn read_resident(file: &PagedFile, head: &PagedHead, key: &str) -> Result<Resident> {
     let empty = Map::new();
-    let fields = Fields::new(&empty, ErrorCode::PERSISTENCE_LOAD_FAILED, ERROR_PREFIX);
+    let fields =
+        Fields::new(&empty, ErrorCode::PERSISTENCE_LOAD_FAILED, ERROR_PREFIX).naming_fields();
     require_valid_field_types(&head.schema)?;
     if head.field_names.len() > MAX_SEGMENT_FIELD_NAMES {
         return load_failed(format!(
@@ -306,7 +307,8 @@ pub(super) fn read_resident(file: &PagedFile, head: &PagedHead, key: &str) -> Re
         })?;
         lists.insert("surfaceForms", value);
     }
-    let columns = Fields::new(&lists, ErrorCode::PERSISTENCE_LOAD_FAILED, ERROR_PREFIX);
+    let columns =
+        Fields::new(&lists, ErrorCode::PERSISTENCE_LOAD_FAILED, ERROR_PREFIX).naming_fields();
     let mut segment = KeywordSegment {
         schema: head.schema.clone(),
         tombstones: head.tombstones.clone(),
