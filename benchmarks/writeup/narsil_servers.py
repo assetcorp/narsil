@@ -58,9 +58,7 @@ def _placeholder(name: str, key: str) -> dict:
 
 
 def _with_every_server(entries: list[dict], key: str) -> list[dict]:
-    first = next((index for index, entry in enumerate(entries) if is_narsil_server(entry.get(key))), None)
-    if first is None:
-        return entries
+    first = next((index for index, entry in enumerate(entries) if is_narsil_server(entry.get(key))), len(entries))
     found = {entry.get(key): entry for entry in entries if is_narsil_server(entry.get(key))}
     servers = []
     for name in NARSIL_SERVERS:
@@ -73,7 +71,12 @@ def _with_every_server(entries: list[dict], key: str) -> list[dict]:
 
 def with_every_narsil_server(comparison: dict) -> dict:
     result = copy.deepcopy(comparison)
-    result["engines"] = _with_every_server(list(result.get("engines") or []), "name")
+    engines = list(result.get("engines") or [])
+    recorded = {row.get("engine") for row in comparison_rows(result) if not is_unmeasured(row)}
+    for name in NARSIL_SERVERS:
+        if name in recorded and engine_entry(engines, name) is None:
+            engines.append({"name": name})
+    result["engines"] = _with_every_server(engines, "name")
     for entry in result.get("tracks") or []:
         for dataset in entry.get("datasets") or []:
             dataset["rows"] = _with_every_server(list(dataset.get("rows") or []), "engine")
@@ -84,7 +87,7 @@ def load_server_sources(include_every_narsil_server: bool = False) -> tuple[Sour
     server = load_server_source()
     best = load_server_best_config_source()
     present = narsil_servers_in(server.data) | narsil_servers_in(best.data if best is not None else None)
-    if not include_every_narsil_server and len(present) < len(NARSIL_SERVERS):
+    if not include_every_narsil_server and NARSIL_RUST not in present:
         return server, best
     widened_best = replace(best, data=with_every_narsil_server(best.data)) if best is not None else None
     return replace(server, data=with_every_narsil_server(server.data)), widened_best
