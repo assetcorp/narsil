@@ -1,5 +1,5 @@
 """These functions write the sentences about the conditions that every engine meets
-in a server run, which are the load, the Java heaps inside the memory cap, and the
+in a server run, which are the load, the Java and Narsil heaps inside the memory cap, and the
 path through which Narsil searches vector graphs. Each sentence comes from a value
 that the results record. Where an older run lacks a value, its sentence stays out."""
 
@@ -9,6 +9,7 @@ from render import and_join, engine_name, gibibytes, integer
 
 NATIVE_VECTOR_SEARCH = "native"
 WASM_VECTOR_SEARCH = "wasm"
+SINGLE_SERVER_LABEL = "Narsil"
 
 _SHARED_MACHINE_SENTENCES = (
     "The load generator shares the machine with the engine under test, so its client processes take CPU time "
@@ -46,16 +47,28 @@ def java_heap_sentence(engines: list[dict]) -> str:
     return f" Each Java engine divides that cap between its heap and the memory outside it. {and_join(heaps)}."
 
 
-def narsil_vector_search_bullets(narsil: dict) -> list[str]:
+def narsil_heap_sentence(narsil: dict, label: str = SINGLE_SERVER_LABEL) -> str:
+    heap = (narsil.get("server_setup") or {}).get("heap_limit_bytes")
+    if not isinstance(heap, (int, float)):
+        return ""
+    return f" {_server_subject(label)} reports that its V8 heap can grow to {gibibytes(heap)} inside that cap."
+
+
+def _server_subject(label: str) -> str:
+    return f"{label}'s server" if label == SINGLE_SERVER_LABEL else f"The {label} server"
+
+
+def narsil_vector_search_bullets(narsil: dict, label: str = SINGLE_SERVER_LABEL) -> list[str]:
     path = (narsil.get("build_identity") or {}).get("vector_search")
+    subject = _server_subject(label)
     if path == NATIVE_VECTOR_SEARCH:
         return [
-            "- **Narsil vector search.** Narsil's server reports that it searches vector graphs through its native "
+            f"- **{label} vector search.** {subject} reports that it searches vector graphs through its native "
             "search core in C, which npm installs with the package on Node.js for macOS, Linux, and Windows."
         ]
     if path == WASM_VECTOR_SEARCH:
         return [
-            "- **Narsil vector search.** Narsil's server reports that it searches vector graphs through WebAssembly, "
+            f"- **{label} vector search.** {subject} reports that it searches vector graphs through WebAssembly, "
             "so these figures exclude its native search core."
         ]
     return []

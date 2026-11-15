@@ -16,6 +16,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest"]
 charts = ["matplotlib==3.10.7"]
+preview = ["matplotlib==3.10.7", "markdown-it-py==4.3.0"]
 artifacts = ["pyarrow==25.0.1"]
 
 [project.scripts]

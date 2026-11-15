@@ -14,6 +14,7 @@ export {
 } from './capabilities'
 export { createServer } from './create-server'
 export { httpStatusForNarsilError, ServerErrorCodes } from './errors'
+export { PersistenceTaskStore } from './persistence-task-store'
 export { InMemoryTaskStore } from './task-store'
 export type { TaskContext, TaskOperation } from './tasks'
 export type {

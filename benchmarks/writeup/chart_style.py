@@ -12,6 +12,7 @@ from matplotlib.figure import Figure
 from matplotlib.ticker import FuncFormatter, LogLocator
 
 NARSIL_RED = "#e7000b"
+NARSIL_RUST_RED = "#82181a"
 CHART_BLUE = "#1e9df1"
 CHART_GREEN = "#15803d"
 CHART_AMBER = "#eda100"
@@ -27,6 +28,7 @@ ERROR_BAR_COLOUR = "#334155"
 
 ENGINE_COLOURS = {
     "narsil": NARSIL_RED,
+    "narsil-rust": NARSIL_RUST_RED,
     "elasticsearch": CHART_AMBER,
     "opensearch": CHART_GREEN,
     "qdrant": CHART_BLUE,
@@ -36,6 +38,9 @@ ENGINE_COLOURS = {
     "orama": CHART_BLUE,
     "minisearch": CHART_GREEN,
 }
+
+DEFAULT_MARKER = "o"
+ENGINE_MARKERS = {"narsil-rust": "s"}
 
 LANGUAGE_COLOURS = {
     "typescript": CHART_BLUE,
@@ -83,6 +88,10 @@ def apply_style() -> None:
 
 def engine_colour(engine: str) -> str:
     return ENGINE_COLOURS.get(engine, REFERENCE_COLOUR)
+
+
+def engine_marker(engine: str) -> str:
+    return ENGINE_MARKERS.get(engine, DEFAULT_MARKER)
 
 
 def language_colour(engine: str) -> str:

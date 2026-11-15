@@ -27,6 +27,8 @@ const AREAS_BY_PREFIX = [
   ['packages/go/changes/', []],
   ['packages/react-native/', []],
   ['packages/embeddings-transformers/', ['typescript', 'check']],
+  ['packages/container/', []],
+  ['.dockerignore', []],
   ['packages/native/fuzz/', []],
   ['packages/native/test/', []],
   ['packages/conformance/samples/earlier-releases/', ['typescript', 'conformance']],
@@ -52,7 +54,6 @@ const README_EXAMPLE_SCRIPTS = [
 
 const MARKDOWN_THAT_THE_CHECK_JOB_COMPILES = [
   'packages/ts/README.md',
-  'packages/ts/examples/http-server/README.md',
   'packages/embeddings-transformers/README.md',
   'packages/certutil/README.md',
   'packages/react-native/README.md',
@@ -202,6 +203,33 @@ const PATHS_BY_LANGUAGE_AREA = {
     ],
     except: ['packages/ts/src/__tests__/', 'packages/ts/src/react/'],
   },
+  container: {
+    paths: [
+      'packages/container/',
+      'packages/ts/src/',
+      'packages/ts/scripts/',
+      'packages/ts/etc/',
+      'packages/ts/LICENSE',
+      'packages/ts/NOTICE',
+      'packages/embeddings-transformers/src/',
+      'packages/embeddings-transformers/package.json',
+      'packages/embeddings-transformers/tsconfig.json',
+      'packages/embeddings-transformers/tsup.config.ts',
+      'packages/native/src/',
+      'packages/native/include/',
+      'packages/native/node/',
+      'packages/native/package.json',
+      'packages/native/build.mjs',
+      'packages/native/toolchain.mjs',
+      'packages/native/npm/',
+      '.dockerignore',
+      '.github/workflows/container-image.yml',
+      '.github/scripts/container-image-smoke.js',
+      ...BUILD_CONFIG_FILES,
+    ],
+    except: ['packages/ts/src/__tests__/', 'packages/embeddings-transformers/src/__tests__/'],
+    markdownInputs: ['packages/ts/etc/'],
+  },
   cluster: {
     paths: [
       'packages/ts/src/distribution/',
@@ -263,8 +291,8 @@ const typescriptAreasOf = path => {
 const matchesAnyPath = (path, entries) =>
   entries.some(entry => (entry.endsWith('/') ? path.startsWith(entry) : path === entry))
 
-const touchesLanguageArea = (path, { paths, except = [], compiledMarkdown = [] }) => {
-  if (path.endsWith('.md')) return compiledMarkdown.includes(path)
+const touchesLanguageArea = (path, { paths, except = [], compiledMarkdown = [], markdownInputs = [] }) => {
+  if (path.endsWith('.md')) return compiledMarkdown.includes(path) || matchesAnyPath(path, markdownInputs)
   return matchesAnyPath(path, paths) && !matchesAnyPath(path, except)
 }
 

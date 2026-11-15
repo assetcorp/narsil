@@ -1,5 +1,6 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { Narsil } from '../../narsil'
+import { DEFAULT_PAGE_SIZE } from '../../search/constants'
 import type { AnyDocument } from '../../types/schema'
 import type { ListParams } from '../../types/search'
 import { respondAnswer } from '../answer-stream'
@@ -88,7 +89,10 @@ export function createDocumentReadHandlers(deps: ReadHandlerDeps) {
     }
     if (refuseRegex(ctx, params.filters, allowRegex)) return
     try {
-      const page = await engine.listDocuments(ctx.params[0], params)
+      const page = await engine.listDocuments(ctx.params[0], {
+        ...params,
+        limit: params.limit ?? Math.min(DEFAULT_PAGE_SIZE, limits.maxFetchDocuments),
+      })
       await respondAnswer(ctx, page, 'documents', `a list on index '${ctx.params[0]}'`)
     } catch (err) {
       respondError(ctx, err)

@@ -13,26 +13,25 @@ services:
     profiles: ["narsil"]
     build:
       context: ../..
-      dockerfile: benchmarks/server/narsil-server.Dockerfile
+      dockerfile: packages/container/Dockerfile
       args:
-        NARSIL_GIT_SHA: "${NARSIL_GIT_SHA:-}"
-        NARSIL_GIT_DIRTY: "${NARSIL_GIT_DIRTY:-false}"
-        NARSIL_VERSION: "${NARSIL_VERSION:-}"
+        NARSIL_BUILD_GIT_SHA: "${NARSIL_GIT_SHA:-unknown}"
+        NARSIL_BUILD_VERSION: "${NARSIL_VERSION:-0.0.0-dev}"
     mem_limit: "${BENCH_MEM_CAP:-8g}"
     cpuset: "${BENCH_ENGINE_CPUSET:-}"
     environment:
-      NARSIL_HOST: "0.0.0.0"
-      NARSIL_PORT: "7700"
+      NARSIL_HTTP_HOST: "0.0.0.0"
+      NARSIL_HTTP_PORT: "7700"
       NARSIL_ALLOW_INSECURE: "true"
-      NARSIL_MAX_BODY_BYTES: "67108864"
-      NARSIL_MAX_IMPORT_BYTES: "268435456"
+      NARSIL_LIMIT_MAX_BODY_BYTES: "67108864"
+      NARSIL_LIMIT_MAX_IMPORT_BYTES: "268435456"
       NARSIL_WORKERS: "${BENCH_NARSIL_WORKERS:-}"
       NARSIL_PROMOTION_THRESHOLD: "${BENCH_NARSIL_PROMOTION_THRESHOLD:-}"
-      NARSIL_DURABILITY_DIR: "/var/lib/narsil"
+      NARSIL_REQUIRE_NATIVE_CORE: "1"
     expose:
       - "7700"
     volumes:
-      - narsil_data:/var/lib/narsil
+      - narsil_node_data:/data
 
   narsil-rust:
     profiles: ["narsil-rust"]
@@ -177,6 +176,7 @@ services:
       BENCH_ENGINE_CONTAINER_ID: "${BENCH_ENGINE_CONTAINER_ID:-}"
       BENCH_ENGINE_ADDRESS: "${BENCH_ENGINE_ADDRESS:-}"
       BENCH_ENGINE_STATS_URL: "${BENCH_ENGINE_STATS_URL:-}"
+      NARSIL_GIT_DIRTY: "${NARSIL_GIT_DIRTY:-}"
       BENCH_CGROUP_ROOT: "/host/cgroup"
       BENCH_ARTIFACT_DIR: "/data/artifacts"
       IR_DATASETS_DL_TRIES: "${IR_DATASETS_DL_TRIES:-10}"
@@ -191,7 +191,7 @@ services:
 volumes:
   ir_datasets_cache:
   embeddings_cache:
-  narsil_data:
+  narsil_node_data:
   narsil_rust_data:
   qdrant_data:
   weaviate_data:

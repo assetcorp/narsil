@@ -152,7 +152,9 @@ stemming, and stop-word choices move them more.
   each engine's search-time knob (`efSearch` for Narsil, `num_candidates` for
   Elasticsearch, `ef_search` for OpenSearch, `hnsw_ef` for Qdrant, and `ef` for
   Weaviate) upward until the engine clears `ann_recall@10 >= 0.99` against that
-  exact top-k. The sweep runs on a seeded sample of `vector.tuning_sample_queries`
+  exact top-k. Every engine walks the same `vector.ef_search_grid` in both
+  profiles, and that grid steps by 32 from 128 to 512, so each engine is measured
+  at the smallest of those values that clears the target. The sweep runs on a seeded sample of `vector.tuning_sample_queries`
   queries, and one timed trip over every query then confirms the chosen value. If
   the full set falls short of the target, the harness moves the knob to the next
   grid value and repeats the trip, so a sample that misses adds a trip and never a
@@ -479,7 +481,6 @@ benchmarks/server/
   run-all.sh                 orchestration: embed once, then one engine at a time, then aggregate
   docker-compose.yml         engine services (profiled, 8 GiB cap) plus harness
   Dockerfile                 harness image (wheelhouse build, slim runtime, baked models)
-  narsil-server.Dockerfile   Narsil server image, built from repo source
   narsil-rust-server.Dockerfile  Rust server image from packages/rust-server, built from repo source
   requirements.in / .txt     direct dependencies and the version-pinned lock
   config/benchmark.toml       datasets, BM25 reference, vector config, per-engine tracks
@@ -548,11 +549,14 @@ pytest
 
 ## Notes
 
-- The harness builds the Narsil server from its own
-  [narsil-server.Dockerfile](narsil-server.Dockerfile) on a Debian trixie base.
-  The repository's example image (`packages/ts/examples/http-server/Dockerfile`)
-  uses Debian bookworm (glibc 2.36), and the `uWebSockets.js` arm64 prebuilt the
-  server loads needs glibc 2.38, so that image cannot start on Apple Silicon.
+- The harness builds the Narsil server from the checkout through
+  [the image's Dockerfile](../../packages/container/Dockerfile), so the benchmark
+  measures the image that users run, with the heap limit that the image sets. The
+  run report records the heap limit that the server reports, and the benchmark
+  page shows it under the run conditions.
+- The harness records whether the checkout differs from the release that its
+  version names. `run-all.sh` works that out from the host's git history, because
+  the image holds the commit but no git history.
 - The `narsil-rust` engine is the Rust server in `packages/rust-server`, which
   serves the same routes as the TypeScript server, so the harness drives both
   through one driver. Its image comes from

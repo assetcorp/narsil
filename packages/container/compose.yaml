@@ -1,0 +1,15 @@
+name: narsil
+
+services:
+  narsil:
+    image: ghcr.io/assetcorp/narsil:${NARSIL_IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      NARSIL_ADMIN_KEY: ${NARSIL_ADMIN_KEY:?set NARSIL_ADMIN_KEY in .env to a key of at least 32 characters}
+    ports:
+      - "127.0.0.1:7700:7700"
+    volumes:
+      - narsil-data:/data
+
+volumes:
+  narsil-data:
