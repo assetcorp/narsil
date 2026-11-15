@@ -9,6 +9,7 @@ mod http;
 mod ids;
 mod maintenance;
 mod options;
+mod script_values;
 mod search;
 mod server;
 mod settings;

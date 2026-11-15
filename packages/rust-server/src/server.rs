@@ -14,6 +14,7 @@ use tokio::task::JoinHandle;
 use crate::constants::{
     CONNECTION_IDLE_TIMEOUT_MS, DEFAULT_HOST, DEFAULT_PORT, SERVER_CLOSE_DRAIN_DEADLINE_MS,
 };
+use crate::errors::config_invalid_error;
 use crate::feeds::Feeds;
 use crate::http::budget::{BodyBudget, RequestGate};
 use crate::http::cors::ResolvedCors;
@@ -45,10 +46,6 @@ pub struct NarsilServer {
     running: Mutex<Option<Running>>,
 }
 
-fn config_invalid(message: impl Into<String>) -> NarsilError {
-    NarsilError::new(ErrorCode::CONFIG_INVALID, message)
-}
-
 impl NarsilServer {
     /// Returns a server for `engine` with `options`, after registering the options' embedding and rerank adapters
     /// on the engine.
@@ -69,8 +66,9 @@ impl NarsilServer {
         let limits = resolve_limits(&engine, &options.limits);
         let instance_id = match &options.instance_id {
             Some(id) => id.clone(),
-            None => random_uuid()
-                .ok_or_else(|| config_invalid("The system offers no source of random numbers"))?,
+            None => random_uuid().ok_or_else(|| {
+                config_invalid_error("The system offers no source of random numbers")
+            })?,
         };
         let store = options
             .task_store
@@ -133,13 +131,13 @@ impl NarsilServer {
         let listener = TcpListener::bind((self.host.as_str(), self.port))
             .await
             .map_err(|failure| {
-                config_invalid(format!(
+                config_invalid_error(format!(
                     "Failed to listen on {}:{}: {failure}",
                     self.host, self.port
                 ))
             })?;
         let address = listener.local_addr().map_err(|failure| {
-            config_invalid(format!("Failed to read the bound address: {failure}"))
+            config_invalid_error(format!("Failed to read the bound address: {failure}"))
         })?;
         let (stop, stopped) = watch::channel(false);
         let accepting = tokio::spawn(accept_loop(Arc::clone(&self.state), listener, stopped));

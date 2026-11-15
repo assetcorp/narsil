@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use narsil::{Map, Value, write_plain_json};
+use narsil::{ErrorCode, Map, Value};
 
 use super::analysis::analysis_change_of;
 use super::{accepted, coded, engine_work, require_index};
@@ -8,6 +8,7 @@ use crate::errors::{Outcome, ServerError};
 use crate::handlers::common::optional_json_body;
 use crate::http::pipeline::RouteContext;
 use crate::http::respond::HttpResponse;
+use crate::script_values::script_text;
 use crate::state::ServerState;
 use crate::tasks::{TaskFailure, TaskLaunch};
 
@@ -15,24 +16,6 @@ enum VectorField {
     Every,
     Named(String),
     Unmatchable(Value),
-}
-
-fn javascript_string(value: &Value) -> String {
-    match value {
-        Value::Null => "null".to_string(),
-        Value::Bool(flag) => flag.to_string(),
-        Value::String(text) => text.clone(),
-        Value::Array(entries) => entries
-            .iter()
-            .map(|entry| match entry {
-                Value::Null => String::new(),
-                other => javascript_string(other),
-            })
-            .collect::<Vec<_>>()
-            .join(","),
-        Value::Object(_) => "[object Object]".to_string(),
-        other => write_plain_json(other),
-    }
 }
 
 fn vector_field_of(body: &Value) -> VectorField {
@@ -49,11 +32,11 @@ fn vector_field_of(body: &Value) -> VectorField {
 fn unknown_vector_field(index: &str, field: Value) -> TaskFailure {
     let mut details = Map::new();
     details.insert("indexName", Value::String(index.to_string()));
-    let shown = javascript_string(&field);
+    let shown = script_text(&field);
     details.insert("fieldName", field);
     TaskFailure::Coded(
         ServerError::coded(
-            "INDEX_NOT_FOUND",
+            ErrorCode::INDEX_NOT_FOUND.as_str(),
             format!("Vector field \"{shown}\" not found in index \"{index}\""),
         )
         .with_details(details),

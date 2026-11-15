@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use narsil::{Map, QuerySuggestionsBuild, QuerySuggestionsBuildStatus, Value};
+use narsil::{ErrorCode, Map, QuerySuggestionsBuild, QuerySuggestionsBuildStatus, Value};
 
 use super::{accepted, coded, on_blocking_pool};
 use crate::errors::{Outcome, ServerError};
@@ -9,8 +9,6 @@ use crate::http::pipeline::RouteContext;
 use crate::http::respond::HttpResponse;
 use crate::state::ServerState;
 use crate::tasks::{TaskContext, TaskFailure, TaskLaunch, TaskOperation};
-
-const WORKER_ACTION_FAILED: &str = "WORKER_ACTION_FAILED";
 
 fn optional_number(value: Option<u64>) -> Value {
     value.map_or(Value::Null, |number| Value::Number(number as f64))
@@ -34,7 +32,10 @@ fn build_of(build: &QuerySuggestionsBuild) -> Map {
 }
 
 fn failed_build(index: &str, build: &QuerySuggestionsBuild) -> TaskFailure {
-    let code = build.error_code.as_deref().unwrap_or(WORKER_ACTION_FAILED);
+    let code = build
+        .error_code
+        .as_deref()
+        .unwrap_or(ErrorCode::WORKER_ACTION_FAILED.as_str());
     let mut details = Map::new();
     details.insert("indexName", Value::String(index.to_string()));
     details.insert("buildId", Value::String(build.build_id.clone()));

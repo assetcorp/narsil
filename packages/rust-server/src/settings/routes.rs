@@ -4,7 +4,6 @@ use narsil::{SnapshotOptions, Value};
 
 use super::bm25::update_bm25;
 use super::errors::{on_engine, preparing};
-use super::js_text::is_falsy;
 use super::partition::update_partition_config;
 use super::stream::streamed_write;
 use super::synonyms::{synonym_rules_of, synonym_set_json};
@@ -15,6 +14,7 @@ use crate::handlers::common::{json_body, object, optional_json_body};
 use crate::http::pipeline::RouteContext;
 use crate::http::respond::{HttpResponse, json};
 use crate::http::routes::Route;
+use crate::script_values::script_truthy;
 use crate::state::ServerState;
 
 const CHANGES_EXPORT_PREPARING: &str = "CHANGES_EXPORT_PREPARING";
@@ -94,7 +94,7 @@ async fn partition_config(
     name: String,
 ) -> Outcome<HttpResponse> {
     let body = optional_json_body(context)?;
-    if is_falsy(&body) {
+    if !script_truthy(&body) {
         return Err(ServerError::invalid(
             "Send the partition settings as a JSON object",
         ));

@@ -18,10 +18,6 @@ const HYBRID_STRATEGIES: [(&str, HybridStrategy); 2] = [
     ("linear", HybridStrategy::Linear),
 ];
 
-fn config_invalid(message: impl Into<String>) -> ServerError {
-    refusal(ErrorCode::CONFIG_INVALID, message)
-}
-
 fn query_vector(value: &Value) -> Converted<Vec<f32>> {
     let Value::Array(items) = value else {
         return Err(refusal(
@@ -53,7 +49,8 @@ fn whole_or(fields: &Fields<'_>, key: &str, message: &str) -> Converted<Option<u
             .and_then(|whole| u32::try_from(whole).ok())
             .map(Some)
             .ok_or_else(|| {
-                config_invalid(message).with_details(details_of(vec![(key, value.clone())]))
+                ServerError::config_invalid(message)
+                    .with_details(details_of(vec![(key, value.clone())]))
             }),
     }
 }
@@ -62,13 +59,15 @@ fn number_or(fields: &Fields<'_>, key: &str, message: &str) -> Converted<Option<
     match fields.present(key) {
         None => Ok(None),
         Some(Value::Number(number)) => Ok(Some(*number)),
-        Some(_) => Err(config_invalid(message)),
+        Some(_) => Err(ServerError::config_invalid(message)),
     }
 }
 
 pub(crate) fn vector_query(vector: &Value, mode: Option<&Value>) -> Converted<VectorQuery> {
     let Value::Object(vector) = vector else {
-        return Err(config_invalid("Field \"vector\" must be an object"));
+        return Err(ServerError::config_invalid(
+            "Field \"vector\" must be an object",
+        ));
     };
     let fields = Fields::new(vector, "vector");
     let field = match fields.present("field") {
@@ -123,7 +122,9 @@ pub(crate) fn vector_query(vector: &Value, mode: Option<&Value>) -> Converted<Ve
 
 pub(crate) fn hybrid_config(hybrid: &Value) -> Converted<HybridConfig> {
     let Value::Object(hybrid) = hybrid else {
-        return Err(config_invalid("Field \"hybrid\" must be an object"));
+        return Err(ServerError::config_invalid(
+            "Field \"hybrid\" must be an object",
+        ));
     };
     let fields = Fields::new(hybrid, "hybrid");
     let strategy = match fields.get("strategy") {
@@ -133,13 +134,15 @@ pub(crate) fn hybrid_config(hybrid: &Value) -> Converted<HybridConfig> {
                 .as_str()
                 .and_then(|text| HYBRID_STRATEGIES.iter().find(|(name, _)| *name == text))
                 .map(|(_, strategy)| *strategy)
-                .ok_or_else(|| config_invalid("hybrid.strategy must be \"rrf\" or \"linear\""))?,
+                .ok_or_else(|| {
+                    ServerError::config_invalid("hybrid.strategy must be \"rrf\" or \"linear\"")
+                })?,
         ),
     };
     let depth = match fields.get("depth") {
         None => None,
         Some(value) => Some(size_of(value).ok_or_else(|| {
-            config_invalid("hybrid.depth must be a whole number from 1 to 10000")
+            ServerError::config_invalid("hybrid.depth must be a whole number from 1 to 10000")
                 .with_details(details_of(vec![("depth", value.clone())]))
         })?),
     };
@@ -210,14 +213,14 @@ pub(crate) fn rerank_config(rerank: &Value, max_rerank_window: usize) -> Convert
 }
 
 fn bm25_refusal() -> ServerError {
-    config_invalid("bm25 must be an object that sets k1, b, or fields")
+    ServerError::config_invalid("bm25 must be an object that sets k1, b, or fields")
 }
 
 fn bm25_pair(fields: &Fields<'_>) -> Converted<Bm25FieldParams> {
     let parameter = |key: &str| match fields.present(key) {
         None => Ok(None),
         Some(Value::Number(number)) => Ok(Some(*number)),
-        Some(_) => Err(config_invalid(format!(
+        Some(_) => Err(ServerError::config_invalid(format!(
             "{} must be a finite number",
             fields.path(key)
         ))),
@@ -241,7 +244,7 @@ pub(crate) fn bm25_params(bm25: &Value) -> Converted<Bm25Params> {
                 .iter()
                 .map(|(name, entry)| {
                     let Value::Object(entry) = entry else {
-                        return Err(config_invalid(format!(
+                        return Err(ServerError::config_invalid(format!(
                             "bm25.fields.{name} must be an object that sets k1 or b"
                         )));
                     };
@@ -253,7 +256,7 @@ pub(crate) fn bm25_params(bm25: &Value) -> Converted<Bm25Params> {
                 .collect::<Converted<Vec<_>>>()?,
         ),
         Some(_) => {
-            return Err(config_invalid(
+            return Err(ServerError::config_invalid(
                 "bm25.fields must be an object keyed by field name",
             ));
         }

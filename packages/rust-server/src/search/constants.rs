@@ -5,6 +5,5 @@ pub const MAX_FILTER_DEPTH: usize = 30;
 pub const MAX_TOLERANCE: u32 = 10;
 pub const MAX_PREFIX_LENGTH: u32 = 1024;
 pub const MAX_PREVIEW_LIMIT_DIGITS: usize = 7;
-pub const RESPONSE_GROUP_DOCUMENTS: usize = 64;
 pub const RESPONSE_STREAM_CHANNEL_CHUNKS: usize = 4;
 pub const MILLISECONDS_PER_SECOND: f64 = 1_000.0;

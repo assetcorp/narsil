@@ -6,7 +6,6 @@ mod hub;
 mod limits;
 mod options;
 mod outbox;
-mod regex;
 mod signals;
 mod socket;
 mod sync;

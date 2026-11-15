@@ -6,8 +6,8 @@ use narsil::{
 };
 
 use super::{config_refusal, refusal};
-use crate::documents::script_values::script_text;
 use crate::errors::{Outcome, ServerError};
+use crate::script_values::script_text;
 
 pub(super) fn tokenizer_of(tokenizer: Option<&Value>) -> Outcome<Option<TokenizerSetting>> {
     match tokenizer {

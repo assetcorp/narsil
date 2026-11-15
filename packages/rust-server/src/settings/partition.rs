@@ -1,9 +1,9 @@
-use narsil::{Map, Narsil, PartitionConfig, Value};
+use narsil::{ErrorCode, Map, Narsil, PartitionConfig, Value};
 
-use super::constants::MAX_PARTITIONS;
-use super::errors::{after_engine_checks, config_invalid};
-use super::js_text::is_whole_number;
+use super::errors::after_engine_checks;
+use crate::constants::MAX_PARTITIONS;
 use crate::errors::{Outcome, ServerError};
+use crate::script_values::whole_number;
 
 struct Refusal {
     failure: ServerError,
@@ -12,16 +12,9 @@ struct Refusal {
 
 fn refusal(field: &str, value: &Value, message: String, sentinel: PartitionConfig) -> Box<Refusal> {
     Box::new(Refusal {
-        failure: config_invalid(message).with_detail(field, value.clone()),
+        failure: ServerError::config_invalid(message).with_detail(field, value.clone()),
         sentinel,
     })
-}
-
-fn whole_number(value: &Value) -> Option<f64> {
-    match value {
-        Value::Number(number) if is_whole_number(*number) => Some(*number),
-        _ => None,
-    }
 }
 
 fn checked_change(fields: Option<&Map>) -> Result<PartitionConfig, Box<Refusal>> {
@@ -84,6 +77,10 @@ fn checked_change(fields: Option<&Map>) -> Result<PartitionConfig, Box<Refusal>>
     Ok(change)
 }
 
+pub(crate) fn partitions_of(fields: &Map) -> Outcome<PartitionConfig> {
+    checked_change(Some(fields)).map_err(|refused| refused.failure)
+}
+
 pub(crate) fn update_partition_config(
     engine: &Narsil,
     index_name: &str,
@@ -103,7 +100,7 @@ pub(crate) fn update_partition_config(
                 engine,
                 failure,
                 |engine| engine.update_partition_config(index_name, &sentinel),
-                |raised| raised.code().as_str() == "CONFIG_INVALID",
+                |raised| raised.code() == ErrorCode::CONFIG_INVALID,
             ))
         }
     }

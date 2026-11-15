@@ -1,18 +1,14 @@
 mod analysis;
-mod bm25;
 mod given_values;
 mod vectors;
 
 pub(crate) use given_values::with_given_values;
 
-use narsil::{
-    ErrorCode, IndexConfig, Map, PartitionConfig, ScoringMode, Storage, Value,
-    synonym_rules_from_json,
-};
+use narsil::{ErrorCode, IndexConfig, Map, ScoringMode, Storage, Value, synonym_rules_from_json};
 
-use super::constants::MAX_PARTITIONS;
-use super::script_values::{saturating_count, script_text, script_truthy, whole_number};
 use crate::errors::{Outcome, ServerError};
+use crate::script_values::{saturating_count, script_text, script_truthy, whole_number};
+use crate::settings::{bm25_params_of, partitions_of};
 
 pub(crate) fn refusal(
     code: ErrorCode,
@@ -57,7 +53,7 @@ pub(crate) fn index_config_of(http: &Map) -> Outcome<IndexConfig> {
         .map(|surface| *surface == Value::Bool(true));
     config.vector_promotion = vectors::vector_promotion_of(http.get("vectorPromotion"))?;
     config.text_storage = text_storage_of(http.get("textStorage"))?;
-    config.bm25 = http.get("bm25").map(bm25::bm25_of).transpose()?;
+    config.bm25 = http.get("bm25").map(bm25_params_of).transpose()?;
     config.partitions = http
         .get("partitions")
         .and_then(Value::as_object)
@@ -118,50 +114,4 @@ fn required_of(required: &Value) -> Option<Vec<String>> {
         }
         _ => None,
     }
-}
-
-fn partitions_of(raw: &Map) -> Outcome<PartitionConfig> {
-    let max_docs_per_partition = match raw.get("maxDocsPerPartition") {
-        None => None,
-        Some(count) => match whole_number(count).filter(|count| *count >= 1.0) {
-            Some(count) => Some(saturating_count(count)),
-            None => {
-                return Err(config_refusal(
-                    "partitions.maxDocsPerPartition must be a positive integer",
-                    vec![("maxDocsPerPartition", count.clone())],
-                ));
-            }
-        },
-    };
-    let max_partitions = match raw.get("maxPartitions") {
-        None => None,
-        Some(count) => {
-            match whole_number(count).filter(|count| (1.0..=MAX_PARTITIONS).contains(count)) {
-                Some(count) => Some(saturating_count(count)),
-                None => {
-                    return Err(config_refusal(
-                        format!(
-                            "partitions.maxPartitions must be an integer from 1 to {MAX_PARTITIONS}"
-                        ),
-                        vec![("maxPartitions", count.clone())],
-                    ));
-                }
-            }
-        }
-    };
-    let watermark = match raw.get("watermark") {
-        None => None,
-        Some(Value::Number(watermark)) if *watermark > 0.0 && *watermark <= 1.0 => Some(*watermark),
-        Some(other) => {
-            return Err(config_refusal(
-                "partitions.watermark must be above 0 and at most 1",
-                vec![("watermark", other.clone())],
-            ));
-        }
-    };
-    Ok(PartitionConfig {
-        max_docs_per_partition,
-        max_partitions,
-        watermark,
-    })
 }

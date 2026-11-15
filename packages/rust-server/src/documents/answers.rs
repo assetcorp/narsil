@@ -8,8 +8,9 @@ use narsil::{
 };
 use tokio::sync::mpsc;
 
-use super::constants::{RESPONSE_GROUP_BYTES, RESPONSE_GROUP_DOCUMENTS, RESPONSE_GROUPS_IN_FLIGHT};
+use super::constants::{RESPONSE_GROUP_BYTES, RESPONSE_GROUPS_IN_FLIGHT};
 use crate::constants::JSON_CONTENT_TYPE;
+use crate::constants::RESPONSE_GROUP_DOCUMENTS;
 use crate::http::respond::{HttpResponse, json, stream};
 
 const PROTOTYPE_KEY: &str = "__proto__";
