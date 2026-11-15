@@ -5,17 +5,20 @@ use std::time::Duration;
 
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
-use hyper_util::rt::TokioIo;
+use hyper_util::rt::{TokioIo, TokioTimer};
 use narsil::{ErrorCode, Narsil, NarsilError};
 use tokio::net::TcpListener;
 use tokio::sync::{Mutex, watch};
 use tokio::task::JoinHandle;
 
-use crate::constants::{DEFAULT_HOST, DEFAULT_PORT, SERVER_CLOSE_DRAIN_DEADLINE_MS};
+use crate::constants::{
+    CONNECTION_IDLE_TIMEOUT_MS, DEFAULT_HOST, DEFAULT_PORT, SERVER_CLOSE_DRAIN_DEADLINE_MS,
+};
 use crate::feeds::Feeds;
 use crate::http::budget::{BodyBudget, RequestGate};
 use crate::http::cors::ResolvedCors;
 use crate::http::pipeline::serve;
+use crate::http::stall_guard::WriteStallGuard;
 use crate::ids::random_uuid;
 use crate::options::ServerOptions;
 use crate::state::{
@@ -202,7 +205,9 @@ async fn serve_connection(
         async move { Ok::<_, std::convert::Infallible>(serve(state, request, remote).await) }
     });
     let connection = http1::Builder::new()
-        .serve_connection(TokioIo::new(stream), service)
+        .timer(TokioTimer::new())
+        .header_read_timeout(Duration::from_millis(CONNECTION_IDLE_TIMEOUT_MS))
+        .serve_connection(TokioIo::new(WriteStallGuard::new(stream)), service)
         .with_upgrades();
     tokio::pin!(connection);
     tokio::select! {
