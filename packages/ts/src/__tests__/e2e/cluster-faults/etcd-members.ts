@@ -5,8 +5,8 @@ import { join } from 'node:path'
 import {
   ETCD_IMAGE,
   eventually,
-  getAvailablePort,
   runDocker,
+  runDockerOnFreePort,
 } from '../../distribution/coordinator/etcd-integration/fixtures'
 import type { TlsBundles } from '../../distribution/transport/tcp-tls/fixtures'
 
@@ -36,8 +36,7 @@ export async function startEtcdMembers(bundles: TlsBundles | null): Promise<Etcd
   const secure = bundles !== null
   const scheme = secure ? 'https' : 'http'
   const hostPorts: number[] = []
-  for (let member = 0; member < MEMBER_COUNT; member++) hostPorts.push(await getAvailablePort())
-  const names = hostPorts.map((_, member) => memberName(run, member))
+  const names = Array.from({ length: MEMBER_COUNT }, (_, member) => memberName(run, member))
   const certificates = secure ? await mkdtemp(join(tmpdir(), 'narsil-fault-etcd-')) : null
 
   async function remove(): Promise<void> {
@@ -91,7 +90,7 @@ export async function startEtcdMembers(bundles: TlsBundles | null): Promise<Etcd
             '--client-cert-auth',
           ]
         : []
-      await runDocker([
+      const hostPort = await runDockerOnFreePort(name, port => [
         'run',
         '--detach',
         '--name',
@@ -99,7 +98,7 @@ export async function startEtcdMembers(bundles: TlsBundles | null): Promise<Etcd
         '--network',
         network,
         '-p',
-        `127.0.0.1:${hostPorts[member]}:2379`,
+        `127.0.0.1:${port}:2379`,
         ...(certificates === null ? [] : ['-v', `${certificates}:${CERTIFICATE_DIRECTORY}:ro`]),
         ETCD_IMAGE,
         '/usr/local/bin/etcd',
@@ -110,7 +109,7 @@ export async function startEtcdMembers(bundles: TlsBundles | null): Promise<Etcd
         '--listen-client-urls',
         `${scheme}://0.0.0.0:2379`,
         '--advertise-client-urls',
-        `${scheme}://127.0.0.1:${hostPorts[member]}`,
+        `${scheme}://127.0.0.1:${port}`,
         '--listen-peer-urls',
         'http://0.0.0.0:2380',
         '--initial-advertise-peer-urls',
@@ -121,6 +120,7 @@ export async function startEtcdMembers(bundles: TlsBundles | null): Promise<Etcd
         'new',
         ...tlsFlags,
       ])
+      hostPorts.push(hostPort)
     }
     for (let member = 0; member < MEMBER_COUNT; member++) {
       await eventually(
