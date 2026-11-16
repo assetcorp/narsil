@@ -2,8 +2,8 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, it } from 'vitest'
-import { createNarsil } from '../../../narsil'
-import type { BatchResult } from '../../../types/results'
+import { createNarsil } from '../../narsil'
+import type { BatchResult } from '../../types/results'
 
 it('recovers acknowledged queued inserts when a rebalance hook awaits shutdown at the queue limit', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'narsil-batch-shutdown-'))
