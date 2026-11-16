@@ -67,20 +67,22 @@ def _operational_columns(rows: list[dict]) -> list[str]:
         "Operational metrics. Latency below is the engine's own reported query time "
         "(server-side); the client round-trip is reported separately underneath.",
         "",
-        "| Dataset | Docs | Ingest docs/s | Build s | Index size | Server p50 ms | Server p95 ms | Server p99 ms |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- |",
+        "| Dataset | Docs | Ingest docs/s | Build s | On disk | Peak heap | Server p50 ms | Server p95 ms | Server p99 ms |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for row in rows:
         ops = row.get("operational", {})
         server = server_summary(row.get("latency", {}))
         size = ops.get("index_size_bytes")
+        memory = row.get("engine_memory")
         lines.append(
-            "| {id} | {docs} | {rate} | {build} | {size} | {p50} | {p95} | {p99} |".format(
+            "| {id} | {docs} | {rate} | {build} | {size} | {heap} | {p50} | {p95} | {p99} |".format(
                 id=row["dataset_id"],
                 docs=ops.get("documents_indexed", "n/a"),
                 rate=_fmt(ops.get("ingest_docs_per_sec"), 0),
                 build=_fmt(ops.get("build_seconds"), 2),
-                size="n/a" if size is None else f"{size / 1e6:.1f} MB",
+                size="n/a" if size is None else _gigabytes(size),
+                heap=_gigabytes(memory.get("peak_anon_bytes")) if isinstance(memory, dict) else "n/a",
                 p50="n/a" if server is None else _fmt(server.get("p50_ms"), 2),
                 p95="n/a" if server is None else _fmt(server.get("p95_ms"), 2),
                 p99="n/a" if server is None else _fmt(server.get("p99_ms"), 2),
