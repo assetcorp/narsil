@@ -30,8 +30,8 @@ func (n *Narsil) applyKeepingTokens(ctx context.Context, name string, entry *ind
 	if !target.CallsCallerCode() && (shadow == nil || !shadow.CallsCallerCode()) {
 		return entry, release, n.applyAndUnlock(ctx, entry, locked)
 	}
-	entry.writeMu.Unlock()
 	defer n.holdRetiredIndexes()()
+	entry.writeMu.Unlock()
 	release()
 	documents := persist.DocumentWrites(writes)
 	tokens, shadowTokens, storedRead, err := writeTokensOutside(ctx, target, shadow, kind, documents)
