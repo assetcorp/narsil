@@ -2,12 +2,13 @@ package callerctx
 
 import (
 	"context"
+	"runtime"
 	"slices"
 	"sync"
 )
 
 type writerTurn struct {
-	_ byte
+	granted chan struct{}
 }
 
 type RWMutex struct {
@@ -40,44 +41,61 @@ func (m *RWMutex) wait(stopped <-chan struct{}) bool {
 	}
 }
 
-func (m *RWMutex) leaveQueue(turn *writerTurn) {
-	if at := slices.Index(m.queued, turn); at >= 0 {
-		m.queued = slices.Delete(m.queued, at, at+1)
+func (m *RWMutex) handOff() bool {
+	if m.writing {
+		return false
 	}
-	m.notify()
+	if len(m.queued) == 0 {
+		m.notify()
+		return false
+	}
+	if m.readers != 0 {
+		return false
+	}
+	turn := m.queued[0]
+	m.queued = m.queued[1:]
+	m.writing = true
+	close(turn.granted)
+	return true
+}
+
+func (m *RWMutex) abandonTurn(turn *writerTurn) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	select {
+	case <-turn.granted:
+		m.writing = false
+	default:
+		if at := slices.Index(m.queued, turn); at >= 0 {
+			m.queued = slices.Delete(m.queued, at, at+1)
+		}
+	}
+	m.handOff()
 }
 
 func (m *RWMutex) LockContext(ctx context.Context) error {
 	stopped := ctx.Done()
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	select {
 	case <-stopped:
+		m.mu.Unlock()
 		return ctx.Err()
 	default:
 	}
 	if !m.writing && m.readers == 0 && len(m.queued) == 0 {
 		m.writing = true
+		m.mu.Unlock()
 		return nil
 	}
-	turn := &writerTurn{}
+	turn := &writerTurn{granted: make(chan struct{})}
 	m.queued = append(m.queued, turn)
-	for {
-		select {
-		case <-stopped:
-			m.leaveQueue(turn)
-			return ctx.Err()
-		default:
-		}
-		if !m.writing && m.readers == 0 && m.queued[0] == turn {
-			m.queued = m.queued[1:]
-			m.writing = true
-			return nil
-		}
-		if !m.wait(stopped) {
-			m.leaveQueue(turn)
-			return ctx.Err()
-		}
+	m.mu.Unlock()
+	select {
+	case <-turn.granted:
+		return nil
+	case <-stopped:
+		m.abandonTurn(turn)
+		return ctx.Err()
 	}
 }
 
@@ -121,22 +139,28 @@ func (m *RWMutex) TryLock() bool {
 
 func (m *RWMutex) Unlock() {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	if !m.writing {
+		m.mu.Unlock()
 		panic("unlock of an unlocked index")
 	}
 	m.writing = false
-	m.notify()
+	granted := m.handOff()
+	m.mu.Unlock()
+	if granted {
+		runtime.Gosched()
+	}
 }
 
 func (m *RWMutex) RUnlock() {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	if m.readers == 0 {
+		m.mu.Unlock()
 		panic("read unlock of an unlocked index")
 	}
 	m.readers--
-	if m.readers == 0 {
-		m.notify()
+	granted := m.handOff()
+	m.mu.Unlock()
+	if granted {
+		runtime.Gosched()
 	}
 }
