@@ -86,37 +86,50 @@ pub(crate) struct RouteOptions {
     pub(crate) body: BodyRule,
     pub(crate) skip_hooks: bool,
     pub(crate) captures_context: bool,
+    pub(crate) on_query_threads: bool,
 }
 
 const PROBE: RouteOptions = RouteOptions {
     body: BodyRule::Ignored,
     skip_hooks: true,
     captures_context: false,
+    on_query_threads: false,
 };
 const BARE: RouteOptions = RouteOptions {
     body: BodyRule::Ignored,
     skip_hooks: false,
     captures_context: false,
+    on_query_threads: false,
 };
 const JSON_BODY: RouteOptions = RouteOptions {
     body: BodyRule::Json,
     skip_hooks: false,
     captures_context: false,
+    on_query_threads: false,
+};
+const QUERY_BODY: RouteOptions = RouteOptions {
+    body: BodyRule::Json,
+    skip_hooks: false,
+    captures_context: false,
+    on_query_threads: true,
 };
 const IMPORT_BODY: RouteOptions = RouteOptions {
     body: BodyRule::Import,
     skip_hooks: false,
     captures_context: false,
+    on_query_threads: false,
 };
 const SPOOLED_BODY: RouteOptions = RouteOptions {
     body: BodyRule::Spooled,
     skip_hooks: false,
     captures_context: false,
+    on_query_threads: false,
 };
 const CONTEXT_BODY: RouteOptions = RouteOptions {
     body: BodyRule::Json,
     skip_hooks: false,
     captures_context: true,
+    on_query_threads: false,
 };
 
 pub(crate) struct RouteEntry {
@@ -163,7 +176,7 @@ pub(crate) const ROUTES: &[RouteEntry] = entries![
     GET "/indexes/:name/count" Count BARE,
     POST "/indexes/:name/documents" Insert JSON_BODY,
     POST "/indexes/:name/documents/_batch" Batch JSON_BODY,
-    POST "/indexes/:name/documents/_list" List JSON_BODY,
+    POST "/indexes/:name/documents/_list" List QUERY_BODY,
     POST "/indexes/:name/documents/_multi-get" MultiGet JSON_BODY,
     POST "/indexes/:name/documents/_import" ImportNdjson IMPORT_BODY,
     POST "/indexes/:name/_wait-for-writes" WaitForWrites BARE,
@@ -172,9 +185,9 @@ pub(crate) const ROUTES: &[RouteEntry] = entries![
     PUT "/indexes/:name/documents/:id" Put JSON_BODY,
     PATCH "/indexes/:name/documents/:id" Patch JSON_BODY,
     DELETE "/indexes/:name/documents/:id" Remove BARE,
-    POST "/indexes/:name/search" Search JSON_BODY,
-    POST "/indexes/:name/search/preflight" Preflight JSON_BODY,
-    POST "/indexes/:name/suggest" Suggest JSON_BODY,
+    POST "/indexes/:name/search" Search QUERY_BODY,
+    POST "/indexes/:name/search/preflight" Preflight QUERY_BODY,
+    POST "/indexes/:name/suggest" Suggest QUERY_BODY,
     POST "/indexes/:name/_checkpoint" Checkpoint BARE,
     POST "/indexes/:name/_rebuild-analysis" RebuildAnalysis BARE,
     POST "/indexes/:name/_change-analysis" ChangeAnalysis JSON_BODY,

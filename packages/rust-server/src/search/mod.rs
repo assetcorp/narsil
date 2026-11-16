@@ -9,7 +9,7 @@ mod server_limits;
 mod shape;
 mod suggestions;
 
-pub(crate) use answer::respond_answer;
+pub(crate) use answer::{Reply, answer_reply};
 pub(crate) use constants::MAX_PREVIEW_LIMIT_DIGITS;
 pub(crate) use encode::{list_answer, preflight_value, query_answer, suggest_value};
 pub(crate) use query::query_params;

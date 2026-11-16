@@ -5,7 +5,7 @@ use tokio::sync::mpsc;
 use super::constants::RESPONSE_STREAM_CHANNEL_CHUNKS;
 use crate::constants::RESPONSE_GROUP_DOCUMENTS;
 use crate::constants::{JSON_CONTENT_TYPE, RESPONSE_STREAM_CHUNK_BYTES};
-use crate::http::respond::{HttpResponse, json, stream};
+use crate::http::respond::{HttpResponse, json_text, stream};
 
 pub(crate) struct Answer {
     pub(crate) key: &'static str,
@@ -13,14 +13,21 @@ pub(crate) struct Answer {
     pub(crate) rest: Map,
 }
 
-impl Answer {
-    fn whole(self) -> Value {
-        let mut body = Map::with_capacity(self.rest.len() + 1);
-        body.insert(self.key, Value::Array(self.items));
-        for (key, value) in self.rest.iter() {
-            body.insert(key.clone(), value.clone());
+pub(crate) enum Reply {
+    Ready(HttpResponse),
+    Streamed(Answer),
+}
+
+impl Reply {
+    pub(crate) fn into_response(self) -> HttpResponse {
+        match self {
+            Reply::Ready(response) => response,
+            Reply::Streamed(answer) => {
+                let (sender, receiver) = mpsc::channel(RESPONSE_STREAM_CHANNEL_CHUNKS);
+                tokio::spawn(send_chunks(answer, sender));
+                stream(200, JSON_CONTENT_TYPE, receiver)
+            }
         }
-        Value::Object(body)
     }
 }
 
@@ -31,15 +38,26 @@ fn opening(key: &str) -> String {
     text
 }
 
-fn closing(rest: &Map) -> String {
-    let mut text = String::from("]");
+fn close_into(text: &mut String, rest: &Map) {
+    text.push(']');
     for (key, value) in rest.iter() {
         text.push(',');
-        write_plain_json_into(&mut text, &Value::String(key.clone()));
+        write_plain_json_into(text, &Value::String(key.clone()));
         text.push(':');
-        write_plain_json_into(&mut text, value);
+        write_plain_json_into(text, value);
     }
     text.push('}');
+}
+
+fn written(answer: Answer) -> String {
+    let mut text = opening(answer.key);
+    for (at, item) in answer.items.iter().enumerate() {
+        if at > 0 {
+            text.push(',');
+        }
+        write_plain_json_into(&mut text, item);
+    }
+    close_into(&mut text, &answer.rest);
     text
 }
 
@@ -57,15 +75,13 @@ async fn send_chunks(answer: Answer, sender: mpsc::Sender<std::io::Result<Bytes>
             }
         }
     }
-    buffer.push_str(&closing(&answer.rest));
+    close_into(&mut buffer, &answer.rest);
     let _ = sender.send(Ok(Bytes::from(buffer))).await;
 }
 
-pub(crate) fn respond_answer(answer: Answer) -> HttpResponse {
+pub(crate) fn answer_reply(answer: Answer) -> Reply {
     if answer.items.len() <= RESPONSE_GROUP_DOCUMENTS {
-        return json(200, &answer.whole());
+        return Reply::Ready(json_text(200, written(answer)));
     }
-    let (sender, receiver) = mpsc::channel(RESPONSE_STREAM_CHANNEL_CHUNKS);
-    tokio::spawn(send_chunks(answer, sender));
-    stream(200, JSON_CONTENT_TYPE, receiver)
+    Reply::Streamed(answer)
 }

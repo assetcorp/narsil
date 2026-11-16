@@ -128,6 +128,15 @@ fn kind_of(route: Route) -> ParseKind {
     }
 }
 
+pub(crate) fn route_parse_refusal(
+    engine: &Narsil,
+    route: Route,
+    body: Option<&Bytes>,
+) -> Option<ServerError> {
+    let raw = body.filter(|raw| !raw.is_empty())?;
+    parse_refusal(engine, raw, kind_of(route))
+}
+
 pub(crate) async fn body_parse_refusal(
     engine: &Arc<Narsil>,
     route: Route,
@@ -135,7 +144,7 @@ pub(crate) async fn body_parse_refusal(
 ) -> Option<ServerError> {
     let raw = body.filter(|raw| !raw.is_empty())?.clone();
     let engine = Arc::clone(engine);
-    tokio::task::spawn_blocking(move || parse_refusal(&engine, &raw, kind_of(route)))
+    tokio::task::spawn_blocking(move || route_parse_refusal(&engine, route, Some(&raw)))
         .await
         .unwrap_or_else(|_| Some(ServerError::internal()))
 }

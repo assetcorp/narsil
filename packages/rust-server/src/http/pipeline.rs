@@ -11,9 +11,9 @@ use hyper::body::Incoming;
 use narsil::{Map, Value};
 
 use super::body::{BodyRead, declared_body_bytes, drain_in_background, read_body};
-use super::parse_memory::body_parse_refusal;
+use super::parse_memory::{body_parse_refusal, route_parse_refusal};
 use super::respond::{HttpResponse, error, held_until_sent, insert_header};
-use super::routes::{BodyRule, RouteOptions, match_route};
+use super::routes::{BodyRule, Route, RouteOptions, match_route};
 use super::spool::{SpoolOutcome, SpooledBody, spool_body};
 use crate::errors::{ServerError, server_codes};
 use crate::handlers::dispatch;
@@ -177,6 +177,30 @@ fn not_found() -> ServerError {
     ServerError::new(404, server_codes::NOT_FOUND, "Route not found")
 }
 
+async fn answer_on_query_threads<H: Send + Sync + Unpin + 'static>(
+    state: &Arc<ServerState>,
+    route: Route,
+    context: RouteContext,
+    held: H,
+) -> HttpResponse {
+    let shared = Arc::clone(state);
+    let answered = state
+        .queries
+        .run(move || {
+            let outcome = match route_parse_refusal(&shared.engine, route, context.body.as_ref()) {
+                Some(refusal) => Err(refusal),
+                None => crate::handlers::search::answer(&shared, route, &context),
+            };
+            (outcome, held)
+        })
+        .await;
+    match answered {
+        Some((Ok(reply), held)) => held_until_sent(reply.into_response(), held),
+        Some((Err(failure), _)) => error(&failure),
+        None => error(&ServerError::internal()),
+    }
+}
+
 fn with_cors(state: &ServerState, origin: &str, mut response: HttpResponse) -> HttpResponse {
     if let Some(cors) = &state.cors {
         for (name, value) in cors.origin_headers(origin) {
@@ -287,6 +311,7 @@ async fn route(
         }
     };
     if options.body == BodyRule::Json
+        && !options.on_query_threads
         && let Some(refusal) = body_parse_refusal(&state.engine, route, body.as_ref()).await
     {
         return error(&refusal);
@@ -300,6 +325,9 @@ async fn route(
         hook_context,
     };
     let in_flight = state.requests.enter();
+    if options.on_query_threads {
+        return answer_on_query_threads(state, route, context, (pass, hold, in_flight)).await;
+    }
     let handled = AssertUnwindSafe(dispatch(Arc::clone(state), route, context)).catch_unwind();
     let running = tokio::spawn(async move { (handled.await, (pass, hold, in_flight)) });
     match running.await {
