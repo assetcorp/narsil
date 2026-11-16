@@ -152,7 +152,8 @@ func removeInterruptedWrites(ctx context.Context, store checkpoint.Store, indexN
 	}
 	for _, key := range keys {
 		directChild := strings.Count(key, "/") == 1
-		if directChild && strings.Contains(key, storage.TemporaryMark) {
+		_, filename, _ := strings.Cut(key, "/")
+		if directChild && strings.Contains(filename, storage.TemporaryMark) {
 			if err := store.Remove(ctx, key); err != nil {
 				return err
 			}
