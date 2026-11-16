@@ -187,13 +187,22 @@ func (n *Narsil) rebalanceHeld(ctx context.Context, entry *indexEntry, targetPar
 	live := entry.index()
 	built, err := index.New(settings)
 	if err == nil {
-		defer n.retireReplaced(entry, live, built)
+		defer func() { n.retireReplaced(entry, live, built) }()
 		err = copyDocuments(ctx, entry.handle, live, built, proceed, func(int) {})
 	}
 	if err != nil {
 		return nil, errors.Join(err, entry.abandonRebalance(ctx, run))
 	}
-	built.AwaitCompactionPass()
+	waitCtx, cancelWait := context.WithCancel(ctx)
+	stopWait := context.AfterFunc(n.stopping, cancelWait)
+	err = built.AwaitCompactionPass(waitCtx)
+	stopWait()
+	cancelWait()
+	if err != nil {
+		go built.Release()
+		built = nil
+		return nil, errors.Join(proceed(), entry.abandonRebalance(ctx, run))
+	}
 	err = entry.swapLayout(ctx, run, built, settings, proceed)
 	if entry.index() != built {
 		return nil, err

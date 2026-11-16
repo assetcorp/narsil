@@ -1,6 +1,7 @@
 package index
 
 import (
+	"context"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -100,14 +101,19 @@ func (ix *Index) runCompactions(finished chan struct{}) {
 	}
 }
 
-func (ix *Index) AwaitCompactionPass() {
+func (ix *Index) AwaitCompactionPass(ctx context.Context) error {
 	s := &ix.compactions
 	s.mu.Lock()
 	passDone := s.passDone
 	s.mu.Unlock()
 	if passDone != nil {
-		<-passDone
+		select {
+		case <-passDone:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
+	return ctx.Err()
 }
 
 func (ix *Index) StopCompactions() {
