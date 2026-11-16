@@ -62,8 +62,8 @@ impl IndexResidency {
         self.changed.notify_all();
     }
 
-    /// Wakes every write that waited for the close, once the close has retired the index.
-    pub(crate) fn finish_close(&self) {
+    /// Wakes callers waiting for a close or a swap so that they check whether the index or engine has stopped.
+    pub(crate) fn wake_waiters(&self) {
         let _turn = held(&self.turn);
         self.changed.notify_all();
     }
