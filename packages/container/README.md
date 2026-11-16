@@ -44,7 +44,7 @@ You can switch a node between the TypeScript server and the Rust server by chang
 Pin a version in production, so that a new release reaches your nodes only when you change the tag:
 
 <!-- release-version narsil-ts -->
-`docker pull ghcr.io/assetcorp/narsil:0.4.1`
+`docker pull ghcr.io/assetcorp/narsil:0.4.2`
 <!-- /release-version -->
 
 Each tag covers `linux/amd64` and `linux/arm64`, and each image carries provenance and SBOM attestations from its build.
