@@ -11,6 +11,7 @@ use hyper::body::Incoming;
 use narsil::{Map, Value};
 
 use super::body::{BodyRead, declared_body_bytes, drain_in_background, read_body};
+use super::parse_memory::body_parse_refusal;
 use super::respond::{HttpResponse, error, held_until_sent, insert_header};
 use super::routes::{BodyRule, RouteOptions, match_route};
 use super::spool::{SpoolOutcome, SpooledBody, spool_body};
@@ -283,6 +284,11 @@ async fn route(
             }
         }
     };
+    if options.body == BodyRule::Json
+        && let Some(refusal) = body_parse_refusal(&state.engine, route, body.as_ref()).await
+    {
+        return error(&refusal);
+    }
     let context = RouteContext {
         params,
         query: query_pairs(parts.uri.query()),

@@ -73,6 +73,7 @@ pub use events::{EarlierLayout, FeedChange, ListenerId, NarsilEvent, NarsilEvent
 pub use export::{DocumentImportResult, ImportRefusal};
 use index::IndexState;
 pub use index_lifecycle::IndexResidencyState;
+pub use memory::{ParseKind, ParseShortfall};
 use name_turns::NameTurns;
 pub use plugins::Plugin;
 pub use portability::SnapshotOptions;

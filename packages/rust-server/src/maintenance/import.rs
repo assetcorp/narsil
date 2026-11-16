@@ -1,9 +1,10 @@
 use std::collections::HashSet;
 
-use narsil::{BatchResult, Map, Narsil, Value, json_nests_too_deep, parse_plain_json};
+use narsil::{BatchResult, Map, Narsil, ParseKind, Value, json_nests_too_deep, parse_plain_json};
 
 use super::ndjson::{NdjsonLine, NdjsonLines};
 use crate::errors::{ServerError, server_codes};
+use crate::http::parse_memory::parse_refusal;
 use crate::state::ResolvedLimits;
 use crate::tasks::TaskFailure;
 
@@ -66,6 +67,14 @@ fn line_error(line: u64, code: &str, message: &str) -> Map {
     error.insert("line", Value::Number(line as f64));
     error.insert("code", Value::String(code.to_string()));
     error.insert("message", Value::String(message.to_string()));
+    error
+}
+
+fn refused_line(line: u64, refusal: ServerError) -> Map {
+    let mut error = line_error(line, &refusal.code, &refusal.message);
+    if let Some(details) = refusal.details {
+        error.insert("details", Value::Object(details));
+    }
     error
 }
 
@@ -165,6 +174,10 @@ impl Importer<'_> {
             let line = line.map_err(TaskFailure::Coded)?;
             self.tally.bytes_processed = line.consumed;
             let text = run.body.get(line.start..line.end).unwrap_or_default();
+            if let Some(refusal) = parse_refusal(run.engine, text, ParseKind::Write) {
+                self.tally.record(refused_line(line.number, refusal));
+                continue;
+            }
             let document = match document_of(text) {
                 Ok(document) => document,
                 Err((code, message)) => {

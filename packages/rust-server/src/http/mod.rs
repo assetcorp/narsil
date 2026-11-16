@@ -3,6 +3,7 @@ pub(crate) mod budget;
 pub(crate) mod cors;
 pub(crate) mod in_flight;
 pub(crate) mod pace;
+pub(crate) mod parse_memory;
 pub(crate) mod pipeline;
 pub(crate) mod respond;
 pub(crate) mod routes;
