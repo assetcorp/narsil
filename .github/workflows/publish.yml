@@ -376,7 +376,7 @@ jobs:
   prerelease:
     name: Publish prerelease to the next dist-tag
     needs: [plan, native, react-native-checks, typescript-tests, typescript-suites-on-etcd]
-    if: needs.plan.outputs.publish == 'true'
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.native.result == 'success' && needs.react-native-checks.result == 'success' && needs.typescript-tests.result == 'success' && needs.typescript-suites-on-etcd.result == 'success' && needs.plan.outputs.publish == 'true' }}
     runs-on: ubuntu-latest
     concurrency:
       group: publish-prerelease-to-npm
@@ -448,7 +448,7 @@ jobs:
   prerelease-image:
     name: Publish the prerelease container image
     needs: [plan, prerelease]
-    if: needs.prerelease.outputs.published == 'true'
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.prerelease.result == 'success' && needs.prerelease.outputs.published == 'true' }}
     permissions:
       contents: read
       packages: write
@@ -466,13 +466,13 @@ jobs:
   prerelease-rust-container:
     name: Test the Rust container before the prerelease
     needs: plan
-    if: needs.plan.outputs.publish == 'true'
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.publish == 'true' }}
     uses: ./.github/workflows/rust-container.yml
 
   prerelease-rust-image:
     name: Publish the prerelease Rust container image
     needs: [plan, prerelease, prerelease-rust-container]
-    if: needs.prerelease.outputs.published == 'true'
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.prerelease.result == 'success' && needs.prerelease-rust-container.result == 'success' && needs.prerelease.outputs.published == 'true' }}
     permissions:
       contents: read
       packages: write
@@ -1181,7 +1181,7 @@ jobs:
   python-engine-wheels:
     name: Build the Python wheels from the release commit
     needs: python-engine-release
-    if: inputs.package == 'delali-narsil on PyPI'
+    if: ${{ !cancelled() && inputs.package == 'delali-narsil on PyPI' && needs.python-engine-release.result == 'success' }}
     permissions:
       contents: read
     concurrency:
@@ -1196,7 +1196,7 @@ jobs:
   python-engine-publish:
     name: Publish delali-narsil to PyPI
     needs: python-engine-wheels
-    if: inputs.package == 'delali-narsil on PyPI'
+    if: ${{ !cancelled() && inputs.package == 'delali-narsil on PyPI' && needs.python-engine-wheels.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: pypi
