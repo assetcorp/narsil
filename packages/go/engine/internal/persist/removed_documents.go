@@ -6,7 +6,6 @@ import (
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/manifest"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index"
-	"github.com/assetcorp/narsil/packages/go/engine/internal/index/segments"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/persist/checkpoint"
 )
 
@@ -76,11 +75,20 @@ func documentsReplacedLater(ctx context.Context, store checkpoint.Store, listed 
 	return replaced, nil
 }
 
-func freedBytesOf(ref manifest.SegmentRef, replacedCount int) float64 {
+func removedShareOf(ref manifest.SegmentRef, replacedCount int) float64 {
 	if ref.DocCount == 0 {
 		return 0
 	}
-	return float64(ref.File.Bytes) * float64(replacedCount) / float64(ref.DocCount)
+	return float64(replacedCount) / float64(ref.DocCount)
+}
+
+func rewritesSooner(listed []manifest.SegmentRef, replaced [][]string, left int, right int) bool {
+	leftShare := removedShareOf(listed[left], len(replaced[left]))
+	rightShare := removedShareOf(listed[right], len(replaced[right]))
+	if leftShare != rightShare {
+		return leftShare > rightShare
+	}
+	return listed[left].File.Bytes < listed[right].File.Bytes
 }
 
 func (rewrite *removedRewrite) choose(listed []manifest.SegmentRef, replaced [][]string) map[int]bool {
@@ -94,8 +102,7 @@ func (rewrite *removedRewrite) choose(listed []manifest.SegmentRef, replaced [][
 		}
 	}
 	sort.SliceStable(candidates, func(left, right int) bool {
-		return freedBytesOf(listed[candidates[left]], len(replaced[candidates[left]])) >
-			freedBytesOf(listed[candidates[right]], len(replaced[candidates[right]]))
+		return rewritesSooner(listed, replaced, candidates[left], candidates[right])
 	})
 	chosen := map[int]bool{}
 	for _, at := range candidates {
@@ -174,10 +181,8 @@ func (rewrite *removedRewrite) segment(ctx context.Context, entry *manifest.Part
 	tombstoned := &windowTombstones{seen: map[string]struct{}{}}
 	merge := windowMerge{store: rewrite.store, detached: detached, schema: flatSchema(handle),
 		schemaOrder: schemaOrderOf(handle), pagedText: rewrite.pagedText, tombstoned: tombstoned}
-	if rewrite.pagedText {
-		if merge.pages, err = segments.NewMergePageCache(); err != nil {
-			return nil, false, err
-		}
+	if err := merge.openMergeCaches(); err != nil {
+		return nil, false, err
 	}
 	if err := merge.attach(ctx, ref.File); err != nil {
 		return nil, false, err

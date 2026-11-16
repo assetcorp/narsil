@@ -112,6 +112,7 @@ func (n *Narsil) rebuildSide(entry *indexEntry, side sideRebuild) error {
 	if err := copyDocuments(n.stopping, entry.handle, live, built, step, side.onPartitions); err != nil {
 		return err
 	}
+	built.AwaitCompactionPass()
 	if err := entry.catchUp(n.stopping, built, side.proceed); err != nil {
 		return err
 	}

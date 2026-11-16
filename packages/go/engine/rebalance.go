@@ -193,6 +193,7 @@ func (n *Narsil) rebalanceHeld(ctx context.Context, entry *indexEntry, targetPar
 	if err != nil {
 		return nil, errors.Join(err, entry.abandonRebalance(ctx, run))
 	}
+	built.AwaitCompactionPass()
 	err = entry.swapLayout(ctx, run, built, settings, proceed)
 	if entry.index() != built {
 		return nil, err

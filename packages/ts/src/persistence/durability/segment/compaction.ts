@@ -45,19 +45,38 @@ function windowFits(segments: readonly SegmentRef[], start: number, windowLength
   return documents <= COMPACTION_LARGEST_MERGED_DOCUMENT_COUNT && bytes <= MAX_FILE_BYTES
 }
 
-function smallestFittingWindow(
+interface WindowBalance {
+  skew: number
+  bytes: number
+}
+
+function balanceOf(segments: readonly SegmentRef[], start: number, windowLength: number): WindowBalance {
+  let largest = 0
+  let bytes = 0
+  for (let at = start; at < start + windowLength; at++) {
+    largest = Math.max(largest, segments[at].bytes)
+    bytes += segments[at].bytes
+  }
+  return bytes === 0 ? { skew: 1, bytes: 0 } : { skew: largest / bytes, bytes }
+}
+
+function balancedBefore(balance: WindowBalance, other: WindowBalance): boolean {
+  if (balance.skew !== other.skew) return balance.skew < other.skew
+  return balance.bytes < other.bytes
+}
+
+function mostBalancedFittingWindow(
   segments: readonly SegmentRef[],
   windowLength: number,
   paged: boolean,
 ): MergeWindow | null {
   let best: MergeWindow | null = null
-  let bestBytes = Number.POSITIVE_INFINITY
+  let bestBalance: WindowBalance | null = null
   for (let start = 0; start + windowLength <= segments.length; start++) {
     if (!windowFits(segments, start, windowLength, paged)) continue
-    let bytes = 0
-    for (let at = start; at < start + windowLength; at++) bytes += segments[at].bytes
-    if (bytes < bestBytes) {
-      bestBytes = bytes
+    const balance = balanceOf(segments, start, windowLength)
+    if (bestBalance === null || balancedBefore(balance, bestBalance)) {
+      bestBalance = balance
       best = { start, windowLength }
     }
   }
@@ -66,7 +85,7 @@ function smallestFittingWindow(
 
 function chooseWindow(segments: readonly SegmentRef[], wantedLength: number, paged: boolean): MergeWindow | null {
   for (let windowLength = Math.min(wantedLength, segments.length); windowLength >= 2; windowLength--) {
-    const window = smallestFittingWindow(segments, windowLength, paged)
+    const window = mostBalancedFittingWindow(segments, windowLength, paged)
     if (window !== null) return window
   }
   return null
