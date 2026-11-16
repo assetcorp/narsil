@@ -155,5 +155,5 @@ func (ix *Index) PartitionCount() int {
 }
 
 func (ix *Index) partitionOf(id string) int {
-	return int(codec.FNV1aString(id) % uint32(len(ix.partitions)))
+	return partition.RouteOf(id, len(ix.partitions))
 }

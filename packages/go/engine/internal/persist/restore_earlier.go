@@ -72,7 +72,16 @@ func buildEarlierSnapshot(ctx context.Context, name string, reader *bufio.Reader
 	}
 	config.VectorPromotion = raiseEarlierReleaseGraphM(config.VectorPromotion)
 	restoring := Restoring{IndexName: name, Configuration: config, PartitionCount: max(1, len(snapshot.Partitions)),
-		Replaces: replaces}
+		Replaces: replaces, Earlier: true}
+	for _, partition := range snapshot.Partitions {
+		restoring.EarlierStoredBytes += len(partition)
+	}
+	for _, field := range snapshot.VectorIndexes {
+		for _, part := range field.Parts {
+			restoring.EarlierVectors = append(restoring.EarlierVectors,
+				EarlierVectors{Dimension: part.Dimension, Count: len(part.DocIDs)})
+		}
+	}
 	if hooks.Admit != nil {
 		if err := hooks.Admit(ctx, restoring); err != nil {
 			return nil, Restoring{}, err

@@ -338,13 +338,13 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
     },
 
     async shutdown() {
-      stopEveryReshardJob(reshard)
-      await stopCatchUpPump(writeDeps.catchUp)
       if (isShutdown) {
         return
       }
       isShutdown = true
       serving = false
+      stopEveryReshardJob(reshard)
+      await stopCatchUpPump(writeDeps.catchUp)
       backups.stop()
 
       await operationTracker.drain()

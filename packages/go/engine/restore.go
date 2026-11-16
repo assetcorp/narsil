@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 
+	"github.com/assetcorp/narsil/packages/go/engine/internal/memory"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/persist"
 )
@@ -48,6 +49,9 @@ func (n *Narsil) Restore(ctx context.Context, indexName string, source io.Reader
 	}
 	slot, previous := n.slotOf(indexName)
 	replaces := previous != nil
+	hooks.Admit = func(_ context.Context, restoring persist.Restoring) error {
+		return memory.RequireRestoreMemory(indexName, restoreSizeOf(restoring, n.manager != nil), replaces)
+	}
 	if replaces {
 		endRestore := previous.beginRestore()
 		defer endRestore()
@@ -148,6 +152,7 @@ func (n *Narsil) Clear(ctx context.Context, indexName string) error {
 	if err := entry.index().Clear(entry.handle.NamedVectorFields()); err != nil {
 		return err
 	}
+	n.memory.memoryReleased()
 	entry.watermarkLatched = 0
 	if entry.durable == nil {
 		return nil
