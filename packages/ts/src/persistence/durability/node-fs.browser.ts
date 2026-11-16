@@ -17,3 +17,9 @@ export async function getFs(): Promise<FsModule> {
 export async function getPath(): Promise<PathModule> {
   return filesystemUnavailable()
 }
+
+export async function renameReplacing(_from: string, _to: string): Promise<void> {
+  return filesystemUnavailable()
+}
+
+export const renameUnlessMissing = renameReplacing
