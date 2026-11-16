@@ -34,6 +34,10 @@ permissions:
   contents: write
   id-token: write
 
+concurrency:
+  group: publish-${{ github.event_name == 'push' && github.ref || github.run_id }}
+  cancel-in-progress: false
+
 jobs:
   changes:
     name: Changed areas
@@ -41,6 +45,7 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
+      actions: read
     outputs:
       typescript: ${{ steps.areas.outputs.typescript }}
       react_native: ${{ steps.areas.outputs.react_native }}
@@ -54,7 +59,7 @@ jobs:
       - name: List the areas that this run touches
         id: areas
         env:
-          PUSH_BEFORE: ${{ github.event.before }}
+          GITHUB_TOKEN: ${{ github.token }}
           WORKFLOW_FILE: .github/workflows/publish.yml
         run: node .github/scripts/changed-areas.js
 
