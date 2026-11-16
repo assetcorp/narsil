@@ -5,6 +5,7 @@ import (
 	"io"
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/callerctx"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/index"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/persist"
@@ -144,7 +145,7 @@ func (n *Narsil) Checkpoint(ctx context.Context, indexName string) error {
 // empty index before it returns.
 func (n *Narsil) Clear(ctx context.Context, indexName string) error {
 	ctx = callerctx.Shield(ctx)
-	entry, release, err := n.acquire(indexName)
+	entry, release, err := n.acquireContext(ctx, indexName)
 	if err != nil {
 		return err
 	}
@@ -155,12 +156,16 @@ func (n *Narsil) Clear(ctx context.Context, indexName string) error {
 		return err
 	}
 	defer releaseSync()
-	entry.lockWrites()
-	defer entry.writeMu.Unlock()
-	if err := entry.noteCleared(); err != nil {
+	if err := entry.lockWritesContext(ctx); err != nil {
 		return err
 	}
-	if err := entry.index().Clear(entry.handle.NamedVectorFields()); err != nil {
+	defer entry.writeMu.Unlock()
+	if err := entry.index().Write(ctx, func(write *index.Write) error {
+		if err := entry.noteCleared(); err != nil {
+			return err
+		}
+		return write.Clear(entry.handle.NamedVectorFields())
+	}); err != nil {
 		return err
 	}
 	entry.watermarkLatched = 0

@@ -74,7 +74,7 @@ func (n *Narsil) prepareOne(ctx context.Context, entry *indexEntry, working *mod
 // documents whole to one index.
 func (n *Narsil) Insert(ctx context.Context, indexName string, document *Document, docID string, options InsertOptions) (string, error) {
 	ctx = callerctx.Shield(ctx)
-	entry, release, err := n.acquire(indexName)
+	entry, release, err := n.acquireContext(ctx, indexName)
 	if err != nil {
 		return "", err
 	}
@@ -154,7 +154,7 @@ func (n *Narsil) applyInsertLocked(ctx context.Context, entry *indexEntry, write
 // the same validation and embedding codes as Insert.
 func (n *Narsil) Update(ctx context.Context, indexName string, docID string, document *Document, options WriteOptions) error {
 	ctx = callerctx.Shield(ctx)
-	entry, release, err := n.acquire(indexName)
+	entry, release, err := n.acquireContext(ctx, indexName)
 	if err != nil {
 		return err
 	}
@@ -252,7 +252,7 @@ func (n *Narsil) applyUpdateLocked(ctx context.Context, entry *indexEntry, write
 // It returns CodeDocNotFound when no document holds that ID.
 func (n *Narsil) Remove(ctx context.Context, indexName string, docID string, options WriteOptions) error {
 	ctx = callerctx.Shield(ctx)
-	entry, release, err := n.acquire(indexName)
+	entry, release, err := n.acquireContext(ctx, indexName)
 	if err != nil {
 		return err
 	}
@@ -302,7 +302,7 @@ func (n *Narsil) applyRemoveLocked(ctx context.Context, entry *indexEntry, docID
 // new partitions answer, so the call waits for that queue alone.
 func (n *Narsil) WaitForWrites(ctx context.Context, indexName string) error {
 	ctx = callerctx.Shield(ctx)
-	entry, release, err := n.acquire(indexName)
+	entry, release, err := n.acquireContext(ctx, indexName)
 	if err != nil {
 		return err
 	}

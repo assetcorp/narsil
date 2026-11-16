@@ -29,23 +29,38 @@ func (commits *inFlightCommits) end() {
 	}
 }
 
-func (commits *inFlightCommits) wait() {
+func (commits *inFlightCommits) wait(ctx context.Context) error {
 	commits.mu.Lock()
 	if commits.count == 0 {
 		commits.mu.Unlock()
-		return
+		return ctx.Err()
 	}
 	if commits.drained == nil {
 		commits.drained = make(chan struct{})
 	}
 	drained := commits.drained
 	commits.mu.Unlock()
-	<-drained
+	select {
+	case <-drained:
+		return ctx.Err()
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (entry *indexEntry) lockWrites() {
-	entry.writeMu.Lock()
-	entry.commits.wait()
+	_ = entry.lockWritesContext(context.Background())
+}
+
+func (entry *indexEntry) lockWritesContext(ctx context.Context) error {
+	if err := entry.writeMu.LockContext(ctx); err != nil {
+		return err
+	}
+	if err := entry.commits.wait(ctx); err != nil {
+		entry.writeMu.Unlock()
+		return err
+	}
+	return nil
 }
 
 func (entry *indexEntry) unlockAndAwait(ctx context.Context, commit persist.Commit) error {

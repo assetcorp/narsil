@@ -89,7 +89,7 @@ func (hooked hookedInserts) admitInto(entry *indexEntry, outcome *batchOutcome) 
 // context, or a durable write that failed.
 func (n *Narsil) InsertBatch(ctx context.Context, indexName string, documents []*Document, options InsertOptions) (BatchResult, error) {
 	ctx = callerctx.Shield(ctx)
-	entry, release, err := n.acquire(indexName)
+	entry, release, err := n.acquireContext(ctx, indexName)
 	if err != nil {
 		return model.BatchResult{}, err
 	}

@@ -5,10 +5,10 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"strconv"
-	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/assetcorp/narsil/packages/go/engine/internal/callerctx"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/form"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/metadata"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
@@ -38,7 +38,7 @@ type feedState struct {
 }
 
 type indexSync struct {
-	changeMu sync.Mutex
+	changeMu callerctx.RWMutex
 	state    atomic.Pointer[feedState]
 	changed  persist.Signal
 }
@@ -222,7 +222,9 @@ func (n *Narsil) holdRenewedSyncEpoch(ctx context.Context, entry *indexEntry) (f
 	if entry.sync.current() == nil {
 		return func() {}, nil
 	}
-	entry.sync.changeMu.Lock()
+	if err := entry.sync.changeMu.LockContext(ctx); err != nil {
+		return nil, err
+	}
 	state := entry.sync.current()
 	if state == nil {
 		return entry.sync.changeMu.Unlock, nil

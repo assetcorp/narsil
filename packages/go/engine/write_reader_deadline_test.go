@@ -10,6 +10,12 @@ import (
 )
 
 func TestAWriteDeadlineEndsTheWaitForAnEarlierReader(t *testing.T) {
+	t.Run("update", func(t *testing.T) { writeDeadlineBehindReader(t, false) })
+	t.Run("clear", func(t *testing.T) { writeDeadlineBehindReader(t, true) })
+}
+
+func writeDeadlineBehindReader(t *testing.T, clear bool) {
+	t.Helper()
 	ctx := context.Background()
 	narsil, err := engine.New(ctx, engine.Config{Workers: engine.WorkerConfig{Enabled: engine.Some(false)}})
 	if err != nil {
@@ -45,6 +51,10 @@ func TestAWriteDeadlineEndsTheWaitForAnEarlierReader(t *testing.T) {
 	defer cancel()
 	written := make(chan error, 1)
 	go func() {
+		if clear {
+			written <- narsil.Clear(bounded, callbackIndex)
+			return
+		}
 		written <- narsil.Update(bounded, callbackIndex, "kept", engine.NewDocument().Set("title", "lighthouse"),
 			engine.WriteOptions{})
 	}()
