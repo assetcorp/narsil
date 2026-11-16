@@ -18,9 +18,15 @@ import type { BatchResult } from '../../types/results'
 import type { AnyDocument } from '../../types/schema'
 import type { WriteEmbedding } from '../embed'
 import type { IndexHold } from '../index-hold'
-import { asBatchInsertError, createPendingAdmissions, recordPendingAdmission } from './batch-admissions'
+import {
+  asBatchInsertError,
+  createPendingAdmissions,
+  providedDocIdOrEmpty,
+  recordPendingAdmission,
+} from './batch-admissions'
+import { causedByShutdown, docIdOf, failAsShutDown, shutDownError, shutDownStarted } from './batch-shutdown'
 import type { MutationContext } from './context'
-import { prepareDocumentWrites, type WritePreparation } from './write-preparation'
+import { type PreparedWrites, prepareDocumentWrites, type WritePreparation } from './write-preparation'
 
 export interface AdmittedInsert {
   docId: string
@@ -86,11 +92,15 @@ export async function prepareInsertDocuments(
   hooked: boolean,
   failed: BatchResult['failed'],
   earlier: WriteEmbedding | null = null,
-): Promise<PreparedInserts> {
+): Promise<PreparedInserts | null> {
   const pending: PendingInsert[] = []
   for (let i = start; i < end; i++) {
     if (turnsAreBudgeted && turnIsSpent()) await yieldTurn()
-    if (ctx.abortController.signal.aborted) break
+    if (shutDownStarted(ctx)) {
+      failAsShutDown(failed, pending, docIdOf)
+      failAsShutDown(failed, documents, providedDocIdOrEmpty, i, end)
+      return null
+    }
     const document = documents[i]
     const docId = providedDocId(document) ?? ctx.idGenerator()
     try {
@@ -99,17 +109,26 @@ export async function prepareInsertDocuments(
       validateDocId(docId)
       pending.push(pendingInsertOf(ctx, indexName, docId, document, hooked))
     } catch (err) {
-      failed.push({ docId, error: asBatchInsertError(err) })
+      failed.push({ docId, error: asBatchInsertError(ctx, err) })
     }
   }
-  const { entry, embedding } = await prepareDocumentWrites(
-    ctx,
-    indexName,
-    pending.map(item => item.preparation),
-    hold,
-    true,
-    earlier,
-  )
+  let prepared: PreparedWrites
+  try {
+    if (shutDownStarted(ctx)) throw shutDownError()
+    prepared = await prepareDocumentWrites(
+      ctx,
+      indexName,
+      pending.map(item => item.preparation),
+      hold,
+      true,
+      earlier,
+    )
+  } catch (err) {
+    if (!causedByShutdown(ctx, err)) throw err
+    failAsShutDown(failed, pending, docIdOf)
+    return null
+  }
+  const { entry, embedding } = prepared
   const candidates: InsertCandidate[] = []
   for (const item of pending) {
     const { document, failure } = item.preparation
@@ -117,8 +136,8 @@ export async function prepareInsertDocuments(
       candidates.push({ docId: item.docId, document })
       continue
     }
-    const docId = item.refusedByHook ? item.docId : (providedDocId(document) ?? '')
-    failed.push({ docId, error: asBatchInsertError(failure) })
+    const docId = item.refusedByHook ? item.docId : providedDocIdOrEmpty(document)
+    failed.push({ docId, error: asBatchInsertError(ctx, failure) })
   }
   return { entry, candidates, embedding }
 }
@@ -130,16 +149,13 @@ export async function admitBatchDocuments(
   failed: BatchResult['failed'],
   hold: IndexHold | undefined,
 ): Promise<AdmittedBatch> {
-  const { entry, candidates, embedding } = await prepareInsertDocuments(
-    ctx,
-    indexName,
-    documents,
-    0,
-    documents.length,
-    hold,
-    true,
-    failed,
-  )
+  const prepared = await prepareInsertDocuments(ctx, indexName, documents, 0, documents.length, hold, true, failed)
+  if (prepared === null) return { admitted: [], embedding: null }
+  const { entry, candidates, embedding } = prepared
+  if (shutDownStarted(ctx)) {
+    failAsShutDown(failed, candidates, docIdOf)
+    return { admitted: [], embedding }
+  }
   const manager = ctx.requireManager(indexName)
   const vecIndexes = manager.getVectorIndexes()
   const vectorFieldPaths = vecIndexes.size > 0 ? entry.vectorFieldPaths : new Set<string>()
@@ -150,7 +166,11 @@ export async function admitBatchDocuments(
 
   for (let position = 0; position < candidates.length; position++) {
     if (position > 0 && position % BATCH_CHUNK_SIZE === 0) await new Promise<void>(r => setTimeout(r, 0))
-    if (ctx.abortController.signal.aborted) break
+    if (shutDownStarted(ctx)) {
+      failAsShutDown(failed, admitted, docIdOf)
+      failAsShutDown(failed, candidates, docIdOf, position)
+      return { admitted: [], embedding }
+    }
     const { docId, document } = candidates[position]
     try {
       const { partitionDoc, extractedVectors } = prepareDocumentVectors(
@@ -175,7 +195,7 @@ export async function admitBatchDocuments(
       recordPendingAdmission(ctx, pending, manager, docId)
       admitted.push({ docId, document, partitionDoc: partitionDoc as AnyDocument, extractedVectors })
     } catch (err) {
-      failed.push({ docId, error: asBatchInsertError(err) })
+      failed.push({ docId, error: asBatchInsertError(ctx, err) })
     }
   }
 
