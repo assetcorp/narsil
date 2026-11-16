@@ -112,7 +112,9 @@ pub(crate) async fn admit(state: &ServerState, context: Option<RequestContext>) 
     let (Some(hook), Some(context)) = (&state.hook, context) else {
         return Admission::Allowed(None);
     };
-    let decision = AssertUnwindSafe(hook.check(context)).catch_unwind().await;
+    let decision = AssertUnwindSafe(async move { hook.check(context).await })
+        .catch_unwind()
+        .await;
     match decision {
         Ok(Ok(RequestDecision::Allow)) => Admission::Allowed(None),
         Ok(Ok(RequestDecision::AllowUntil(expires_at))) if expires_at.is_finite() => {
