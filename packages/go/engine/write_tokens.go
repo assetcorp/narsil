@@ -27,6 +27,7 @@ func (n *Narsil) applyKeepingTokens(ctx context.Context, name string, entry *ind
 		return entry, release, n.applyAndUnlock(ctx, entry, locked)
 	}
 	entry.writeMu.Unlock()
+	defer n.holdRetiredIndexes()()
 	release()
 	documents := persist.DocumentWrites(writes)
 	tokens, shadowTokens, storedRead, err := writeTokensOutside(ctx, target, shadow, kind, documents)

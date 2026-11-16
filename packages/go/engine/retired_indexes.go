@@ -59,6 +59,18 @@ func releaseIndexes(indexes []*index.Index) {
 	}
 }
 
+func (n *Narsil) holdRetiredIndexes() func() {
+	n.lifeMu.Lock()
+	generation := n.retired.enter()
+	n.lifeMu.Unlock()
+	return func() {
+		n.lifeMu.Lock()
+		released := n.retired.leave(generation)
+		n.lifeMu.Unlock()
+		releaseIndexes(released)
+	}
+}
+
 func (n *Narsil) retireIndexes(indexes ...*index.Index) {
 	distinct := make([]*index.Index, 0, len(indexes))
 	for _, held := range indexes {
