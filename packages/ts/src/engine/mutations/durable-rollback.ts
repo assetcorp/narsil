@@ -5,6 +5,7 @@ import {
   prepareDocumentVectors,
   removeDocumentVectors,
 } from '#platform/optional-writes-host'
+import type { RollbackCopy } from '../../core/partition/frozen/document-source'
 import type { RemovedSpellings } from '../../core/partition/frozen/surface-slot'
 import type { PreparedTextChange } from '../../core/partition/prepared-text'
 import type { AnyDocument } from '../../types/schema'
@@ -82,7 +83,7 @@ export async function rollbackRemovedDocument(
   ctx: MutationContext,
   indexName: string,
   docId: string,
-  restoreDoc: AnyDocument | undefined,
+  restoreDoc: RollbackCopy | undefined,
   originalError: unknown,
   preparedText?: PreparedTextChange,
 ): Promise<void> {
@@ -94,7 +95,7 @@ export async function rollbackRemovedDocument(
     await manager.publication.write(() =>
       changeIndexOutsideExternalWaits(async () => {
         if (manager.has(docId)) return
-        const previous = prepareDocumentVectors(restoreDoc, ctx.requireIndex(indexName).vectorFieldPaths)
+        const previous = prepareDocumentVectors(restoreDoc(), ctx.requireIndex(indexName).vectorFieldPaths)
         manager.insert(docId, previous.partitionDoc, {
           preparedText: { after: preparedText?.before },
         })

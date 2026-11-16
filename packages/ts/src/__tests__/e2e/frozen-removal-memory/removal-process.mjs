@@ -44,9 +44,12 @@ let filler = []
 function fillMemory() {
   if (job.fill.kind === 'heap') {
     const target = job.fill.fraction * job.fill.limitBytes
-    while (getHeapStatistics().used_heap_size < target) {
+    let usedBytes = getHeapStatistics().used_heap_size
+    while (usedBytes < target) {
       filler.push(Array.from({ length: HEAP_FILL_OBJECTS }, (_, at) => ({ at, label: `filler-${filler.length}` })))
+      usedBytes = getHeapStatistics().used_heap_size
     }
+    return usedBytes
   }
   if (job.fill.kind === 'process') {
     const limit = processLimitBytes()
@@ -55,6 +58,7 @@ function fillMemory() {
       filler.push(new Uint8Array(PROCESS_FILL_CHUNK_BYTES).fill(1))
     }
   }
+  return getHeapStatistics().used_heap_size
 }
 
 async function releaseMemory() {
@@ -84,9 +88,8 @@ async function writeAnswers(path) {
   }
 }
 
-fillMemory()
+const filledHeapBytes = fillMemory()
 const filledProcessBytes = memoryThatNoFileBacks()
-const filledHeapBytes = getHeapStatistics().used_heap_size
 const phases = []
 for (const [at, docIds] of job.removalBatches.entries()) {
   if (at === job.releaseFillBefore) await releaseMemory()

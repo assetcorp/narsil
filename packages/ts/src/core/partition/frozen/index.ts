@@ -9,6 +9,7 @@ import type { FrozenRemovalAnalysis } from '../../frozen-writes/removal-strings'
 import { generateId } from '../../id-generator'
 import { requirePatternSearch } from '../../pattern-index/registry'
 import type { PatternIndexReader } from '../../pattern-index/types'
+import type { ResolvedProjection } from '../../projection'
 import { registerFrozenMergeSource } from '../../segment-merges/frozen-source'
 import type { PartitionStatsView } from '../../statistics'
 import { installStoredFields } from '../../stored-values/columns'
@@ -206,11 +207,13 @@ export function assembleFrozenSegment(
     isTombstoned: ordinal => tombstones.has(ordinal),
     settleRemovals: counts.settleRemovals,
   })
-  const textDocuments = {
-    count: documentSource.count,
-    textFields: source.fieldLengthNames,
-    documentAt: (ordinal: number) => documentSource.readAt(ordinal),
+  const textFieldsOnly: ResolvedProjection = {
+    kind: 'fields',
+    include: source.fieldLengthNames.map(fieldPath => fieldPath.split('.')),
+    exclude: [],
   }
+  const textAt = (ordinal: number): AnyDocument => documentSource.readAt(ordinal, textFieldsOnly)
+  const textDocuments = { count: documentSource.count, textFields: source.fieldLengthNames, documentAt: textAt }
   const loadSurfaceForms = survivingSurfaceForms === undefined ? source.readSurfaceForms : () => survivingSurfaceForms
   const surfaces = createFrozenSurfaceSlot(
     loadSurfaceForms,
@@ -298,7 +301,7 @@ export function assembleFrozenSegment(
               source.fieldNames,
               source.fieldLengthNames,
               ordinal,
-              documentSource.readAt(ordinal),
+              textAt(ordinal),
               analysis,
               surfaces,
               partialWords,
