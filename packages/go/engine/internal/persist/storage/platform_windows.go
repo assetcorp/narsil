@@ -19,6 +19,7 @@ const (
 	errorInvalidHandle             = syscall.Errno(6)
 	errorNotSupported              = syscall.Errno(50)
 	errorInvalidParameter          = syscall.Errno(87)
+	errorSharingViolation          = syscall.Errno(32)
 	everySharingMode               = syscall.FILE_SHARE_READ | syscall.FILE_SHARE_WRITE | syscall.FILE_SHARE_DELETE
 )
 
@@ -119,6 +120,13 @@ func openFile(path string, flag int, perm os.FileMode) (*os.File, error) {
 		}
 	}
 	return file, nil
+}
+
+func heldByAnotherHandle(err error, retriesMissing bool) bool {
+	if errors.Is(err, syscall.ERROR_ACCESS_DENIED) || errors.Is(err, errorSharingViolation) {
+		return true
+	}
+	return retriesMissing && errors.Is(err, syscall.ERROR_FILE_NOT_FOUND)
 }
 
 func directorySyncUnsupportedHere(err error) bool {
