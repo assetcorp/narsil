@@ -190,7 +190,11 @@ export function createFilesystemPersistence(config: FilesystemPersistenceConfig)
         await fsyncDirectory(dir, fs)
       } catch (err: unknown) {
         await fs.unlink(tempPath).catch(() => undefined)
-        throw err
+        if (err instanceof NarsilError) throw err
+        throw new NarsilError(ErrorCodes.PERSISTENCE_SAVE_FAILED, `The adapter could not save "${key}"`, {
+          key,
+          cause: err instanceof Error ? err.message : String(err),
+        })
       }
     },
 
