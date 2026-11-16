@@ -33,6 +33,7 @@ export interface EngineSpec {
 }
 
 const GO_RUNNER_BINARY = 'narsil-engine-languages-go-runner'
+const GO_ENGINE_TAG_PREFIX = 'packages/go/engine/v'
 const NATIVE_CORE_FILE = 'narsil-core.node'
 
 function cargoTargetDirectory(): string {
@@ -43,6 +44,20 @@ function cargoTargetDirectory(): string {
 function rustCrateVersion(): string {
   const manifest = readFileSync(resolve(RUST_CRATE_ROOT, 'Cargo.toml'), 'utf-8')
   return /^version = "([^"]+)"$/m.exec(manifest)?.[1] ?? 'unknown'
+}
+
+async function goEngineVersion(): Promise<string> {
+  const tag = await firstLineOf(
+    'git',
+    ['describe', '--tags', '--abbrev=0', '--match', `${GO_ENGINE_TAG_PREFIX}*`, 'HEAD'],
+    REPOSITORY_ROOT,
+  )
+  if (!tag.startsWith(GO_ENGINE_TAG_PREFIX)) {
+    throw new Error(
+      `no ${GO_ENGINE_TAG_PREFIX}* tag is reachable from HEAD, so the run cannot record which Go engine release it measures; fetch the tags first`,
+    )
+  }
+  return tag.slice(GO_ENGINE_TAG_PREFIX.length)
 }
 
 function typescriptPackageVersion(): string {
@@ -129,7 +144,7 @@ async function goEngine(): Promise<EngineSpec> {
     env: process.env,
     identity: {
       package: 'github.com/assetcorp/narsil/packages/go/engine',
-      version: 'source in this repository',
+      version: await goEngineVersion(),
       runtime: await firstLineOf('go', ['version'], GO_RUNNER_ROOT),
       build: 'go build -trimpath',
     },
