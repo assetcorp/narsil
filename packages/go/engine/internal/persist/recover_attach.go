@@ -7,6 +7,7 @@ import (
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/manifest"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/format/paged"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/segments"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
@@ -59,6 +60,7 @@ func attachStored(target *index.Index, partitionID int, segment checkpoint.Store
 type pagedAttachment struct {
 	target      *index.Index
 	pages       *core.PageCache
+	reads       *paged.ReadCache
 	partitionID int
 	key         string
 	path        string
@@ -73,14 +75,14 @@ func attachPagedListed(ctx context.Context, handle *Handle, partitionID int, lis
 	if err != nil {
 		return err
 	}
-	return attachPagedFile(ctx, pagedAttachment{target: handle.Index, pages: pages, partitionID: partitionID,
-		key: listed.File.Key, path: path, schema: schema, listed: &listed})
+	return attachPagedFile(ctx, pagedAttachment{target: handle.Index, pages: pages, reads: paged.SharedReadCache(),
+		partitionID: partitionID, key: listed.File.Key, path: path, schema: schema, listed: &listed})
 }
 
 func attachPagedFile(ctx context.Context, attachment pagedAttachment) error {
 	target, partitionID, key := attachment.target, attachment.partitionID, attachment.key
 	err := target.AttachPagedSegmentFile(partitionID, index.PagedSegmentFile{Path: attachment.path,
-		RemovalPages: attachment.pages,
+		RemovalPages: attachment.pages, Reads: attachment.reads,
 		Replaces: func(fieldSchema map[string]string, tombstones []string, documentCount uint32) error {
 			if attachment.listed != nil {
 				err := checkpoint.RequireListedCounts(*attachment.listed, int(documentCount), len(tombstones))
