@@ -9,6 +9,8 @@ import type { SchemaDefinition } from '../../../../types/schema'
 export const ETCD_IMAGE = 'gcr.io/etcd-development/etcd:v3.6.0'
 export const MANAGED_ETCD_ENDPOINT = process.env.NARSIL_ETCD_ENDPOINT?.trim() || null
 const EVENTUALLY_POLL_INTERVAL_MS = 200
+const DOCKER_PORT_ATTEMPTS = 5
+const DOCKER_PORT_TAKEN = /port is already allocated|address already in use/
 
 export interface EtcdContainerHandle {
   endpoint: string
@@ -95,6 +97,23 @@ export async function getAvailablePort(): Promise<number> {
   })
 }
 
+export async function runDockerOnFreePort(
+  containerName: string,
+  argsForPort: (hostPort: number) => string[],
+): Promise<number> {
+  for (let attempt = 1; ; attempt++) {
+    const hostPort = await getAvailablePort()
+    try {
+      await runDocker(argsForPort(hostPort))
+      return hostPort
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      if (attempt >= DOCKER_PORT_ATTEMPTS || !DOCKER_PORT_TAKEN.test(detail)) throw error
+      await stopEtcdContainer(containerName)
+    }
+  }
+}
+
 export async function eventually(
   action: () => Promise<void>,
   timeoutMs: number,
@@ -155,18 +174,15 @@ export async function waitForEtcdReady(endpoint: string): Promise<void> {
 }
 
 export async function startEtcdContainer(serverFlags: readonly string[] = []): Promise<EtcdContainerHandle> {
-  const hostPort = await getAvailablePort()
   const name = `narsil-etcd-${randomUUID()}`
-  const endpoint = `http://127.0.0.1:${hostPort}`
-
-  await runDocker([
+  const hostPort = await runDockerOnFreePort(name, port => [
     'run',
     '--detach',
     '--rm',
     '--name',
     name,
     '-p',
-    `127.0.0.1:${hostPort}:2379`,
+    `127.0.0.1:${port}:2379`,
     '-p',
     '127.0.0.1::2380',
     ETCD_IMAGE,
@@ -178,7 +194,7 @@ export async function startEtcdContainer(serverFlags: readonly string[] = []): P
     '--listen-client-urls',
     'http://0.0.0.0:2379',
     '--advertise-client-urls',
-    endpoint,
+    `http://127.0.0.1:${port}`,
     '--listen-peer-urls',
     'http://0.0.0.0:2380',
     '--initial-advertise-peer-urls',
@@ -187,6 +203,7 @@ export async function startEtcdContainer(serverFlags: readonly string[] = []): P
     'node1=http://127.0.0.1:2380',
     ...serverFlags,
   ])
+  const endpoint = `http://127.0.0.1:${hostPort}`
 
   try {
     await waitForEtcdReady(endpoint)
