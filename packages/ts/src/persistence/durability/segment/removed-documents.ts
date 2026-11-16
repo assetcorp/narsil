@@ -69,8 +69,20 @@ function exceedsRemovedShare(removed: number, held: number): boolean {
   return held > 0 && removed > held * REWRITE_ABOVE_REMOVED_DOCUMENT_SHARE
 }
 
-function freedBytesOf(ref: SegmentRef, replacedCount: number): number {
-  return ref.docCount === 0 ? 0 : (ref.bytes * replacedCount) / ref.docCount
+function removedShareOf(ref: SegmentRef, replacedCount: number): number {
+  return ref.docCount === 0 ? 0 : replacedCount / ref.docCount
+}
+
+function rewriteOrder(
+  segments: readonly SegmentRef[],
+  replaced: readonly string[][],
+  left: number,
+  right: number,
+): number {
+  const leftShare = removedShareOf(segments[left], replaced[left].length)
+  const rightShare = removedShareOf(segments[right], replaced[right].length)
+  if (leftShare !== rightShare) return leftShare > rightShare ? -1 : 1
+  return segments[left].bytes - segments[right].bytes
 }
 
 function chooseRewrites(
@@ -86,10 +98,7 @@ function chooseRewrites(
   }
   const candidates: number[] = []
   for (let at = 0; at < segments.length; at++) if (replaced[at].length > 0) candidates.push(at)
-  candidates.sort(
-    (left, right) =>
-      freedBytesOf(segments[right], replaced[right].length) - freedBytesOf(segments[left], replaced[left].length),
-  )
+  candidates.sort((left, right) => rewriteOrder(segments, replaced, left, right))
   const chosen: number[] = []
   for (const at of candidates) {
     if (!exceedsRemovedShare(removed, held)) break
