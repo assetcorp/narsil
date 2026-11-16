@@ -1,11 +1,19 @@
 from __future__ import annotations
 
+import re
+
 from chart_paths import figure, languages_bars_chart, languages_chart_dir
 from languages_data import PHASES, dig, engines_in, language_label, measurements, phase_summary, thread_counts
 from render import and_join, dataset_name, decimal, integer, is_number, table
 from sources import Source
 
 MEBIBYTE_BYTES = 1024**2
+_RELEASED_VERSION = re.compile(r"^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$")
+_REGISTRY_PAGES = {
+    "typescript": "https://www.npmjs.com/package/{package}/v/{version}",
+    "rust": "https://crates.io/crates/{package}/{version}",
+    "go": "https://pkg.go.dev/{package}@v{version}",
+}
 _RECALL_METRICS = {"recall10": "recall@10", "recall100": "recall@100", "hybridRecall10": "hybrid recall@10"}
 
 
@@ -40,6 +48,15 @@ def _repetitions(count: object) -> str:
     return f"Rates and memory figures are medians across {integer(count)} repetitions. Latency percentiles pool every measured query. The engine order rotates between repetitions."
 
 
+def _package_cell(engine: str, package: object, version: object) -> str:
+    page = _REGISTRY_PAGES.get(engine)
+    if not isinstance(package, str) or not isinstance(version, str) or page is None:
+        return f"`{package}`"
+    if _RELEASED_VERSION.match(version) is None:
+        return f"`{package}`"
+    return f"[`{package}`]({page.format(package=package, version=version)})"
+
+
 def _setup_block(source: Source) -> str:
     results = source.data
     machine = results.get("machine") or {}
@@ -62,7 +79,7 @@ def _setup_block(source: Source) -> str:
     engine_rows = [
         [
             language_label(engine),
-            f"`{dig(identities, engine, 'package')}`",
+            _package_cell(engine, dig(identities, engine, "package"), dig(identities, engine, "version")),
             str(dig(identities, engine, "version")),
             str(dig(identities, engine, "runtime")),
             str(dig(identities, engine, "build")),
