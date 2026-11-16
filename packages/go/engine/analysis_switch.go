@@ -115,6 +115,9 @@ func (n *Narsil) rebuildSide(entry *indexEntry, side sideRebuild) error {
 	if err := built.AwaitCompactionPass(n.stopping); err != nil {
 		go built.Release()
 		built = nil
+		if stopped := side.proceed(); stopped != nil {
+			return stopped
+		}
 		return err
 	}
 	if err := entry.catchUp(n.stopping, built, side.proceed); err != nil {
