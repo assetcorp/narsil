@@ -27,7 +27,7 @@ from ..core.types import (
     coerce_server_ms,
 )
 
-_MEMORY_KEYS = ("estimatedMemoryBytes", "memoryBytes", "memoryEstimateBytes", "memory", "bytes")
+_SAVED_BYTES_KEY = "savedBytes"
 _VECTOR_FIELD = "embedding"
 _RRF_K = 60
 _RESCORE_OVERSAMPLING_GRID = (3.0, 5.0, 8.0)
@@ -316,12 +316,8 @@ class NarsilDriver:
             self.keyword_setup = (
                 f"BM25 k1={self._k1} b={self._b}; language {reported_language}, as the server reports it"
             )
-        size = None
-        for key in _MEMORY_KEYS:
-            value = raw.get(key)
-            if isinstance(value, (int, float)):
-                size = int(value)
-                break
+        saved = raw.get(_SAVED_BYTES_KEY)
+        size = int(saved) if isinstance(saved, (int, float)) and not isinstance(saved, bool) else None
         return {"index_size_bytes": size, "raw": raw}
 
     def server_setup(self) -> dict | None:
