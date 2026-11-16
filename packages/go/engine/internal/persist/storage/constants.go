@@ -13,6 +13,10 @@ const (
 	lockTokenBytes            = 16
 	directoryHeldOpenOnlyOn   = "linux"
 
+	heldFileRetryWindow       = 2 * time.Second
+	heldFileRetryFirstPause   = time.Millisecond
+	heldFileRetryLongestPause = 250 * time.Millisecond
+
 	TemporaryMark            = ".tmp-"
 	temporaryNameRandomBytes = 8
 	streamWriteBufferBytes   = 1_048_576

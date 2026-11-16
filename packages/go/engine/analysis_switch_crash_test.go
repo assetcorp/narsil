@@ -163,8 +163,8 @@ type switchKillPoint struct {
 }
 
 func (point *switchKillPoint) committedFiles() []byte {
-	meta, _ := readWhileTheEngineReplacesIt(filepath.Join(point.directory, switchCrashIndex, "meta"))
-	listed, _ := readWhileTheEngineReplacesIt(filepath.Join(point.directory, switchCrashIndex, "manifest"))
+	meta, _ := os.ReadFile(filepath.Join(point.directory, switchCrashIndex, "meta"))
+	listed, _ := os.ReadFile(filepath.Join(point.directory, switchCrashIndex, "manifest"))
 	return append(meta, listed...)
 }
 

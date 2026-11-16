@@ -68,7 +68,7 @@ func (staged *StagedFile) Commit() error {
 		staged.removeTemporary()
 		return saveFailed(`Failed to close "`+staged.key+`"`, staged.key, err)
 	}
-	if err := os.Rename(staged.temporary, staged.path); err != nil {
+	if err := renameReplacing(staged.temporary, staged.path); err != nil {
 		staged.removeTemporary()
 		return saveFailed(`Failed to rename "`+staged.key+`" into place`, staged.key, err)
 	}

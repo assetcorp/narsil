@@ -15,7 +15,7 @@ func (directory *Directory) MoveTree(from string, to string) error {
 	if err != nil {
 		return err
 	}
-	if err := os.Rename(source, target); err != nil {
+	if err := renameUnlessMissing(source, target); err != nil {
 		if isMissing(err) {
 			return nil
 		}
