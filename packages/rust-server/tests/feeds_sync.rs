@@ -141,7 +141,6 @@ async fn hostile_outcomes(target: &Target<'_>) -> Vec<Outcome> {
         Message::Text("subscribe".into()),
         Message::Binary(Bytes::from_static(&[0xc1])),
         Message::Binary(Bytes::from(vec![0x90; 70_000])),
-        Message::Binary(Bytes::from(vec![0x90; 200_000])),
     ];
     for frame in raw_cases {
         let mut socket = subscribe_socket(port, &path, SUBPROTOCOL).await;
@@ -205,6 +204,20 @@ async fn sync_feed_closes_on_hostile_messages_as_the_typescript_server_does() {
     let mine = hostile_outcomes(&Target::Rust(&rust)).await;
     let theirs = hostile_outcomes(&Target::Reference(&reference)).await;
     assert_eq!(mine, theirs);
+    for length in [65_537, 131_072, 131_073, 200_000] {
+        let mut socket = subscribe_socket(rust.port, &feed_path(), SUBPROTOCOL).await;
+        send_raw(
+            &mut socket,
+            Message::Binary(Bytes::from(vec![0x90; length])),
+        )
+        .await;
+        let (messages, close) = until_closed(&mut socket).await;
+        assert_eq!(
+            outcome_of(&messages, close),
+            (Vec::new(), Some((1009, "message too large".to_string()))),
+            "a {length}-byte message"
+        );
+    }
     assert_eq!(
         mine.first().map(|outcome| outcome.1.clone()),
         Some(Some((

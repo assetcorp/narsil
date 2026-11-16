@@ -1,10 +1,9 @@
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use narsil::{ErrorCode, Narsil, NarsilError};
 use tokio::time::Instant;
 
-use super::constants::{FEED_INLINE_DECODE_BYTES, TIMER_DELAY_LIMIT_MS};
+use super::constants::FEED_INLINE_DECODE_BYTES;
 use super::hub::Hub;
 use super::outbox::Outbox;
 use super::signals::SessionSignals;
@@ -17,13 +16,13 @@ pub(crate) struct Core {
     pub(crate) signals: Arc<SessionSignals>,
     pub(crate) outbox: Outbox,
     pub(crate) retry_at: Option<Instant>,
-    expires_at: Option<f64>,
 }
 
-fn now_ms() -> f64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0.0, |elapsed| elapsed.as_secs_f64() * 1_000.0)
+pub(crate) async fn sleep_until(at: Option<Instant>) {
+    match at {
+        Some(at) => tokio::time::sleep_until(at).await,
+        None => std::future::pending().await,
+    }
 }
 
 impl Core {
@@ -33,7 +32,6 @@ impl Core {
         index: String,
         signals: Arc<SessionSignals>,
         outbox: Outbox,
-        expires_at: Option<f64>,
     ) -> Core {
         Core {
             engine,
@@ -42,7 +40,6 @@ impl Core {
             signals,
             outbox,
             retry_at: None,
-            expires_at,
         }
     }
 
@@ -51,14 +48,20 @@ impl Core {
     }
 
     pub(crate) fn expired(&self) -> bool {
-        self.expires_at
-            .is_some_and(|expires_at| expires_at - now_ms() <= 0.0)
+        self.outbox.expired()
     }
 
     pub(crate) fn expiry_deadline(&self) -> Option<Instant> {
-        let remaining = self.expires_at? - now_ms();
-        let wait = remaining.clamp(0.0, TIMER_DELAY_LIMIT_MS as f64).ceil() as u64;
-        Some(Instant::now() + Duration::from_millis(wait))
+        self.outbox.expiry_deadline()
+    }
+
+    async fn expiry(&self) {
+        loop {
+            sleep_until(self.expiry_deadline()).await;
+            if self.expired() {
+                return;
+            }
+        }
     }
 
     pub(crate) fn close(&mut self, code: u16, reason: &str) {
@@ -117,6 +120,7 @@ impl Core {
         tokio::select! {
             biased;
             _ = self.signals.urgent.notified() => None,
+            _ = self.expiry() => None,
             joined = task => joined.ok(),
         }
     }
@@ -130,6 +134,7 @@ impl Core {
         let permit = tokio::select! {
             biased;
             _ = self.signals.urgent.notified() => None,
+            _ = self.expiry() => None,
             permit = reads.acquire_owned() => permit.ok(),
         }?;
         self.blocking(move |engine| {

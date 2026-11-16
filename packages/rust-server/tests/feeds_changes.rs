@@ -212,6 +212,20 @@ async fn change_feed_closes_on_hostile_messages_as_the_typescript_server_does() 
     let mine = hostile_outcomes(&Target::Rust(&rust)).await;
     let theirs = hostile_outcomes(&Target::Reference(&reference)).await;
     assert_eq!(mine, theirs);
+    for length in [65_537, 131_072, 131_073, 200_000] {
+        let mut socket = subscribe_socket(rust.port, &feed_path(), SUBPROTOCOL).await;
+        send_raw(
+            &mut socket,
+            Message::Binary(Bytes::from(vec![0x90; length])),
+        )
+        .await;
+        let (messages, close) = until_closed(&mut socket).await;
+        assert_eq!(
+            outcome_of(&messages, close),
+            (Vec::new(), Some((1009, "message too large".to_string()))),
+            "a {length}-byte message"
+        );
+    }
     rust.server.shutdown().await.expect("the server shuts down");
     reference.stop().await;
 }

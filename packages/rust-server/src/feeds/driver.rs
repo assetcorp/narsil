@@ -4,7 +4,7 @@ use tokio::time::Instant;
 
 use super::changes::ChangesFeed;
 use super::constants::FEED_INBOUND_PAUSE_BYTES;
-use super::core::Core;
+use super::core::{Core, sleep_until};
 use super::socket::Inbound;
 use super::sync::SyncFeed;
 use super::wire::{CLOSE_CREDENTIAL_EXPIRED, CLOSE_POLICY, CLOSE_TOO_LARGE};
@@ -60,13 +60,6 @@ impl Protocol {
         if let Protocol::Sync(feed) = self {
             feed.send_settings(core).await;
         }
-    }
-}
-
-async fn sleep_until(at: Option<Instant>) {
-    match at {
-        Some(at) => tokio::time::sleep_until(at).await,
-        None => std::future::pending().await,
     }
 }
 

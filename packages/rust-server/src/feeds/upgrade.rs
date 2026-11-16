@@ -107,7 +107,7 @@ async fn serve(session: Session, upgraded: hyper::upgrade::Upgraded) {
     let signals = Arc::new(SessionSignals::default());
     let held = Arc::clone(&signals);
     serve_socket(stream, signals, move |socket, inbound| async move {
-        let mut outbox = Outbox::new(socket, Arc::clone(&session.hub.budget));
+        let mut outbox = Outbox::new(socket, Arc::clone(&session.hub.budget), session.expires_at);
         let Some(membership) = session.hub.join(&session.engine, &session.index, &held) else {
             outbox.close(CLOSE_GOING_AWAY, SERVER_CLOSING_REASON);
             return;
@@ -116,14 +116,7 @@ async fn serve(session: Session, upgraded: hyper::upgrade::Upgraded) {
             FeedKind::Sync => Protocol::Sync(Box::<SyncFeed>::default()),
             FeedKind::Changes => Protocol::Changes(Box::<ChangesFeed>::default()),
         };
-        let core = Core::new(
-            session.engine,
-            session.hub,
-            session.index,
-            held,
-            outbox,
-            session.expires_at,
-        );
+        let core = Core::new(session.engine, session.hub, session.index, held, outbox);
         drive(core, protocol, inbound).await;
         drop(membership);
     })
