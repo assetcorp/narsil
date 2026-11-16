@@ -10,6 +10,15 @@ import (
 )
 
 func TestADiskCheckpointStopWordFunctionCanCheckpoint(t *testing.T) {
+	checkpointStopWordReentry(t, false)
+}
+
+func TestADiskCheckpointStopWordFunctionCanDropIndex(t *testing.T) {
+	checkpointStopWordReentry(t, true)
+}
+
+func checkpointStopWordReentry(t *testing.T, drop bool) {
+	t.Helper()
 	ctx := context.Background()
 	var armed atomic.Bool
 	var narsil *engine.Narsil
@@ -18,7 +27,11 @@ func TestADiskCheckpointStopWordFunctionCanCheckpoint(t *testing.T) {
 		if armed.Swap(false) {
 			bounded, cancel := context.WithTimeout(ctx, time.Second)
 			defer cancel()
-			nested = narsil.Checkpoint(bounded, callbackIndex)
+			if drop {
+				nested = narsil.DropIndex(bounded, callbackIndex)
+			} else {
+				nested = narsil.Checkpoint(bounded, callbackIndex)
+			}
 		}
 		return words
 	})
@@ -52,9 +65,15 @@ func TestADiskCheckpointStopWordFunctionCanCheckpoint(t *testing.T) {
 		t.Fatal("the checkpoint never called the stop word function")
 	}
 	if nested != nil {
-		t.Fatalf("the checkpoint inside the stop word function failed: %v", nested)
+		t.Fatalf("the call inside the stop word function failed: %v", nested)
 	}
 	result, err := narsil.Query(ctx, callbackIndex, engine.QueryParams{Term: "harbour"})
+	if drop {
+		if engine.ErrorCode(err) != engine.CodeIndexNotFound {
+			t.Fatalf("the dropped index returned %+v, %v", result, err)
+		}
+		return
+	}
 	if err != nil || len(result.Hits) != 1 || result.Hits[0].ID != "kept" {
 		t.Fatalf("the checkpoint changed the searchable document: %+v, %v", result, err)
 	}

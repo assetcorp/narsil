@@ -133,7 +133,8 @@ func (n *Narsil) Checkpoint(ctx context.Context, indexName string) error {
 	if err != nil {
 		return err
 	}
-	defer release()
+	defer n.holdRetiredIndexes()()
+	release()
 	if entry.durable == nil {
 		return ctx.Err()
 	}
