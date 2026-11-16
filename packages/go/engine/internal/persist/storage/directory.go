@@ -234,7 +234,7 @@ func (directory *Directory) atomicReplace(key string, fill func(*os.File) error)
 		_ = os.Remove(temporary)
 		return saveFailed(`Failed to close "`+key+`"`, key, err)
 	}
-	if err := os.Rename(temporary, path); err != nil {
+	if err := renameReplacing(temporary, path); err != nil {
 		_ = os.Remove(temporary)
 		return saveFailed(`Failed to rename "`+key+`" into place`, key, err)
 	}
@@ -271,7 +271,7 @@ func (directory *Directory) Move(from string, to string) error {
 	if err := os.MkdirAll(filepath.Dir(target), directoryMode); err != nil {
 		return saveFailed(`Failed to create the directory for "`+to+`"`, to, err)
 	}
-	if err := os.Rename(source, target); err != nil {
+	if err := renameReplacing(source, target); err != nil {
 		return saveFailed(`Failed to move "`+from+`" to "`+to+`"`, to, err)
 	}
 	directory.forgetSize(from)

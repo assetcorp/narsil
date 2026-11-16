@@ -145,7 +145,7 @@ func createLockFile(lockPath string, draftPath string, content string) (bool, er
 }
 
 func removeStaleLock(lockPath string, asidePath string, reading lockReading) error {
-	if err := os.Rename(lockPath, asidePath); err != nil {
+	if err := renameUnlessMissing(lockPath, asidePath); err != nil {
 		if isMissing(err) {
 			return nil
 		}

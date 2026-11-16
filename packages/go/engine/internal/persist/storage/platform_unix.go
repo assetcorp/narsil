@@ -33,3 +33,7 @@ func openFile(path string, flag int, perm os.FileMode) (*os.File, error) {
 func directorySyncUnsupportedHere(error) bool {
 	return false
 }
+
+func heldByAnotherHandle(error, bool) bool {
+	return false
+}
