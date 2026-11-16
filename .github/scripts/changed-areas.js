@@ -2,7 +2,11 @@ const { execFileSync } = require('node:child_process')
 const { appendFileSync } = require('node:fs')
 const { lastPassedPushCommit } = require('./last-passed-push.js')
 
-const AREAS_SCRIPT = '.github/scripts/changed-areas.js'
+const AREAS_SCRIPTS = [
+  '.github/scripts/changed-areas.js',
+  '.github/scripts/last-passed-push.js',
+  '.github/scripts/github-api.js',
+]
 const SHARED_ENGINE_WORKFLOW = '.github/workflows/engine.yml'
 const COMPOSITE_ACTIONS = '.github/actions/'
 const ENGINE_API_REPORTS = 'packages/ts/etc/'
@@ -341,7 +345,7 @@ const main = async () => {
     console.log(`Reading the changed files failed, so every area counts as changed: ${error.message}`)
   }
 
-  const filesThatTouchEveryArea = new Set([process.env.WORKFLOW_FILE ?? '', AREAS_SCRIPT, SHARED_ENGINE_WORKFLOW])
+  const filesThatTouchEveryArea = new Set([process.env.WORKFLOW_FILE ?? '', ...AREAS_SCRIPTS, SHARED_ENGINE_WORKFLOW])
   const touched = new Set()
   if (files === null) {
     console.log('This event lists no changed files, so every area counts as changed.')
