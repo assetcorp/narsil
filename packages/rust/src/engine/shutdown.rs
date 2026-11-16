@@ -20,7 +20,10 @@ impl Narsil {
     /// restore, or reopen runs while it puts its index in the engine, fails with `CONFIG_INVALID` and changes nothing
     /// that a shutdown changes, because it would wait for the engine call that runs it to finish. The same refusal
     /// applies to a callback inside a read, because shutdown waits for reads before releasing files. A shutdown that
-    /// another thread began goes on, and finishes once that engine call does.
+    /// another thread began goes on, and finishes once that engine call does. Once shutdown begins, a read that
+    /// waits for a restore or for this shutdown to drain the searches of an index fails with `INSTANCE_SHUT_DOWN`
+    /// at once, and [`Narsil::list_indexes`] returns an empty list, so that neither call waits for a search that
+    /// can depend on it.
     pub fn shutdown(&self) -> Result<()> {
         let inside_adapter_call = self
             .inner
@@ -48,6 +51,9 @@ impl Narsil {
         self.inner.search_limits.stop.stop_every_search();
         self.inner.suggestions.stop(&self.inner);
         self.inner.shut_down.store(true, Ordering::Release);
+        for index in self.inner.index_list() {
+            index.residency.wake_waiters();
+        }
         self.inner.shutdown_gate.await_admitted();
         self.inner.lifecycle.sweeper.stop();
         let indexes = std::mem::take(&mut *self.inner.indexes_mut());
@@ -58,7 +64,7 @@ impl Narsil {
             index.empty_partitions();
             index.vectors.release_files();
             drop(writer);
-            index.residency.finish_close();
+            index.residency.wake_waiters();
         }
         self.inner.lifecycle.clear();
         let closed = match &self.inner.durable {
