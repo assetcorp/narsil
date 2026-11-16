@@ -4,5 +4,5 @@ import { ENGINE_NAMES } from '../../runner-output'
 
 export default async function buildRunnersBeforeAnyDriverStarts(): Promise<void> {
   await ensureOracle()
-  await prepareEngines(ENGINE_NAMES)
+  await prepareEngines(ENGINE_NAMES, 'smoke')
 }

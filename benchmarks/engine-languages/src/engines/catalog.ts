@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import type { BenchProfile } from 'benchmarks/src/runner/run-paths'
 import {
   BUILD_ROOT,
   GO_RUNNER_ROOT,
@@ -33,6 +34,8 @@ export interface EngineSpec {
 }
 
 const GO_RUNNER_BINARY = 'narsil-engine-languages-go-runner'
+const GO_ENGINE_TAG_PREFIX = 'packages/go/engine/v'
+const UNRELEASED_VERSION = 'unreleased'
 const NATIVE_CORE_FILE = 'narsil-core.node'
 
 function cargoTargetDirectory(): string {
@@ -43,6 +46,19 @@ function cargoTargetDirectory(): string {
 function rustCrateVersion(): string {
   const manifest = readFileSync(resolve(RUST_CRATE_ROOT, 'Cargo.toml'), 'utf-8')
   return /^version = "([^"]+)"$/m.exec(manifest)?.[1] ?? 'unknown'
+}
+
+async function goEngineVersion(profile: BenchProfile): Promise<string> {
+  const tag = await firstLineOf(
+    'git',
+    ['describe', '--tags', '--abbrev=0', '--match', `${GO_ENGINE_TAG_PREFIX}*`, 'HEAD'],
+    REPOSITORY_ROOT,
+  )
+  if (tag.startsWith(GO_ENGINE_TAG_PREFIX)) return tag.slice(GO_ENGINE_TAG_PREFIX.length)
+  if (profile === 'smoke') return UNRELEASED_VERSION
+  throw new Error(
+    `no ${GO_ENGINE_TAG_PREFIX}* tag is reachable from HEAD, so the run cannot record which Go engine release it measures; fetch the tags first`,
+  )
 }
 
 function typescriptPackageVersion(): string {
@@ -114,7 +130,7 @@ async function rustEngine(): Promise<EngineSpec> {
   }
 }
 
-async function goEngine(): Promise<EngineSpec> {
+async function goEngine(profile: BenchProfile): Promise<EngineSpec> {
   mkdirSync(BUILD_ROOT, { recursive: true })
   const binary = resolve(BUILD_ROOT, GO_RUNNER_BINARY)
   await runCommand('go', ['build', '-trimpath', '-o', binary, '.'], {
@@ -129,24 +145,27 @@ async function goEngine(): Promise<EngineSpec> {
     env: process.env,
     identity: {
       package: 'github.com/assetcorp/narsil/packages/go/engine',
-      version: 'source in this repository',
+      version: await goEngineVersion(profile),
       runtime: await firstLineOf('go', ['version'], GO_RUNNER_ROOT),
       build: 'go build -trimpath',
     },
   }
 }
 
-const BUILDERS: Record<EngineName, () => Promise<EngineSpec>> = {
+const BUILDERS: Record<EngineName, (profile: BenchProfile) => Promise<EngineSpec>> = {
   typescript: typescriptEngine,
   rust: rustEngine,
   go: goEngine,
 }
 
-export async function prepareEngines(names: readonly EngineName[]): Promise<Map<EngineName, EngineSpec>> {
+export async function prepareEngines(
+  names: readonly EngineName[],
+  profile: BenchProfile,
+): Promise<Map<EngineName, EngineSpec>> {
   const specs = new Map<EngineName, EngineSpec>()
   for (const name of names) {
     console.log(`Building the ${name} runner`)
-    specs.set(name, await BUILDERS[name]())
+    specs.set(name, await BUILDERS[name](profile))
   }
   return specs
 }
