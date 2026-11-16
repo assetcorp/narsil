@@ -142,11 +142,21 @@ pub(super) fn update_in_groups(
         .enumerate()
         .filter_map(|(at, prepared)| prepared.then_some(at))
         .collect();
+    let replaced = positions
+        .iter()
+        .map(|&position| {
+            updates
+                .get(position)
+                .map(|(doc_id, _)| doc_id.clone())
+                .unwrap_or_default()
+        })
+        .collect();
     let mut projection = WriteProjection::new(
         memory,
         index,
         (0..positions.len()).map(|at| prepared_at(updates, &positions, at).unwrap_or(&empty)),
-    );
+    )
+    .replacing(replaced);
     let mut start = 0;
     while start < positions.len() {
         let shared: &[(String, HeldWrite)] = updates;

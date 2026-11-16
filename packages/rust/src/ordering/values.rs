@@ -65,6 +65,13 @@ impl SortValues {
         self.kinds.len()
     }
 
+    pub(crate) fn bytes(&self) -> usize {
+        self.kinds.len()
+            + self.numbers.len() * size_of::<f64>()
+            + (self.text_start.len() + self.text_length.len()) * size_of::<u32>()
+            + self.units.len() * size_of::<u16>()
+    }
+
     fn push_entry(&mut self, kind: u8, number: f64, units: &[u16]) -> Result<()> {
         let start = u32::try_from(self.units.len()).map_err(|_| layout_exceeded())?;
         let length = u32::try_from(units.len()).map_err(|_| layout_exceeded())?;

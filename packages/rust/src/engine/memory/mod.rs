@@ -7,6 +7,7 @@ mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
 mod projection;
+mod removal_copies;
 #[cfg(windows)]
 mod windows;
 
