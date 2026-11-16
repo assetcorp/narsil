@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use narsil::{Map, Narsil, Value, parse_plain_json};
+use narsil::{Map, Narsil, Value, json_nests_too_deep, parse_plain_json};
 
 use crate::errors::{Outcome, ServerError, server_codes};
 use crate::http::pipeline::RouteContext;
@@ -8,7 +8,10 @@ use crate::state::ServerState;
 
 fn parse_text(raw: &[u8]) -> Outcome<Value> {
     let text = String::from_utf8_lossy(raw);
-    parse_plain_json(&text).map_err(|_| {
+    parse_plain_json(&text).map_err(|failure| {
+        if json_nests_too_deep(&failure) {
+            return ServerError::from(failure);
+        }
         ServerError::new(
             400,
             server_codes::INVALID_JSON,
