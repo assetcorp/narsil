@@ -2,7 +2,8 @@ import { MIN_DOCUMENTS_FOR_SEGMENTS, validateBatchList } from '#platform/optiona
 import type { BatchResult } from '../../types/results'
 import type { AnyDocument, InsertOptions } from '../../types/schema'
 import type { IndexHold } from '../index-hold'
-import { batchStopped, failAsShutDown, providedDocIdOrEmpty, unlessShutDown } from './batch-shutdown'
+import { providedDocIdOrEmpty } from './batch-admissions'
+import { failAsShutDown, shutDownStarted, unlessShutDown } from './batch-shutdown'
 import type { MutationContext } from './context'
 import { finishInsertBatch, insertInChunks } from './insert-batch-chunks'
 import { insertBatchViaSegments } from './insert-batch-segments'
@@ -20,7 +21,7 @@ export async function insertDocumentBatch(
 
   const failed: BatchResult['failed'] = []
   await unlessShutDown(ctx, () => ctx.orchestrator.scaleOutBeforeBatch(indexName, documents.length))
-  if (batchStopped(ctx)) {
+  if (shutDownStarted(ctx)) {
     failAsShutDown(failed, documents, providedDocIdOrEmpty)
     return { succeeded: [], failed }
   }

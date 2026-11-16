@@ -6,7 +6,7 @@ import {
   extractVectorFromDoc,
   getNestedValue,
   indexChangeOutsideExternalWaits,
-  NarsilError,
+  type NarsilError,
   prepareDocumentVectors,
   requireDocumentWithinSizeLimit,
   requireMatchingDocId,
@@ -75,12 +75,8 @@ export interface PreparedUpdate {
   releaseVectorHolds?: () => void
 }
 
-function updateErrorOf(err: unknown): NarsilError {
-  return err instanceof NarsilError ? err : new NarsilError(ErrorCodes.DOC_NOT_FOUND, String(err))
-}
-
 export function asUpdateError(ctx: MutationContext, err: unknown): NarsilError {
-  return batchFailureOf(ctx, err, updateErrorOf)
+  return batchFailureOf(ctx, err, ErrorCodes.DOC_NOT_FOUND)
 }
 
 async function runAfterUpdateHooks(ctx: MutationContext, indexName: string, updates: PreparedUpdate[]): Promise<void> {

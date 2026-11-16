@@ -12,7 +12,7 @@ import {
   updateDocumentBatch as updateBatchUnguarded,
   updateDocument as updateUnguarded,
 } from '../mutations'
-import { batchStopped, failAsShutDown } from '../mutations/batch-shutdown'
+import { docIdOf, failAsShutDown, shutDownStarted } from '../mutations/batch-shutdown'
 import { providedDocId } from '../mutations/insert-admission'
 import { noteDocumentChurn } from './document-churn'
 import type { MemoryGroupedItem } from './grouped-writes'
@@ -64,10 +64,6 @@ async function withReservation<T>(
   }
 }
 
-function groupedDocIdOf(item: MemoryGroupedItem): string {
-  return item.docId
-}
-
 async function writeInGroups<T extends MemoryGroupedItem>(
   ctx: MutationContext,
   grouping: MemoryWriteGrouping,
@@ -81,8 +77,8 @@ async function writeInGroups<T extends MemoryGroupedItem>(
     items,
     failed,
     refuseFrom: start => {
-      if (!batchStopped(ctx)) return false
-      failAsShutDown(failed, items, groupedDocIdOf, start)
+      if (!shutDownStarted(ctx)) return false
+      failAsShutDown(failed, items, docIdOf, start)
       return true
     },
     apply: async group => {
