@@ -157,3 +157,50 @@ fn a_checkpoint_saves_once_an_outside_reader_closes_the_meta_file_it_held_open()
     }
     reopened.shutdown().expect("the reopened engine shuts down");
 }
+
+#[cfg(windows)]
+#[test]
+fn a_reader_that_outlasts_the_retries_gets_a_typed_error_and_every_acknowledged_write_survives() {
+    let root = ScratchDirectory::new("checkpoint-held-timeout");
+    let engine = open_engine(root.path());
+    let mut schema = Map::new();
+    schema.insert("title", Value::String("string".into()));
+    engine
+        .create_index(
+            INDEX,
+            IndexConfig {
+                schema: Value::Object(schema),
+                ..IndexConfig::default()
+            },
+        )
+        .expect("the index is created");
+    let mut document = Map::new();
+    document.insert("id", Value::String("retained".into()));
+    document.insert("title", Value::String("acknowledged ledger".into()));
+    engine
+        .insert_batch(INDEX, vec![document])
+        .expect("the write is acknowledged");
+    let index_directory = root.path().join(INDEX);
+    let reader = hold_open(&index_directory.join("meta"));
+    let error = engine
+        .checkpoint(INDEX)
+        .expect_err("the checkpoint saved while the reader still held the meta file");
+    assert_eq!(error.code(), narsil::ErrorCode::PERSISTENCE_SAVE_FAILED);
+    assert!(
+        !staged_meta_waiting(&index_directory),
+        "the failed checkpoint left its staged meta file behind"
+    );
+    drop(reader);
+    let _ = engine.shutdown();
+    drop(engine);
+    let reopened = open_engine(root.path());
+    let document = reopened
+        .get(INDEX, "retained")
+        .expect("the document reads")
+        .expect("the acknowledged document is missing after the restart");
+    assert_eq!(
+        document.get("title"),
+        Some(&Value::String("acknowledged ledger".into()))
+    );
+    reopened.shutdown().expect("the reopened engine shuts down");
+}
