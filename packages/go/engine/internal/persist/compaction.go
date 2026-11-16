@@ -6,6 +6,7 @@ import (
 	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/envelope"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/manifest"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/format/paged"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/segments"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/persist/checkpoint"
@@ -29,19 +30,40 @@ func windowFits(segments []manifest.SegmentRef, start int, length int, pagedText
 	return documents <= CompactionLargestMergedDocumentCount && bytes <= envelope.MaxFileBytes
 }
 
-func smallestFittingWindow(segments []manifest.SegmentRef, length int, pagedText bool) (mergeWindow, bool) {
+type windowBalance struct {
+	skew  float64
+	bytes uint64
+}
+
+func balanceOf(segments []manifest.SegmentRef, start int, length int) windowBalance {
+	var largest, bytes uint64
+	for at := start; at < start+length; at++ {
+		largest = max(largest, segments[at].File.Bytes)
+		bytes += segments[at].File.Bytes
+	}
+	if bytes == 0 {
+		return windowBalance{skew: 1}
+	}
+	return windowBalance{skew: float64(largest) / float64(bytes), bytes: bytes}
+}
+
+func (balance windowBalance) before(other windowBalance) bool {
+	if balance.skew != other.skew {
+		return balance.skew < other.skew
+	}
+	return balance.bytes < other.bytes
+}
+
+func mostBalancedFittingWindow(segments []manifest.SegmentRef, length int, pagedText bool) (mergeWindow, bool) {
 	best, found := mergeWindow{}, false
-	var bestBytes uint64
+	var bestBalance windowBalance
 	for start := 0; start+length <= len(segments); start++ {
 		if !windowFits(segments, start, length, pagedText) {
 			continue
 		}
-		var bytes uint64
-		for at := start; at < start+length; at++ {
-			bytes += segments[at].File.Bytes
-		}
-		if !found || bytes < bestBytes {
-			best, bestBytes, found = mergeWindow{start: start, length: length}, bytes, true
+		balance := balanceOf(segments, start, length)
+		if !found || balance.before(bestBalance) {
+			best, bestBalance, found = mergeWindow{start: start, length: length}, balance, true
 		}
 	}
 	return best, found
@@ -49,7 +71,7 @@ func smallestFittingWindow(segments []manifest.SegmentRef, length int, pagedText
 
 func chooseWindow(segments []manifest.SegmentRef, wanted int, pagedText bool) (mergeWindow, bool) {
 	for length := min(wanted, len(segments)); length >= 2; length-- {
-		if window, found := smallestFittingWindow(segments, length, pagedText); found {
+		if window, found := mostBalancedFittingWindow(segments, length, pagedText); found {
 			return window, true
 		}
 	}
@@ -103,10 +125,23 @@ type windowMerge struct {
 	store       checkpoint.Store
 	detached    *index.Index
 	pages       *core.PageCache
+	reads       *paged.ReadCache
 	schema      map[string]string
 	schemaOrder []string
 	pagedText   bool
 	tombstoned  *windowTombstones
+}
+
+func (merge *windowMerge) openMergeCaches() error {
+	if !merge.pagedText {
+		return nil
+	}
+	pages, err := segments.NewMergePageCache()
+	if err != nil {
+		return err
+	}
+	merge.pages, merge.reads = pages, paged.NewReadCache(paged.MergeReadCacheBytes)
+	return nil
 }
 
 func (merge windowMerge) attach(ctx context.Context, ref manifest.FileRef) error {
@@ -116,8 +151,8 @@ func (merge windowMerge) attach(ctx context.Context, ref manifest.FileRef) error
 			return err
 		}
 		if held {
-			return attachPagedFile(ctx, pagedAttachment{target: merge.detached, pages: merge.pages, key: ref.Key,
-				path: path, schema: merge.schema, replaced: merge.tombstoned.addEvery})
+			return attachPagedFile(ctx, pagedAttachment{target: merge.detached, pages: merge.pages, reads: merge.reads,
+				key: ref.Key, path: path, schema: merge.schema, replaced: merge.tombstoned.addEvery})
 		}
 	}
 	opened, err := checkpoint.OpenStoredSegment(ctx, merge.store, ref, false)
@@ -160,10 +195,8 @@ func mergeWindowOf(ctx context.Context, store checkpoint.Store, handle *Handle, 
 	tombstoned := &windowTombstones{seen: map[string]struct{}{}}
 	merge := windowMerge{store: store, detached: detached, schema: flatSchema(handle), schemaOrder: schemaOrderOf(handle),
 		pagedText: pagedText, tombstoned: tombstoned}
-	if pagedText {
-		if merge.pages, err = segments.NewMergePageCache(); err != nil {
-			return err
-		}
+	if err := merge.openMergeCaches(); err != nil {
+		return err
 	}
 	for _, ref := range replaced {
 		if err := merge.attach(ctx, ref.File); err != nil {

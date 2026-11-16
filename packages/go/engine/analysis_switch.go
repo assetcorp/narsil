@@ -102,7 +102,7 @@ func (n *Narsil) rebuildSide(entry *indexEntry, side sideRebuild) error {
 	if err != nil {
 		return err
 	}
-	defer n.retireReplaced(entry, live, built)
+	defer func() { n.retireReplaced(entry, live, built) }()
 	step := func() error {
 		if err := side.proceed(); err != nil {
 			return err
@@ -110,6 +110,14 @@ func (n *Narsil) rebuildSide(entry *indexEntry, side sideRebuild) error {
 		return entry.catchUp(n.stopping, built, side.proceed)
 	}
 	if err := copyDocuments(n.stopping, entry.handle, live, built, step, side.onPartitions); err != nil {
+		return err
+	}
+	if err := built.AwaitCompactionPass(n.stopping); err != nil {
+		go built.Release()
+		built = nil
+		if stopped := side.proceed(); stopped != nil {
+			return stopped
+		}
 		return err
 	}
 	if err := entry.catchUp(n.stopping, built, side.proceed); err != nil {

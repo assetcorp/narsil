@@ -66,11 +66,18 @@ struct Candidate {
 }
 
 impl Candidate {
-    fn frees_more_than(&self, other: &Candidate) -> Ordering {
-        let mine = u128::from(self.bytes) * u128::from(self.removed) * u128::from(other.documents);
-        let theirs =
-            u128::from(other.bytes) * u128::from(other.removed) * u128::from(self.documents);
-        theirs.cmp(&mine)
+    fn removed_share(&self) -> f64 {
+        if self.documents == 0 {
+            return 0.0;
+        }
+        self.removed as f64 / self.documents as f64
+    }
+
+    fn rewrites_sooner(&self, other: &Candidate) -> Ordering {
+        other
+            .removed_share()
+            .total_cmp(&self.removed_share())
+            .then(self.bytes.cmp(&other.bytes))
     }
 }
 
@@ -109,7 +116,7 @@ fn chosen_rewrites(
         })
         .filter(|candidate| candidate.removed > 0)
         .collect();
-    candidates.sort_by(Candidate::frees_more_than);
+    candidates.sort_by(Candidate::rewrites_sooner);
     let mut chosen = Vec::new();
     for candidate in candidates {
         if !exceeds_removed_share(removed, held) {
@@ -128,11 +135,11 @@ fn chosen_rewrites(
     chosen
 }
 
-/// Rewrites the segments of `listed` that free the most bytes, each into one segment that holds its live
-/// documents, while the partition's removed share exceeds the rewrite threshold, and returns the rewrites that
-/// replace them in memory once the checkpoint commits. The first segment of a partition is always rewritten, and
-/// each further one only while `budget` allows it, so every partition above the threshold shrinks in every
-/// checkpoint.
+/// Rewrites the segments of `listed` whose share of removed documents is highest, each into one segment that
+/// holds its live documents, while the partition's removed share exceeds the rewrite threshold, and returns the
+/// rewrites that replace them in memory once the checkpoint commits. The first segment of a partition is always
+/// rewritten, and each further one only while `budget` allows it, so every partition above the threshold shrinks
+/// in every checkpoint.
 ///
 /// The share compares the documents that each listed segment holds with the ones that its in-memory segment still
 /// counts as live, so a partition without removals reads no segment.
