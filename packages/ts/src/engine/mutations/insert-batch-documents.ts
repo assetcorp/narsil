@@ -3,8 +3,9 @@ import type { BatchResult } from '../../types/results'
 import type { InsertOptions } from '../../types/schema'
 import type { IndexHold } from '../index-hold'
 import { asBatchInsertError } from './batch-admissions'
+import { batchStopped, failAsShutDown, unlessShutDown } from './batch-shutdown'
 import type { MutationContext } from './context'
-import type { AdmittedInsert } from './insert-batch-admission'
+import { type AdmittedInsert, admittedDocIdOf } from './insert-batch-admission'
 import { applyInsertChunk } from './insert-batch-apply'
 import { runOutside } from './outside-hold'
 
@@ -22,16 +23,18 @@ export async function runAfterInsertHooks(
 ): Promise<boolean> {
   if (inserted.length === 0 || !ctx.pluginRegistry.hasHooks('afterInsert')) return false
   const manager = ctx.executor.getManager(indexName)
-  await runOutside(hold, async () => {
-    for (const doc of inserted) {
-      try {
-        await ctx.pluginRegistry.runHook('afterInsert', { indexName, docId: doc.docId, document: doc.document })
-      } catch (err) {
-        console.warn('afterInsert plugin hook error:', err instanceof Error ? err.message : String(err))
+  await unlessShutDown(ctx, () =>
+    runOutside(hold, async () => {
+      for (const doc of inserted) {
+        try {
+          await ctx.pluginRegistry.runHook('afterInsert', { indexName, docId: doc.docId, document: doc.document })
+        } catch (err) {
+          console.warn('afterInsert plugin hook error:', err instanceof Error ? err.message : String(err))
+        }
       }
-    }
-  })
-  return ctx.executor.getManager(indexName) !== manager
+    }),
+  )
+  return batchStopped(ctx) || ctx.executor.getManager(indexName) !== manager
 }
 
 export async function applyAdmittedDocuments(
@@ -46,13 +49,16 @@ export async function applyAdmittedDocuments(
   const touchedVectorFields = new Set<string>()
 
   for (let chunkStart = 0; chunkStart < admitted.length; chunkStart += BATCH_CHUNK_SIZE) {
-    if (ctx.abortController.signal.aborted) break
+    if (batchStopped(ctx)) {
+      failAsShutDown(failed, admitted, admittedDocIdOf, chunkStart)
+      break
+    }
 
     const chunk = admitted.slice(chunkStart, chunkStart + BATCH_CHUNK_SIZE)
     try {
       ctx.memoryWriteBlock?.refuseWhileFull(indexName)
     } catch (err) {
-      const error = asBatchInsertError(err)
+      const error = asBatchInsertError(ctx, err)
       for (let i = chunkStart; i < admitted.length; i++) failed.push({ docId: admitted[i].docId, error })
       break
     }
@@ -62,9 +68,8 @@ export async function applyAdmittedDocuments(
     for (let i = 0; i < chunk.length; i++) {
       const doc = chunk[i]
       const application = applications[i]
-      if (application.status === 'skipped') continue
       if (application.status === 'failed') {
-        failed.push({ docId: doc.docId, error: asBatchInsertError(application.error) })
+        failed.push({ docId: doc.docId, error: asBatchInsertError(ctx, application.error) })
         continue
       }
       succeeded.push(doc.docId)
@@ -81,7 +86,7 @@ export async function applyAdmittedDocuments(
       return { succeeded, touchedVectorFields, unrecorded: admitted.slice(applied) }
     }
     if (applied < admitted.length) {
-      ctx.checkHeapPressure(indexName)
+      if (!batchStopped(ctx)) ctx.checkHeapPressure(indexName)
       await new Promise<void>(r => setTimeout(r, 0))
     }
   }
