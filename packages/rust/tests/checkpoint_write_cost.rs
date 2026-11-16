@@ -72,7 +72,11 @@ fn config(root: &Path, threshold: u32) -> NarsilConfig {
 
 fn open_with_index(root: &Path, storage: Storage, threshold: u32) -> Narsil {
     let narsil = Narsil::open(config(root, threshold)).expect("the engine opens");
-    if narsil.list_indexes().iter().any(|index| index.name == INDEX) {
+    if narsil
+        .list_indexes()
+        .iter()
+        .any(|index| index.name == INDEX)
+    {
         return narsil;
     }
     let mut schema = Map::new();
@@ -154,7 +158,11 @@ fn expect_letters(narsil: &Narsil, expected: &BTreeMap<String, Letter>, moment: 
     }
 }
 
-fn insert_letters(narsil: &Narsil, letters: Vec<(String, Letter)>, expected: &mut BTreeMap<String, Letter>) {
+fn insert_letters(
+    narsil: &Narsil,
+    letters: Vec<(String, Letter)>,
+    expected: &mut BTreeMap<String, Letter>,
+) {
     let documents = letters
         .iter()
         .map(|(id, letter)| document_of(id, letter))
@@ -232,7 +240,11 @@ fn rewrites_the_highest_replaced_share_first(storage: Storage) {
         .chain((0..LARGE_SEGMENT_UPDATES).map(|at| format!("large-{at}")))
         .collect();
     let distinct: BTreeSet<&String> = ids.iter().collect();
-    assert_eq!(distinct.len(), ids.len(), "every update names another document");
+    assert_eq!(
+        distinct.len(),
+        ids.len(),
+        "every update names another document"
+    );
     let updates = ids
         .iter()
         .enumerate()
