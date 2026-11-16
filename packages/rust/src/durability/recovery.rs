@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 
+use crate::config::MAX_PARTITIONS;
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::format::envelope::MAX_FILE_BYTES;
 use crate::format::manifest::{DecodedManifest, PartitionCheckpoint, SegmentManifest};
@@ -84,6 +85,34 @@ fn settle_stored_analysis(metadata: &mut IndexMetadata, stored: Option<u64>) -> 
     }
 }
 
+fn settle_stored_partitions(
+    metadata: &mut IndexMetadata,
+    manifest: &SegmentManifest,
+) -> Result<bool> {
+    let count = manifest.checkpoint.len();
+    if count == 0
+        || count as u64 > MAX_PARTITIONS
+        || manifest.partitions.len() != count
+        || manifest
+            .checkpoint
+            .iter()
+            .enumerate()
+            .any(|(at, head)| head.partition_id as usize != at)
+        || manifest
+            .partitions
+            .iter()
+            .any(|partition| partition.partition_id as usize >= count)
+    {
+        return Err(NarsilError::new(
+            ErrorCode::PERSISTENCE_LOAD_FAILED,
+            "The checkpoint must list every live partition in order from zero",
+        ));
+    }
+    let changed = metadata.partition_count != count as u32;
+    metadata.partition_count = count as u32;
+    Ok(changed)
+}
+
 fn remove_unlisted(
     store: &dyn CheckpointStore,
     index_name: &str,
@@ -117,12 +146,14 @@ pub(crate) fn open_stored_index(
     };
     let (_, mut metadata) = read_metadata_file(&bytes)?;
     settle_sync_files(store, index_name, &metadata)?;
+    let mut metadata_changed = false;
     let (checkpoint, stored_generation) = match read_manifest(store, index_name)? {
         Some(DecodedManifest::Earlier(raw)) => (
             StoredCheckpoint::Earlier(decode_earlier_manifest(&raw)?),
             Some(0),
         ),
         Some(DecodedManifest::Current(manifest)) => {
+            metadata_changed = settle_stored_partitions(&mut metadata, &manifest)?;
             store.remove(&snapshot_bundle_key(index_name))?;
             remove_unlisted(store, index_name, &manifest_keys(&manifest), keeps)?;
             let generation = manifest.analysis_generation.unwrap_or(0);
@@ -140,7 +171,7 @@ pub(crate) fn open_stored_index(
             }
         },
     };
-    let metadata_changed = settle_stored_analysis(&mut metadata, stored_generation)?;
+    metadata_changed |= settle_stored_analysis(&mut metadata, stored_generation)?;
     Ok(Some(RecoveredIndex {
         metadata,
         metadata_changed,
