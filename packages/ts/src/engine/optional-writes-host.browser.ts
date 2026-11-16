@@ -36,6 +36,7 @@ type EngineNames = Pick<
   | 'indexChangeOutsideExternalWaits'
   | 'insertDocument'
   | 'insertDocumentVectors'
+  | 'isCompositePartition'
   | 'isSyncEpoch'
   | 'loadEmbedCode'
   | 'loadSchemaCodeFor'
@@ -52,6 +53,7 @@ type EngineNames = Pick<
   | 'requireDocumentWithinSizeLimit'
   | 'requireMatchingDocId'
   | 'requireSurfaceFormsForPartialFields'
+  | 'setNestedValue'
   | 'storedBM25Params'
   | 'turnIsSpent'
   | 'turnsAreBudgeted'
@@ -98,6 +100,7 @@ export let getVectorFieldPaths: EngineNames['getVectorFieldPaths']
 export let indexChangeOutsideExternalWaits: EngineNames['indexChangeOutsideExternalWaits']
 export let insertDocument: EngineNames['insertDocument']
 export let insertDocumentVectors: EngineNames['insertDocumentVectors']
+export let isCompositePartition: EngineNames['isCompositePartition']
 export let isSyncEpoch: EngineNames['isSyncEpoch']
 export let loadEmbedCode: EngineNames['loadEmbedCode']
 export let loadSchemaCodeFor: EngineNames['loadSchemaCodeFor']
@@ -114,6 +117,7 @@ export let requireDocumentObject: EngineNames['requireDocumentObject']
 export let requireDocumentWithinSizeLimit: EngineNames['requireDocumentWithinSizeLimit']
 export let requireMatchingDocId: EngineNames['requireMatchingDocId']
 export let requireSurfaceFormsForPartialFields: EngineNames['requireSurfaceFormsForPartialFields']
+export let setNestedValue: EngineNames['setNestedValue']
 export let storedBM25Params: EngineNames['storedBM25Params']
 export let turnIsSpent: EngineNames['turnIsSpent']
 export let turnsAreBudgeted: EngineNames['turnsAreBudgeted']
@@ -171,6 +175,7 @@ export function bindOptionalWritesHost(host: EngineNames & FrozenRemovalNames, s
     indexChangeOutsideExternalWaits,
     insertDocument,
     insertDocumentVectors,
+    isCompositePartition,
     isSyncEpoch,
     loadEmbedCode,
     loadSchemaCodeFor,
@@ -187,6 +192,7 @@ export function bindOptionalWritesHost(host: EngineNames & FrozenRemovalNames, s
     requireDocumentWithinSizeLimit,
     requireMatchingDocId,
     requireSurfaceFormsForPartialFields,
+    setNestedValue,
     storedBM25Params,
     turnIsSpent,
     turnsAreBudgeted,

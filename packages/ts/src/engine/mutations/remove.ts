@@ -11,11 +11,12 @@ import {
   validateDocId,
   yieldTurn,
 } from '#platform/optional-writes-host'
+import type { RollbackCopy } from '../../core/partition/frozen/document-source'
 import type { RemovedSpellings } from '../../core/partition/frozen/surface-slot'
 import type { PreparedTextChange } from '../../core/partition/prepared-text'
 import type { PartitionManager } from '../../partitioning/manager'
 import type { BatchResult } from '../../types/results'
-import type { AnyDocument, WriteOptions } from '../../types/schema'
+import type { WriteOptions } from '../../types/schema'
 import type { IndexHold } from '../index-hold'
 import {
   applyUnlessShutDown,
@@ -30,12 +31,13 @@ import type { ApplyMutation, MutationContext } from './context'
 import { holdVectorsForRollback, rollbackRemovedDocument } from './durable-rollback'
 import { runOutside } from './outside-hold'
 import { recordChunk } from './record-batch'
+import { rollbackCopyOf } from './rollback-copy'
 
 interface PreparedRemoval {
   preparedText?: PreparedTextChange
   docId: string
   document: null
-  restoreDoc: AnyDocument | undefined
+  restoreDoc: RollbackCopy | undefined
   removedSpellings: RemovedSpellings | undefined
   buffered: boolean
   releaseVectorHolds?: () => void
@@ -83,7 +85,7 @@ function applyOfRemoval(ctx: MutationContext, indexName: string, prepared: Prepa
       prepared.buffered = true
       return queued
     }
-    prepared.restoreDoc = ctx.durability ? manager.get(docId) : undefined
+    prepared.restoreDoc = ctx.durability ? rollbackCopyOf(manager, docId) : undefined
     if (ctx.durability !== null) prepared.releaseVectorHolds = holdVectorsForRollback(manager.getVectorIndexes(), docId)
     manager.remove(docId, undefined, {
       onRemovedSpellings: spellings => {

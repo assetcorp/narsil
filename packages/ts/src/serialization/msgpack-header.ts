@@ -4,13 +4,21 @@ export interface ValueHeader {
   children: number
 }
 
-export function headerAt(view: DataView, offset: number): ValueHeader | null {
+function headerOf(headerBytes: number, bodyBytes: number, children: number, into?: ValueHeader): ValueHeader {
+  if (into === undefined) return { headerBytes, bodyBytes, children }
+  into.headerBytes = headerBytes
+  into.bodyBytes = bodyBytes
+  into.children = children
+  return into
+}
+
+export function headerAt(view: DataView, offset: number, into?: ValueHeader): ValueHeader | null {
   if (offset >= view.byteLength) return null
   const tag = view.getUint8(offset)
-  if (tag <= 0x7f || tag >= 0xe0) return { headerBytes: 1, bodyBytes: 0, children: 0 }
-  if (tag <= 0x8f) return { headerBytes: 1, bodyBytes: 0, children: (tag & 0x0f) * 2 }
-  if (tag <= 0x9f) return { headerBytes: 1, bodyBytes: 0, children: tag & 0x0f }
-  if (tag <= 0xbf) return { headerBytes: 1, bodyBytes: tag & 0x1f, children: 0 }
+  if (tag <= 0x7f || tag >= 0xe0) return headerOf(1, 0, 0, into)
+  if (tag <= 0x8f) return headerOf(1, 0, (tag & 0x0f) * 2, into)
+  if (tag <= 0x9f) return headerOf(1, 0, tag & 0x0f, into)
+  if (tag <= 0xbf) return headerOf(1, tag & 0x1f, 0, into)
   const lengthBytes = LENGTH_BYTES_BY_TAG.get(tag)
   if (lengthBytes !== undefined) {
     if (offset + 1 + lengthBytes > view.byteLength) return null
@@ -21,12 +29,12 @@ export function headerAt(view: DataView, offset: number): ValueHeader | null {
           ? view.getUint16(offset + 1, false)
           : view.getUint32(offset + 1, false)
     const headerBytes = 1 + lengthBytes
-    if (ARRAY_TAGS.has(tag)) return { headerBytes, bodyBytes: 0, children: length }
-    if (MAP_TAGS.has(tag)) return { headerBytes, bodyBytes: 0, children: length * 2 }
-    return { headerBytes, bodyBytes: length + (EXT_TAGS.has(tag) ? 1 : 0), children: 0 }
+    if (ARRAY_TAGS.has(tag)) return headerOf(headerBytes, 0, length, into)
+    if (MAP_TAGS.has(tag)) return headerOf(headerBytes, 0, length * 2, into)
+    return headerOf(headerBytes, length + (EXT_TAGS.has(tag) ? 1 : 0), 0, into)
   }
   const fixedBytes = FIXED_BODY_BYTES_BY_TAG.get(tag)
-  return fixedBytes === undefined ? null : { headerBytes: 1, bodyBytes: fixedBytes, children: 0 }
+  return fixedBytes === undefined ? null : headerOf(1, fixedBytes, 0, into)
 }
 
 const LENGTH_BYTES_BY_TAG = new Map<number, number>([
