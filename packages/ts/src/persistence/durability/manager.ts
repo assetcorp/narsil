@@ -380,6 +380,7 @@ export function createDurabilityManager(
     async shutdown(): Promise<void> {
       shuttingDown = true
       stopTimers()
+      for (const indexState of indexes.values()) indexState.unloading = true
       for (const indexState of indexes.values()) {
         if (indexState.checkpointInFlight !== null) {
           await indexState.checkpointInFlight.catch(() => undefined)

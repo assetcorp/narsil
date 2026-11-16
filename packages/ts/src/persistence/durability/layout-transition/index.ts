@@ -15,7 +15,10 @@ export async function transitionWalLayout(
   manager: PartitionManager,
   replay: () => Promise<void>,
 ): Promise<void> {
-  const state = registry.indexState(indexName)
+  const state = registry.indexes.get(indexName)
+  if (state === undefined) {
+    throw new NarsilError(ErrorCodes.INSTANCE_SHUT_DOWN, 'This Narsil instance has been shut down')
+  }
   await switchDurableRouting(manager, oldPartitionCount =>
     checkpointInTurn(state, {
       joinsInFlight: false,
