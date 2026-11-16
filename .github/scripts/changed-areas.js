@@ -291,7 +291,7 @@ const changedFiles = async () => {
   if (event !== 'push') return null
   const head = process.env.GITHUB_SHA ?? ''
   if (head === '') return null
-  const base = await lastPassedPushCommit(process.env.WORKFLOW_FILE ?? '')
+  const base = await lastPassedPushCommit(process.env.WORKFLOW_FILE ?? '', head)
   if (base === null) {
     console.log('No push run of this workflow on main has passed yet.')
     return null
