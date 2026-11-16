@@ -11,8 +11,7 @@ import (
 
 type lockedWrite func(ctx context.Context, entry *indexEntry) (persist.Commit, error)
 
-func (n *Narsil) applyLocked(ctx context.Context, entry *indexEntry, locked lockedWrite) error {
-	entry.writeMu.Lock()
+func (n *Narsil) applyAndUnlock(ctx context.Context, entry *indexEntry, locked lockedWrite) error {
 	commit, err := locked(ctx, entry)
 	if awaited := entry.unlockAndAwait(ctx, commit); err == nil {
 		err = awaited
@@ -22,10 +21,12 @@ func (n *Narsil) applyLocked(ctx context.Context, entry *indexEntry, locked lock
 
 func (n *Narsil) applyKeepingTokens(ctx context.Context, name string, entry *indexEntry, release func(),
 	kind index.WriteKind, writes []persist.Write, locked lockedWrite) (*indexEntry, func(), error) {
+	entry.writeMu.Lock()
 	target, shadow := entry.index(), entry.shadowBuild()
 	if !target.CallsCallerCode() && (shadow == nil || !shadow.CallsCallerCode()) {
-		return entry, release, n.applyLocked(ctx, entry, locked)
+		return entry, release, n.applyAndUnlock(ctx, entry, locked)
 	}
+	entry.writeMu.Unlock()
 	release()
 	documents := persist.DocumentWrites(writes)
 	tokens, shadowTokens, storedRead, err := writeTokensOutside(ctx, target, shadow, kind, documents)
@@ -40,7 +41,9 @@ func (n *Narsil) applyKeepingTokens(ctx context.Context, name string, entry *ind
 		if entry, release, err = n.acquire(name); err != nil {
 			return nil, releasedNothing, err
 		}
+		entry.writeMu.Lock()
 		if held := entry.index(); held != target {
+			entry.writeMu.Unlock()
 			release()
 			if changes++; changes >= maxCallsAcrossIndexChanges {
 				return nil, releasedNothing, indexReplacedDuringAnalysis(name, changes)
@@ -49,7 +52,6 @@ func (n *Narsil) applyKeepingTokens(ctx context.Context, name string, entry *ind
 			tokens, shadowTokens, storedRead, err = writeTokensOutside(ctx, target, shadow, kind, documents)
 			continue
 		}
-		entry.writeMu.Lock()
 		var missed *analysis.MissedTokens
 		storedRead, err = target.MissingWriteTokens(ctx, tokens, kind, documents, storedRead)
 		if errors.As(err, &missed) {
