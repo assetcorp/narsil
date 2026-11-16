@@ -33,6 +33,8 @@ pub use config::{
     TokenizerSetting, VectorPromotion,
 };
 pub use durability::persistence::{FilesystemPersistence, MemoryPersistence, PersistenceAdapter};
+#[doc(hidden)]
+pub use durability::platform::rename_replacing;
 pub use engine::{
     AnalysisChange, AnalysisSetting, BatchFailure, BatchResult, DocumentImportResult,
     DocumentProjection, DurabilityConfig, DurabilityMode, DurabilityTier, EarlierLayout,

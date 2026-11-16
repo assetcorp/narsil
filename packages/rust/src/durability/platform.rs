@@ -349,7 +349,7 @@ fn retried_while_held(
     operation()
 }
 
-pub(crate) fn rename_replacing(from: &Path, to: &Path) -> io::Result<()> {
+pub fn rename_replacing(from: &Path, to: &Path) -> io::Result<()> {
     retried_while_held(|| std::fs::rename(from, to), true)
 }
 
