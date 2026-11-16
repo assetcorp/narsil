@@ -73,6 +73,6 @@ const (
 	rebuildKeptTokenCopies        = 3
 	shadowTokenRounds             = 3
 
-	rebuildCopyHoldDocumentsBesideWrites = 256
+	rebuildCopyHoldDocumentsBesideWrites = 128
 	rebuildCopyQuietHolds                = 16
 )
