@@ -1,6 +1,6 @@
-use super::parse::parse_json_raw;
+use super::parse::{DEPTH_LIMIT_DETAIL, parse_json_raw};
 use super::write::write_json_string;
-use crate::error::Result;
+use crate::error::{NarsilError, Result};
 use crate::value::{Timestamp, Value, number_to_text};
 
 /// Parses JSON text into a [`Value`] as `JSON.parse` reads it, keeping an object whose only key starts with `$`
@@ -8,9 +8,18 @@ use crate::value::{Timestamp, Value, number_to_text};
 ///
 /// # Errors
 ///
-/// Returns `DOC_VALIDATION_FAILED` where the text is not one JSON value, or where it nests deeper than 512 levels.
+/// Returns `DOC_VALIDATION_FAILED` where the text is not one JSON value, or where it nests deeper than 512 levels,
+/// which [`json_nests_too_deep`] tells apart.
 pub fn parse_plain_json(text: &str) -> Result<Value> {
     parse_json_raw(text)
+}
+
+/// Returns `true` where [`parse_plain_json`] refused the text because it nests deeper than 512 levels, and `false`
+/// for any other failure.
+pub fn json_nests_too_deep(failure: &NarsilError) -> bool {
+    failure
+        .details()
+        .is_some_and(|details| details.get(DEPTH_LIMIT_DETAIL).is_some())
 }
 
 /// Writes `value` as JSON text as `JSON.stringify` writes the same value in the TypeScript engine: a non-finite

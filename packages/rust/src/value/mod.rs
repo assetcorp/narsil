@@ -4,7 +4,10 @@ mod map;
 mod msgpack;
 mod number_text;
 
-pub use json::{parse_json, parse_plain_json, write_json, write_plain_json, write_plain_json_into};
+pub use json::{
+    json_nests_too_deep, parse_json, parse_plain_json, write_json, write_plain_json,
+    write_plain_json_into,
+};
 pub(crate) use json::{
     parse_json_raw, untag_value, write_exact_json_into, write_json_into, write_json_string,
 };

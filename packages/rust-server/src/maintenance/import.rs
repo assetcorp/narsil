@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use narsil::{BatchResult, Map, Narsil, Value, parse_plain_json};
+use narsil::{BatchResult, Map, Narsil, Value, json_nests_too_deep, parse_plain_json};
 
 use super::ndjson::{NdjsonLine, NdjsonLines};
 use crate::errors::{ServerError, server_codes};
@@ -98,11 +98,20 @@ impl Tally {
     }
 }
 
-fn document_of(text: &[u8]) -> Result<Map, (&'static str, &'static str)> {
+fn document_of(text: &[u8]) -> Result<Map, (&'static str, String)> {
     match parse_plain_json(&String::from_utf8_lossy(text)) {
         Ok(Value::Object(document)) => Ok(document),
-        Ok(_) => Err((server_codes::INVALID_REQUEST, "Line is not a JSON object")),
-        Err(_) => Err((server_codes::INVALID_JSON, "Line is not valid JSON")),
+        Ok(_) => Err((
+            server_codes::INVALID_REQUEST,
+            "Line is not a JSON object".to_string(),
+        )),
+        Err(failure) if json_nests_too_deep(&failure) => {
+            Err((failure.code().as_str(), failure.message().to_string()))
+        }
+        Err(_) => Err((
+            server_codes::INVALID_JSON,
+            "Line is not valid JSON".to_string(),
+        )),
     }
 }
 
@@ -159,7 +168,7 @@ impl Importer<'_> {
             let document = match document_of(text) {
                 Ok(document) => document,
                 Err((code, message)) => {
-                    self.tally.record(line_error(line.number, code, message));
+                    self.tally.record(line_error(line.number, code, &message));
                     continue;
                 }
             };
