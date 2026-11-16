@@ -50,6 +50,7 @@ func (pl *planner) commit(err *error) {
 	finished := pl.side.finish(pl.write.Workspace)
 	pl.side.refreshView(pl.partition)
 	pl.partition.record(pl.write, pl.operations)
+	pl.partition.lendTokens(pl.tokens)
 	if *err == nil {
 		*err = finished
 	}
@@ -178,6 +179,13 @@ func (p *Partition) Clear(write *Write) (err error) {
 		freeze: &freezeResult{next: newGeneration(), columns: p.settings.Kept.List()}})
 }
 
+func (pl *planner) storedAt(id string, at location) (storedDocument, bool, error) {
+	if encoded, copied := pl.write.Stored[id]; copied {
+		return storedDocument{id: id, encoded: encoded}, true, nil
+	}
+	return pl.side.document(at)
+}
+
 func (pl *planner) previous(id string) (location, *codec.Document, preparedText, error) {
 	at, err := pl.side.locate(id)
 	if err != nil {
@@ -186,7 +194,7 @@ func (pl *planner) previous(id string) (location, *codec.Document, preparedText,
 	if !at.found {
 		return location{}, nil, preparedText{}, notFound(id)
 	}
-	stored, held, err := pl.side.document(at)
+	stored, held, err := pl.storedAt(id, at)
 	if err != nil {
 		return location{}, nil, preparedText{}, err
 	}

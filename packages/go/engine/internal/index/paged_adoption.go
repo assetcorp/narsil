@@ -111,6 +111,13 @@ func (ix *Index) PrepareAdoption(partitionID int, paged []*segments.Paged, kept 
 	return ix.partitions[partitionID].PrepareAdoption(tokens, paged, kept)
 }
 
+func (ix *Index) WatchWrites(partitionID int, tokens *analysis.Pass) func() {
+	if ix.checkedPartition(partitionID) != nil || !ix.KeepsTokensOf(tokens) {
+		return func() {}
+	}
+	return ix.partitions[partitionID].WatchWrites(tokens)
+}
+
 func (ix *Index) Adopt(ctx context.Context, partitionID int, adoption *partition.Adoption,
 	log *partition.ChangeLog, tokens *analysis.Pass) (bool, error) {
 	if err := ix.checkedPartition(partitionID); err != nil {

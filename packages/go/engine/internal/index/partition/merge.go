@@ -81,6 +81,14 @@ func mergedOutput(result *segments.MergeResult, inputs []*frozenSegment) (*froze
 func (p *Partition) Merge(ctx context.Context, sides *Sides, pick func(sizes []SegmentSize) []int) (bool, error) {
 	p.merging.Lock()
 	defer p.merging.Unlock()
+	if picked, err := p.picksMerge(ctx, sides, pick); err != nil || !picked {
+		return false, err
+	}
+	tokens, err := p.keptTokens()
+	if err != nil {
+		return false, err
+	}
+	defer p.WatchWrites(tokens)()
 	read, err := sides.readWithoutLease(ctx)
 	if err != nil {
 		return false, err
@@ -110,12 +118,9 @@ func (p *Partition) Merge(ctx context.Context, sides *Sides, pick func(sizes []S
 		}
 		merged.output = append(merged.output, output)
 	}
-	tokens, err := p.keptTokens()
-	if err != nil {
-		return false, err
-	}
 	installed := false
 	for round := 1; ; round++ {
+		tokens.AbsorbBorrowed()
 		err = p.installMerge(ctx, sides, merged, snapshot, tokens, &installed)
 		var missed *analysis.MissedTokens
 		if !errors.As(err, &missed) {
@@ -126,6 +131,16 @@ func (p *Partition) Merge(ctx context.Context, sides *Sides, pick func(sizes []S
 		}
 		tokens.Remember(missed.Sources)
 	}
+}
+
+func (p *Partition) picksMerge(ctx context.Context, sides *Sides, pick func(sizes []SegmentSize) []int) (bool, error) {
+	read, err := sides.readWithoutLease(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer read.Release()
+	held := p.sides[read.side]
+	return held.mergeable(pick(held.segmentSizes())), nil
 }
 
 func (p *Partition) keptTokens() (*analysis.Pass, error) {

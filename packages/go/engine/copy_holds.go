@@ -16,7 +16,7 @@ func copyHoldsBesideWritesOf(entry *indexEntry) *copyHolds {
 
 func (holds *copyHolds) next() int {
 	if holds.logged == nil {
-		return rebuildCopyHoldDocuments
+		return rebuildChunkDocuments
 	}
 	if logged := holds.logged(); logged != holds.seen {
 		holds.seen, holds.quiet = logged, 0
@@ -26,7 +26,7 @@ func (holds *copyHolds) next() int {
 		holds.quiet++
 		return rebuildCopyHoldDocumentsBesideWrites
 	}
-	return rebuildCopyHoldDocuments
+	return rebuildChunkDocuments
 }
 
 func (entry *indexEntry) writesLogged() uint64 {

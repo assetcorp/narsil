@@ -47,28 +47,59 @@ func (p *Partition) PrepareAdoption(tokens *analysis.Pass, paged []*segments.Pag
 	return adoption, nil
 }
 
-func (a *Adoption) removeHeld(analysing *planner, at int, ids []string) error {
+func (a *Adoption) heldRemovals(analysing *planner, at int, ids []string) ([]frozenRemoval, error) {
 	if a.kept[at] {
-		return nil
+		return nil, nil
 	}
 	segment := a.listed[at]
+	var removals []frozenRemoval
+	listed := map[removalKey]struct{}{}
 	for _, id := range ids {
 		ordinal, found, err := segment.ordinalOf(id)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		key := removalKey{segment: at, ordinal: ordinal}
-		if _, done := a.removed[key]; !found || done {
+		_, done := a.removed[key]
+		_, repeated := listed[key]
+		if !found || done || repeated {
 			continue
 		}
 		text, err := analysing.removedText(segment, ordinal)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		a.removed[key] = struct{}{}
-		a.removals = append(a.removals, frozenRemoval{removalKey: key, id: id, text: text.frozenTokens()})
+		listed[key] = struct{}{}
+		removals = append(removals, frozenRemoval{removalKey: key, id: id, text: text.frozenTokens()})
 	}
-	return nil
+	return removals, nil
+}
+
+func (a *Adoption) keepRemovals(removals []frozenRemoval) {
+	for _, removal := range removals {
+		a.removed[removal.removalKey] = struct{}{}
+		a.removals = append(a.removals, removal)
+	}
+}
+
+func (a *Adoption) removeHeld(analysing *planner, at int, ids []string) error {
+	removals, err := a.heldRemovals(analysing, at, ids)
+	if err == nil {
+		a.keepRemovals(removals)
+	}
+	return err
+}
+
+func (a *Adoption) changedRemovals(analysing *planner, ids []string) ([]frozenRemoval, error) {
+	var removals []frozenRemoval
+	for at := range a.paged {
+		held, err := a.heldRemovals(analysing, at, ids)
+		if err != nil {
+			return nil, err
+		}
+		removals = append(removals, held...)
+	}
+	return removals, nil
 }
 
 func (a *Adoption) resolveKept(s *side) bool {
@@ -138,32 +169,11 @@ func (a *Adoption) installed(s *side) (listed []*frozenSegment, positions []int,
 	return listed, positions, dropped
 }
 
-func (pl *planner) missingAdoptionTokens(adoption *Adoption, changed []string) error {
+func (pl *planner) collecting() *planner {
 	if pl.tokens == nil {
-		return nil
+		return pl
 	}
-	dry := &planner{partition: pl.partition, write: pl.write, side: pl.side, tokens: pl.tokens.Collecting()}
-	if _, _, err := dry.currentVersions(adoption, changed); err != nil {
-		return err
-	}
-	for at, segment := range adoption.listed {
-		if adoption.kept[at] {
-			continue
-		}
-		for _, id := range changed {
-			ordinal, found, err := segment.ordinalOf(id)
-			if err != nil {
-				return err
-			}
-			if !found {
-				continue
-			}
-			if _, err := dry.removedText(segment, ordinal); err != nil {
-				return err
-			}
-		}
-	}
-	return analysis.MissedIn(dry.tokens)
+	return &planner{partition: pl.partition, write: pl.write, side: pl.side, tokens: pl.tokens.Collecting()}
 }
 
 func (p *Partition) Adopt(write *Write, adoption *Adoption, log *ChangeLog) (adopted bool, err error) {
@@ -173,19 +183,24 @@ func (p *Partition) Adopt(write *Write, adoption *Adoption, log *ChangeLog) (ado
 		return false, nil
 	}
 	changed := log.changedIDs()
-	if err := pl.missingAdoptionTokens(adoption, changed); err != nil {
+	analysing := pl.collecting()
+	current, adoptable, err := analysing.currentVersions(adoption, changed)
+	if err != nil {
+		return false, err
+	}
+	if !adoptable {
+		p.StopTracking(log)
+		return false, nil
+	}
+	removals, err := adoption.changedRemovals(analysing, changed)
+	if err != nil {
+		return false, err
+	}
+	if err := analysis.MissedIn(analysing.tokens); err != nil {
 		return false, err
 	}
 	p.StopTracking(log)
-	current, adoptable, err := pl.currentVersions(adoption, changed)
-	if err != nil || !adoptable {
-		return false, err
-	}
-	for at := range adoption.paged {
-		if err := adoption.removeHeld(pl, at, changed); err != nil {
-			return false, err
-		}
-	}
+	adoption.keepRemovals(removals)
 	listed, positions, dropped := adoption.installed(pl.side)
 	defer pl.commit(&err)
 	if err := pl.run(operation{kind: adoptFrozen, adopted: listed, dropped: dropped,

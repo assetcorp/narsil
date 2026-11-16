@@ -190,7 +190,7 @@ func (n *Narsil) applyRemoveChunk(ctx context.Context, entry *indexEntry, releas
 	var accepted []*model.RemoveContext
 	var missing []string
 	var failures []error
-	entry, release, err := n.applyKeepingTokens(ctx, entry.name, entry, release, candidates,
+	entry, release, err := n.applyKeepingTokens(ctx, entry.name, entry, release, index.WriteRemove, candidates,
 		func(ctx context.Context, entry *indexEntry) (persist.Commit, error) {
 			var commit persist.Commit
 			var err error

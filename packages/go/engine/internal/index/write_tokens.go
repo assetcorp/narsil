@@ -45,9 +45,9 @@ func (ix *Index) KeepsTokensOf(tokens *analysis.Pass) bool {
 }
 
 func (ix *Index) MissingWriteTokens(ctx context.Context, tokens *analysis.Pass, kind WriteKind,
-	writes []DocumentWrite) error {
+	writes []DocumentWrite, previous *StoredRead) (*StoredRead, error) {
 	if !ix.KeepsTokensOf(tokens) {
-		return nil
+		return nil, nil
 	}
 	collecting := tokens.Collecting()
 	if kind != WriteRemove {
@@ -59,12 +59,14 @@ func (ix *Index) MissingWriteTokens(ctx context.Context, tokens *analysis.Pass, 
 			_ = ix.partitions[ix.partitionOf(write.ID)].Analyse(collecting, values)
 		}
 	}
-	if kind != WriteInsert {
-		if err := ix.collectStoredTokens(ctx, collecting, writes); err != nil {
-			return err
+	read := previous
+	if kind != WriteInsert && !ix.unchangedSince(ctx, previous) {
+		var err error
+		if read, err = ix.readStored(ctx, collecting, writes); err != nil {
+			return nil, err
 		}
 	}
-	return analysis.MissedIn(collecting)
+	return read, analysis.MissedIn(collecting)
 }
 
 func analyseWrittenValues(collecting *analysis.Pass, analysing *partition.Partition, writes []DocumentWrite) {
@@ -83,7 +85,7 @@ func (ix *Index) MissingTokensBeside(ctx context.Context, tokens *analysis.Pass,
 	}
 	collecting := tokens.Collecting()
 	analyseWrittenValues(collecting, ix.partitions[0], writes)
-	if err := ix.collectStoredTokens(ctx, collecting, writes); err != nil {
+	if err := ix.collectStoredTokens(ctx, collecting, writes, nil); err != nil {
 		return err
 	}
 	return analysis.MissedIn(collecting)
@@ -122,7 +124,8 @@ func (ix *Index) collectStoredTokensWith(ctx context.Context, collecting *analys
 	return nil
 }
 
-func (ix *Index) collectStoredTokens(ctx context.Context, collecting *analysis.Pass, writes []DocumentWrite) error {
+func (ix *Index) collectStoredTokens(ctx context.Context, collecting *analysis.Pass, writes []DocumentWrite,
+	read *StoredRead) error {
 	reading, err := ix.Read(ctx)
 	if err != nil {
 		return err
@@ -130,9 +133,15 @@ func (ix *Index) collectStoredTokens(ctx context.Context, collecting *analysis.P
 	defer reading.Release()
 	for _, write := range writes {
 		target := ix.partitionOf(write.ID)
-		stored, present, err := reading.Snapshots[target].Document(write.ID)
+		encoded, stored, present, err := reading.Snapshots[target].CopiedDocument(write.ID)
 		if err != nil {
 			return err
+		}
+		if read != nil {
+			read.present[write.ID] = present
+			if present {
+				read.documents[write.ID] = encoded
+			}
 		}
 		if !present {
 			continue

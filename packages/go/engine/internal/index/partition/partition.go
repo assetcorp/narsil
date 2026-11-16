@@ -30,6 +30,7 @@ type Partition struct {
 	pendingSide int
 	staleSide   bool
 	merging     sync.Mutex
+	watchers    writeWatchers
 	changes     atomic.Pointer[[]*ChangeLog]
 	clears      uint64
 }

@@ -50,6 +50,19 @@ func (s Snapshot) Document(id string) (*codec.Document, bool, error) {
 	return codec.ShareStoredDocument(stored.encoded, storedDecoding), true, nil
 }
 
+func (s Snapshot) CopiedDocument(id string) ([]byte, *codec.Document, bool, error) {
+	at, err := s.side.locate(id)
+	if err != nil || !at.found {
+		return nil, nil, false, err
+	}
+	stored, held, err := s.side.document(at)
+	if err != nil || !held {
+		return nil, nil, false, err
+	}
+	encoded := slices.Clone(stored.encoded)
+	return encoded, codec.ShareStoredDocument(encoded, storedDecoding), true, nil
+}
+
 func (s Snapshot) segmentLocation(segment int, ordinal uint32) (location, bool) {
 	frozen := len(s.side.frozen)
 	switch {

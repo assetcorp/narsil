@@ -42,6 +42,7 @@ type pendingRun struct {
 	members []int
 	ids     map[string]struct{}
 	tokens  *analysis.Pass
+	stored  *index.StoredRead
 }
 
 func (handle *Handle) vectorPaths() map[string]int {
@@ -94,7 +95,8 @@ func (handle *Handle) flushRun(run *pendingRun, writes []Write, failures []error
 	for at, member := range run.members {
 		selected[at] = writes[member]
 	}
-	refused, err := handle.Index.ApplyWith(run.kind, DocumentWrites(selected), handle.NamedVectorFields(), run.tokens)
+	refused, err := handle.Index.ApplyWith(run.kind, DocumentWrites(selected), handle.NamedVectorFields(), run.tokens,
+		run.stored)
 	for at, member := range run.members {
 		if at < len(refused) && refused[at] != nil {
 			failures[member] = refused[at]
@@ -118,7 +120,7 @@ func (handle *Handle) kindOf(ctx context.Context, write Write) (index.WriteKind,
 
 func (handle *Handle) apply(ctx context.Context, writes []Write) ([]error, error) {
 	failures := make([]error, len(writes))
-	run := &pendingRun{ids: map[string]struct{}{}, tokens: index.WriteTokensOf(ctx)}
+	run := &pendingRun{ids: map[string]struct{}{}, tokens: index.WriteTokensOf(ctx), stored: index.StoredReadOf(ctx)}
 	for at, write := range writes {
 		if err := handle.requireDimensions(write); err != nil && !write.deletes() {
 			failures[at] = err

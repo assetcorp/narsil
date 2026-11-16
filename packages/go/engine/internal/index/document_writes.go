@@ -111,11 +111,11 @@ func (w *Write) ApplyBatch(b *Batch, vectors []vector.NamedField) error {
 }
 
 func (ix *Index) Apply(kind WriteKind, writes []DocumentWrite, vectors []vector.NamedField) ([]error, error) {
-	return ix.ApplyWith(kind, writes, vectors, nil)
+	return ix.ApplyWith(kind, writes, vectors, nil, nil)
 }
 
 func (ix *Index) ApplyWith(kind WriteKind, writes []DocumentWrite, vectors []vector.NamedField,
-	tokens *analysis.Pass) ([]error, error) {
+	tokens *analysis.Pass, stored *StoredRead) ([]error, error) {
 	if !ix.KeepsTokensOf(tokens) {
 		tokens = nil
 	}
@@ -124,6 +124,7 @@ func (ix *Index) ApplyWith(kind WriteKind, writes []DocumentWrite, vectors []vec
 		batch := ix.PrepareBatch(kind, writes, kept)
 		err := ix.Write(context.Background(), func(w *Write) error {
 			w.write.Tokens = kept
+			w.write.Stored = stored.documentsFor(ix, w)
 			return w.ApplyBatch(batch, vectors)
 		})
 		ix.noteGrowth()
@@ -134,8 +135,10 @@ func (ix *Index) ApplyWith(kind WriteKind, writes []DocumentWrite, vectors []vec
 	for start := 0; start < len(writes) && err == nil; start += InPlaceWriteChunkDocuments {
 		batch := ix.PrepareBatch(kind, writes[start:min(start+InPlaceWriteChunkDocuments, len(writes))], kept)
 		err = ix.sides.WriteInPlace(context.Background(), func(write *partition.Write) error {
+			applied := &Write{ix: ix, write: write}
 			write.Tokens = kept
-			return (&Write{ix: ix, write: write}).ApplyBatch(batch, nil)
+			write.Stored = stored.documentsFor(ix, applied)
+			return applied.ApplyBatch(batch, nil)
 		})
 		failures = append(failures, batch.Failures...)
 	}

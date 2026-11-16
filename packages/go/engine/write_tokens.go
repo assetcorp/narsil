@@ -11,15 +11,6 @@ import (
 
 type lockedWrite func(ctx context.Context, entry *indexEntry) (persist.Commit, error)
 
-func writeKindOf(writes []persist.Write) index.WriteKind {
-	for _, write := range writes {
-		if write.Document != nil || write.Encoded != nil {
-			return index.WriteUpdate
-		}
-	}
-	return index.WriteRemove
-}
-
 func (n *Narsil) applyLocked(ctx context.Context, entry *indexEntry, locked lockedWrite) error {
 	entry.writeMu.Lock()
 	commit, err := locked(ctx, entry)
@@ -30,14 +21,14 @@ func (n *Narsil) applyLocked(ctx context.Context, entry *indexEntry, locked lock
 }
 
 func (n *Narsil) applyKeepingTokens(ctx context.Context, name string, entry *indexEntry, release func(),
-	writes []persist.Write, locked lockedWrite) (*indexEntry, func(), error) {
+	kind index.WriteKind, writes []persist.Write, locked lockedWrite) (*indexEntry, func(), error) {
 	target, shadow := entry.index(), entry.shadowBuild()
 	if !target.CallsCallerCode() && (shadow == nil || !shadow.CallsCallerCode()) {
 		return entry, release, n.applyLocked(ctx, entry, locked)
 	}
 	release()
-	documents, kind := persist.DocumentWrites(writes), writeKindOf(writes)
-	tokens, shadowTokens, err := writeTokensOutside(ctx, target, shadow, kind, documents)
+	documents := persist.DocumentWrites(writes)
+	tokens, shadowTokens, storedRead, err := writeTokensOutside(ctx, target, shadow, kind, documents)
 	changes := 0
 	for {
 		if err != nil {
@@ -55,12 +46,13 @@ func (n *Narsil) applyKeepingTokens(ctx context.Context, name string, entry *ind
 				return nil, releasedNothing, indexReplacedDuringAnalysis(name, changes)
 			}
 			target, shadow = held, entry.shadowBuild()
-			tokens, shadowTokens, err = writeTokensOutside(ctx, target, shadow, kind, documents)
+			tokens, shadowTokens, storedRead, err = writeTokensOutside(ctx, target, shadow, kind, documents)
 			continue
 		}
 		entry.writeMu.Lock()
 		var missed *analysis.MissedTokens
-		if err = target.MissingWriteTokens(ctx, tokens, kind, documents); errors.As(err, &missed) {
+		storedRead, err = target.MissingWriteTokens(ctx, tokens, kind, documents, storedRead)
+		if errors.As(err, &missed) {
 			entry.writeMu.Unlock()
 			release()
 			tokens.Remember(missed.Sources)
@@ -71,7 +63,8 @@ func (n *Narsil) applyKeepingTokens(ctx context.Context, name string, entry *ind
 			entry.writeMu.Unlock()
 			return entry, release, err
 		}
-		commit, err := locked(withShadowTokens(index.WithWriteTokens(ctx, tokens), shadowTokens), entry)
+		lockedCtx := index.WithStoredRead(index.WithWriteTokens(ctx, tokens), storedRead)
+		commit, err := locked(withShadowTokens(lockedCtx, shadowTokens), entry)
 		if awaited := entry.unlockAndAwait(ctx, commit); err == nil {
 			err = awaited
 		}
@@ -84,28 +77,29 @@ func (n *Narsil) applyKeepingTokens(ctx context.Context, name string, entry *ind
 }
 
 func writeTokensOutside(ctx context.Context, target *index.Index, shadow *index.Index, kind index.WriteKind,
-	documents []index.DocumentWrite) (*analysis.Pass, *analysis.Pass, error) {
+	documents []index.DocumentWrite) (*analysis.Pass, *analysis.Pass, *index.StoredRead, error) {
 	if shadow == nil || !shadow.CallsCallerCode() {
-		tokens, err := tokensOutsideTheIndex(ctx, target, kind, documents)
-		return tokens, nil, err
+		tokens, storedRead, err := tokensOutsideTheIndex(ctx, target, kind, documents)
+		return tokens, nil, storedRead, err
 	}
 	shadowed := make(chan *analysis.Pass, 1)
 	go func() { shadowed <- shadowTokensOutside(ctx, shadow, target, documents) }()
-	tokens, err := tokensOutsideTheIndex(ctx, target, kind, documents)
-	return tokens, <-shadowed, err
+	tokens, storedRead, err := tokensOutsideTheIndex(ctx, target, kind, documents)
+	return tokens, <-shadowed, storedRead, err
 }
 
 func tokensOutsideTheIndex(ctx context.Context, target *index.Index, kind index.WriteKind,
-	documents []index.DocumentWrite) (*analysis.Pass, error) {
+	documents []index.DocumentWrite) (*analysis.Pass, *index.StoredRead, error) {
 	tokens, err := target.WriteTokens()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var missed *analysis.MissedTokens
-	if err := target.MissingWriteTokens(ctx, tokens, kind, documents); errors.As(err, &missed) {
+	storedRead, err := target.MissingWriteTokens(ctx, tokens, kind, documents, nil)
+	if errors.As(err, &missed) {
 		tokens.Remember(missed.Sources)
 	} else if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return tokens, nil
+	return tokens, storedRead, nil
 }

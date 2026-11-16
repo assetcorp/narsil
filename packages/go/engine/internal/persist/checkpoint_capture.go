@@ -5,6 +5,7 @@ import (
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/manifest"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/index/analysis"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/partition"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/persist/checkpoint"
 )
@@ -22,6 +23,8 @@ type capture struct {
 	inMemory   map[int]*heldSelections
 	changes    []*partition.ChangeLog
 	tracked    *index.Index
+	tokens     *analysis.Pass
+	unwatch    []func()
 	count      uint64
 }
 

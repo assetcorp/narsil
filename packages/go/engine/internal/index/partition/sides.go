@@ -40,6 +40,7 @@ type Write struct {
 	Workspace *core.Workspace
 	Sequence  int64
 	Tokens    *analysis.Pass
+	Stored    map[string][]byte
 	side      int
 }
 

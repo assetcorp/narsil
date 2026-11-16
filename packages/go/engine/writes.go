@@ -111,8 +111,8 @@ func (n *Narsil) Insert(ctx context.Context, indexName string, document *Documen
 	if err := n.heap.admit(indexName); err != nil {
 		return "", err
 	}
-	entry, release, err = n.applyKeepingTokens(ctx, indexName, entry, release, []persist.Write{write},
-		func(ctx context.Context, entry *indexEntry) (persist.Commit, error) {
+	entry, release, err = n.applyKeepingTokens(ctx, indexName, entry, release, index.WriteInsert,
+		[]persist.Write{write}, func(ctx context.Context, entry *indexEntry) (persist.Commit, error) {
 			return n.applyInsertLocked(ctx, entry, write)
 		})
 	if err != nil {
@@ -226,8 +226,8 @@ func (n *Narsil) replaceDocument(ctx context.Context, entry *indexEntry, release
 	if err := n.heap.admit(indexName); err != nil {
 		return entry, release, nil, persist.Write{}, err
 	}
-	entry, release, err = n.applyKeepingTokens(ctx, indexName, entry, release, []persist.Write{write},
-		func(ctx context.Context, entry *indexEntry) (persist.Commit, error) {
+	entry, release, err = n.applyKeepingTokens(ctx, indexName, entry, release, index.WriteUpdate,
+		[]persist.Write{write}, func(ctx context.Context, entry *indexEntry) (persist.Commit, error) {
 			return n.applyUpdateLocked(ctx, entry, write)
 		})
 	if err != nil {
@@ -270,8 +270,8 @@ func (n *Narsil) Remove(ctx context.Context, indexName string, docID string, opt
 			return err
 		}
 	}
-	entry, release, err = n.applyKeepingTokens(ctx, indexName, entry, release, []persist.Write{{DocumentID: docID}},
-		func(ctx context.Context, entry *indexEntry) (persist.Commit, error) {
+	entry, release, err = n.applyKeepingTokens(ctx, indexName, entry, release, index.WriteRemove,
+		[]persist.Write{{DocumentID: docID}}, func(ctx context.Context, entry *indexEntry) (persist.Commit, error) {
 			return n.applyRemoveLocked(ctx, entry, docID)
 		})
 	if err != nil {

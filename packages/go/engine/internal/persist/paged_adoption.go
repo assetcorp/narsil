@@ -15,15 +15,33 @@ import (
 )
 
 func (held *capture) trackChanges(ctx context.Context, handle *Handle) error {
-	changes, err := handle.Index.TrackChanges(ctx)
+	tokens, err := handle.Index.WriteTokens()
 	if err != nil {
 		return err
 	}
-	held.changes, held.tracked = changes, handle.Index
+	if tokens != nil {
+		for partitionID := range handle.Index.PartitionCount() {
+			held.unwatch = append(held.unwatch, handle.Index.WatchWrites(partitionID, tokens))
+		}
+	}
+	changes, err := handle.Index.TrackChanges(ctx)
+	if err != nil {
+		held.stopWatching()
+		return err
+	}
+	held.changes, held.tracked, held.tokens = changes, handle.Index, tokens
 	return nil
 }
 
+func (held *capture) stopWatching() {
+	for _, unwatch := range held.unwatch {
+		unwatch()
+	}
+	held.unwatch = nil
+}
+
 func (held capture) stopTracking() {
+	held.stopWatching()
 	if held.tracked != nil {
 		_ = held.tracked.StopTracking(context.Background(), held.changes)
 	}
@@ -43,6 +61,7 @@ type pendingAdoption struct {
 	partitionID int
 	log         *partitionLog
 	changes     *partition.ChangeLog
+	tokens      *analysis.Pass
 }
 
 func (durable *Durable) adoptionsOf(listed manifest.Manifest, held capture) []pendingAdoption {
@@ -57,7 +76,7 @@ func (durable *Durable) adoptionsOf(listed manifest.Manifest, held capture) []pe
 			continue
 		}
 		adoptions = append(adoptions, pendingAdoption{target: held.tracked, entry: entry, partitionID: partitionID,
-			log: durable.partitions[partitionID], changes: held.changes[partitionID]})
+			log: durable.partitions[partitionID], changes: held.changes[partitionID], tokens: held.tokens})
 	}
 	return adoptions
 }
@@ -152,10 +171,13 @@ func (durable *Durable) preparedAdoption(ctx context.Context, store checkpoint.S
 }
 
 func (durable *Durable) adoptPartition(ctx context.Context, store checkpoint.Store, pending pendingAdoption) error {
-	target, partitionID := pending.target, pending.partitionID
-	tokens, err := target.WriteTokens()
-	if err != nil {
-		return nil
+	target, partitionID, tokens := pending.target, pending.partitionID, pending.tokens
+	if tokens == nil {
+		var err error
+		if tokens, err = target.WriteTokens(); err != nil {
+			return nil
+		}
+		defer target.WatchWrites(partitionID, tokens)()
 	}
 	adoption, files, ready := durable.preparedAdoption(ctx, store, target, pending.entry, partitionID, tokens)
 	if !ready {
@@ -163,6 +185,7 @@ func (durable *Durable) adoptPartition(ctx context.Context, store checkpoint.Sto
 	}
 	defer files.closeHeld()
 	for round := 1; ; round++ {
+		tokens.AbsorbBorrowed()
 		adopted, err := target.Adopt(ctx, partitionID, adoption, pending.changes, tokens)
 		var missed *analysis.MissedTokens
 		if errors.As(err, &missed) && round < partition.TokenRoundsPerWrite {

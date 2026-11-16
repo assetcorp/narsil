@@ -118,6 +118,9 @@ func (ix *Index) GetProjected(ctx context.Context, id string, requested model.Do
 }
 
 func (ix *Index) Has(ctx context.Context, id string) (bool, error) {
+	if present, known := ix.storedPresence(ctx, id); known {
+		return present, nil
+	}
 	snapshot, release, err := ix.snapshotOf(ctx, ix.partitionOf(id))
 	if err != nil {
 		return false, err

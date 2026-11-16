@@ -39,13 +39,31 @@ type rememberedTokenization struct {
 type rememberedTokens struct {
 	mu      sync.Mutex
 	entries map[string]rememberedTokenization
+	lenders []*rememberedTokens
+	lent    map[*rememberedTokens]struct{}
 }
 
-func (r *rememberedTokens) lookup(source string) (rememberedTokenization, bool) {
+func (r *rememberedTokens) ownEntry(source string) (rememberedTokenization, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	held, found := r.entries[source]
 	return held, found
+}
+
+func (r *rememberedTokens) lookup(source string) (rememberedTokenization, bool) {
+	r.mu.Lock()
+	held, found := r.entries[source]
+	lenders := r.lenders
+	r.mu.Unlock()
+	if found {
+		return held, true
+	}
+	for _, lender := range lenders {
+		if held, found := lender.ownEntry(source); found {
+			return held, true
+		}
+	}
+	return rememberedTokenization{}, false
 }
 
 func (r *rememberedTokens) keep(source string, tokens []model.Token, err error) {
