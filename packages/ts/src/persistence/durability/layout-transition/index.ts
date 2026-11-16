@@ -3,6 +3,7 @@ import type { PartitionManager } from '../../../partitioning/manager'
 import { releaseLayoutCheckpoint } from '../../../partitioning/manager/checkpoint-prefix'
 import { switchDurableRouting } from '../../../partitioning/wal-routing'
 import { checkpointInTurn } from '../checkpoint-turn'
+import { shutDownRefusal } from '../mutation-batch'
 import type { PartitionCheckpoint } from '../partition-checkpoint'
 import type { PartitionRegistry } from '../partition-registry'
 import { directoryCheckpointStore } from '../segment/store'
@@ -16,9 +17,7 @@ export async function transitionWalLayout(
   replay: () => Promise<void>,
 ): Promise<void> {
   const state = registry.indexes.get(indexName)
-  if (state === undefined) {
-    throw new NarsilError(ErrorCodes.INSTANCE_SHUT_DOWN, 'This Narsil instance has been shut down')
-  }
+  if (state === undefined) throw shutDownRefusal()
   await switchDurableRouting(manager, oldPartitionCount =>
     checkpointInTurn(state, {
       joinsInFlight: false,
