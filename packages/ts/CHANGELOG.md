@@ -1,3 +1,62 @@
+## 0.4.2 (2026-11-16)
+
+### 🚀 Features
+
+- **container:** serve one Narsil node from environment variables in a published image ([5ae63bbb](https://github.com/assetcorp/narsil/commit/5ae63bbb))
+
+### 🩹 Fixes
+
+- **ts:** release decoded fields after projected reads ([48f37060](https://github.com/assetcorp/narsil/commit/48f37060))
+- **ts:** cut what removals and partial-word searches allocate on a full heap ([6e79219d](https://github.com/assetcorp/narsil/commit/6e79219d))
+- **persistence:** report a failed metadata or adapter file replacement as PERSISTENCE_SAVE_FAILED ([d51b3735](https://github.com/assetcorp/narsil/commit/d51b3735))
+- **durability:** reclaim interrupted metadata replacements on recovery ([6778cc80](https://github.com/assetcorp/narsil/commit/6778cc80))
+- **durability:** retry a Windows rename while another program holds the file so an outside reader cannot stop an index saving ([5aca97bb](https://github.com/assetcorp/narsil/commit/5aca97bb))
+- **ts:** preserve queued writes when shutdown interrupts rebalancing ([563ab2a0](https://github.com/assetcorp/narsil/commit/563ab2a0))
+- **ts:** fail interrupted batch documents through one shared shutdown check ([e0543d59](https://github.com/assetcorp/narsil/commit/e0543d59))
+- **ts:** report every document of a batch write that shutdown interrupts ([5dffc3a5](https://github.com/assetcorp/narsil/commit/5dffc3a5))
+- **persistence:** choose balanced merges and the highest removed share so checkpoints stop rewriting large segments ([991f5fdb](https://github.com/assetcorp/narsil/commit/991f5fdb))
+- **server:** accept a group that names no fields, which every engine answers with one capped group ([e8dac7c1](https://github.com/assetcorp/narsil/commit/e8dac7c1))
+- **server:** answer 400 with the field path to a search option of the wrong type, and read a null option as absent ([33d429b4](https://github.com/assetcorp/narsil/commit/33d429b4))
+- **cluster:** mark shutdown before draining queued admissions ([5cba5969](https://github.com/assetcorp/narsil/commit/5cba5969))
+- **cluster:** settle a retained admission inside the partition write queue ([cceb2b04](https://github.com/assetcorp/narsil/commit/cceb2b04))
+- **server:** answer 400 to a required body that holds JSON other than an object ([3a311b6b](https://github.com/assetcorp/narsil/commit/3a311b6b))
+- **cluster:** reconcile retained admissions after their cursors retire ([be2934ea](https://github.com/assetcorp/narsil/commit/be2934ea))
+- **server:** close a feed whose frame declares more array elements than it holds ([b65b9fe1](https://github.com/assetcorp/narsil/commit/b65b9fe1))
+- **server:** answer 400 to an optional body that holds JSON other than an object ([f57e6cc2](https://github.com/assetcorp/narsil/commit/f57e6cc2))
+- **cluster:** keep a replica admitted mid-batch in every later chunk of that batch ([b5e2c9a2](https://github.com/assetcorp/narsil/commit/b5e2c9a2))
+- **search:** cap and drop the single group of a query that groups by no field in every engine ([8ad608d0](https://github.com/assetcorp/narsil/commit/8ad608d0))
+- **search:** respect limits when grouping without fields ([e6a7ade3](https://github.com/assetcorp/narsil/commit/e6a7ade3))
+- **server:** apply search result bounds on request workers ([2e89be46](https://github.com/assetcorp/narsil/commit/2e89be46))
+- **persistence:** read IndexedDB files by block and rename a moved log file only after its commit ([25e93b9a](https://github.com/assetcorp/narsil/commit/25e93b9a))
+- **server:** refuse tasks whose acceptance cannot be persisted ([adaa8bbe](https://github.com/assetcorp/narsil/commit/adaa8bbe))
+- **server:** preserve task snapshots across concurrent writes ([99d2301b](https://github.com/assetcorp/narsil/commit/99d2301b))
+- **server:** enforce limits on grouped and faceted answers ([78ee25cb](https://github.com/assetcorp/narsil/commit/78ee25cb))
+- **adapters:** preserve long timeouts and validate embedding responses ([51b60703](https://github.com/assetcorp/narsil/commit/51b60703))
+- **container:** enforce access on capability discovery ([76958c29](https://github.com/assetcorp/narsil/commit/76958c29))
+- **server:** settle tasks before shutdown and reconcile container restarts ([06a1ec4c](https://github.com/assetcorp/narsil/commit/06a1ec4c))
+- **container:** guard persisted records against unsafe files ([efb25366](https://github.com/assetcorp/narsil/commit/efb25366))
+- **server:** bound default pages by configured limits ([af5a3ffb](https://github.com/assetcorp/narsil/commit/af5a3ffb))
+- **durability:** settle queued metadata writes after in-flight checkpoints at shutdown ([1264d512](https://github.com/assetcorp/narsil/commit/1264d512))
+- **durability:** finish queued metadata writes before shutdown returns ([4fc730d4](https://github.com/assetcorp/narsil/commit/4fc730d4))
+- **persistence:** reject invalid IndexedDB records and lost connections ([7566bb09](https://github.com/assetcorp/narsil/commit/7566bb09))
+- **persistence:** store the first log bytes under the file key and treat a browser-closed IndexedDB connection as replaced ([5bce5c88](https://github.com/assetcorp/narsil/commit/5bce5c88))
+- **persistence:** give IndexedDB the write-ahead log and save snapshot indexes on shutdown ([87f5ba53](https://github.com/assetcorp/narsil/commit/87f5ba53))
+- **etcd:** refuse a call that reaches no etcd endpoint with COORDINATOR_UNAVAILABLE ([192425d6](https://github.com/assetcorp/narsil/commit/192425d6))
+- **cluster:** load every index into the routing views at start so searches survive a coordinator outage ([6a093053](https://github.com/assetcorp/narsil/commit/6a093053))
+- **cluster:** answer outcome unknown when a resent insert cannot read the stored copy ([9c19636b](https://github.com/assetcorp/narsil/commit/9c19636b))
+- **server:** hold the close drain until the wall clock passes its deadline ([f3f04e86](https://github.com/assetcorp/narsil/commit/f3f04e86))
+- **server:** wait briefly for request threads to acknowledge close before counting them as blocked ([e1f207a1](https://github.com/assetcorp/narsil/commit/e1f207a1))
+- **server:** await abandoned connections through the close deadline ([b95402bb](https://github.com/assetcorp/narsil/commit/b95402bb))
+- **server:** drain admitted requests across startup and thread retirement ([8cb4847a](https://github.com/assetcorp/narsil/commit/8cb4847a))
+- **server:** refuse new requests on a draining request thread only while the server closes ([17a5968b](https://github.com/assetcorp/narsil/commit/17a5968b))
+- **server:** drain admitted responses before closing connections ([d5aaa0c8](https://github.com/assetcorp/narsil/commit/d5aaa0c8))
+- **cluster:** log the refused connection when bootstrap fails against a dead primary over TCP ([a922aee5](https://github.com/assetcorp/narsil/commit/a922aee5))
+- **server:** close kept-alive connections when the server closes ([ac515a83](https://github.com/assetcorp/narsil/commit/ac515a83))
+
+### ❤️ Thank You
+
+- assetcorp
+
 ## 0.4.1 (2026-11-14)
 
 ### 🩹 Fixes
