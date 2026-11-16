@@ -23,6 +23,7 @@ const (
 	switchCrashFill              = 2000
 	switchCrashFillBatch         = 250
 	switchCrashWriteBatch        = 20
+	switchCrashBatchesPerChange  = 10
 	switchCrashRounds            = 10
 	switchCrashLeastAcks         = 3
 	switchCrashLatestKillDelay   = 40 * time.Millisecond
@@ -91,8 +92,10 @@ func runSwitchCrashChild(directory string, logPath string, round string) error {
 		}
 	}
 	failed := make(chan error, 1)
+	allowance := make(chan struct{}, switchCrashBatchesPerChange)
 	go func() {
 		for batch := 0; ; batch++ {
+			<-allowance
 			ids := make([]string, switchCrashWriteBatch)
 			for at := range ids {
 				ids[at] = fmt.Sprintf("r%s-%06d", round, batch*switchCrashWriteBatch+at)
@@ -115,6 +118,9 @@ func runSwitchCrashChild(directory string, logPath string, round string) error {
 		}
 		if err := journal.note("change-start"); err != nil {
 			return err
+		}
+		for len(allowance) < cap(allowance) {
+			allowance <- struct{}{}
 		}
 		err := narsil.ChangeAnalysis(ctx, switchCrashIndex,
 			engine.AnalysisChange{Tokenizer: engine.ChangeToRegisteredTokenizer(target)})
@@ -158,14 +164,14 @@ type switchKillPoint struct {
 	random      *rand.Rand
 	afterWrites int
 	buildFiles  bool
-	baseline    []byte
+	baseline    [][]byte
 	writes      int
 }
 
-func (point *switchKillPoint) committedFiles() []byte {
+func (point *switchKillPoint) committedFiles() [][]byte {
 	meta, _ := os.ReadFile(filepath.Join(point.directory, switchCrashIndex, "meta"))
 	listed, _ := os.ReadFile(filepath.Join(point.directory, switchCrashIndex, "manifest"))
-	return append(meta, listed...)
+	return [][]byte{meta, listed}
 }
 
 func (point *switchKillPoint) reached(inChange bool) bool {
@@ -186,10 +192,12 @@ func (point *switchKillPoint) reached(inChange bool) bool {
 		point.baseline = current
 		return false
 	}
-	if !bytes.Equal(current, point.baseline) {
-		point.baseline = current
-		point.writes++
+	for at := range current {
+		if !bytes.Equal(current[at], point.baseline[at]) {
+			point.writes++
+		}
 	}
+	point.baseline = current
 	return point.writes >= point.afterWrites
 }
 
