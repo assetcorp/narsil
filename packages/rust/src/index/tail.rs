@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
+use super::constants::CLONED_TREE_ENTRY_BYTES;
 use super::core_values::CoreStoredValues;
 use super::derived::{DerivedColumns, KeptColumns, SortedNumbers};
 use super::indexed::IndexedDocument;
@@ -32,11 +33,12 @@ pub(crate) struct TailSegment {
     pub(crate) documents: Vec<Arc<Map>>,
     pub(crate) keyword: GrowingSegment,
     pub(crate) field_names: Vec<String>,
-    field_slots: HashMap<String, u16>,
+    pub(crate) field_slots: HashMap<String, u16>,
     pub(crate) columns: TailColumns,
     pub(crate) track_positions: bool,
     pub(crate) derived: DerivedColumns,
     name_ranks: Vec<u16>,
+    pub(crate) entry_bytes: usize,
 }
 
 impl Clone for TailSegment {
@@ -52,7 +54,26 @@ impl Clone for TailSegment {
             track_positions: self.track_positions,
             derived: self.derived.clone(),
             name_ranks: self.name_ranks.clone(),
+            entry_bytes: self.entry_bytes,
         }
+    }
+}
+
+fn value_heap_bytes(value: &Value) -> usize {
+    match value {
+        Value::String(text) => text.len(),
+        Value::Bytes(bytes) => bytes.len(),
+        Value::Array(items) => items.iter().fold(
+            items.len().saturating_mul(size_of::<Value>()),
+            |bytes, item| bytes.saturating_add(value_heap_bytes(item)),
+        ),
+        Value::Object(map) => map.iter().fold(0usize, |bytes, (key, item)| {
+            bytes
+                .saturating_add(size_of::<(String, Value)>())
+                .saturating_add(key.len())
+                .saturating_add(value_heap_bytes(item))
+        }),
+        Value::Null | Value::Bool(_) | Value::Number(_) | Value::Timestamp(_) => 0,
     }
 }
 
@@ -69,6 +90,7 @@ impl TailSegment {
             track_positions,
             derived: DerivedColumns::kept_by(kept),
             name_ranks: Vec::new(),
+            entry_bytes: 0,
         }
     }
 
@@ -189,6 +211,10 @@ impl TailSegment {
         if self.keyword.index(ordinal, &fields)? == Indexed::SegmentFull {
             return Ok(Appended::SegmentFull(indexed));
         }
+        let id_bytes = size_of::<String>()
+            .saturating_add(id.len().saturating_mul(2))
+            .saturating_add(size_of::<Arc<Map>>());
+        self.entry_bytes = self.entry_bytes.saturating_add(id_bytes);
         self.id_lookup.insert(id.clone(), ordinal);
         self.ids.push(id);
         self.documents.push(document);
@@ -207,11 +233,14 @@ impl TailSegment {
     }
 
     fn append_columns(&mut self, ordinal: u32, indexed: IndexedDocument) {
+        let mut added = 0usize;
         for (path, values) in indexed.numeric {
+            added = added.saturating_add(values.len().saturating_mul(size_of::<(u32, f64)>()));
             let column = self.columns.numeric.entry(path).or_default();
             column.extend(values.into_iter().map(|value| (ordinal, value)));
         }
         for (path, size) in indexed.sizes {
+            added = added.saturating_add(size_of::<(u32, f64)>());
             self.columns
                 .sizes
                 .entry(path)
@@ -222,21 +251,30 @@ impl TailSegment {
             let column = self.columns.booleans.entry(path).or_default();
             if values.contains(&true) {
                 column.0.push(ordinal);
+                added = added.saturating_add(size_of::<u32>());
             }
             if values.contains(&false) {
                 column.1.push(ordinal);
+                added = added.saturating_add(size_of::<u32>());
             }
         }
         for (path, values) in indexed.enums {
             let column = self.columns.enums.entry(path).or_default();
             for value in values {
+                if !column.contains_key(&value) {
+                    added = added
+                        .saturating_add(CLONED_TREE_ENTRY_BYTES)
+                        .saturating_add(value.len());
+                }
                 let documents = column.entry(value).or_default();
                 if documents.last() != Some(&ordinal) {
                     documents.push(ordinal);
+                    added = added.saturating_add(size_of::<u32>());
                 }
             }
         }
         for (path, latitude, longitude) in indexed.geopoints {
+            added = added.saturating_add(size_of::<(u32, f64, f64)>());
             self.columns
                 .geopoints
                 .entry(path)
@@ -244,12 +282,16 @@ impl TailSegment {
                 .push((ordinal, latitude, longitude));
         }
         for (path, value) in indexed.patterns {
+            added = added
+                .saturating_add(size_of::<(u32, Value)>())
+                .saturating_add(value_heap_bytes(&value));
             self.columns
                 .patterns
                 .entry(path)
                 .or_default()
                 .push((ordinal, value));
         }
+        self.entry_bytes = self.entry_bytes.saturating_add(added);
     }
 
     pub(crate) fn ordinal_of(&self, id: &str) -> Option<u32> {
