@@ -3,7 +3,6 @@ import {
   awaitWriteVisibility,
   BATCH_CHUNK_SIZE,
   prepareDocumentVectors,
-  providedDocId,
   turnIsSpent,
   turnsAreBudgeted,
   validateVectorDimensions,
@@ -13,7 +12,8 @@ import type { BatchResult } from '../../types/results'
 import type { AnyDocument, InsertOptions } from '../../types/schema'
 import type { WriteEmbedding } from '../embed'
 import type { IndexHold } from '../index-hold'
-import { asBatchInsertError } from './batch-admissions'
+import { asBatchInsertError, providedDocIdOrEmpty } from './batch-admissions'
+import { docIdOf, failAsShutDown, shutDownStarted, unlessShutDown } from './batch-shutdown'
 import type { MutationContext } from './context'
 import { type AdmittedInsert, prepareInsertDocuments } from './insert-batch-admission'
 import { applyInsertChunk } from './insert-batch-apply'
@@ -36,7 +36,7 @@ async function admitChunk(
   failed: BatchResult['failed'],
   earlier: WriteEmbedding | null,
 ): Promise<AdmittedInsert[]> {
-  const { entry, candidates } = await prepareInsertDocuments(
+  const prepared = await prepareInsertDocuments(
     ctx,
     indexName,
     documents,
@@ -47,13 +47,24 @@ async function admitChunk(
     failed,
     earlier,
   )
+  if (prepared === null) return []
+  const { entry, candidates } = prepared
+  const admitted: AdmittedInsert[] = []
+  if (shutDownStarted(ctx)) {
+    failAsShutDown(failed, candidates, docIdOf)
+    return admitted
+  }
   const manager = ctx.requireManager(indexName)
   const vecIndexes = manager.getVectorIndexes()
   const vectorFieldPaths = vecIndexes.size > 0 ? entry.vectorFieldPaths : new Set<string>()
-  const admitted: AdmittedInsert[] = []
-  for (const { docId, document } of candidates) {
+  for (let position = 0; position < candidates.length; position++) {
     if (turnsAreBudgeted && turnIsSpent()) await yieldTurn()
-    if (ctx.abortController.signal.aborted) break
+    if (shutDownStarted(ctx)) {
+      failAsShutDown(failed, admitted, docIdOf)
+      failAsShutDown(failed, candidates, docIdOf, position)
+      return []
+    }
+    const { docId, document } = candidates[position]
     try {
       const { partitionDoc, extractedVectors } = prepareDocumentVectors(
         document as Record<string, unknown>,
@@ -65,7 +76,7 @@ async function admitChunk(
       admitInsert(ctx, indexName, manager, docId)
       admitted.push({ docId, document, partitionDoc: partitionDoc as AnyDocument, extractedVectors })
     } catch (err) {
-      failed.push({ docId, error: asBatchInsertError(err) })
+      failed.push({ docId, error: asBatchInsertError(ctx, err) })
     }
   }
   return admitted
@@ -85,18 +96,26 @@ export async function insertInChunks(
   const touchedVectorFields = new Set<string>()
 
   for (let chunkStart = 0; chunkStart < documents.length; chunkStart += BATCH_CHUNK_SIZE) {
-    if (ctx.abortController.signal.aborted) break
+    if (shutDownStarted(ctx)) {
+      failAsShutDown(failed, documents, providedDocIdOrEmpty, chunkStart)
+      break
+    }
 
     const chunkEnd = Math.min(chunkStart + BATCH_CHUNK_SIZE, documents.length)
     const earlier = embeddingOfDocuments(embedded, documents.slice(chunkStart, chunkEnd))
     const prepared = await admitChunk(ctx, indexName, documents, chunkStart, chunkEnd, hold, hooked, failed, earlier)
+    if (shutDownStarted(ctx)) {
+      failAsShutDown(failed, prepared, docIdOf)
+      failAsShutDown(failed, documents, providedDocIdOrEmpty, chunkEnd)
+      break
+    }
     try {
       if (prepared.length > 0) ctx.memoryWriteBlock?.refuseWhileFull(indexName)
     } catch (err) {
-      const error = asBatchInsertError(err)
+      const error = asBatchInsertError(ctx, err)
       for (const doc of prepared) failed.push({ docId: doc.docId, error })
       for (let i = chunkEnd; i < documents.length; i++) {
-        failed.push({ docId: providedDocId(documents[i]) ?? '', error })
+        failed.push({ docId: providedDocIdOrEmpty(documents[i]), error })
       }
       break
     }
@@ -107,9 +126,8 @@ export async function insertInChunks(
       for (let i = 0; i < prepared.length; i++) {
         const doc = prepared[i]
         const application = applications[i]
-        if (application.status === 'skipped') continue
         if (application.status === 'failed') {
-          failed.push({ docId: doc.docId, error: asBatchInsertError(application.error) })
+          failed.push({ docId: doc.docId, error: asBatchInsertError(ctx, application.error) })
           continue
         }
         succeeded.push(doc.docId)
@@ -121,7 +139,7 @@ export async function insertInChunks(
     }
 
     if (chunkEnd < documents.length) {
-      ctx.checkHeapPressure(indexName)
+      if (!shutDownStarted(ctx)) ctx.checkHeapPressure(indexName)
       await new Promise<void>(r => setTimeout(r, 0))
     }
   }
@@ -135,6 +153,7 @@ export async function finishInsertBatch(
   inserts: ChunkedInserts,
   options: InsertOptions | undefined,
 ): Promise<void> {
+  if (shutDownStarted(ctx)) return
   const vecIndexes = ctx.executor.getManager(indexName)?.getVectorIndexes()
   for (const fieldPath of inserts.touchedVectorFields) {
     vecIndexes?.get(fieldPath)?.scheduleBuild()
@@ -142,6 +161,8 @@ export async function finishInsertBatch(
 
   ctx.checkWatermark(indexName, inserts.succeeded)
   ctx.checkHeapPressure(indexName)
-  await ctx.orchestrator.scaleOutReadyIndexes()
-  if (options?.wait === true) await awaitWriteVisibility(ctx, indexName)
+  await unlessShutDown(ctx, async () => {
+    await ctx.orchestrator.scaleOutReadyIndexes()
+    if (options?.wait === true && !shutDownStarted(ctx)) await awaitWriteVisibility(ctx, indexName)
+  })
 }

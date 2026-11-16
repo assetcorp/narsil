@@ -10,6 +10,7 @@ import type { AnyDocument, InsertOptions } from '../../types/schema'
 import type { IndexHold } from '../index-hold'
 import type { BuiltSegment } from '../orchestration/segments'
 import { asBatchInsertError } from './batch-admissions'
+import { docIdOf, failAsShutDown, shutDownError, shutDownStarted, unlessShutDown } from './batch-shutdown'
 import type { MutationContext } from './context'
 import { rollbackInsertedDocument } from './durable-rollback'
 import { type AdmittedInsert, admitBatchDocuments } from './insert-batch-admission'
@@ -119,6 +120,7 @@ async function recordMergedDocuments(
   for (let index = 0; index < chunks.length; index++) {
     const { docs, attachmentOf } = chunks[index]
     try {
+      if (shutDownStarted(ctx)) throw shutDownError()
       ctx.memoryWriteBlock?.refuseWhileFull(indexName)
     } catch (error) {
       for (const later of chunks.slice(index)) {
@@ -132,7 +134,7 @@ async function recordMergedDocuments(
       return applySegment(ctx, indexName, attachment, doc, options)
     })
     const failures = await recordChunk(ctx, indexName, docs, applies)
-    await ctx.orchestrator.settlePublications(indexName, 'segments')
+    await unlessShutDown(ctx, () => ctx.orchestrator.settlePublications(indexName, 'segments'))
     const inserted: AdmittedInsert[] = []
 
     for (let i = 0; i < docs.length; i++) {
@@ -176,7 +178,7 @@ async function recordMergedDocuments(
       break
     }
     if (index + 1 < chunks.length) {
-      ctx.checkHeapPressure(indexName)
+      if (!shutDownStarted(ctx)) ctx.checkHeapPressure(indexName)
       await new Promise<void>(r => setTimeout(r, 0))
     }
   }
@@ -188,7 +190,7 @@ async function recordMergedDocuments(
       continue
     }
     if (!errorOf.has(doc.docId)) continue
-    failed.push({ docId: doc.docId, error: asBatchInsertError(errorOf.get(doc.docId)) })
+    failed.push({ docId: doc.docId, error: asBatchInsertError(ctx, errorOf.get(doc.docId)) })
   }
   return { succeeded, touchedVectorFields, unrecorded }
 }
@@ -215,8 +217,11 @@ async function ingestAdmitted(
   hold: IndexHold | undefined,
   failed: BatchResult['failed'],
 ): Promise<IngestOutcome> {
-  if (admitted.length === 0) {
-    return { succeeded: [], touchedVectorFields: new Set(), unrecorded: [] }
+  const nothingIngested = (): IngestOutcome => ({ succeeded: [], touchedVectorFields: new Set(), unrecorded: [] })
+  if (admitted.length === 0) return nothingIngested()
+  if (shutDownStarted(ctx)) {
+    failAsShutDown(failed, admitted, docIdOf)
+    return nothingIngested()
   }
 
   const applyIndividually = (): Promise<IngestOutcome> =>
@@ -237,6 +242,10 @@ async function ingestAdmitted(
     built = await ctx.orchestrator.buildSegments(requests)
   } catch {
     built = null
+  }
+  if (shutDownStarted(ctx)) {
+    failAsShutDown(failed, admitted, docIdOf)
+    return nothingIngested()
   }
   if (built === null) {
     return applyIndividually()
@@ -296,7 +305,9 @@ export async function insertBatchViaSegments(
   const failed: BatchResult['failed'] = []
   const { admitted, embedding } = await admitBatchDocuments(ctx, indexName, documents, failed, hold)
   const outcome = await ingestAdmitted(ctx, indexName, admitted, options, hold, failed)
-  if (outcome.unrecorded.length > 0) {
+  if (shutDownStarted(ctx)) {
+    failAsShutDown(failed, outcome.unrecorded, docIdOf)
+  } else if (outcome.unrecorded.length > 0) {
     const unrecorded = outcome.unrecorded.map(doc => doc.document)
     const rest = await insertInChunks(ctx, indexName, unrecorded, options, hold, false, failed, embedding)
     outcome.succeeded.push(...rest.succeeded)

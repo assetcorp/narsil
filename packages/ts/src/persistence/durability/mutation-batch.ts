@@ -13,6 +13,10 @@ export interface PartitionBatchDeps {
   defersCommit(record: MutationRecord): boolean
 }
 
+export function shutDownRefusal(): NarsilError {
+  return new NarsilError(ErrorCodes.INSTANCE_SHUT_DOWN, 'This Narsil instance has been shut down')
+}
+
 function toError(err: unknown): Error {
   return err instanceof Error ? err : new Error(String(err))
 }
