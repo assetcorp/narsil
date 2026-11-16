@@ -20,12 +20,8 @@ func (n *Narsil) insertPreparedGroups(ctx context.Context, holder indexHolder, e
 			documents[at] = document
 		}
 	}
-	idOf := func(at int) string {
-		if hooked.contexts[at] != nil {
-			return hooked.contexts[at].DocID
-		}
-		return hooked.refusedAs[at]
-	}
+	idOf := hooked.idAt
+	failRange := func(from, to int, err error) { hooked.failRange(from, to, outcome, err) }
 	held := &heldEntry{entry: entry, release: release}
 	shape := entry.memoryShape()
 	var bounds *documentBounds
@@ -33,14 +29,19 @@ func (n *Narsil) insertPreparedGroups(ctx context.Context, holder indexHolder, e
 		bounds = boundsOf(shape, documents, idOf)
 		return nil
 	}); err != nil {
+		failRange(0, len(documents), err)
 		return held.entry, held.release, nil, err
 	}
-	write := groupedWrite{indexName: holder.name, bounds: bounds, idOf: idOf, outcome: outcome}
+	write := groupedWrite{indexName: holder.name, bounds: bounds, idOf: idOf, outcome: outcome, failRange: failRange}
 	var inserted []*model.InsertContext
 	write.apply = func(start, end int) (bool, error) {
 		pending := make([]pendingInsert, 0, end-start)
 		for at := start; at < end; at++ {
 			if err := ctx.Err(); err != nil {
+				for _, insert := range pending {
+					outcome.fail(insert.id, err)
+				}
+				failRange(at, end, err)
 				return false, err
 			}
 			if err := hooked.refusals[at]; err != nil {

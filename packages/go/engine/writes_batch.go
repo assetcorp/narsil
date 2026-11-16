@@ -41,12 +41,16 @@ func requireDocument(document *model.Document) error {
 	return nil
 }
 
-func eachBatchChunk[T any](ctx context.Context, entries []T, apply func(chunk []T) error) error {
+func eachBatchChunk[T any](ctx context.Context, entries []T, apply func(chunk []T) error,
+	failFrom func(from int, err error)) error {
 	for start := 0; start < len(entries); start += batchChunkSize {
 		if err := ctx.Err(); err != nil {
+			failFrom(start, err)
 			return err
 		}
-		if err := apply(entries[start:min(start+batchChunkSize, len(entries))]); err != nil {
+		end := min(start+batchChunkSize, len(entries))
+		if err := apply(entries[start:end]); err != nil {
+			failFrom(end, err)
 			return err
 		}
 	}
@@ -135,6 +139,10 @@ func (n *Narsil) RemoveBatch(ctx context.Context, indexName string, docIDs []str
 		var chunkErr error
 		entry, release, chunkErr = n.removeChunk(ctx, n.holderOf(indexName), entry, release, chunk, outcome)
 		return chunkErr
+	}, func(from int, err error) {
+		for _, id := range docIDs[from:] {
+			outcome.fail(id, err)
+		}
 	})
 	if len(outcome.result.Succeeded) > 0 {
 		n.memory.memoryReleased()
@@ -170,6 +178,7 @@ func (n *Narsil) removeChunk(ctx context.Context, holder indexHolder, entry *ind
 	if entry == nil {
 		var err error
 		if entry, release, err = holder.reacquire(); err != nil {
+			failRemovals(contexts, outcome, err)
 			return nil, releasedNothing, err
 		}
 	}
@@ -193,6 +202,7 @@ func (n *Narsil) applyRemoveChunk(ctx context.Context, entry *indexEntry, releas
 	var accepted []*model.RemoveContext
 	var missing []string
 	var failures []error
+	checked := false
 	entry, release, err := n.applyKeepingTokens(ctx, entry.name, entry, release, index.WriteRemove, candidates,
 		func(ctx context.Context, entry *indexEntry) (persist.Commit, error) {
 			var commit persist.Commit
@@ -200,6 +210,7 @@ func (n *Narsil) applyRemoveChunk(ctx context.Context, entry *indexEntry, releas
 			if accepted, missing, err = acceptedRemovals(ctx, entry, contexts); err != nil {
 				return commit, err
 			}
+			checked = true
 			writes := make([]persist.Write, len(accepted))
 			for at, remove := range accepted {
 				writes[at] = persist.Write{DocumentID: remove.DocID}
@@ -207,6 +218,10 @@ func (n *Narsil) applyRemoveChunk(ctx context.Context, entry *indexEntry, releas
 			failures, commit, err = entry.apply(ctx, writes, index.WriteRemove)
 			return commit, err
 		})
+	if !checked && err != nil {
+		failRemovals(contexts, outcome, err)
+		return entry, release, nil, err
+	}
 	for _, id := range missing {
 		outcome.fail(id, documentNotFound(id))
 	}
@@ -226,6 +241,12 @@ func (n *Narsil) applyRemoveChunk(ctx context.Context, entry *indexEntry, releas
 		removed = append(removed, remove)
 	}
 	return entry, release, removed, err
+}
+
+func failRemovals(contexts []*model.RemoveContext, outcome *batchOutcome, err error) {
+	for _, remove := range contexts {
+		outcome.fail(remove.DocID, err)
+	}
 }
 
 func acceptedRemovals(ctx context.Context, entry *indexEntry, contexts []*model.RemoveContext) (
