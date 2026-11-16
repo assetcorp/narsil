@@ -8,10 +8,11 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/assetcorp/narsil/packages/go/engine/internal/persist/storage"
 )
 
 const (
@@ -23,8 +24,17 @@ const (
 	checkpointSegmentsFolder = "segments"
 )
 
+func readWhileTheEngineReplacesIt(path string) ([]byte, error) {
+	file, err := storage.OpenForReading(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	return io.ReadAll(file)
+}
+
 func manifestPayloadAt(path string) ([]byte, error) {
-	data, err := os.ReadFile(path)
+	data, err := readWhileTheEngineReplacesIt(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
