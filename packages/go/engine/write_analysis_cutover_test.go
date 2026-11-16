@@ -21,6 +21,8 @@ const (
 	cutoverWrittenPrefix  = "written "
 	cutoverChildDeadline  = 30 * time.Second
 	cutoverChildTestLimit = "20s"
+	cutoverNeverWritten   = -1
+	cutoverSeedTitle      = "seed"
 )
 
 func reentrantWords(text string) []engine.Token {
@@ -57,7 +59,7 @@ func TestWritesRecheckTheirAnalysisAfterWaitingForACutover(t *testing.T) {
 	tokenizer := splitTokenizer(func(text string) []engine.Token {
 		if strings.HasPrefix(text, cutoverWrittenPrefix) {
 			err := narsil.Remove(ctx, callbackIndex, "absent", engine.WriteOptions{})
-			if engine.ErrorCode(err) != engine.CodeDocNotFound {
+			if code := engine.ErrorCode(err); code != engine.CodeDocNotFound && code != engine.CodeWorkerBusy {
 				nested.note(fmt.Errorf("the nested removal returned %v", err))
 			}
 		}
@@ -76,7 +78,7 @@ func TestWritesRecheckTheirAnalysisAfterWaitingForACutover(t *testing.T) {
 		t.Fatal(err)
 	}
 	for writer := range cutoverWriters {
-		if _, err := narsil.Insert(ctx, callbackIndex, engine.NewDocument().Set("title", "seed"),
+		if _, err := narsil.Insert(ctx, callbackIndex, engine.NewDocument().Set("title", cutoverSeedTitle),
 			fmt.Sprintf("item-%d", writer), engine.InsertOptions{}); err != nil {
 			t.Fatal(err)
 		}
@@ -84,12 +86,18 @@ func TestWritesRecheckTheirAnalysisAfterWaitingForACutover(t *testing.T) {
 	var switching atomic.Bool
 	switching.Store(true)
 	last := make([]int, cutoverWriters)
+	for writer := range last {
+		last[writer] = cutoverNeverWritten
+	}
 	var pending sync.WaitGroup
 	for writer := range cutoverWriters {
 		pending.Go(func() {
 			for update := 0; switching.Load(); update++ {
 				err := narsil.Update(ctx, callbackIndex, fmt.Sprintf("item-%d", writer),
 					engine.NewDocument().Set("title", cutoverWrittenPrefix+cutoverMarker(writer, update)), engine.WriteOptions{})
+				if engine.ErrorCode(err) == engine.CodeWorkerBusy {
+					continue
+				}
 				if err != nil {
 					nested.note(err)
 					return
@@ -125,6 +133,12 @@ func requireCutoverWritesUnderTheFinalAnalysis(t *testing.T, narsil *engine.Nars
 		document, found, err := narsil.Get(ctx, callbackIndex, id)
 		if err != nil || !found {
 			t.Fatalf("the final document %s is missing: %v", id, err)
+		}
+		if update == cutoverNeverWritten {
+			if value, _ := document.Get("title"); value != cutoverSeedTitle {
+				t.Fatalf("document %s holds %v after every update was refused", id, value)
+			}
+			continue
 		}
 		if value, _ := document.Get("title"); value != cutoverWrittenPrefix+marker {
 			t.Fatalf("document %s holds %v, expected %s%s", id, value, cutoverWrittenPrefix, marker)

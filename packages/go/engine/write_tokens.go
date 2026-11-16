@@ -3,9 +3,11 @@ package engine
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/analysis"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/persist"
 )
 
@@ -51,7 +53,7 @@ func (n *Narsil) applyKeepingTokens(ctx context.Context, name string, entry *ind
 			entry.writeMu.Unlock()
 			release()
 			if changes++; changes >= maxCallsAcrossIndexChanges {
-				return nil, releasedNothing, indexReplacedDuringAnalysis(name, changes)
+				return nil, releasedNothing, indexReplacedDuringWriteAnalysis(name, changes)
 			}
 			target, shadow = held, entry.shadowBuild()
 			tokens, shadowTokens, storedRead, err = writeTokensOutside(ctx, target, shadow, kind, documents)
@@ -81,6 +83,12 @@ func (n *Narsil) applyKeepingTokens(ctx context.Context, name string, entry *ind
 		release()
 		err = nil
 	}
+}
+
+func indexReplacedDuringWriteAnalysis(name string, changes int) error {
+	return narsilerr.New(narsilerr.CodeWorkerBusy,
+		fmt.Sprintf("Changes to index %q replaced it during each of %d analyses of this write", name, changes),
+		map[string]any{"indexName": name, "analyses": changes})
 }
 
 func writeTokensOutside(ctx context.Context, target *index.Index, shadow *index.Index, kind index.WriteKind,

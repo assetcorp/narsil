@@ -15,17 +15,21 @@ import (
 type cancelledBatchKind string
 
 const (
-	cancelledInsertBatch cancelledBatchKind = "insert"
-	cancelledUpdateBatch cancelledBatchKind = "update"
-	cancelledRemoveBatch cancelledBatchKind = "remove"
-	cancelledBatchSize                      = 1_000
-	seededTitleWord                         = "harbour"
-	updatedTitleWord                        = "pier"
+	cancelledInsertBatch          cancelledBatchKind = "insert"
+	cancelledUpdateBatch          cancelledBatchKind = "update"
+	cancelledRemoveBatch          cancelledBatchKind = "remove"
+	cancelledBatchSize                               = 1_000
+	seededTitleWord                                  = "harbour"
+	updatedTitleWord                                 = "pier"
+	cancelledInsertHeapLimitBytes                    = 256 << 20
 )
 
 func TestACancelledBatchKeepsItsVisibleDocumentsAfterRestart(t *testing.T) {
 	for _, kind := range []cancelledBatchKind{cancelledInsertBatch, cancelledUpdateBatch, cancelledRemoveBatch} {
 		t.Run(string(kind), func(t *testing.T) {
+			if kind == cancelledInsertBatch && !memoryAttackChild(t, cancelledInsertHeapLimitBytes) {
+				return
+			}
 			cancelBatchAfterPublication(t, kind)
 		})
 	}
@@ -69,6 +73,10 @@ func cancelBatchAfterPublication(t *testing.T, kind cancelledBatchKind) {
 	requireEachDocumentReportedOnce(t, outcome, ids)
 	failed := make([]string, 0, len(outcome.Failed))
 	for _, failure := range outcome.Failed {
+		if !errors.Is(failure.Err, context.Canceled) {
+			t.Fatalf("the cancelled batch reported %s failing with %v, which does not carry the cancellation",
+				failure.DocID, failure.Err)
+		}
 		failed = append(failed, failure.DocID)
 	}
 	visible := map[string][]string{}
@@ -133,7 +141,8 @@ func runCancelledBatch(t *testing.T, narsil *engine.Narsil, kind cancelledBatchK
 		t.Fatalf("the cancelled batch returned %v", err)
 	}
 	if len(outcome.Succeeded) == 0 || len(outcome.Failed) == 0 {
-		t.Fatalf("the cancelled batch did not report its applied prefix and refused remainder: %+v", outcome)
+		t.Fatalf("the cancelled batch did not report its applied prefix and refused remainder: %d succeeded, %d failed",
+			len(outcome.Succeeded), len(outcome.Failed))
 	}
 	return outcome
 }

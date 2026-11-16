@@ -104,5 +104,5 @@ func engineErrorOf(err error) *narsilerr.Error {
 	if engineError, isEngineError := narsilerr.As(err); isEngineError {
 		return engineError
 	}
-	return narsilerr.New(narsilerr.CodeDocValidationFailed, err.Error(), nil)
+	return narsilerr.New(narsilerr.CodeDocValidationFailed, err.Error(), nil).CausedBy(err)
 }
