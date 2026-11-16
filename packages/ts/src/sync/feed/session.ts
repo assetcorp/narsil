@@ -1,4 +1,4 @@
-import { decode } from '../../serialization/msgpack'
+import { decodeBoundedMessage } from '../../serialization/msgpack'
 import {
   type DeviceMessage,
   deviceMessageOf,
@@ -100,7 +100,7 @@ export class FeedSession {
     }
     let message: DeviceMessage | null
     try {
-      message = deviceMessageOf(decode(bytes))
+      message = deviceMessageOf(decodeBoundedMessage(bytes))
     } catch {
       message = null
     }

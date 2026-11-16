@@ -159,6 +159,13 @@ export function decode(bytes: Uint8Array): unknown {
   return sharedDecoder.decode(bytes)
 }
 
+export function decodeBoundedMessage(bytes: Uint8Array): unknown {
+  if (scanStrings(bytes, 0, null, Number.POSITIVE_INFINITY) === null) {
+    throw new RangeError('Invalid MessagePack value header')
+  }
+  return decode(bytes)
+}
+
 export function decodeMulti(bytes: Uint8Array): Generator<unknown, void, unknown> {
   return new Decoder().decodeMulti(bytes)
 }

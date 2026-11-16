@@ -156,25 +156,27 @@ async function askController(
   claim: AdmissionClaim,
   payload: AdmissionRequest,
   controllerNodeId: string,
-): Promise<AdmissionAnswer> {
+): Promise<{ answer: AdmissionAnswer; inSyncVersion: number }> {
   let request = payload
   let retries = 0
   while (claimHolds(claim, request)) {
     const replicaStartedAt = await registeredStartedAt(claim.deps, request.replicaNodeId)
-    if (replicaStartedAt === null) return 'refused'
-    if (!(await provePositionAfterRead(claim, request)) || !claimHolds(claim, request)) return 'refused'
+    if (replicaStartedAt === null) break
+    if (!(await provePositionAfterRead(claim, request)) || !claimHolds(claim, request)) break
     const answer = await withTimeout(
       sendToController({ ...request, replicaStartedAt }, controllerNodeId, claim.deps),
       ADMISSION_TIMEOUT_MS,
       'unanswered',
     )
-    if (answer !== 'refused' || retries >= ADMISSION_RETRIES_AFTER_IN_SYNC_CHANGE) return answer
+    if (answer !== 'refused' || retries >= ADMISSION_RETRIES_AFTER_IN_SYNC_CHANGE) {
+      return { answer, inSyncVersion: request.inSyncVersion }
+    }
     const inSyncVersion = await changedInSyncVersion(claim, request)
-    if (inSyncVersion === null) return answer
+    if (inSyncVersion === null) return { answer, inSyncVersion: request.inSyncVersion }
     request = { ...request, inSyncVersion }
     retries += 1
   }
-  return 'refused'
+  return { answer: 'refused', inSyncVersion: request.inSyncVersion }
 }
 
 /**
@@ -273,7 +275,7 @@ export async function requestClaimedAdmission(
       inSyncVersion: inSyncVersionOf(assignment),
     }
 
-    const answer = await askController(claim, payload, controllerNodeId)
+    const { answer, inSyncVersion } = await askController(claim, payload, controllerNodeId)
     pending.unanswered = answer === 'unanswered'
     settle(answer)
     if (answer === 'accepted' && pending.failedWrite) {
@@ -288,14 +290,11 @@ export async function requestClaimedAdmission(
     } else if (answer === 'accepted' && !outlived) {
       forgetAdmissionToWithdraw(state, indexName, partitionId, replicaNodeId)
       forgetRemovedReplica(state, indexName, partitionId, replicaNodeId)
-      recordAdmittedReplica(
-        state,
-        indexName,
-        partitionId,
-        replicaNodeId,
-        assignment.primaryTerm,
-        advanceAdmissionGeneration(state, indexName, partitionId, replicaNodeId),
-      )
+      recordAdmittedReplica(state, indexName, partitionId, replicaNodeId, {
+        primaryTerm: assignment.primaryTerm,
+        generation: advanceAdmissionGeneration(state, indexName, partitionId, replicaNodeId),
+        inSyncVersion,
+      })
     }
   } finally {
     settle('refused')

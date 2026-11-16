@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import type { Command } from 'commander'
-import type forge from 'node-forge'
+import forge from 'node-forge'
 import { isCertificateAuthority } from '../crypto/certificate'
 import { publicKeysMatch } from '../crypto/keys'
 import { pemToCertificate, pemToPrivateKey } from '../crypto/pem'
@@ -114,10 +114,27 @@ async function verifyChain(cert: forge.pki.Certificate, caCertPath: string): Pro
     return false
   }
   try {
-    return caCert.verify(cert)
+    const anchor = withNameExtensionsChecked(caCert)
+    const policies = anchor.getExtension('certificatePolicies') as { id?: string; critical?: boolean } | null
+    if (policies?.id === '2.5.29.32') policies.critical = false
+    return forge.pki.verifyCertificateChain(
+      forge.pki.createCaStore([caCert]),
+      [withNameExtensionsChecked(cert), anchor],
+      { validityCheckDate: null },
+    )
   } catch {
     return false
   }
+}
+
+const EXTENSIONS_CHECKED_BY_TLS = new Set(['2.5.29.17', '2.5.29.37'])
+
+function withNameExtensionsChecked(cert: forge.pki.Certificate): forge.pki.Certificate {
+  const copy = forge.pki.certificateFromPem(forge.pki.certificateToPem(cert))
+  for (const extension of copy.extensions as Array<{ id?: string; critical?: boolean }>) {
+    if (extension.id !== undefined && EXTENSIONS_CHECKED_BY_TLS.has(extension.id)) extension.critical = false
+  }
+  return copy
 }
 
 function checkKeyUsage(cert: forge.pki.Certificate): boolean {
