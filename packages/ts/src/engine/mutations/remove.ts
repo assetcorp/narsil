@@ -17,6 +17,14 @@ import type { PartitionManager } from '../../partitioning/manager'
 import type { BatchResult } from '../../types/results'
 import type { AnyDocument, WriteOptions } from '../../types/schema'
 import type { IndexHold } from '../index-hold'
+import {
+  applyUnlessShutDown,
+  batchFailureOf,
+  batchStopped,
+  failAsShutDown,
+  shutDownError,
+  unlessShutDown,
+} from './batch-shutdown'
 import type { ApplyMutation, MutationContext } from './context'
 import { holdVectorsForRollback, rollbackRemovedDocument } from './durable-rollback'
 import { runOutside } from './outside-hold'
@@ -32,8 +40,12 @@ interface PreparedRemoval {
   releaseVectorHolds?: () => void
 }
 
-function asRemoveError(err: unknown): NarsilError {
+function removeErrorOf(err: unknown): NarsilError {
   return err instanceof NarsilError ? err : new NarsilError(ErrorCodes.DOC_NOT_FOUND, String(err))
+}
+
+function asRemoveError(ctx: MutationContext, err: unknown): NarsilError {
+  return batchFailureOf(ctx, err, removeErrorOf)
 }
 
 function validateRemoval(ctx: MutationContext, docId: string): void {
@@ -172,17 +184,38 @@ async function refusedRemovalsOf(
     }
   }
   if (!ctx.pluginRegistry.hasHooks('beforeRemove')) return refused
-  await runOutside(hold, async () => {
-    for (let i = chunkStart; i < chunkEnd; i++) {
-      if (refused.has(i)) continue
-      try {
-        await ctx.pluginRegistry.runHook('beforeRemove', { indexName, docId: docIds[i] })
-      } catch (err) {
-        refused.set(i, err)
+  await unlessShutDown(ctx, () =>
+    runOutside(hold, async () => {
+      for (let i = chunkStart; i < chunkEnd; i++) {
+        if (refused.has(i)) continue
+        try {
+          await ctx.pluginRegistry.runHook('beforeRemove', { indexName, docId: docIds[i] })
+        } catch (err) {
+          refused.set(i, err)
+        }
       }
-    }
-  })
+    }),
+  )
   return refused
+}
+
+function failChunkAsShutDown(
+  ctx: MutationContext,
+  failed: BatchResult['failed'],
+  docIds: string[],
+  chunkStart: number,
+  chunkEnd: number,
+  refused: Map<number, unknown>,
+): void {
+  const error = shutDownError()
+  for (let i = chunkStart; i < chunkEnd; i++) {
+    failed.push({ docId: docIds[i], error: refused.has(i) ? asRemoveError(ctx, refused.get(i)) : error })
+  }
+  failAsShutDown(failed, docIds, removalDocIdOf, chunkEnd)
+}
+
+function removalDocIdOf(docId: string): string {
+  return docId
 }
 
 export async function removeDocumentBatch(
@@ -204,8 +237,16 @@ export async function removeDocumentBatch(
 
   try {
     for (let chunkStart = 0; chunkStart < docIds.length; chunkStart += BATCH_CHUNK_SIZE) {
+      if (batchStopped(ctx)) {
+        failAsShutDown(failed, docIds, removalDocIdOf, chunkStart)
+        break
+      }
       const chunkEnd = Math.min(chunkStart + BATCH_CHUNK_SIZE, docIds.length)
       const refused = await refusedRemovalsOf(ctx, indexName, docIds, chunkStart, chunkEnd, hold)
+      if (batchStopped(ctx)) {
+        failChunkAsShutDown(ctx, failed, docIds, chunkStart, chunkEnd, refused)
+        break
+      }
       manager = await batchManagerAfterHooks(ctx, indexName, manager)
       const removed: string[] = []
       const prepared: PreparedRemoval[] = []
@@ -215,11 +256,16 @@ export async function removeDocumentBatch(
           if (refused.has(i)) throw refused.get(i)
           prepared.push(prepareRemoval(ctx, indexName, docIds[i]))
         } catch (err) {
-          failed.push({ docId: docIds[i], error: asRemoveError(err) })
+          failed.push({ docId: docIds[i], error: asRemoveError(ctx, err) })
         }
       }
+      if (batchStopped(ctx)) {
+        failAsShutDown(failed, prepared, preparedDocIdOf)
+        failAsShutDown(failed, docIds, removalDocIdOf, chunkEnd)
+        break
+      }
 
-      const applies = prepared.map(removal => applyOfRemoval(ctx, indexName, removal))
+      const applies = prepared.map(removal => applyUnlessShutDown(ctx, applyOfRemoval(ctx, indexName, removal)))
       try {
         const failures = await recordChunk(ctx, indexName, prepared, applies)
         for (let i = 0; i < prepared.length; i++) {
@@ -240,7 +286,7 @@ export async function removeDocumentBatch(
               error = rollbackError
             }
             removal.releaseVectorHolds?.()
-            failed.push({ docId: removal.docId, error: asRemoveError(error) })
+            failed.push({ docId: removal.docId, error: asRemoveError(ctx, error) })
             continue
           }
           removal.releaseVectorHolds?.()
@@ -250,8 +296,8 @@ export async function removeDocumentBatch(
       } finally {
         for (const removal of prepared) removal.releaseVectorHolds?.()
       }
-      await settleRemovals(ctx, indexName, removed, hold)
-      manager = await batchManagerAfterHooks(ctx, indexName, manager)
+      await unlessShutDown(ctx, () => settleRemovals(ctx, indexName, removed, hold))
+      if (!batchStopped(ctx)) manager = await batchManagerAfterHooks(ctx, indexName, manager)
 
       if (chunkEnd < docIds.length) {
         await new Promise<void>(r => setTimeout(r, 0))
@@ -259,12 +305,17 @@ export async function removeDocumentBatch(
     }
   } finally {
     const ending = manager
-    await ending?.publication.write(() => ending.endBatchRemove())
+    await unlessShutDown(ctx, () => ending?.publication.write(() => ending.endBatchRemove()))
   }
+  if (batchStopped(ctx)) return { succeeded, failed }
   ctx.checkHeapPressure(indexName)
-  if (options?.wait === true) await awaitWriteVisibility(ctx, indexName)
+  if (options?.wait === true) await unlessShutDown(ctx, () => awaitWriteVisibility(ctx, indexName))
 
   return { succeeded, failed }
+}
+
+function preparedDocIdOf(removal: PreparedRemoval): string {
+  return removal.docId
 }
 
 async function batchManagerAfterHooks(

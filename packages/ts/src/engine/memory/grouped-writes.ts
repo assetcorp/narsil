@@ -23,6 +23,7 @@ export interface MemoryGroupedWrite<T extends MemoryGroupedItem> {
   failed: BatchResult['failed']
   apply: (group: T[]) => Promise<void>
   mostDocuments?: number
+  refuseFrom?: (start: number) => boolean
 }
 
 export interface GroupedWriteProjection {
@@ -107,6 +108,7 @@ export async function applyInGroups<T extends MemoryGroupedItem>(
   )
   let start = 0
   while (start < bounded.length) {
+    if (write.refuseFrom?.(start) === true) return null
     let group: ProjectedGroup
     try {
       group = projection.takeGroup(indexName, bounds, start, mostDocuments, countExactly)

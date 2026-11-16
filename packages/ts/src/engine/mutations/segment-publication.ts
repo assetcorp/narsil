@@ -11,6 +11,7 @@ import type { RemovedSpellings } from '../../core/partition/frozen/surface-slot'
 import type { InsertOptions } from '../../types/schema'
 import type { WorkerAction } from '../../workers/protocol'
 import { createPendingAdmissions, recordPendingAdmission } from './batch-admissions'
+import { batchStopped, shutDownError } from './batch-shutdown'
 import type { ApplyMutation, MutationContext } from './context'
 import type { AdmittedInsert } from './insert-batch-admission'
 import { applyInsertDocument, type InsertProgress } from './insert-batch-apply'
@@ -40,7 +41,7 @@ export function applySegment(
   const publish = async (): Promise<void> => {
     if (attachment.failure !== undefined) throw attachment.failure
     if (attachment.attached) return
-    if (ctx.abortController.signal.aborted) throw ctx.abortController.signal.reason
+    if (batchStopped(ctx)) throw shutDownError()
     if (ctx.isRebalancing(indexName) || manager.partitionCount !== attachment.partitionCount) {
       attachment.individual = true
     }
