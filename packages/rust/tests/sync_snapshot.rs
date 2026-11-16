@@ -117,6 +117,10 @@ fn reference_download(directory: &Path, archive: &Path, wanted: &[String], scrat
 }
 
 #[test]
+#[cfg_attr(
+    all(windows, target_arch = "aarch64"),
+    ignore = "the reference HTTP server cannot start: uWebSockets.js ships no uws_win32_arm64 binary"
+)]
 fn a_device_downloads_the_same_snapshot_from_the_crate_and_the_reference_server() {
     let scratch = ScratchDirectory::new("sync-snapshot-download");
     let root = scratch.path().join("data");
