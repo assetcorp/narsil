@@ -570,14 +570,15 @@ pytest
 - The harness records whether the checkout differs from the release that its
   version names. `run-all.sh` works that out from the host's git history, because
   the image holds the commit but no git history.
-- The `narsil-rust` engine is the Rust server in `packages/rust-server`, which
-  serves the same routes as the TypeScript server, so the harness drives both
-  through one driver. The harness builds it through
+- The `narsil-rust` engine is the Rust server in `packages/rust-server`. Since
+  that server serves the same routes as the TypeScript server, the harness drives
+  both servers through one driver. Docker Compose builds the Rust server from
   [the Rust image's Dockerfile](../../packages/rust-container/Dockerfile), which
-  builds the image that the `-rust` tags publish, so it takes the same variables
-  as the TypeScript image. Both images preload jemalloc so that the two servers
-  measure on the same allocator, and `run-all.sh` records whether each server's
-  source differs from the release.
+  is the Dockerfile that the publish workflow uses for the `-rust` tags, so the
+  Rust image takes its settings from the same variables as the TypeScript image.
+  Both images preload jemalloc so that the harness measures both servers on the
+  same allocator. For each server, `run-all.sh` also works out whether its source
+  differs from the release.
 - Typesense and Meilisearch run with a throwaway local API key (`BENCH_API_KEY`,
   default `localdev`) on the internal compose network, which the harness does not
   publish to the host. Qdrant and Weaviate run with anonymous access on that same

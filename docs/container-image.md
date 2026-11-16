@@ -234,13 +234,13 @@ Compose replaces the container with one from the new image, and the new containe
 
 ### The Rust server
 
-Each tag has a twin that ends in `-rust`, such as `latest-rust`, and that twin serves the same release from the Rust server. Both servers read the same variables and answer the same routes, so you switch a node between them by changing the tag alone. Set `NARSIL_IMAGE_TAG` in `.env` to a tag that ends in `-rust` and start the node again with `docker compose up -d`.
+Every tag has a matching tag that ends in `-rust`, such as `latest-rust` for `latest`, whose image serves the same release from the Rust server. Both servers read the same variables and serve the same routes, so you can switch a node between them by changing the tag alone. To switch, set `NARSIL_IMAGE_TAG` in `.env` to a tag that ends in `-rust`, and start the node again with `docker compose up -d`.
 
-The two servers keep their indexes in one file format, so the node keeps its indexes across the switch. The [container specification](../packages/spec/container.md#storage) lets each image ignore task records and queued webhook deliveries that it can't read, so a switch can lose the task history and any deliveries still waiting in the queue. The Rust image leaves out the `transformers` kind of embedder and reranker, and its startup program exits with status 1 when a variable asks for that kind.
+The two servers keep their indexes in one file format, so the node keeps its indexes across the switch. The [container specification](../packages/spec/container.md#storage) allows each image to ignore the task records and queued webhook deliveries that it can't read, so the node can lose its task history and the deliveries in its queue when you switch. The Rust image leaves out the `transformers` kind of embedder and reranker, so its startup program exits with status 1 when a variable sets that kind.
 
 ## Cluster mode
 
-The image serves one node, and cluster mode works only on the TypeScript server, so a node that joins a cluster has to use a tag without `-rust`. The [cluster guide](cluster.md) shows how you build the nodes of a cluster in code.
+The image serves one node. When that node joins a cluster, it has to use a tag without `-rust`, because only the TypeScript server runs cluster mode. The [cluster guide](cluster.md) shows how you can build the nodes of a cluster in code.
 
 ## Change a setting
 
