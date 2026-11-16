@@ -248,7 +248,7 @@ func (directory *Directory) Remove(key string) error {
 	if err != nil {
 		return err
 	}
-	if err := os.Remove(path); err != nil {
+	if err := removeWhenReleased(path); err != nil {
 		if isMissing(err) {
 			directory.forgetSize(key)
 			return nil
