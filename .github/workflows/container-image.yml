@@ -150,7 +150,7 @@ jobs:
     needs: build
     if: inputs.push
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -172,10 +172,17 @@ jobs:
           TAGS: ${{ inputs.tags }}
           MOVING_TAGS: ${{ inputs.moving-tags }}
           NPM_DIST_TAG: ${{ inputs.npm-dist-tag }}
+          NPM_DIST_TAG_ATTEMPTS: 90
+          NPM_DIST_TAG_RETRY_SECONDS: 10
         run: |
           unsuffixed="sha-$(git rev-parse --short=7 HEAD) $TAGS"
           if [ -n "$MOVING_TAGS" ]; then
-            held="$(npm view "@delali/narsil@$NPM_DIST_TAG" version --prefer-online)"
+            held=""
+            for attempt in $(seq "$NPM_DIST_TAG_ATTEMPTS"); do
+              held="$(npm view "@delali/narsil@$NPM_DIST_TAG" version --prefer-online 2>/dev/null)" || held=""
+              if [ "$held" = "$VERSION" ]; then break; fi
+              if [ "$attempt" -lt "$NPM_DIST_TAG_ATTEMPTS" ]; then sleep "$NPM_DIST_TAG_RETRY_SECONDS"; fi
+            done
             if [ "$held" = "$VERSION" ]; then
               unsuffixed="$unsuffixed $MOVING_TAGS"
             else
