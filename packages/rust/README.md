@@ -7,7 +7,7 @@
 <!-- release-version narsil-rust -->
 ```toml
 [dependencies]
-delali-narsil = "0.2.0"
+delali-narsil = "0.2.1"
 ```
 <!-- /release-version -->
 
