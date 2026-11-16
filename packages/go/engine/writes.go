@@ -141,7 +141,7 @@ func (n *Narsil) applyInsertLocked(ctx context.Context, entry *indexEntry, write
 	}
 	failures, commit, err := entry.apply(ctx, []persist.Write{write}, index.WriteInsert)
 	if err != nil {
-		return persist.Commit{}, err
+		return commit, err
 	}
 	return commit, failures[0]
 }
@@ -243,7 +243,7 @@ func (n *Narsil) applyUpdateLocked(ctx context.Context, entry *indexEntry, write
 	}
 	failures, commit, err := entry.apply(ctx, []persist.Write{write}, index.WriteUpdate)
 	if err != nil {
-		return persist.Commit{}, err
+		return commit, err
 	}
 	return commit, failures[0]
 }
@@ -291,7 +291,7 @@ func (n *Narsil) applyRemoveLocked(ctx context.Context, entry *indexEntry, docID
 	}
 	failures, commit, err := entry.apply(ctx, []persist.Write{{DocumentID: docID}}, index.WriteRemove)
 	if err != nil {
-		return persist.Commit{}, err
+		return commit, err
 	}
 	return commit, failures[0]
 }

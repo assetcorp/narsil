@@ -2,6 +2,7 @@ package persist
 
 import (
 	"context"
+	"errors"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -163,7 +164,7 @@ func (durable *Durable) Apply(ctx context.Context, writes []Write) ([]error, Com
 	sort.Ints(order)
 	failures := make([]error, len(writes))
 	commit := Commit{durable: durable, stalls: true}
-	for _, partitionID := range order {
+	for groupAt, partitionID := range order {
 		members := groups[partitionID]
 		group := make([]Write, len(members))
 		for at, member := range members {
@@ -171,15 +172,26 @@ func (durable *Durable) Apply(ctx context.Context, writes []Write) ([]error, Com
 		}
 		log := durable.partitions[partitionID]
 		outcomes, logged, err := durable.applyLogged(ctx, log, partitionID, group, &commit)
-		if err != nil {
-			return nil, Commit{}, err
+		if err != nil && !cancelledApply(err) {
+			return nil, commit, err
 		}
 		commit.documentBytes += logged
 		for at, member := range members {
-			failures[member] = outcomes[at]
-			if outcomes[at] == nil {
+			failures[member] = err
+			if at < len(outcomes) {
+				failures[member] = outcomes[at]
+			}
+			if failures[member] == nil {
 				commit.applied++
 			}
+		}
+		if err != nil {
+			for _, remaining := range order[groupAt+1:] {
+				for _, member := range groups[remaining] {
+					failures[member] = err
+				}
+			}
+			return failures, commit, err
 		}
 	}
 	return failures, commit, nil
@@ -187,7 +199,9 @@ func (durable *Durable) Apply(ctx context.Context, writes []Write) ([]error, Com
 
 func (durable *Durable) applyLogged(ctx context.Context, log *partitionLog, partitionID int, group []Write,
 	commit *Commit) ([]error, int64, error) {
-	log.mutex.Lock()
+	if err := log.mutex.LockContext(ctx); err != nil {
+		return nil, 0, err
+	}
 	defer log.mutex.Unlock()
 	if log.failed != nil {
 		return nil, 0, log.failed
@@ -199,9 +213,9 @@ func (durable *Durable) applyLogged(ctx context.Context, log *partitionLog, part
 			return nil, 0, err
 		}
 	}
-	outcomes, err := durable.handle.apply(ctx, group)
-	if err != nil {
-		return nil, 0, err
+	outcomes, applyErr := durable.handle.apply(ctx, group)
+	if applyErr != nil && !cancelledApply(applyErr) {
+		return nil, 0, applyErr
 	}
 	var entries []wal.Entry
 	var documentBytes int64
@@ -227,7 +241,11 @@ func (durable *Durable) applyLogged(ctx context.Context, log *partitionLog, part
 		commit.appended = append(commit.appended,
 			appendedRecords{log: log, writer: log.writer, seqNo: entries[len(entries)-1].SeqNo})
 	}
-	return outcomes, documentBytes, nil
+	return outcomes, documentBytes, applyErr
+}
+
+func cancelledApply(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
 
 func (durable *Durable) failPartition(log *partitionLog, cause error) error {

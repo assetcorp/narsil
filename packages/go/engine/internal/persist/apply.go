@@ -134,16 +134,16 @@ func (handle *Handle) apply(ctx context.Context, writes []Write) ([]error, error
 		if !repeated && kind == index.WriteInsert {
 			var err error
 			if kind, err = handle.kindOf(ctx, write); err != nil {
-				return nil, err
+				return failedPending(failures, run, at, err)
 			}
 		}
 		if repeated || (len(run.members) > 0 && run.kind != kind) {
 			if err := handle.flushRun(ctx, run, writes, failures); err != nil {
-				return nil, err
+				return failedPending(failures, run, at, err)
 			}
 			var err error
 			if kind, err = handle.kindOf(ctx, write); err != nil {
-				return nil, err
+				return failedPending(failures, run, at, err)
 			}
 		}
 		run.kind = kind
@@ -151,7 +151,19 @@ func (handle *Handle) apply(ctx context.Context, writes []Write) ([]error, error
 		run.ids[write.DocumentID] = struct{}{}
 	}
 	if err := handle.flushRun(ctx, run, writes, failures); err != nil {
-		return nil, err
+		return failures, err
 	}
 	return failures, nil
+}
+
+func failedPending(failures []error, run *pendingRun, start int, err error) ([]error, error) {
+	for _, member := range run.members {
+		failures[member] = err
+	}
+	for at := start; at < len(failures); at++ {
+		if failures[at] == nil {
+			failures[at] = err
+		}
+	}
+	return failures, err
 }

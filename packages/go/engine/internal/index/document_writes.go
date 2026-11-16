@@ -122,26 +122,48 @@ func (ix *Index) ApplyWith(ctx context.Context, kind WriteKind, writes []Documen
 	kept := keptWrite(tokens)
 	if len(vectors) > 0 || kind != WriteInsert && kept == nil && ix.settings.Analyzer.CallsCallerCode() {
 		batch := ix.PrepareBatch(kind, writes, kept)
+		applied := false
 		err := ix.Write(ctx, func(w *Write) error {
+			applied = true
 			w.write.Tokens = kept
 			w.write.Stored = stored.documentsFor(ix, w)
 			return w.ApplyBatch(batch, vectors)
 		})
+		if !applied {
+			refuseUnwritten(batch.Failures, err)
+		}
 		ix.noteGrowth()
 		return batch.Failures, err
 	}
-	failures := make([]error, 0, len(writes))
+	failures := make([]error, len(writes))
 	var err error
 	for start := 0; start < len(writes) && err == nil; start += InPlaceWriteChunkDocuments {
-		batch := ix.PrepareBatch(kind, writes[start:min(start+InPlaceWriteChunkDocuments, len(writes))], kept)
+		end := min(start+InPlaceWriteChunkDocuments, len(writes))
+		batch := ix.PrepareBatch(kind, writes[start:end], kept)
+		applied := false
 		err = ix.sides.WriteInPlace(ctx, func(write *partition.Write) error {
-			applied := &Write{ix: ix, write: write}
+			applied = true
+			w := &Write{ix: ix, write: write}
 			write.Tokens = kept
-			write.Stored = stored.documentsFor(ix, applied)
-			return applied.ApplyBatch(batch, nil)
+			write.Stored = stored.documentsFor(ix, w)
+			return w.ApplyBatch(batch, nil)
 		})
-		failures = append(failures, batch.Failures...)
+		if !applied {
+			refuseUnwritten(batch.Failures, err)
+		}
+		copy(failures[start:end], batch.Failures)
+		if err != nil {
+			refuseUnwritten(failures[end:], err)
+		}
 	}
 	ix.noteGrowth()
 	return failures, err
+}
+
+func refuseUnwritten(failures []error, err error) {
+	for at := range failures {
+		if failures[at] == nil {
+			failures[at] = err
+		}
+	}
 }

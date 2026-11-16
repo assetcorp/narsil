@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/callerctx"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/codec"
@@ -20,6 +21,10 @@ type batchOutcome struct {
 func newBatchOutcome() *batchOutcome {
 	return &batchOutcome{result: model.BatchResult{Succeeded: []string{}, Failed: []model.BatchFailure{}},
 		touched: touchedVectors{}}
+}
+
+func cancelledBatch(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
 
 func (outcome *batchOutcome) fail(id string, err error) {
@@ -207,7 +212,7 @@ func (n *Narsil) applyRemoveChunk(ctx context.Context, entry *indexEntry, releas
 	for _, id := range missing {
 		outcome.fail(id, documentNotFound(id))
 	}
-	if err != nil {
+	if err != nil && (!cancelledBatch(err) || len(failures) != len(accepted)) {
 		for _, remove := range accepted {
 			outcome.fail(remove.DocID, err)
 		}
@@ -222,7 +227,7 @@ func (n *Narsil) applyRemoveChunk(ctx context.Context, entry *indexEntry, releas
 		outcome.result.Succeeded = append(outcome.result.Succeeded, remove.DocID)
 		removed = append(removed, remove)
 	}
-	return entry, release, removed, nil
+	return entry, release, removed, err
 }
 
 func acceptedRemovals(ctx context.Context, entry *indexEntry, contexts []*model.RemoveContext) (

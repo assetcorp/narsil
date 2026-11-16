@@ -13,7 +13,7 @@ type lockedWrite func(ctx context.Context, entry *indexEntry) (persist.Commit, e
 
 func (n *Narsil) applyAndUnlock(ctx context.Context, entry *indexEntry, locked lockedWrite) error {
 	commit, err := locked(ctx, entry)
-	if awaited := entry.unlockAndAwait(ctx, commit); err == nil {
+	if awaited := entry.unlockAndAwait(ctx, commit); awaited != nil {
 		err = awaited
 	}
 	return err
@@ -72,7 +72,7 @@ func (n *Narsil) applyKeepingTokens(ctx context.Context, name string, entry *ind
 		}
 		lockedCtx := index.WithStoredRead(index.WithWriteTokens(ctx, tokens), storedRead)
 		commit, err := locked(withShadowTokens(lockedCtx, shadowTokens), entry)
-		if awaited := entry.unlockAndAwait(ctx, commit); err == nil {
+		if awaited := entry.unlockAndAwait(ctx, commit); awaited != nil {
 			err = awaited
 		}
 		if !errors.Is(err, analysis.ErrTokensNotKept) {

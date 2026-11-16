@@ -70,7 +70,7 @@ func (entry *indexEntry) apply(ctx context.Context, writes []persist.Write, kind
 		failures, err = entry.applyInMemory(ctx, writes, kind)
 	}
 	if err != nil {
-		return nil, persist.Commit{}, err
+		return failures, commit, err
 	}
 	for at, failure := range failures {
 		failures[at] = documentTokensRefused(failure)

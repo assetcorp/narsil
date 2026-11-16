@@ -198,7 +198,7 @@ func (n *Narsil) applyInsertChunk(ctx context.Context, entry *indexEntry, releas
 	for _, insert := range refused {
 		outcome.fail(insert.id, insert.err)
 	}
-	if err != nil {
+	if err != nil && (!cancelledBatch(err) || len(failures) != len(accepted)) {
 		for _, insert := range accepted {
 			outcome.fail(insert.id, err)
 		}
@@ -214,7 +214,7 @@ func (n *Narsil) applyInsertChunk(ctx context.Context, entry *indexEntry, releas
 		outcome.touched.note(insert.write)
 		inserted = append(inserted, insert.context)
 	}
-	return entry, release, inserted, nil
+	return entry, release, inserted, err
 }
 
 func acceptedInserts(ctx context.Context, entry *indexEntry, pending []pendingInsert) ([]pendingInsert,
