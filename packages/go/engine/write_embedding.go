@@ -81,14 +81,13 @@ type chunkEmbedding struct {
 	working  []*model.Document
 	live     []bool
 	contexts []*model.InsertContext
-	outcome  *batchOutcome
+	refuse   func(at int, id string, err error)
 }
 
 func (chunk chunkEmbedding) failLive(err error) {
 	for at := range chunk.working {
 		if chunk.live[at] {
-			chunk.live[at] = false
-			chunk.outcome.fail(chunk.contexts[at].DocID, err)
+			chunk.refuse(at, chunk.contexts[at].DocID, err)
 		}
 	}
 }
@@ -108,8 +107,7 @@ func (chunk chunkEmbedding) requireMappedVectors(entry *indexEntry, config *mode
 			continue
 		}
 		if err := requireMappedVectors(chunk.working[at], config, entry.embeddingName); err != nil {
-			chunk.live[at] = false
-			chunk.outcome.fail(chunk.contexts[at].DocID, err)
+			chunk.refuse(at, chunk.contexts[at].DocID, err)
 		}
 	}
 }
@@ -120,8 +118,7 @@ func (chunk chunkEmbedding) requireFieldsOf(entry *indexEntry) {
 			continue
 		}
 		if err := requireFieldsOf(entry, chunk.working[at]); err != nil {
-			chunk.live[at] = false
-			chunk.outcome.fail(chunk.contexts[at].DocID, err)
+			chunk.refuse(at, chunk.contexts[at].DocID, err)
 		}
 	}
 }
@@ -142,8 +139,7 @@ func (chunk chunkEmbedding) adopt(embedded []*model.Document, failed map[int]err
 			continue
 		}
 		if failure, refused := failed[at]; refused {
-			chunk.live[at] = false
-			chunk.outcome.fail(chunk.contexts[at].DocID, failure)
+			chunk.refuse(at, chunk.contexts[at].DocID, failure)
 			continue
 		}
 		chunk.working[at] = embedded[at]
