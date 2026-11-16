@@ -37,6 +37,11 @@ export interface ReplayDeps {
 
 export async function removeLeftoverRewriteFiles(directory: DurableDirectory, names: readonly string[]): Promise<void> {
   for (const indexName of names) {
+    const prefix = `${indexName}/`
+    for (const key of await directory.list(prefix)) {
+      const relative = key.slice(prefix.length)
+      if (!relative.includes('/') && /^(meta|manifest)\.tmp-/.test(relative)) await directory.remove(key)
+    }
     for (const place of ['rebuilt', 'received']) {
       for (const key of await directory.list(`${indexName}/${place}/`)) await directory.remove(key)
     }
