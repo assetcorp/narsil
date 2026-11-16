@@ -138,7 +138,7 @@ async function main(): Promise<void> {
   const options = parseRunOptions(process.argv.slice(2))
   const workload = await resolveWorkload(options.workload, options.size)
   await ensureOracle()
-  const engines = await prepareEngines(options.engines)
+  const engines = await prepareEngines(options.engines, options.profile)
   const compiler = await cCompiler()
   const truth = truthPath(workload)
 
