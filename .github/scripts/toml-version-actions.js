@@ -2,6 +2,7 @@ const { join } = require('node:path')
 const { VersionActions } = require('nx/src/command-line/release/version/version-actions')
 const { rewritingMarkedVersions } = require('./release-versions.js')
 const { pathPinnedVersionChanges } = require('./cargo-lockfiles.js')
+const { pathRequirementChanges } = require('./cargo-path-requirements.js')
 const { tableKeyPattern } = require('./toml-table.js')
 
 class TomlVersionActions extends VersionActions {
@@ -52,6 +53,11 @@ class TomlVersionActions extends VersionActions {
       const lockfiles = pathPinnedVersionChanges(tree, nameMatch[2], newVersion, lockfilePath)
       changes.push(...lockfiles)
       logMessages.push(...lockfiles.map(({ path }) => `✍️  New version ${newVersion} written to lockfile: ${path}`))
+      const dependents = pathRequirementChanges(tree, nameMatch[2], this.projectGraphNode.data.root, newVersion)
+      changes.push(...dependents)
+      logMessages.push(
+        ...dependents.map(({ path }) => `✍️  New version ${newVersion} required by the path dependency in: ${path}`),
+      )
     }
     for (const change of changes) tree.write(change.path, change.text)
     return logMessages

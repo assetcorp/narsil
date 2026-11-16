@@ -2,6 +2,12 @@ name: Rust server
 
 on:
   workflow_call:
+    inputs:
+      proven-on-main:
+        description: 'Main has passed the push checks of the server on the same inputs, so a release tests only the platform that main never tests'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -9,6 +15,7 @@ permissions:
 jobs:
   lint:
     name: Format and Clippy
+    if: ${{ !inputs.proven-on-main }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -39,6 +46,8 @@ jobs:
           ${{ fromJSON(github.event_name == 'push' && '[
           {"label": "linux-x64", "runner": "ubuntu-latest"},
           {"label": "win32-x64", "runner": "windows-latest"}
+          ]' || inputs.proven-on-main && '[
+          {"label": "darwin-arm64", "runner": "macos-15"}
           ]' || '[
           {"label": "linux-x64", "runner": "ubuntu-latest"},
           {"label": "darwin-arm64", "runner": "macos-15"},
@@ -87,6 +96,7 @@ jobs:
 
   clients:
     name: Python and Go clients on the Rust server
+    if: ${{ !inputs.proven-on-main }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
 

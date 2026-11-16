@@ -19,4 +19,4 @@ The `delali-narsil` crate embeds the engine in a Rust program. Its library is ca
 
 ## Call a server
 
-Narsil has no Rust client. Send JSON to the routes that [server.md](server.md) describes, with an HTTP client such as `reqwest`. To serve an index from Rust, run the image tags that end in `-rust`, which [server.md](server.md) describes, because the `delali-narsil-server` crate is unpublished.
+Narsil has no Rust client. Send JSON to the routes that [server.md](server.md) describes, with an HTTP client such as `reqwest`. To serve an index from a Rust program, add the `delali-narsil-server` crate and pass the engine to `NarsilServer`, or run the image tags that end in `-rust`, which [server.md](server.md) describes.

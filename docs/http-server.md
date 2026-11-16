@@ -81,6 +81,12 @@ The file [`packages/ts/openapi.json`](https://github.com/assetcorp/narsil/blob/m
 
 Where one method of the TypeScript client covers a route, the operation ID is the name of that method, as in `createIndex`. The file marks five `POST` routes with `x-narsil-repeatable: true`, which are search, preflight, suggest, `_list`, and `_multi-get`. Those routes only read, so a client can resend one of those requests after a connection failure, and it should resend no other `POST` without its own check.
 
+## The Rust server
+
+The [`delali-narsil-server`](https://github.com/assetcorp/narsil/tree/main/packages/rust-server) crate serves one node from the Rust engine, and it answers every single-node route above with the same statuses, error codes, and limits, so that every Narsil client can call it unchanged. It also serves the [device sync](device-sync.md) feed and the [change capture](change-capture.md) feed. Only the TypeScript server runs cluster mode, so the Rust server answers the cluster routes, the backup routes, `/metrics`, and `/cluster/health` with 501 and the code `CLUSTER_OPERATION_UNSUPPORTED`, as a TypeScript server that fronts a single engine does.
+
+To deploy the Rust server without building it, start the container image `ghcr.io/assetcorp/narsil` under a tag that ends in `-rust`, such as `latest-rust`, as the [container guide](container-image.md#the-rust-server) shows. To install its `narsil-server` binary, run `cargo install delali-narsil-server`, and to serve an engine from your Rust program through `NarsilServer`, run `cargo add delali-narsil-server`. The crate's README lists the variables that the binary reads and the options that `NarsilServer` takes.
+
 ## Regular expressions
 
 By default, the server accepts a `regex` test on a pattern field from any client. Because the matcher never backtracks and the engine limits every pattern test through its `patternWorkCap` setting, a regular expression can cost no more work than that cap allows. Set `allowRegex: false` on a public endpoint that should accept no regular expressions at all.
