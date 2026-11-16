@@ -4,6 +4,7 @@ const { createInputHasher, resolvedHead } = require('./suite-inputs.js')
 const { createRunLookup } = require('./proven-suite-runs.js')
 
 const SUCCESS_OR_SKIPPED = new Set(['success', 'skipped'])
+const CANCELLED = 'cancelled'
 const JOB_RESULTS_LINE = /^([a-z][a-z-]*)((?: [a-z_]+)+)$/
 
 const REPOSITORY = process.env.GITHUB_REPOSITORY ?? ''
@@ -25,12 +26,14 @@ function createLookup(head) {
   return { inputHash: createInputHasher(), ...createRunLookup(head) }
 }
 
-function verdictOf(requiredJobs, jobs) {
+function verdictOf(requiredJobs, jobs, runConclusion) {
   const conclusions = new Map()
   for (const job of jobs) {
     if (!requiredJobs.includes(job.name)) continue
+    const conclusion = job.status === 'completed' ? job.conclusion : job.status
+    if (runConclusion === CANCELLED && conclusion === CANCELLED) continue
     const known = conclusions.get(job.name) ?? []
-    conclusions.set(job.name, [...known, job.status === 'completed' ? job.conclusion : job.status])
+    conclusions.set(job.name, [...known, conclusion])
   }
   const reported = [...conclusions.values()].flat()
   if (reported.some(conclusion => !SUCCESS_OR_SKIPPED.has(conclusion))) return 'failed'
@@ -65,7 +68,7 @@ async function proofOf(suiteName, head, lookup) {
     matching.push(run)
   }
   for (const run of matching) {
-    const verdict = verdictOf(suite.jobs, await lookup.jobsOf(run))
+    const verdict = verdictOf(suite.jobs, await lookup.jobsOf(run), run.conclusion)
     if (verdict === 'not-run') continue
     if (verdict === 'failed') {
       return { proven: false, releaseHash, reason: `${run.html_url} failed this suite on the same inputs` }
