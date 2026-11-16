@@ -20,6 +20,7 @@ use crate::http::budget::{BodyBudget, RequestGate};
 use crate::http::cors::ResolvedCors;
 use crate::http::in_flight::RequestsInFlight;
 use crate::http::pipeline::serve;
+use crate::http::query_threads::QueryThreads;
 use crate::http::stall_guard::WriteStallGuard;
 use crate::ids::random_uuid;
 use crate::options::ServerOptions;
@@ -53,8 +54,8 @@ impl NarsilServer {
     ///
     /// # Errors
     ///
-    /// Returns `CONFIG_INVALID` where a limit or a feed setting holds a value outside its range, and the engine's
-    /// error where it refuses an adapter.
+    /// Returns `CONFIG_INVALID` where a limit or a feed setting holds a value outside its range, the engine's error
+    /// where it refuses an adapter, and `INTERNAL_ERROR` where the system refuses the threads that answer searches.
     pub fn new(engine: Arc<Narsil>, options: ServerOptions) -> Result<NarsilServer, NarsilError> {
         check_limits(&options.limits, engine.max_rerank_window() as u64)?;
         let feeds = Feeds::of(&options)?;
@@ -101,6 +102,7 @@ impl NarsilServer {
             gate: RequestGate::new(max_requests),
             body_budget: BodyBudget::new(limits.max_body_bytes_in_flight),
             requests: RequestsInFlight::new(),
+            queries: QueryThreads::new()?,
             feeds,
             limits,
         };

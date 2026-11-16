@@ -4,7 +4,7 @@ mod documents;
 mod indexes;
 mod info;
 mod maintenance;
-mod search;
+pub(crate) mod search;
 mod settings;
 mod suggestions;
 mod sync;
@@ -12,7 +12,7 @@ mod task_routes;
 
 use std::sync::Arc;
 
-use crate::errors::Outcome;
+use crate::errors::{Outcome, ServerError};
 use crate::http::pipeline::RouteContext;
 use crate::http::respond::HttpResponse;
 use crate::http::routes::Route;
@@ -44,7 +44,7 @@ pub(crate) async fn dispatch(
         Insert | Batch | MultiGet | WaitForWrites | Get | Exists | Put | Patch | Remove => {
             documents::handle(state, route, context).await
         }
-        Search | Preflight | Suggest | List => search::handle(state, route, context).await,
+        Search | Preflight | Suggest | List => Err(ServerError::internal()),
         ImportNdjson
         | RebuildAnalysis
         | ChangeAnalysis

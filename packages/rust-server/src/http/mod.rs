@@ -5,6 +5,7 @@ pub(crate) mod in_flight;
 pub(crate) mod pace;
 pub(crate) mod parse_memory;
 pub(crate) mod pipeline;
+pub(crate) mod query_threads;
 pub(crate) mod respond;
 pub(crate) mod routes;
 pub(crate) mod spool;
