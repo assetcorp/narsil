@@ -11,11 +11,17 @@ use crate::ordering::SortColumn;
 
 pub(crate) trait DerivedColumn: Clone + Default {
     fn len(&self) -> usize;
+
+    fn bytes(&self) -> usize;
 }
 
 impl DerivedColumn for SortColumn {
     fn len(&self) -> usize {
         SortColumn::len(self)
+    }
+
+    fn bytes(&self) -> usize {
+        SortColumn::bytes(self)
     }
 }
 
@@ -84,6 +90,15 @@ impl<K: PartialEq + Clone, C: DerivedColumn> ColumnCache<K, C> {
                 Err(_) => Ok(column),
             },
         }
+    }
+
+    fn copied_bytes(&self, every_column: bool) -> usize {
+        self.columns
+            .iter()
+            .filter(|(_, column)| every_column || Arc::strong_count(column) > 1)
+            .fold(0usize, |bytes, (_, column)| {
+                bytes.saturating_add(column.bytes())
+            })
     }
 
     pub(crate) fn keep(
@@ -155,6 +170,10 @@ impl DerivedColumn for SortedNumbers {
     fn len(&self) -> usize {
         self.covered
     }
+
+    fn bytes(&self) -> usize {
+        self.values.len() * size_of::<f64>() + self.ordinals.len() * size_of::<u32>()
+    }
 }
 
 #[derive(Clone, Default)]
@@ -178,6 +197,13 @@ impl DerivedColumns {
             sorted_numbers: ColumnCache::kept_by(&kept.sorted_numbers),
             stored_values: ColumnCache::kept_by(&kept.stored_values),
         }
+    }
+
+    pub(crate) fn copied_bytes(&self, every_column: bool) -> usize {
+        self.sort_columns
+            .copied_bytes(every_column)
+            .saturating_add(self.sorted_numbers.copied_bytes(every_column))
+            .saturating_add(self.stored_values.copied_bytes(every_column))
     }
 }
 

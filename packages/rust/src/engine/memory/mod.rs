@@ -8,6 +8,7 @@ mod linux;
 mod macos;
 mod parse;
 mod projection;
+mod removal_copies;
 #[cfg(windows)]
 mod windows;
 

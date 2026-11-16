@@ -1,6 +1,7 @@
 use super::ProcessMemory;
 use super::bound::{DocumentBound, DocumentCost};
 use super::guard::MemoryGuard;
+use super::removal_copies::RemovalCopies;
 use crate::engine::index::IndexState;
 use crate::error::{ErrorCode, NarsilError};
 use crate::index::tail_growth::tail_growth_bytes;
@@ -31,6 +32,8 @@ pub(crate) struct WriteProjection<'a> {
     bound: DocumentBound,
     costs: Vec<DocumentCost>,
     counted: Vec<bool>,
+    replaced: Vec<String>,
+    copies: RemovalCopies,
 }
 
 fn number(value: u64) -> Value {
@@ -56,8 +59,10 @@ pub(crate) fn reserve_for_document<'a>(
     guard: &'a MemoryGuard,
     index: &'a IndexState,
     document: &Map,
+    replaced: Option<&str>,
 ) -> Result<ProjectedGroup<'a>, NarsilError> {
-    let mut projection = WriteProjection::new(guard, index, std::iter::once(document));
+    let mut projection = WriteProjection::new(guard, index, std::iter::once(document))
+        .replacing(replaced.map(str::to_string).into_iter().collect());
     if projection
         .costs
         .first()
@@ -91,7 +96,13 @@ impl<'a> WriteProjection<'a> {
             bound,
             costs,
             counted,
+            replaced: Vec::new(),
+            copies: RemovalCopies::default(),
         }
+    }
+
+    pub(crate) fn replacing(self, replaced: Vec<String>) -> WriteProjection<'a> {
+        WriteProjection { replaced, ..self }
     }
 
     fn count_exactly(&mut self, position: usize, document: Option<&Map>) {
@@ -124,9 +135,16 @@ impl<'a> WriteProjection<'a> {
         };
         let values = usize::try_from(shape.values).unwrap_or(usize::MAX);
         let partitions = self.index.partitions();
-        let mut bytes = 0usize;
-        for partition in partitions.iter() {
-            bytes = bytes.saturating_add(tail_growth_bytes(partition, documents, values, keyword));
+        let mut bytes = self.copies.bytes(documents);
+        for (at, partition) in partitions.iter().enumerate() {
+            let copies_last_tail = self.copies.copies_last_tail(at, documents);
+            bytes = bytes.saturating_add(tail_growth_bytes(
+                partition,
+                documents,
+                values,
+                keyword,
+                copies_last_tail,
+            ));
         }
         for entry in self.index.vectors.fields() {
             bytes = bytes.saturating_add(entry.field.growth_bytes(documents));
@@ -277,6 +295,10 @@ impl<'a> WriteProjection<'a> {
                 bytes: 0,
                 count: end - start,
             });
+        };
+        self.copies = match self.replaced.get(start..end) {
+            Some(replaced) => RemovalCopies::of(self.index, &self.index.partitions(), replaced),
+            None => RemovalCopies::default(),
         };
         let block_bytes = block_bytes_of(self.guard, &measured);
         if self.costs[start].bytes > block_bytes {
