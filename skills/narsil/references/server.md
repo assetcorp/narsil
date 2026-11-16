@@ -1,5 +1,12 @@
 # Serving Narsil
 
+## Choose the server
+
+Narsil has two servers, which answer the same routes with the same statuses, error codes, and limits, so every client calls either one unchanged. They also keep their indexes in one file format, so a node keeps its indexes when it switches from one to the other.
+
+- **The TypeScript server** is in `@delali/narsil/server` and in the image `ghcr.io/assetcorp/narsil`. Choose it for cluster mode, for a `transformers` embedder or reranker that runs a model inside the node, or for a server that needs code that you write in TypeScript.
+- **The Rust server** is in every image tag that ends in `-rust`, such as `latest-rust` for `latest`, which serves the same release. It answers the cluster routes, the backup routes, `/metrics`, and `/cluster/health` with 501 and the code `CLUSTER_OPERATION_UNSUPPORTED`, and its startup program exits with status 1 when a variable asks for the `transformers` kind. Its crate, `delali-narsil-server`, is unpublished, so deploy it through the image.
+
 ## Start the image when the server needs no code
 
 The image `ghcr.io/assetcorp/narsil` serves one node and takes every setting from an environment variable. With `NARSIL_ADMIN_KEY` and `NARSIL_READ_KEY` set in the shell, this command starts a node that keeps its indexes on a volume:
@@ -12,6 +19,7 @@ docker run -d -p 127.0.0.1:7700:7700 -e NARSIL_ADMIN_KEY -e NARSIL_READ_KEY -v n
 - The read key may call the search, suggestion, and document-reading routes, which include listing and fetching every stored document, and every `GET` route apart from the snapshot and the export. Give that key to a browser only when every document in the node may be public, and route a browser's searches through the app's backend otherwise.
 - The node answers `/livez`, `/readyz`, `/health`, and `/version` without a key, and every other route needs `Authorization: Bearer <key>`.
 - `NARSIL_LANGUAGES` registers language modules, given as a comma-separated list such as `english,french`. `NARSIL_EMBEDDERS` and `NARSIL_RERANKERS` list adapter names that an index or a query can use, and each name takes its kind, such as `openai` for an OpenAI-compatible endpoint or `transformers` for a model inside the node, from a variable such as `NARSIL_EMBEDDER_<NAME>_KIND`, which spells the name in upper case with each `-` written as `_`.
+- Add `-rust` to the tag, as in `ghcr.io/assetcorp/narsil:latest-rust`, to run the same release on the Rust server with the same variables.
 - Write the server in the steps below when it needs an adapter that you write, an `onRequest` hook that no key describes, or cluster mode, because the image serves one node.
 
 ## 1. Install the server's peer package
