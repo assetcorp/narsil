@@ -41,6 +41,9 @@ func filesUnder(t *testing.T, root string) map[string]int64 {
 		}
 		info, err := entry.Info()
 		if err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
 			return err
 		}
 		sizes[filepath.ToSlash(path)] = info.Size()
