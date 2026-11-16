@@ -107,6 +107,10 @@ pub(crate) fn waiters_exhausted(index_name: &str, limit: usize) -> NarsilError {
         ErrorCode::INDEX_REOPEN_CAPACITY_EXHAUSTED,
         format!("Index \"{index_name}\" has reached its reopen waiter limit of {limit}"),
     )
+    .with_details([
+        ("indexName", crate::value::Value::from(index_name)),
+        ("maximum", crate::value::Value::from(limit)),
+    ])
 }
 
 /// An open index that a write holds, which a close of the index waits for before it checkpoints.

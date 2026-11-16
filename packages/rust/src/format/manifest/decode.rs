@@ -7,14 +7,26 @@ use crate::error::{ErrorCode, NarsilError, Result};
 use crate::format::fields::{non_negative_safe_integer, uint32_of};
 use crate::format::layout::segment_key;
 use crate::format::manifest_refs::{
-    id_of, invalid_manifest, normalize_vector_fields, read_file_ref,
+    id_of, invalid_manifest, invalid_manifest_with, listed_detail, normalize_vector_fields,
+    read_file_ref,
 };
 use crate::schema::require_valid_field_types;
 use crate::value::{Map, Value};
 
-fn normalize_term_history(raw: &Value, last_seq_no: u64) -> Result<Vec<TermStart>> {
+fn partition_detail(partition_id: u32) -> [(&'static str, Value); 1] {
+    [("partitionId", Value::from(partition_id))]
+}
+
+fn normalize_term_history(
+    raw: &Value,
+    partition_id: u32,
+    last_seq_no: u64,
+) -> Result<Vec<TermStart>> {
     let Value::Array(starts) = raw else {
-        return Err(invalid_manifest("has a term history that is not a list"));
+        return Err(invalid_manifest_with(
+            "has a term history that is not a list",
+            partition_detail(partition_id),
+        ));
     };
     let mut out: Vec<TermStart> = Vec::with_capacity(starts.len());
     for start in starts {
@@ -23,18 +35,25 @@ fn normalize_term_history(raw: &Value, last_seq_no: u64) -> Result<Vec<TermStart
             map.and_then(|map| non_negative_safe_integer(map.get("primaryTerm"))),
             map.and_then(|map| non_negative_safe_integer(map.get("firstSeqNo"))),
         ) else {
-            return Err(invalid_manifest("has an invalid term history entry"));
+            return Err(invalid_manifest_with(
+                "has an invalid term history entry",
+                partition_detail(partition_id),
+            ));
         };
         if first_seq_no > last_seq_no {
-            return Err(invalid_manifest(format!(
-                "has a term starting at seqNo {first_seq_no}, above lastSeqNo {last_seq_no}"
-            )));
+            return Err(invalid_manifest_with(
+                format!(
+                    "has a term starting at seqNo {first_seq_no}, above lastSeqNo {last_seq_no}"
+                ),
+                partition_detail(partition_id),
+            ));
         }
         if out.last().is_some_and(|previous| {
             primary_term <= previous.primary_term || first_seq_no <= previous.first_seq_no
         }) {
-            return Err(invalid_manifest(
+            return Err(invalid_manifest_with(
                 "has a term history that fails to ascend strictly",
+                partition_detail(partition_id),
             ));
         }
         out.push(TermStart {
@@ -68,11 +87,14 @@ fn normalize_checkpoint(raw: Option<&Value>) -> Result<Vec<PartitionCheckpoint>>
             Some((map, partition_id, last_seq_no, primary_term))
         });
         let Some((map, partition_id, last_seq_no, primary_term)) = read else {
-            return Err(invalid_manifest("has an invalid partition checkpoint"));
+            return Err(invalid_manifest_with(
+                "has an invalid partition checkpoint",
+                [("entry", entry.clone())],
+            ));
         };
         let term_history = match map.get("termHistory") {
             None => None,
-            Some(history) => Some(normalize_term_history(history, last_seq_no)?),
+            Some(history) => Some(normalize_term_history(history, partition_id, last_seq_no)?),
         };
         out.push(PartitionCheckpoint {
             partition_id,
@@ -90,7 +112,10 @@ fn normalize_segments(
     partition_id: u32,
 ) -> Result<Vec<SegmentRef>> {
     let Some(Value::Array(segments)) = raw else {
-        return Err(invalid_manifest("has malformed segment references"));
+        return Err(invalid_manifest_with(
+            "has malformed segment references",
+            partition_detail(partition_id),
+        ));
     };
     if segments.len() > MAX_SEGMENTS_PER_PARTITION {
         return Err(invalid_manifest(format!(
@@ -108,7 +133,10 @@ fn normalize_segments(
         let (Some(map), Some(id), Some(document_count), Some(tombstone_count)) =
             (map, id, document_count, tombstone_count)
         else {
-            return Err(invalid_manifest("has an invalid segment reference"));
+            return Err(invalid_manifest_with(
+                "has an invalid segment reference",
+                partition_detail(partition_id),
+            ));
         };
         if seen.contains(&id) {
             return Err(invalid_manifest(format!(
@@ -135,19 +163,33 @@ fn normalize_partitions(raw: Option<&Value>, index_name: &str) -> Result<Vec<Par
     let mut out = Vec::with_capacity(entries.len());
     for entry in entries {
         let Some((map, partition_id)) = unseen_partition(entry, &mut seen) else {
-            return Err(invalid_manifest("has a partition without a valid id"));
+            let listed = match entry.as_object() {
+                Some(map) => listed_detail("partitionId", map.get("partitionId")),
+                None => Some(("partitionId", Value::Null)),
+            };
+            return Err(invalid_manifest_with(
+                "has a partition without a valid id",
+                listed,
+            ));
         };
         let segments = normalize_segments(map.get("segments"), index_name, partition_id)?;
-        let next_segment_id = id_of(map.get("nextSegmentId"))
-            .ok_or_else(|| invalid_manifest("has an invalid next segment id"))?;
+        let next_segment_id = id_of(map.get("nextSegmentId")).ok_or_else(|| {
+            invalid_manifest_with(
+                "has an invalid next segment id",
+                partition_detail(partition_id),
+            )
+        })?;
         if let Some(segment) = segments
             .iter()
             .find(|segment| segment.id >= next_segment_id)
         {
-            return Err(invalid_manifest(format!(
-                "next segment id {next_segment_id} does not exceed segment id {}",
-                segment.id
-            )));
+            return Err(invalid_manifest_with(
+                format!(
+                    "next segment id {next_segment_id} does not exceed segment id {}",
+                    segment.id
+                ),
+                partition_detail(partition_id),
+            ));
         }
         out.push(PartitionEntry {
             partition_id,
@@ -188,6 +230,11 @@ pub(crate) fn decode_manifest_payload(raw: &Map, index_name: &str) -> Result<Dec
                 "The segment manifest of index \"{index_name}\" holds layout {}, which this release cannot open. Export the index with the release that wrote it and import the export",
                 describe_version(raw.get("version"))
             ),
+        )
+        .with_details(
+            [("indexName", Value::from(index_name))]
+                .into_iter()
+                .chain(listed_detail("version", raw.get("version"))),
         ));
     }
     let (schema, language) = schema_and_language(raw)?;

@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::time::Duration;
 
 use narsil::{
@@ -17,7 +16,7 @@ pub(crate) fn milliseconds(elapsed: Duration) -> f64 {
     elapsed.as_secs_f64() * MILLISECONDS_PER_SECOND
 }
 
-fn numbers<'py>(py: Python<'py>, numbers: &BTreeMap<String, f64>) -> PyResult<Bound<'py, PyDict>> {
+fn numbers<'py>(py: Python<'py>, numbers: &[(String, f64)]) -> PyResult<Bound<'py, PyDict>> {
     let dict = PyDict::new(py);
     for (key, number) in numbers {
         dict.set_item(key, number)?;

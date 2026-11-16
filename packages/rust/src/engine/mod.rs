@@ -16,8 +16,10 @@ mod hooked;
 mod ids;
 pub(crate) mod index;
 pub(crate) mod index_lifecycle;
+mod languages;
 pub(crate) mod layout;
 mod lifecycle;
+mod listing_order;
 mod maintenance;
 pub(crate) mod memory;
 mod name_turns;
@@ -50,7 +52,7 @@ use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard, Weak};
 
 use crate::analysis::AnalysisRegistry;
 use crate::config::IndexConfig;
-use crate::error::{ErrorCode, NarsilError, Result, instance_shut_down};
+use crate::error::{Result, index_not_found, instance_shut_down};
 use crate::pattern::SearchLimits;
 use crate::pattern::constants::DEFAULT_PATTERN_WORK_CAP;
 use adapter_registry::AdapterRegistry;
@@ -67,10 +69,11 @@ pub use engine_config::{
     StaleAnalysis, StaleAnalysisListener,
 };
 use engine_config::{EngineSettings, engine_settings};
-pub use events::{EarlierLayout, ListenerId, NarsilEvent, NarsilEventKind, WorkStatus};
+pub use events::{EarlierLayout, FeedChange, ListenerId, NarsilEvent, NarsilEventKind, WorkStatus};
 pub use export::{DocumentImportResult, ImportRefusal};
 use index::IndexState;
 pub use index_lifecycle::IndexResidencyState;
+pub use memory::{ParseKind, ParseShortfall};
 use name_turns::NameTurns;
 pub use plugins::Plugin;
 pub use portability::SnapshotOptions;
@@ -97,6 +100,8 @@ use shutdown_gate::{Admission, ShutdownGate, shut_down_before_publication};
 pub use stale_review::StaleRebuild;
 pub use stats::{IndexStats, MemoryStats, PartitionStats};
 pub use suggest::{SuggestParams, SuggestResult, SuggestedTerm};
+pub use sync::feed::{SyncBounds, SyncCursor, SyncEntry, SyncFeedState, SyncRead};
+pub use sync::snapshot::SyncSnapshot;
 pub use sync::{SyncSetting, SyncStatus};
 pub use vectors::VectorMaintenanceStatus;
 pub use wait::WriteOptions;
@@ -115,6 +120,7 @@ pub(crate) struct EngineInner {
     pub(crate) search_limits: SearchLimits,
     pub(crate) settings: EngineSettings,
     pub(crate) lifecycle: index_lifecycle::IndexLifecycle,
+    pub(crate) listing: listing_order::ListingOrder,
     pub(crate) memory: memory::MemoryGuard,
     pub(crate) rebuild_queue: stale_review::RebuildQueue,
     pub(crate) self_ref: Weak<EngineInner>,
@@ -170,12 +176,10 @@ impl EngineInner {
     }
 
     pub(crate) fn index(&self, name: &str) -> Result<Arc<IndexState>> {
-        self.indexes().get(name).cloned().ok_or_else(|| {
-            NarsilError::new(
-                ErrorCode::INDEX_NOT_FOUND,
-                format!("Index \"{name}\" does not exist"),
-            )
-        })
+        self.indexes()
+            .get(name)
+            .cloned()
+            .ok_or_else(|| index_not_found(name))
     }
 
     /// Returns the index called `name` where it is open, without opening a closed one.
@@ -242,6 +246,7 @@ impl Narsil {
                 plugins: plugins::PluginRegistry::default(),
                 search_limits: SearchLimits::new(pattern_work_cap),
                 lifecycle: index_lifecycle::IndexLifecycle::new(settings.lifecycle),
+                listing: listing_order::ListingOrder::default(),
                 memory: memory::MemoryGuard::new(settings.memory),
                 rebuild_queue: stale_review::RebuildQueue::default(),
                 settings,
@@ -265,6 +270,7 @@ impl Narsil {
                 let _ = durable.close();
                 return Err(error);
             }
+            listing_order::place_recovered(engine);
         }
         analysis_change::resume_interrupted_changes(engine);
         stale_review::review_stale(engine, engine.index_list());

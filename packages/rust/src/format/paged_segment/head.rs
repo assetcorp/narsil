@@ -1,9 +1,10 @@
 use super::{
     PAGED_SEGMENT_HEAD_VERSION, PAYLOAD_PREFIX_BYTES, SECTION_ALIGNMENT_BYTES, SEGMENT_PAGE_BYTES,
 };
-use crate::error::{ErrorCode, NarsilError, Result, load_failed};
+use crate::error::{ErrorCode, NarsilError, Result, load_failed, load_failed_with};
 use crate::format::fields::{non_negative_safe_integer, string_list};
 use crate::format::file_sections::page_checksums;
+use crate::format::manifest_refs::listed_detail;
 use crate::util::hash::crc32;
 use crate::value::{
     Map, Value, decode_value, write_array_header, write_binary, write_map_header, write_string,
@@ -66,9 +67,12 @@ fn decode_section(raw: &Value, what: &str, allowed_page_bytes: &[u64]) -> Result
         non_negative_safe_integer(entry.get("offset")),
         non_negative_safe_integer(entry.get("length")),
     ) else {
-        return load_failed(format!(
-            "The {what} gives section \"{name}\" an invalid place"
-        ));
+        return load_failed_with(
+            format!("The {what} gives section \"{name}\" an invalid place"),
+            std::iter::once(("section", Value::from(name.as_str())))
+                .chain(listed_detail("offset", entry.get("offset")))
+                .chain(listed_detail("length", entry.get("length"))),
+        );
     };
     let found = entry.get("pageBytes");
     let allowed = match found {
@@ -80,19 +84,27 @@ fn decode_section(raw: &Value, what: &str, allowed_page_bytes: &[u64]) -> Result
     };
     let Some(page_bytes) = allowed else {
         let shown = found.map_or_else(|| "undefined".to_string(), Value::to_json);
-        return load_failed(format!(
-            "The {what} gives section \"{name}\" a page size of {shown}"
-        ));
+        return load_failed_with(
+            format!("The {what} gives section \"{name}\" a page size of {shown}"),
+            std::iter::once(("section", Value::from(name.as_str())))
+                .chain(listed_detail("pageBytes", found)),
+        );
     };
     let Some(Value::Bytes(checksums)) = entry.get("checksums") else {
         return load_failed(format!("The {what} gives section \"{name}\" no checksums"));
     };
     let wanted = length.div_ceil(page_bytes).saturating_mul(4);
     if checksums.len() as u64 != wanted {
-        return load_failed(format!(
-            "The {what} gives section \"{name}\" {} bytes of checksums",
-            checksums.len()
-        ));
+        return load_failed_with(
+            format!(
+                "The {what} gives section \"{name}\" {} bytes of checksums",
+                checksums.len()
+            ),
+            [
+                ("section", Value::from(name.as_str())),
+                ("checksumBytes", Value::from(checksums.len())),
+            ],
+        );
     }
     Ok(PagedSection {
         name,
@@ -121,24 +133,34 @@ pub(crate) fn decode_sections(
         .collect::<Result<Vec<_>>>()?;
     let mut names = std::collections::HashSet::with_capacity(sections.len());
     for section in &sections {
+        let named = [("section", Value::from(section.name.as_str()))];
         if !names.insert(section.name.as_str()) {
-            return load_failed(format!("The {what} repeats section \"{}\"", section.name));
+            return load_failed_with(
+                format!("The {what} repeats section \"{}\"", section.name),
+                named,
+            );
         }
         if section.offset.saturating_add(section.length) > payload_length {
-            return load_failed(format!(
-                "The {what} ends section \"{}\" outside the payload",
-                section.name
-            ));
+            return load_failed_with(
+                format!(
+                    "The {what} ends section \"{}\" outside the payload",
+                    section.name
+                ),
+                named,
+            );
         }
     }
     let mut by_offset: Vec<&PagedSection> = sections.iter().collect();
     by_offset.sort_by_key(|section| section.offset);
     for pair in by_offset.windows(2) {
         if pair[0].offset + pair[0].length > pair[1].offset {
-            return load_failed(format!(
-                "The {what} overlaps section \"{}\" with \"{}\"",
-                pair[0].name, pair[1].name
-            ));
+            return load_failed_with(
+                format!(
+                    "The {what} overlaps section \"{}\" with \"{}\"",
+                    pair[0].name, pair[1].name
+                ),
+                [("section", Value::from(pair[0].name.as_str()))],
+            );
         }
     }
     Ok(sections)
@@ -166,7 +188,8 @@ pub(crate) fn decode_paged_head(head: &[u8], payload_length: u64, what: &str) ->
             format!(
                 "The head of {what} was written in layout {shown}, and this build reads layout {PAGED_SEGMENT_HEAD_VERSION} alone"
             ),
-        ));
+        )
+        .with_details(listed_detail("version", entry.get("v"))));
     }
     let schema = match entry.get("schema") {
         Some(Value::Object(schema))
@@ -187,9 +210,10 @@ pub(crate) fn decode_paged_head(head: &[u8], payload_length: u64, what: &str) ->
     let document_count = match entry.get("documentCount") {
         Some(Value::Number(count)) if count.fract() == 0.0 && *count >= 0.0 => *count,
         _ => {
-            return load_failed(format!(
-                "The head of {what} holds an invalid document count"
-            ));
+            return load_failed_with(
+                format!("The head of {what} holds an invalid document count"),
+                listed_detail("documentCount", entry.get("documentCount")),
+            );
         }
     };
     if document_count > MAX_UINT32 {

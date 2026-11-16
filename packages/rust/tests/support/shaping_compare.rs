@@ -18,52 +18,6 @@ const SPREAD_COPIES: usize = 3;
 const SPREAD_MAX_PARTITIONS: u64 = 4;
 const MIN_SPREAD_PARTITIONS: usize = 2;
 
-fn sorted_object(value: &Value) -> Value {
-    let Value::Object(map) = value else {
-        return value.clone();
-    };
-    let mut keys: Vec<&String> = map.keys().collect();
-    keys.sort();
-    let mut sorted = Map::new();
-    for key in keys {
-        sorted.insert(key.clone(), map.get(key).cloned().unwrap_or(Value::Null));
-    }
-    Value::Object(sorted)
-}
-
-fn normalised_hit(hit: &mut Value) {
-    let Some(map) = hit.as_object_mut() else {
-        return;
-    };
-    if let Some(highlights) = map.get_mut("highlights") {
-        *highlights = sorted_object(highlights);
-    }
-    if let Some(Value::Object(components)) = map.get_mut("scoreComponents") {
-        for (_, record) in components.iter_mut() {
-            *record = sorted_object(record);
-        }
-    }
-}
-
-pub fn normalised_page(page: &mut Value) {
-    let Some(map) = page.as_object_mut() else {
-        return;
-    };
-    if let Some(Value::Array(hits)) = map.get_mut("hits") {
-        hits.iter_mut().for_each(normalised_hit);
-    }
-    if let Some(Value::Array(groups)) = map.get_mut("groups") {
-        for group in groups.iter_mut() {
-            if let Some(Value::Array(hits)) = group
-                .as_object_mut()
-                .and_then(|group| group.get_mut("hits"))
-            {
-                hits.iter_mut().for_each(normalised_hit);
-            }
-        }
-    }
-}
-
 fn first_difference(path: &str, found: &Value, wanted: &Value) -> Option<String> {
     match (found, wanted) {
         (Value::Object(one), Value::Object(other)) => {

@@ -28,11 +28,13 @@ jobs:
       benchmark_harness: ${{ steps.areas.outputs.benchmark_harness }}
       benchmark_languages: ${{ steps.areas.outputs.benchmark_languages }}
       rust: ${{ steps.areas.outputs.rust }}
+      rust_server: ${{ steps.areas.outputs.rust_server }}
       python_engine: ${{ steps.areas.outputs.python_engine }}
       go_engine: ${{ steps.areas.outputs.go_engine }}
       native_core: ${{ steps.areas.outputs.native_core }}
       clients: ${{ steps.areas.outputs.clients }}
       container: ${{ steps.areas.outputs.container }}
+      rust_container: ${{ steps.areas.outputs.rust_container }}
       cluster: ${{ steps.areas.outputs.cluster }}
       vector_recall: ${{ steps.areas.outputs.vector_recall }}
       engine: ${{ steps.areas.outputs.engine }}
@@ -537,11 +539,33 @@ jobs:
       push: false
       version: 0.0.0-ci
 
+  rust-container:
+    name: Rust container
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.rust_container == 'true') }}
+    uses: ./.github/workflows/rust-container.yml
+
+  rust-container-image:
+    name: Rust container image
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.rust_container == 'true') }}
+    uses: ./.github/workflows/container-image.yml
+    with:
+      push: false
+      server: rust
+      version: 0.0.0-ci
+
   rust:
     name: Rust crate
     needs: [changes, engine]
     if: ${{ !cancelled() && needs.engine.result == 'success' && (needs.changes.result != 'success' || needs.changes.outputs.rust == 'true') }}
     uses: ./.github/workflows/rust.yml
+
+  rust-server:
+    name: Rust server
+    needs: [changes, engine]
+    if: ${{ !cancelled() && needs.engine.result == 'success' && (needs.changes.result != 'success' || needs.changes.outputs.rust_server == 'true') }}
+    uses: ./.github/workflows/rust-server.yml
 
   go-engine:
     name: Go engine

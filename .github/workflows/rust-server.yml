@@ -1,0 +1,144 @@
+name: Rust server
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Format and Clippy
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install the pinned Rust toolchain
+        working-directory: packages/rust-server
+        run: rustup toolchain install
+
+      - name: Check the formatting
+        working-directory: packages/rust-server
+        run: cargo fmt --all --check
+
+      - name: Run Clippy with every warning as an error
+        working-directory: packages/rust-server
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+  test:
+    name: Test on ${{ matrix.label }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include: >-
+          ${{ fromJSON(github.event_name == 'push' && '[
+          {"label": "linux-x64", "runner": "ubuntu-latest"},
+          {"label": "win32-x64", "runner": "windows-latest"}
+          ]' || '[
+          {"label": "linux-x64", "runner": "ubuntu-latest"},
+          {"label": "darwin-arm64", "runner": "macos-15"},
+          {"label": "win32-x64", "runner": "windows-latest"}
+          ]') }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install the TypeScript server's and the conformance tools' dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts --filter @delali/narsil --filter @delali/narsil-conformance
+
+      - name: Build the conformance tools
+        working-directory: packages/conformance
+        run: pnpm tsup
+
+      - name: Download the TypeScript engine
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: narsil-ts-dist
+          path: packages/ts/dist
+
+      - name: Download the conformance dataset
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: conformance-dataset
+          path: packages/conformance/.dataset
+
+      - name: Install the pinned Rust toolchain
+        working-directory: packages/rust-server
+        run: rustup toolchain install
+
+      - name: Test against the TypeScript server
+        working-directory: packages/rust-server
+        run: cargo test --locked --no-fail-fast
+
+  clients:
+    name: Python and Go clients on the Rust server
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Setup Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.14'
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: stable
+          cache: false
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Download the TypeScript engine that the change feed tests load
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: narsil-ts-dist
+          path: packages/ts/dist
+
+      - name: Install the pinned Rust toolchain
+        working-directory: packages/rust-server
+        run: rustup toolchain install
+
+      - name: Build the server binary
+        working-directory: packages/rust-server
+        run: cargo build --locked --bin narsil-server
+
+      - name: Test the Python client on the Rust server
+        env:
+          NARSIL_CLIENT_TEST_LAUNCHER: ${{ github.workspace }}/packages/rust-server/tests/support/client-test-server.mjs
+          NARSIL_RUST_SERVER_BINARY: ${{ github.workspace }}/packages/rust-server/target/debug/narsil-server
+        run: pnpm nx run narsil-python:test --exclude-task-dependencies
+
+      - name: Test the Go client on the Rust server
+        env:
+          NARSIL_CLIENT_TEST_LAUNCHER: ${{ github.workspace }}/packages/rust-server/tests/support/client-test-server.mjs
+          NARSIL_RUST_SERVER_BINARY: ${{ github.workspace }}/packages/rust-server/target/debug/narsil-server
+        run: pnpm nx run narsil-go:test --exclude-task-dependencies

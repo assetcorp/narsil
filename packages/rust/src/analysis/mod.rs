@@ -54,12 +54,15 @@ impl Language {
         core::language_index(name)
             .and_then(|index| every_language().get(index as usize))
             .cloned()
-            .ok_or_else(|| {
-                NarsilError::new(
-                    ErrorCode::LANGUAGE_NOT_SUPPORTED,
-                    format!("Language \"{name}\" is not registered"),
-                )
-            })
+            .ok_or_else(|| Language::not_registered(name))
+    }
+
+    pub(crate) fn not_registered(name: &str) -> NarsilError {
+        NarsilError::new(
+            ErrorCode::LANGUAGE_NOT_SUPPORTED,
+            format!("Language \"{name}\" is not registered"),
+        )
+        .with_details([("language", crate::value::Value::from(name))])
     }
 
     /// Returns every language that the native core analyses, in the core's order.
@@ -209,6 +212,35 @@ impl Analyser {
                 }
             },
         )
+    }
+
+    pub(crate) fn custom_document_tokens(&self, text: &str) -> Option<Result<Vec<Token>>> {
+        let tokenizer = self.tokenizer.as_ref()?;
+        Some(tokens_in_position_order(
+            tokenizer.as_ref(),
+            text,
+            TokenSource::Document,
+        ))
+    }
+
+    pub(crate) fn visit_document_terms(
+        &self,
+        text: &str,
+        visit: &mut dyn FnMut(&str),
+    ) -> Result<()> {
+        if let Some(tokens) = self.custom_document_tokens(text) {
+            for token in &tokens? {
+                visit(&token.token);
+            }
+            return Ok(());
+        }
+        let options = TokenOptions {
+            stem: false,
+            remove_stop_words: false,
+            remove_diacritics: false,
+            collect_surfaces: false,
+        };
+        self.visit_tokens(text, options, &mut |term, _, _, _| visit(term))
     }
 
     pub(crate) fn pack_text(

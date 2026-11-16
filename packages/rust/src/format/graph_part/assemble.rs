@@ -1,11 +1,16 @@
 use super::{GraphPart, GraphParts, NumberedGraph, PART_PREFIX, VECTOR_GRAPH_PART_VECTORS};
 use crate::error::{ErrorCode, NarsilError, Result};
+use crate::value::Value;
 
 fn part_error(message: String) -> NarsilError {
     NarsilError::new(
         ErrorCode::PERSISTENCE_LOAD_FAILED,
         format!("{PART_PREFIX}{message}"),
     )
+}
+
+fn part_detail(p: usize) -> (&'static str, Value) {
+    ("part", Value::from(p))
 }
 
 fn same_header(left: &NumberedGraph, right: &NumberedGraph) -> bool {
@@ -32,7 +37,8 @@ fn require_one_graph_per_vector(part: &GraphPart, p: usize) -> Result<()> {
                 let vector = p * VECTOR_GRAPH_PART_VECTORS + at;
                 return Err(part_error(format!(
                     "part {p} gives vector {vector} a node in two graphs"
-                )));
+                ))
+                .with_details([part_detail(p), ("vector", Value::from(vector))]));
             }
             held[at] = true;
         }
@@ -51,15 +57,17 @@ pub(crate) fn assemble_graph_parts(parts: Vec<GraphPart>) -> Result<GraphParts> 
     let last = parts.len() - 1;
     for (p, part) in parts.into_iter().enumerate() {
         if part.field_name != first.field_name || part.graphs.len() != first.graphs.len() {
-            return Err(part_error(format!(
-                "part {p} lists other graphs than part 0"
-            )));
+            return Err(
+                part_error(format!("part {p} lists other graphs than part 0"))
+                    .with_details([part_detail(p)]),
+            );
         }
         for (g, graph) in part.graphs.iter().enumerate() {
             if !same_header(graph, &first.graphs[g]) {
-                return Err(part_error(format!(
-                    "part {p} gives graph {g} other headers"
-                )));
+                return Err(
+                    part_error(format!("part {p} gives graph {g} other headers"))
+                        .with_details([part_detail(p)]),
+                );
             }
             let levels = graph.levels.len();
             let fits = if p == last {
@@ -70,7 +78,8 @@ pub(crate) fn assemble_graph_parts(parts: Vec<GraphPart>) -> Result<GraphParts> 
             if !fits {
                 return Err(part_error(format!(
                     "part {p} gives graph {g} {levels} bytes of levels"
-                )));
+                ))
+                .with_details([part_detail(p), ("levels", Value::from(levels))]));
             }
         }
         require_one_graph_per_vector(&part, p)?;

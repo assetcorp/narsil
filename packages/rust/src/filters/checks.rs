@@ -45,6 +45,19 @@ pub(crate) fn invalid<T>(message: impl Into<String>) -> Result<T> {
     Err(NarsilError::new(ErrorCode::SEARCH_INVALID_FILTER, message))
 }
 
+pub(crate) fn invalid_operand<T>(
+    message: impl Into<String>,
+    field_path: &str,
+    operator: &str,
+) -> Result<T> {
+    Err(
+        NarsilError::new(ErrorCode::SEARCH_INVALID_FILTER, message).with_details([
+            ("fieldPath", Value::from(field_path)),
+            ("operator", Value::from(operator)),
+        ]),
+    )
+}
+
 fn operand_kind_of(field_type: &FieldType) -> OperandKind {
     match field_type.base {
         BaseType::Number | BaseType::NumberList => OperandKind::Number,
@@ -96,12 +109,16 @@ fn require_field_kind(
     if operand_kind_of(field.field_type) == accepted {
         return Ok(());
     }
-    invalid(format!(
-        "The engine applies \"{operator}\" to {} fields alone, and the schema declares field \"{}\" as \"{}\"",
-        accepted.as_str(),
+    invalid_operand(
+        format!(
+            "The engine applies \"{operator}\" to {} fields alone, and the schema declares field \"{}\" as \"{}\"",
+            accepted.as_str(),
+            field.path,
+            field.declared
+        ),
         field.path,
-        field.declared
-    ))
+        operator,
+    )
 }
 
 fn require_text_range_field(field: &FieldContext<'_>, operator: &str) -> Result<()> {
@@ -110,19 +127,27 @@ fn require_text_range_field(field: &FieldContext<'_>, operator: &str) -> Result<
     if field_type.sortable && text_base {
         return Ok(());
     }
-    invalid(format!(
-        "The engine applies \"{operator}\" with a text bound to a \"string\" or \"verbatim\" field whose type includes \"sortable\", but field \"{}\" has type \"{}\"",
-        field.path, field.declared
-    ))
+    invalid_operand(
+        format!(
+            "The engine applies \"{operator}\" with a text bound to a \"string\" or \"verbatim\" field whose type includes \"sortable\", but field \"{}\" has type \"{}\"",
+            field.path, field.declared
+        ),
+        field.path,
+        operator,
+    )
 }
 
 pub(crate) fn require_list_length(path: &str, operator: &str, length: usize) -> Result<()> {
     if length <= MAX_FILTER_ARRAY_SIZE {
         return Ok(());
     }
-    invalid(format!(
-        "\"{operator}\" on field \"{path}\" holds {length} values, while a filter list holds at most {MAX_FILTER_ARRAY_SIZE}"
-    ))
+    invalid_operand(
+        format!(
+            "\"{operator}\" on field \"{path}\" holds {length} values, while a filter list holds at most {MAX_FILTER_ARRAY_SIZE}"
+        ),
+        path,
+        operator,
+    )
 }
 
 const RANGE_OPERATORS: [&str; 4] = ["gt", "lt", "gte", "lte"];
@@ -138,9 +163,11 @@ pub(crate) fn require_range_operands(field: &FieldContext<'_>) -> Result<()> {
             continue;
         }
         if finite_number(Some(bound)).is_none() {
-            return invalid(format!(
-                "\"{operator}\" on field \"{path}\" must be a finite number or a string"
-            ));
+            return invalid_operand(
+                format!("\"{operator}\" on field \"{path}\" must be a finite number or a string"),
+                path,
+                operator,
+            );
         }
         require_field_kind(field, operator, OperandKind::Number)?;
     }
@@ -158,9 +185,13 @@ pub(crate) fn require_range_operands(field: &FieldContext<'_>) -> Result<()> {
         finite_number(Some(low)).is_some() && finite_number(Some(high)).is_some()
     });
     if !numbers {
-        return invalid(format!(
-            "\"between\" on field \"{path}\" must be two finite numbers or two strings, the lower bound first"
-        ));
+        return invalid_operand(
+            format!(
+                "\"between\" on field \"{path}\" must be two finite numbers or two strings, the lower bound first"
+            ),
+            path,
+            "between",
+        );
     }
     require_field_kind(field, "between", OperandKind::Number)
 }
@@ -172,9 +203,11 @@ pub(crate) fn require_value_operands(field: &FieldContext<'_>) -> Result<()> {
             continue;
         };
         if !matches!(operand, Value::String(_)) {
-            return invalid(format!(
-                "\"{operator}\" on field \"{path}\" must be a string"
-            ));
+            return invalid_operand(
+                format!("\"{operator}\" on field \"{path}\" must be a string"),
+                path,
+                operator,
+            );
         }
         require_field_kind(field, operator, OperandKind::Text)?;
     }
@@ -183,9 +216,13 @@ pub(crate) fn require_value_operands(field: &FieldContext<'_>) -> Result<()> {
             continue;
         }
         let Some(kind) = kind_of_value(field.get(operator)) else {
-            return invalid(format!(
-                "\"{operator}\" on field \"{path}\" must be a string, a finite number, or a boolean"
-            ));
+            return invalid_operand(
+                format!(
+                    "\"{operator}\" on field \"{path}\" must be a string, a finite number, or a boolean"
+                ),
+                path,
+                operator,
+            );
         };
         require_field_kind(field, operator, kind)?;
     }
@@ -198,9 +235,11 @@ pub(crate) fn require_value_operands(field: &FieldContext<'_>) -> Result<()> {
                 items
             }
             _ => {
-                return invalid(format!(
-                    "\"{operator}\" on field \"{path}\" must be a list of strings"
-                ));
+                return invalid_operand(
+                    format!("\"{operator}\" on field \"{path}\" must be a list of strings"),
+                    path,
+                    operator,
+                );
             }
         };
         require_list_length(path, operator, texts.len())?;

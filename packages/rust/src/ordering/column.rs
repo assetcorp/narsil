@@ -35,6 +35,13 @@ impl SortColumn {
         self.current.len()
     }
 
+    pub(crate) fn bytes(&self) -> usize {
+        self.current.bytes()
+            + self.order.values.bytes()
+            + self.order.ranks.len() * size_of::<i32>()
+            + (self.order.ordered.len() + self.dirty.len()) * size_of::<u32>()
+    }
+
     pub(crate) fn append(&mut self, values: &SortValues) -> Result<()> {
         let start = self.current.len();
         self.current.append(values)?;

@@ -189,7 +189,11 @@ fn require_json_values(value: &Value, path: &str, doc_id: &str, tagged: bool) ->
             format!(
                 "Document \"{doc_id}\" holds {kind} at \"{place}\", which a document export cannot carry as JSON"
             ),
-        ))
+        )
+        .with_details([
+            ("docId", Value::from(doc_id)),
+            ("field", Value::from(path)),
+        ]))
     };
     match value {
         Value::Number(number) if !number.is_finite() && !tagged => refuse(&number_to_text(*number)),

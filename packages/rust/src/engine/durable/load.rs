@@ -41,7 +41,12 @@ pub(crate) fn grow_partitions(
     if highest as u64 >= MAX_PARTITIONS {
         return Err(load_failed(format!(
             "Segment manifest references partition {highest}, beyond the {MAX_PARTITIONS} partitions that an index holds at most"
-        )));
+        ))
+        .with_details([
+            ("indexName", Value::from(index.name.as_str())),
+            ("partitionId", Value::from(highest)),
+            ("maxPartitions", Value::from(MAX_PARTITIONS)),
+        ]));
     }
     let mut partitions = index.partitions().to_vec();
     while partitions.len() <= highest {
@@ -61,7 +66,13 @@ fn require_agreed_schema(agreed: &Map, schema: &Map, key: &str) -> Result<()> {
                 "The segment \"{key}\" gives field \"{field}\" the type \"{}\", while the index gives it \"{}\"",
                 found.as_str().unwrap_or_default(),
                 existing.as_str().unwrap_or_default()
-            )));
+            ))
+            .with_details([
+                ("key", Value::from(key)),
+                ("field", Value::from(field.as_str())),
+                ("existing", existing.clone()),
+                ("found", found.clone()),
+            ]));
         }
     }
     Ok(())
@@ -108,7 +119,14 @@ fn require_listed_counts(
     Err(load_failed(format!(
         "The segment \"{}\" holds {document_count} documents and {tombstone_count} tombstones where the manifest lists {} and {}",
         listed.file.key, listed.document_count, listed.tombstone_count
-    )))
+    ))
+    .with_details([
+        ("key", Value::from(listed.file.key.as_str())),
+        ("documentCount", Value::from(document_count)),
+        ("tombstoneCount", Value::from(tombstone_count)),
+        ("listedDocCount", Value::from(listed.document_count)),
+        ("listedTombstoneCount", Value::from(listed.tombstone_count)),
+    ]))
 }
 
 /// Reports whether a listed segment is a paged segment that the index reads from its file, which an index whose
@@ -246,7 +264,8 @@ pub(super) fn read_graph_parts(
             return Err(load_failed(format!(
                 "The graph part \"{}\" names field \"{}\" where the manifest lists \"{}\"",
                 part.key, decoded.field_name, listed.field_path
-            )));
+            ))
+            .with_details([("key", Value::from(part.key.as_str()))]));
         }
         parts.push(decoded);
     }
@@ -292,13 +311,19 @@ fn load_vector_field(
                 "The vector file \"{key}\" holds {} vectors where the manifest counts {}",
                 decoded.doc_ids.len(),
                 file.count
-            )));
+            ))
+            .with_details([
+                ("key", Value::from(key.as_str())),
+                ("held", Value::from(decoded.doc_ids.len())),
+                ("count", Value::from(file.count)),
+            ]));
         }
         if decoded.field_name != listed.field_path {
             return Err(load_failed(format!(
                 "The vector file \"{key}\" names field \"{}\" where the manifest lists \"{}\"",
                 decoded.field_name, listed.field_path
-            )));
+            ))
+            .with_details([("key", Value::from(key.as_str()))]));
         }
         let location = vectors_location(store, key, payload.len(), decoded.vectors.len())?;
         restore.add_file(LoadedVectorFile {

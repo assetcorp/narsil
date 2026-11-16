@@ -10,6 +10,7 @@ use std::thread::ThreadId;
 
 use super::constants::MAX_REBALANCE_QUEUED_WRITES;
 use crate::error::{ErrorCode, NarsilError, Result};
+use crate::value::Value;
 
 /// The kind of work that rebuilds an index's partitions while the index keeps answering searches.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -55,7 +56,8 @@ fn busy(kind: ChangeKind, running: ChangeKind, index_name: &str) -> NarsilError 
         )),
         (ChangeKind::Rebalance, ChangeKind::Analysis) => backpressure(format!(
             "Index \"{index_name}\" is changing its analysis settings, so try the rebalance again once the change ends"
-        )),
+        ))
+        .with_details([("indexName", Value::from(index_name))]),
         (ChangeKind::Rebalance | ChangeKind::Close, ChangeKind::Close) => backpressure(format!(
             "Index \"{index_name}\" is closing, so try the rebalance again once it opens"
         )),
@@ -64,7 +66,8 @@ fn busy(kind: ChangeKind, running: ChangeKind, index_name: &str) -> NarsilError 
         )),
         (ChangeKind::Analysis, _) => backpressure(format!(
             "Index \"{index_name}\" is being rebalanced, so try its analysis change again once the rebalance ends"
-        )),
+        ))
+        .with_details([("indexName", Value::from(index_name))]),
     }
 }
 
@@ -76,6 +79,7 @@ pub(crate) fn replaced(index_name: &str) -> NarsilError {
             "A later change or a restore replaced this analysis change of index \"{index_name}\""
         ),
     )
+    .with_details([("indexName", Value::from(index_name))])
 }
 
 impl LayoutChanges {
@@ -242,7 +246,11 @@ impl LayoutChanges {
         if running.kind == ChangeKind::Rebalance && running.queued >= MAX_REBALANCE_QUEUED_WRITES {
             return Err(backpressure(format!(
                 "Write-ahead queue is full ({MAX_REBALANCE_QUEUED_WRITES} entries). Retry after rebalancing completes."
-            )));
+            ))
+            .with_details([
+                ("maxSize", Value::from(MAX_REBALANCE_QUEUED_WRITES)),
+                ("currentSize", Value::from(running.queued)),
+            ]));
         }
         running.queued += 1;
         running.written.insert(id.to_string());

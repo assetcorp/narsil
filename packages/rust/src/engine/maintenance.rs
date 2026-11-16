@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use super::sync::notify::announce_sync_settings;
 use super::{Narsil, VectorMaintenanceStatus, durable, registration, synonyms};
 use crate::adapters::{EmbeddingAdapter, RerankAdapter};
 use crate::analysis::{StopWords, Tokenizer};
@@ -40,6 +41,11 @@ impl Narsil {
         registration::register_rerank_adapter(&self.inner, name, adapter)
     }
 
+    /// Returns the most hits that one query may rerank, as the engine's `maxRerankWindow` setting gives it.
+    pub fn max_rerank_window(&self) -> usize {
+        self.inner.adapters.rerank_settings().max_window
+    }
+
     /// Writes the index's current state to the durability store, so that a restart replays less of the log; an
     /// engine without durability does nothing.
     pub fn checkpoint(&self, index: &str) -> Result<()> {
@@ -57,7 +63,9 @@ impl Narsil {
     /// or to several, and leaves the old set in place.
     pub fn update_synonyms(&self, index: &str, rules: &[SynonymRule]) -> Result<()> {
         self.inner
-            .on_current_index(index, |state| synonyms::update_synonyms(state, rules))
+            .on_current_index(index, |state| synonyms::update_synonyms(state, rules))?;
+        announce_sync_settings(&self.inner, index);
+        Ok(())
     }
 
     /// Returns the synonym set of an index, or an empty list where it holds none.

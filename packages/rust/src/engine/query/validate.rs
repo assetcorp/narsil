@@ -4,18 +4,34 @@ use crate::engine::index::IndexState;
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::ordering::SORT_VALUE_MAX_CODE_POINTS;
 use crate::schema::{BaseType, FieldType, parse_field_type};
-use crate::value::number_to_text;
+use crate::value::{Value, number_to_text};
 
 const TYPE_SEPARATOR: char = ':';
 
-fn invalid_field(message: String) -> NarsilError {
-    NarsilError::new(ErrorCode::SEARCH_INVALID_FIELD, message)
+fn invalid_field<'a>(
+    message: String,
+    details: impl IntoIterator<Item = (&'a str, Value)>,
+) -> NarsilError {
+    NarsilError::new(ErrorCode::SEARCH_INVALID_FIELD, message).with_details(details)
+}
+
+fn field_of_type(field: &str, field_type: &FieldType) -> [(&'static str, Value); 2] {
+    [
+        ("field", Value::from(field)),
+        ("fieldType", Value::from(field_type.name.as_str())),
+    ]
 }
 
 fn undeclared_on_strict_index(field: &str, option: &str) -> NarsilError {
-    invalid_field(format!(
-        "The index is strict and its schema declares no field \"{field}\", so no stored document has a value in that field for this {option}"
-    ))
+    invalid_field(
+        format!(
+            "The index is strict and its schema declares no field \"{field}\", so no stored document has a value in that field for this {option}"
+        ),
+        [
+            ("field", Value::from(field)),
+            ("option", Value::from(option)),
+        ],
+    )
 }
 
 fn is_strict(index: &IndexState) -> bool {
@@ -65,10 +81,15 @@ fn require_sort_mode(entry: &SortField, field_type: Option<&FieldType>) -> Resul
     } else {
         "median"
     };
-    Err(invalid_field(format!(
-        "The engine applies the \"{mode_name}\" mode to a number field alone, and \"{}\" is a {} field",
-        entry.field, field_type.name
-    )))
+    Err(invalid_field(
+        format!(
+            "The engine applies the \"{mode_name}\" mode to a number field alone, and \"{}\" is a {} field",
+            entry.field, field_type.name
+        ),
+        field_of_type(&entry.field, field_type)
+            .into_iter()
+            .chain([("mode", Value::from(mode_name))]),
+    ))
 }
 
 pub(crate) fn require_sortable_fields(
@@ -83,17 +104,23 @@ pub(crate) fn require_sortable_fields(
             continue;
         };
         if field_type.base.is_string_valued() && !field_type.sortable {
-            return Err(invalid_field(format!(
-                "The engine sorts by text field \"{}\" only where its type includes \"sortable\", as in \"{}\", because it keeps up to the first {SORT_VALUE_MAX_CODE_POINTS} code points of every document's value in memory to sort by a text field",
-                entry.field,
-                with_sortable_option(field_type)
-            )));
+            return Err(invalid_field(
+                format!(
+                    "The engine sorts by text field \"{}\" only where its type includes \"sortable\", as in \"{}\", because it keeps up to the first {SORT_VALUE_MAX_CODE_POINTS} code points of every document's value in memory to sort by a text field",
+                    entry.field,
+                    with_sortable_option(field_type)
+                ),
+                field_of_type(&entry.field, field_type),
+            ));
         }
         if is_geopoint_or_vector(field_type) {
-            return Err(invalid_field(format!(
-                "The engine sorts by a number, boolean, enum, or sortable text field, and \"{}\" is a {} field",
-                entry.field, field_type.name
-            )));
+            return Err(invalid_field(
+                format!(
+                    "The engine sorts by a number, boolean, enum, or sortable text field, and \"{}\" is a {} field",
+                    entry.field, field_type.name
+                ),
+                field_of_type(&entry.field, field_type),
+            ));
         }
     }
     Ok(())
@@ -113,26 +140,34 @@ fn require_boostable_fields(index: &IndexState, boost: &[(String, f64)]) -> Resu
             .map_or(f64::NAN, |(_, weight)| *weight);
         match index.schema.field_type(field) {
             None => {
-                return Err(invalid_field(format!(
-                    "The engine boosts a text field that the schema declares, and the schema declares no field \"{field}\""
-                )));
+                return Err(invalid_field(
+                    format!(
+                        "The engine boosts a text field that the schema declares, and the schema declares no field \"{field}\""
+                    ),
+                    [("field", Value::from(field.as_str()))],
+                ));
             }
             Some(field_type) if !field_type.base.is_word_indexed() => {
-                return Err(invalid_field(format!(
-                    "The engine boosts a text field alone, and the schema declares field \"{field}\" as \"{}\"",
-                    field_type.name
-                )));
+                return Err(invalid_field(
+                    format!(
+                        "The engine boosts a text field alone, and the schema declares field \"{field}\" as \"{}\"",
+                        field_type.name
+                    ),
+                    field_of_type(field, field_type),
+                ));
             }
             Some(_) => {}
         }
         if !weight.is_finite() {
+            let shown = number_to_text(weight);
             return Err(NarsilError::new(
                 ErrorCode::CONFIG_INVALID,
-                format!(
-                    "The boost on field \"{field}\" must be a finite number, and this query sets {}",
-                    number_to_text(weight)
-                ),
-            ));
+                format!("The boost on field \"{field}\" must be a finite number, and this query sets {shown}"),
+            )
+            .with_details([
+                ("field", Value::from(field.as_str())),
+                ("boost", Value::from(shown)),
+            ]));
         }
     }
     Ok(())
@@ -144,10 +179,13 @@ fn require_facetable_fields(index: &IndexState, fields: &[&str]) -> Result<()> {
         let field_type = field_type_for(index, strict, field, "facet")?;
         if let Some(field_type) = field_type.filter(|field_type| is_geopoint_or_vector(field_type))
         {
-            return Err(invalid_field(format!(
-                "The engine counts the values of a text, number, boolean, or enum field, and the schema declares field \"{field}\" as \"{}\"",
-                field_type.name
-            )));
+            return Err(invalid_field(
+                format!(
+                    "The engine counts the values of a text, number, boolean, or enum field, and the schema declares field \"{field}\" as \"{}\"",
+                    field_type.name
+                ),
+                field_of_type(field, field_type),
+            ));
         }
     }
     Ok(())
@@ -160,10 +198,13 @@ fn require_groupable_fields(index: &IndexState, fields: &[String]) -> Result<()>
         if let Some(field_type) =
             field_type.filter(|field_type| field_type.base == BaseType::Vector)
         {
-            return Err(invalid_field(format!(
-                "The engine groups hits by a text, number, boolean, enum, or geopoint field, and the schema declares field \"{field}\" as \"{}\"",
-                field_type.name
-            )));
+            return Err(invalid_field(
+                format!(
+                    "The engine groups hits by a text, number, boolean, enum, or geopoint field, and the schema declares field \"{field}\" as \"{}\"",
+                    field_type.name
+                ),
+                field_of_type(field, field_type),
+            ));
         }
     }
     Ok(())

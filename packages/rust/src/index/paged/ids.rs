@@ -2,11 +2,11 @@ use std::cmp::Ordering;
 
 use super::PagedSections;
 use super::cache::with_page_cache;
-use crate::error::{Result, load_failed};
+use crate::error::{Result, load_failed, load_failed_with};
 use crate::ffi;
 use crate::format::paged_segment::ID_SAMPLE_INTERVAL;
 use crate::index::constants::PAGED_ID_START_BYTES;
-use crate::value::MAX_SAFE_INTEGER;
+use crate::value::{MAX_SAFE_INTEGER, Value};
 
 const WRITE_RECORD_WORDS: usize = 2;
 
@@ -41,10 +41,13 @@ impl PagedSections {
             self.file.require(&sections, status)?;
             bytes.truncate(length as usize);
             return String::from_utf8(bytes).or_else(|_| {
-                load_failed(format!(
-                    "The ID of document {ordinal} of \"{}\" is not valid UTF-8",
-                    self.key
-                ))
+                load_failed_with(
+                    format!(
+                        "The ID of document {ordinal} of \"{}\" is not valid UTF-8",
+                        self.key
+                    ),
+                    [("ordinal", Value::from(ordinal))],
+                )
             });
         }
     }
@@ -84,18 +87,24 @@ impl PagedSections {
                 .as_deref()
                 .is_some_and(|before| before.as_bytes() >= id.as_bytes())
             {
-                return load_failed(format!(
-                    "The ID order of \"{}\" does not ascend at position {position}",
-                    self.key
-                ));
+                return load_failed_with(
+                    format!(
+                        "The ID order of \"{}\" does not ascend at position {position}",
+                        self.key
+                    ),
+                    [("position", Value::from(position))],
+                );
             }
             if (position as usize).is_multiple_of(ID_SAMPLE_INTERVAL) {
                 let sampled = self.id_sample.get(position as usize / ID_SAMPLE_INTERVAL);
                 if sampled.is_none_or(|(sampled, at)| *at != position || *sampled != id) {
-                    return load_failed(format!(
-                        "The ID sample of \"{}\" differs at position {position}",
-                        self.key
-                    ));
+                    return load_failed_with(
+                        format!(
+                            "The ID sample of \"{}\" differs at position {position}",
+                            self.key
+                        ),
+                        [("position", Value::from(position))],
+                    );
                 }
             }
             previous = Some(id);
@@ -152,10 +161,13 @@ impl PagedSections {
             .file
             .read_u32(&self.removal_offsets, u64::from(ordinal) + 1)?;
         if to < from || u64::from(to) * 4 > self.removals.length {
-            return load_failed(format!(
-                "The removal entry of document {ordinal} of \"{}\" leaves its list",
-                self.key
-            ));
+            return load_failed_with(
+                format!(
+                    "The removal entry of document {ordinal} of \"{}\" leaves its list",
+                    self.key
+                ),
+                [("ordinal", Value::from(ordinal))],
+            );
         }
         let mut entry = vec![0u32; (to - from) as usize];
         let mut count = 0u32;

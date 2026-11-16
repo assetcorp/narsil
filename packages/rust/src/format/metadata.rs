@@ -159,7 +159,8 @@ pub(crate) fn metadata_from_wire(raw: &Map) -> Result<IndexMetadata> {
             return Err(config_invalid(format!(
                 "The pattern value limit in the index metadata is {}, but the limit must be a whole number of code points",
                 describe(limit)
-            )));
+            ))
+            .with_details([("patternValueLimit", Value::from(describe(limit)))]));
         };
         meta.pattern_value_limit = Some(limit);
     }

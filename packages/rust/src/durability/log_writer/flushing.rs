@@ -1,6 +1,7 @@
 use crate::error::{ErrorCode, NarsilError, Result};
 
-use super::super::files::{DurableDirectory, fsync_failed};
+use super::super::file_errors::fsync_failed;
+use super::super::files::DurableDirectory;
 use super::super::marker::{MarkerFile, marker_key};
 use super::super::platform::sync_file;
 use super::{DurablePoint, LogState, PartitionLog, poisoned};

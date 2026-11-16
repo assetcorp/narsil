@@ -9,7 +9,7 @@ const RESERVED_OBJECT_KEYS: [&str; 3] = ["__proto__", "constructor", "prototype"
 
 fn reject_storable(path: &str, reason: &str) -> NarsilError {
     let shown = if path.is_empty() { "(document)" } else { path };
-    failed(format!("Field \"{shown}\" {reason}"))
+    failed(format!("Field \"{shown}\" {reason}")).with_details([("field", Value::from(path))])
 }
 
 fn walk_storable(value: &Value, path: &str, depth: usize, skip: &HashSet<String>) -> Result<()> {
@@ -75,7 +75,15 @@ pub(super) fn require_id_field(document: &Map) -> Result<()> {
         Value::Null => "null".to_string(),
         other => format!("a {}", typeof_of(other)),
     };
+    let received = match id {
+        Value::Null => "null",
+        other => typeof_of(other),
+    };
     Err(failed(format!(
         "Field \"id\" holds {held}, while the engine stores a document under its id field, so that field must hold a non-empty string"
-    )))
+    ))
+    .with_details([
+        ("field", Value::from("id")),
+        ("received", Value::from(received)),
+    ]))
 }

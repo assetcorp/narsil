@@ -4,9 +4,9 @@ use flate2::{Decompress, FlushDecompress, Status};
 
 use super::PagedSections;
 use super::cache::{Cached, Kind, cached, remember};
-use crate::error::{Result, load_failed};
+use crate::error::{Result, load_failed, load_failed_with};
 use crate::format::paged_segment::MAX_DOCUMENT_BLOCK_RAW_BYTES;
-use crate::value::Decoder;
+use crate::value::{Decoder, Value};
 
 /// Where one compressed block of documents starts in the `documents` section, and the first ordinal it holds.
 #[derive(Debug, Clone, Copy)]
@@ -62,10 +62,16 @@ impl PagedSections {
     fn inflate(&self, block: usize, entry: &BlockEntry) -> Result<Vec<u8>> {
         let key = &self.key;
         if entry.raw_length > MAX_DOCUMENT_BLOCK_RAW_BYTES {
-            return load_failed(format!(
-                "Document block {block} of \"{key}\" claims {} bytes",
-                entry.raw_length
-            ));
+            return load_failed_with(
+                format!(
+                    "Document block {block} of \"{key}\" claims {} bytes",
+                    entry.raw_length
+                ),
+                [
+                    ("block", Value::from(block)),
+                    ("rawLength", Value::from(entry.raw_length)),
+                ],
+            );
         }
         let compressed = self
             .file
@@ -73,17 +79,21 @@ impl PagedSections {
         let raw = match inflated(&compressed, entry.raw_length) {
             Ok(raw) => raw,
             Err(message) => {
-                return load_failed(format!(
-                    "Document block {block} of \"{key}\" fails to inflate: {message}"
-                ));
+                return load_failed_with(
+                    format!("Document block {block} of \"{key}\" fails to inflate: {message}"),
+                    [("block", Value::from(block))],
+                );
             }
         };
         if raw.len() != entry.raw_length as usize {
-            return load_failed(format!(
-                "Document block {block} of \"{key}\" inflates to {} bytes of {}",
-                raw.len(),
-                entry.raw_length
-            ));
+            return load_failed_with(
+                format!(
+                    "Document block {block} of \"{key}\" inflates to {} bytes of {}",
+                    raw.len(),
+                    entry.raw_length
+                ),
+                [("block", Value::from(block))],
+            );
         }
         Ok(raw)
     }
@@ -97,17 +107,19 @@ impl PagedSections {
             starts.push(cursor as u32);
             let mut decoder = Decoder::new(bytes.get(cursor..).unwrap_or(&[]));
             if cursor >= bytes.len() || decoder.skip().is_err() {
-                return load_failed(format!(
-                    "Document block {block} of \"{key}\" holds a broken document at {at}"
-                ));
+                return load_failed_with(
+                    format!("Document block {block} of \"{key}\" holds a broken document at {at}"),
+                    [("block", Value::from(block)), ("at", Value::from(at))],
+                );
             }
             cursor += decoder.position();
         }
         starts.push(cursor as u32);
         if cursor != bytes.len() {
-            return load_failed(format!(
-                "Document block {block} of \"{key}\" holds bytes past its documents"
-            ));
+            return load_failed_with(
+                format!("Document block {block} of \"{key}\" holds bytes past its documents"),
+                [("block", Value::from(block))],
+            );
         }
         Ok(starts)
     }
@@ -139,10 +151,13 @@ impl PagedSections {
     /// Returns the stored bytes of the document at `ordinal`, decompressing the block that holds it.
     pub(crate) fn document_bytes(&self, ordinal: u32) -> Result<Vec<u8>> {
         if ordinal >= self.document_count {
-            return load_failed(format!(
-                "Document {ordinal} lies outside \"{}\", which holds {}",
-                self.key, self.document_count
-            ));
+            return load_failed_with(
+                format!(
+                    "Document {ordinal} lies outside \"{}\", which holds {}",
+                    self.key, self.document_count
+                ),
+                [("ordinal", Value::from(ordinal))],
+            );
         }
         let block = self.block_of(ordinal);
         let loaded = self.load_block(block)?;

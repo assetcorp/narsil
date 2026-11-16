@@ -69,6 +69,12 @@ pub(super) fn process_bytes() -> Option<u64> {
     u64::try_from(bytes).ok()
 }
 
+/// Returns the whole working set of this process, file-backed pages included.
+pub(super) fn resident_bytes() -> Option<u64> {
+    let counters = memory_counters(PROCESS_MEMORY_COUNTERS_BYTES)?;
+    u64::try_from(counters.working_set_size).ok()
+}
+
 /// Returns the machine's physical memory, which bounds a process on Windows.
 pub(super) fn limit_bytes(_process_bytes: u64) -> Option<u64> {
     let mut status = MemoryStatus {

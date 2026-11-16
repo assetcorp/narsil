@@ -1,7 +1,9 @@
+mod growth;
 mod room;
 mod view;
 mod writes;
 
+pub(crate) use growth::KeywordAdditions;
 pub(crate) use view::GrowingRead;
 pub(crate) use writes::Indexed;
 

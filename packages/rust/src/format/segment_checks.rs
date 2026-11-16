@@ -1,6 +1,17 @@
-use crate::error::Result;
+use crate::error::{NarsilError, Result};
 use crate::format::fields::Fields;
-use crate::value::number_to_text;
+use crate::value::{Value, number_to_text};
+
+fn named(fields: &Fields<'_>, message: String, name: &str) -> NarsilError {
+    fields.field_error(message, [("field", Value::from(name))])
+}
+
+fn named_at(fields: &Fields<'_>, message: String, name: &str, at: usize) -> NarsilError {
+    fields.field_error(
+        message,
+        [("field", Value::from(name)), ("at", Value::from(at))],
+    )
+}
 
 pub(crate) fn require_offsets(
     fields: &Fields<'_>,
@@ -9,19 +20,30 @@ pub(crate) fn require_offsets(
     name: &str,
 ) -> Result<()> {
     let Some((&first, _)) = offsets.split_first() else {
-        return Err(fields.error(format!("{name} must hold at least one value")));
+        return Err(named(
+            fields,
+            format!("{name} must hold at least one value"),
+            name,
+        ));
     };
     if first != 0 {
-        return Err(fields.error(format!("{name} must start at 0")));
+        return Err(named(fields, format!("{name} must start at 0"), name));
     }
     if let Some(at) = offsets.windows(2).position(|pair| pair[1] < pair[0]) {
-        return Err(fields.error(format!("{name} decreases at entry {}", at + 1)));
+        return Err(named_at(
+            fields,
+            format!("{name} decreases at entry {}", at + 1),
+            name,
+            at + 1,
+        ));
     }
     let last = offsets[offsets.len() - 1];
     if last as usize != list_size {
-        return Err(fields.error(format!(
-            "{name} ends at {last} where the list it divides holds {list_size}"
-        )));
+        return Err(named(
+            fields,
+            format!("{name} ends at {last} where the list it divides holds {list_size}"),
+            name,
+        ));
     }
     Ok(())
 }
@@ -33,12 +55,17 @@ pub(crate) fn require_utf8_entries(
     name: &str,
 ) -> Result<()> {
     if std::str::from_utf8(blob).is_err() {
-        return Err(fields.error(format!("{name} is not valid UTF-8")));
+        return Err(named(fields, format!("{name} is not valid UTF-8"), name));
     }
     for (at, offset) in offsets.iter().enumerate() {
         let offset = *offset as usize;
         if offset < blob.len() && (blob[offset] & 0xc0) == 0x80 {
-            return Err(fields.error(format!("{name} splits a character at entry {at}")));
+            return Err(named_at(
+                fields,
+                format!("{name} splits a character at entry {at}"),
+                name,
+                at,
+            ));
         }
     }
     Ok(())
@@ -50,10 +77,16 @@ pub(crate) fn require_ordinals(
     document_count: u32,
     name: &str,
 ) -> Result<()> {
-    if let Some(value) = values.iter().find(|value| **value >= document_count) {
-        return Err(fields.error(format!(
-            "{name} names document {value} of a segment of {document_count}"
-        )));
+    if let Some(at) = values.iter().position(|value| *value >= document_count) {
+        return Err(named_at(
+            fields,
+            format!(
+                "{name} names document {} of a segment of {document_count}",
+                values[at]
+            ),
+            name,
+            at,
+        ));
     }
     Ok(())
 }
@@ -75,7 +108,12 @@ pub(crate) fn require_strictly_ascending_within(
 ) -> Result<()> {
     for at in start + 1..end {
         if values[at] <= values[at - 1] {
-            return Err(fields.error(format!("{name} fails to ascend strictly at entry {at}")));
+            return Err(named_at(
+                fields,
+                format!("{name} fails to ascend strictly at entry {at}"),
+                name,
+                at,
+            ));
         }
     }
     Ok(())
@@ -99,7 +137,12 @@ pub(crate) fn require_entries_ascend(
             None => (at - 1, at),
         };
         if entry(blob, offsets, left) >= entry(blob, offsets, right) {
-            return Err(fields.error(format!("{name} fails to ascend strictly at entry {at}")));
+            return Err(named_at(
+                fields,
+                format!("{name} fails to ascend strictly at entry {at}"),
+                name,
+                at,
+            ));
         }
     }
     Ok(())
@@ -117,7 +160,12 @@ pub(crate) fn require_spelling_entries_ascend(
             .cmp(entry(blob, offsets, at))
             .then(tokens[at - 1].cmp(&tokens[at]));
         if order != std::cmp::Ordering::Less {
-            return Err(fields.error(format!("{name} fails to ascend strictly at entry {at}")));
+            return Err(named_at(
+                fields,
+                format!("{name} fails to ascend strictly at entry {at}"),
+                name,
+                at,
+            ));
         }
     }
     Ok(())
@@ -130,27 +178,42 @@ pub(crate) fn require_below(
     name: &str,
 ) -> Result<()> {
     if let Some(at) = values.iter().position(|value| *value as usize >= limit) {
-        return Err(fields.error(format!(
-            "{name} holds {} at entry {at}, at or above {limit}",
-            values[at]
-        )));
+        return Err(named_at(
+            fields,
+            format!(
+                "{name} holds {} at entry {at}, at or above {limit}",
+                values[at]
+            ),
+            name,
+            at,
+        ));
     }
     Ok(())
 }
 
 pub(crate) fn require_non_zero(fields: &Fields<'_>, values: &[u32], name: &str) -> Result<()> {
     if let Some(at) = values.iter().position(|value| *value == 0) {
-        return Err(fields.error(format!("{name} holds 0 at entry {at}")));
+        return Err(named_at(
+            fields,
+            format!("{name} holds 0 at entry {at}"),
+            name,
+            at,
+        ));
     }
     Ok(())
 }
 
 pub(crate) fn require_permutation(fields: &Fields<'_>, order: &[u32], name: &str) -> Result<()> {
     let mut seen = vec![false; order.len()];
-    for ordinal in order {
+    for (at, ordinal) in order.iter().enumerate() {
         let index = *ordinal as usize;
         if index >= order.len() || seen[index] {
-            return Err(fields.error(format!("{name} repeats or overruns ordinal {ordinal}")));
+            return Err(named_at(
+                fields,
+                format!("{name} repeats or overruns ordinal {ordinal}"),
+                name,
+                at,
+            ));
         }
         seen[index] = true;
     }
@@ -164,10 +227,20 @@ pub(crate) fn require_values_ascend_without_nan(
 ) -> Result<()> {
     for (at, value) in values.iter().enumerate() {
         if value.is_nan() {
-            return Err(fields.error(format!("{name} holds NaN at entry {at}")));
+            return Err(named_at(
+                fields,
+                format!("{name} holds NaN at entry {at}"),
+                name,
+                at,
+            ));
         }
         if at > 0 && *value < values[at - 1] {
-            return Err(fields.error(format!("{name} descends at entry {at}")));
+            return Err(named_at(
+                fields,
+                format!("{name} descends at entry {at}"),
+                name,
+                at,
+            ));
         }
     }
     Ok(())
@@ -183,12 +256,17 @@ pub(crate) fn require_within(
         .iter()
         .position(|value| !(*value >= -limit && *value <= limit))
     {
-        return Err(fields.error(format!(
-            "{name} holds {} at entry {at}, outside {} to {}",
-            number_to_text(values[at]),
-            number_to_text(-limit),
-            number_to_text(limit)
-        )));
+        return Err(named_at(
+            fields,
+            format!(
+                "{name} holds {} at entry {at}, outside {} to {}",
+                number_to_text(values[at]),
+                number_to_text(-limit),
+                number_to_text(limit)
+            ),
+            name,
+            at,
+        ));
     }
     Ok(())
 }
@@ -197,7 +275,10 @@ pub(crate) fn require_runs_ascend(fields: &Fields<'_>, runs: &[u32], name: &str)
     for run in 1..runs.len() / 3 {
         let at = run * 3;
         if runs[at..at + 3] <= runs[at - 3..at] {
-            return Err(fields.error(format!("{name} fails to ascend strictly at run {run}")));
+            return Err(fields.field_error(
+                format!("{name} fails to ascend strictly at run {run}"),
+                [("field", Value::from(name)), ("run", Value::from(run))],
+            ));
         }
     }
     Ok(())

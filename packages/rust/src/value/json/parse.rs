@@ -2,6 +2,7 @@ use crate::error::{ErrorCode, NarsilError, Result};
 use crate::value::{Map, Value};
 
 const MAX_JSON_DEPTH: usize = 512;
+pub(crate) const DEPTH_LIMIT_DETAIL: &str = "maxDepth";
 
 struct Parser<'a> {
     bytes: &'a [u8],
@@ -167,19 +168,21 @@ impl<'a> Parser<'a> {
 
     fn value(&mut self, depth: usize) -> Result<Value> {
         if depth > MAX_JSON_DEPTH {
-            return Err(invalid(format!(
-                "the text nests deeper than {MAX_JSON_DEPTH} levels"
-            )));
+            return Err(NarsilError::new(
+                ErrorCode::DOC_VALIDATION_FAILED,
+                format!("The text nests deeper than {MAX_JSON_DEPTH} levels"),
+            )
+            .with_details([(DEPTH_LIMIT_DETAIL, Value::Number(MAX_JSON_DEPTH as f64))]));
         }
         self.whitespace();
         match self.bytes.get(self.at) {
             Some(b'{') => {
                 self.at += 1;
-                let mut map = Map::new();
+                let mut entries = Vec::new();
                 self.whitespace();
                 if self.bytes.get(self.at) == Some(&b'}') {
                     self.at += 1;
-                    return Ok(Value::Object(map));
+                    return Ok(Value::Object(Map::new()));
                 }
                 loop {
                     self.whitespace();
@@ -187,13 +190,13 @@ impl<'a> Parser<'a> {
                     self.whitespace();
                     self.expect(b':')?;
                     let entry = self.value(depth + 1)?;
-                    map.insert(key, entry);
+                    entries.push((key, entry));
                     self.whitespace();
                     match self.bytes.get(self.at) {
                         Some(b',') => self.at += 1,
                         Some(b'}') => {
                             self.at += 1;
-                            return Ok(Value::Object(map));
+                            return Ok(Value::Object(Map::from_inserted(entries)));
                         }
                         _ => {
                             return Err(invalid(format!(

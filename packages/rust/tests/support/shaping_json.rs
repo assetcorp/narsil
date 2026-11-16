@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use narsil::{
@@ -204,7 +203,7 @@ fn object(entries: Vec<(&str, Value)>) -> Value {
     Value::Object(map)
 }
 
-fn numbers(record: &BTreeMap<String, f64>) -> Value {
+fn numbers(record: &[(String, f64)]) -> Value {
     let mut map = Map::new();
     for (key, value) in record {
         map.insert(key.clone(), Value::Number(*value));

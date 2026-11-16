@@ -2,7 +2,7 @@ mod field;
 mod native;
 mod snippet;
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use super::constants::{
@@ -284,7 +284,7 @@ pub(crate) fn highlight_hits(
         .iter()
         .any(|field| !projection_keeps_field(projection, field));
     for hit in hits.iter_mut() {
-        let mut highlights = BTreeMap::new();
+        let mut highlights: Vec<(String, HighlightMatch)> = Vec::new();
         let mut stored: Option<Option<Arc<Map>>> = None;
         for field in &config.fields {
             let found = match text_field(&hit.document, field) {
@@ -304,8 +304,10 @@ pub(crate) fn highlight_hits(
                 }
                 None => None,
             };
-            if let Some(found) = found {
-                highlights.insert(field.clone(), found);
+            if let Some(found) = found
+                && !highlights.iter().any(|(held, _)| held == field)
+            {
+                highlights.push((field.clone(), found));
             }
         }
         hit.highlights = Some(highlights);

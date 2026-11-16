@@ -55,12 +55,16 @@ pub(crate) fn vector_fields_from_wire(value: &Value) -> Result<Vec<(String, Vect
             .and_then(|entry| entry.get("quantization"))
             .and_then(Value::as_str);
         let Some(quantization) = quantization.filter(|mode| is_quantization_mode(mode)) else {
-            let shown = entry
-                .and_then(|entry| entry.get("quantization"))
-                .map_or("undefined".to_string(), describe);
+            let held = entry.and_then(|entry| entry.get("quantization"));
+            let shown = held.map_or("undefined".to_string(), describe);
             return Err(config_invalid(format!(
                 "Index metadata names a vector quantization \"{shown}\" for \"{path}\" this engine does not read"
-            )));
+            ))
+            .with_details(
+                [("fieldPath", Value::from(path.as_str()))]
+                    .into_iter()
+                    .chain(held.map(|held| ("quantization", held.clone()))),
+            ));
         };
         let dimension = entry
             .and_then(|entry| positive_integer(entry.get("dimension")))
@@ -164,7 +168,8 @@ pub(crate) fn promotion_from_wire(value: Option<&Value>) -> Result<Option<Vector
             return Err(config_invalid(format!(
                 "Index metadata names a vector quantization \"{}\" this engine does not read",
                 describe(other)
-            )));
+            ))
+            .with_details([("quantization", other.clone())]));
         }
     };
     let storage = match map.get("storage") {
@@ -174,7 +179,8 @@ pub(crate) fn promotion_from_wire(value: Option<&Value>) -> Result<Option<Vector
             return Err(config_invalid(format!(
                 "Index metadata names a vector storage \"{}\" this engine does not read",
                 describe(other)
-            )));
+            ))
+            .with_details([("storage", other.clone())]));
         }
     };
     let filter_threshold = number(map.get("filter_threshold"))
