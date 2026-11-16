@@ -39,7 +39,7 @@ func (directory *Directory) RemoveTree(prefix string) error {
 	if path == directory.root {
 		return deleteFailed(key, os.ErrInvalid)
 	}
-	if err := os.RemoveAll(path); err != nil {
+	if err := removeTreeWhenReleased(path); err != nil {
 		return deleteFailed(key, err)
 	}
 	return syncDirectory(filepath.Dir(path))

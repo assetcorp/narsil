@@ -30,3 +30,11 @@ func renameReplacing(source string, target string) error {
 func renameUnlessMissing(source string, target string) error {
 	return retriedWhileHeld(func() error { return os.Rename(source, target) }, false)
 }
+
+func removeWhenReleased(path string) error {
+	return retriedWhileHeld(func() error { return os.Remove(path) }, false)
+}
+
+func removeTreeWhenReleased(path string) error {
+	return retriedWhileHeld(func() error { return os.RemoveAll(path) }, false)
+}
