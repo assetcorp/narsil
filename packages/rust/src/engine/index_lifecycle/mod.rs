@@ -14,9 +14,11 @@ use super::engine_config::LifecycleLimits;
 use super::index::IndexState;
 use super::name_turns::NameTurn;
 use super::query_suggestions::stored_state::SuggestionState;
+use super::sync::closed::ClosedSync;
 use super::{EngineInner, Narsil};
 use crate::config::IndexConfig;
-use crate::error::{ErrorCode, NarsilError, Result};
+pub(crate) use crate::error::index_not_found;
+use crate::error::{NarsilError, Result};
 pub(crate) use close::{close_index, closed_facts};
 pub(crate) use limits::enforce_limits;
 pub(crate) use reading::PreparedRead;
@@ -46,6 +48,7 @@ pub(crate) struct ClosedIndex {
     pub(crate) language: String,
     pub(crate) suggestions: Arc<SuggestionState>,
     pub(crate) sync_on: bool,
+    pub(crate) sync: ClosedSync,
 }
 
 /// An index that the engine holds: the open one, or the facts of the closed one.
@@ -178,13 +181,6 @@ impl IndexLifecycle {
         self.registry().entries.clear();
         self.changed.notify_all();
     }
-}
-
-fn index_not_found(name: &str) -> NarsilError {
-    NarsilError::new(
-        ErrorCode::INDEX_NOT_FOUND,
-        format!("Index \"{name}\" does not exist"),
-    )
 }
 
 impl EngineInner {

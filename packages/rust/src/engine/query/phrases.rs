@@ -2,6 +2,7 @@ use crate::analysis::{Analyser, TokenOptions};
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::search::phrase::AnalysedPhrase;
 use crate::util::text::javascript_trim;
+use crate::value::Value;
 
 const MAX_PHRASE_WORDS: u32 = 32;
 const MAX_QUERY_PHRASES: usize = 32;
@@ -139,7 +140,11 @@ fn require_phrases_within_limits(phrases: &QueryPhrases, track_positions: bool) 
                 "A query takes at most {MAX_QUERY_PHRASES} phrases, while this query holds {}",
                 phrases.kept_phrase_count
             ),
-        ));
+        )
+        .with_details([
+            ("limit", Value::from(MAX_QUERY_PHRASES)),
+            ("phrases", Value::from(phrases.kept_phrase_count)),
+        ]));
     }
     let largest = phrases.largest_phrase_size.max(phrases.largest_token_count);
     if largest > MAX_PHRASE_WORDS {
@@ -148,13 +153,18 @@ fn require_phrases_within_limits(phrases: &QueryPhrases, track_positions: bool) 
             format!(
                 "A phrase takes at most {MAX_PHRASE_WORDS} words, counting the stop words between its first and last word, while this query holds one of {largest}"
             ),
-        ));
+        )
+        .with_details([
+            ("limit", Value::from(MAX_PHRASE_WORDS)),
+            ("words", Value::from(largest)),
+        ]));
     }
     if !track_positions {
         return Err(NarsilError::new(
             ErrorCode::SEARCH_INVALID_PHRASE,
             "This index stores no word positions because its trackPositions setting is off, so it cannot match a phrase. Remove the quotes, or create the index with trackPositions on",
-        ));
+        )
+        .with_details([("trackPositions", Value::from(false))]));
     }
     Ok(())
 }

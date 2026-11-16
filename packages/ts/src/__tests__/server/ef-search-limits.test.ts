@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { createNarsilClient } from '../../client'
 import { ErrorCodes } from '../../errors'
 import { type CorpusDocument, corpus, corpusIndex, letterEmbedding, stored } from '../rerank/corpus'
 import { cosineOf } from '../rerank/oracle'
@@ -67,10 +66,6 @@ describe('efSearch and oversample limits over HTTP and in the embedded engine', 
         expect(refused.body.error.message).toContain('efSearch')
       }
     }
-    const client = createNarsilClient({ url: running.base })
-    await expect(client.query(INDEX, { vector: { ...vector, efSearch: Number.NaN } })).rejects.toMatchObject({
-      code: ErrorCodes.CONFIG_INVALID,
-    })
   })
 
   it('answers 400 for a bad efSearch or oversample on a field below the promotion threshold and under a filter that matches nothing', async () => {

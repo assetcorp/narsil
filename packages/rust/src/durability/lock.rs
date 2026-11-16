@@ -6,6 +6,7 @@ use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 use crate::error::{ErrorCode, NarsilError, Result};
+use crate::value::Value;
 
 use super::constants::{
     DIRECTORY_LOCK_ATTEMPTS, DIRECTORY_LOCK_PROCESS_START_TOLERANCE_MS, DIRECTORY_LOCK_SETTLE_MS,
@@ -14,7 +15,7 @@ use super::constants::{
 use super::platform::{
     DirectoryIdentity, ProcessState, current_process_start_ms, current_thread_number,
     directory_identity, hold_directory_open, process_holds_file_in, process_state, random_token,
-    remove_file, signal_reaches,
+    remove_file, rename_unless_missing, signal_reaches,
 };
 
 pub(crate) const LOCK_FILE_NAME: &str = ".narsil.lock";
@@ -134,6 +135,10 @@ fn held_elsewhere(root: &Path, who: &str, lock_path: &Path) -> NarsilError {
             lock_path.display()
         ),
     )
+    .with_details([(
+        "directory",
+        crate::value::Value::from(root.display().to_string()),
+    )])
 }
 
 fn holder_label(holder: &LockHolder, me: &LockHolder) -> String {
@@ -187,7 +192,7 @@ fn create_lock_file(lock_path: &Path, draft: &Path, content: &str) -> io::Result
 }
 
 fn remove_stale_lock(lock_path: &Path, aside: &Path, seen: &LockReading) -> io::Result<()> {
-    match std::fs::rename(lock_path, aside) {
+    match rename_unless_missing(lock_path, aside) {
         Ok(()) => {}
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
         Err(error) => return Err(error),
@@ -257,6 +262,7 @@ impl DirectoryLock {
                     root.display()
                 ),
             )
+            .with_details([("cause", Value::from(error.to_string()))])
         };
         std::fs::create_dir_all(root).map_err(cannot_lock)?;
         let identity = directory_identity(root).map_err(cannot_lock)?;

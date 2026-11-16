@@ -2,6 +2,7 @@ use super::entry::{LogEntry, decode_entry, encode_entry};
 use super::{MAX_WAL_RECORD_BYTES, SEGMENT_HEADER_BYTES, WAL_MAGIC};
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::util::hash::crc32;
+use crate::value::Value;
 
 pub(crate) const RECORD_LENGTH_BYTES: usize = 4;
 pub(crate) const FRAME_CRC_BYTES: usize = 4;
@@ -41,26 +42,39 @@ pub(crate) fn frame_record(entry: &LogEntry, out: &mut Vec<u8>) -> Result<()> {
     Ok(())
 }
 
-fn corrupt(message: impl Into<String>) -> NarsilError {
-    NarsilError::new(ErrorCode::PERSISTENCE_WAL_CORRUPT, message.into())
+fn corrupt<K: Into<String>>(
+    message: impl Into<String>,
+    details: impl IntoIterator<Item = (K, Value)>,
+) -> NarsilError {
+    NarsilError::new(ErrorCode::PERSISTENCE_WAL_CORRUPT, message.into()).with_details(details)
+}
+
+fn header_invalid(code: ErrorCode, reason: String) -> NarsilError {
+    NarsilError::new(
+        code,
+        format!("WAL segment header invalid in durable region: {reason}"),
+    )
+    .with_details([("reason", Value::from(reason))])
 }
 
 pub(crate) fn check_segment_header(data: &[u8]) -> Result<()> {
     if data.len() < SEGMENT_HEADER_BYTES {
-        return Err(corrupt(
-            "WAL segment header invalid in durable region: segment shorter than the 8-byte header",
+        return Err(header_invalid(
+            ErrorCode::PERSISTENCE_WAL_CORRUPT,
+            "segment shorter than the 8-byte header".to_string(),
         ));
     }
     if data[..4] != WAL_MAGIC {
-        return Err(corrupt(
-            "WAL segment header invalid in durable region: missing NRSW magic",
+        return Err(header_invalid(
+            ErrorCode::PERSISTENCE_WAL_CORRUPT,
+            "missing NRSW magic".to_string(),
         ));
     }
     if data[WAL_FORMAT_VERSION_AT] > WAL_FORMAT_VERSION_WITH_PREVIOUS_DOCUMENT {
-        return Err(NarsilError::new(
+        return Err(header_invalid(
             ErrorCode::ENVELOPE_VERSION_MISMATCH,
             format!(
-                "WAL segment header invalid in durable region: WAL format version {} is newer than supported version {WAL_FORMAT_VERSION_WITH_PREVIOUS_DOCUMENT}, so a newer release wrote this segment",
+                "WAL format version {} is newer than supported version {WAL_FORMAT_VERSION_WITH_PREVIOUS_DOCUMENT}, so a newer release wrote this segment",
                 data[WAL_FORMAT_VERSION_AT]
             ),
         ));
@@ -73,13 +87,15 @@ struct Frame<'a> {
     end: usize,
 }
 
-fn frame_at(
-    data: &[u8],
-    offset: usize,
-    limit: usize,
-) -> std::result::Result<Frame<'_>, &'static str> {
+fn frame_at(data: &[u8], offset: usize, limit: usize) -> Result<Frame<'_>> {
     if offset + RECORD_LENGTH_BYTES > limit {
-        return Err("WAL record length field overruns the durable region");
+        return Err(corrupt(
+            "WAL record length field overruns the durable region",
+            [
+                ("offset", Value::from(offset)),
+                ("durableByteLength", Value::from(limit)),
+            ],
+        ));
     }
     let length = u32::from_be_bytes([
         data[offset],
@@ -88,13 +104,26 @@ fn frame_at(
         data[offset + 3],
     ]) as usize;
     if length == 0 || length > MAX_WAL_RECORD_BYTES {
-        return Err("WAL record length is zero or exceeds the maximum record size");
+        return Err(corrupt(
+            "WAL record length is zero or exceeds the maximum record size",
+            [
+                ("offset", Value::from(offset)),
+                ("recordLength", Value::from(length)),
+            ],
+        ));
     }
     let start = offset + RECORD_LENGTH_BYTES;
     let crc_start = start + length;
     let end = crc_start + FRAME_CRC_BYTES;
     if end > limit {
-        return Err("WAL record overruns the durable region");
+        return Err(corrupt(
+            "WAL record overruns the durable region",
+            [
+                ("offset", Value::from(offset)),
+                ("frameEnd", Value::from(end)),
+                ("durableByteLength", Value::from(limit)),
+            ],
+        ));
     }
     let payload = &data[start..crc_start];
     let stored = u32::from_be_bytes([
@@ -104,7 +133,10 @@ fn frame_at(
         data[crc_start + 3],
     ]);
     if crc32(payload) != stored {
-        return Err("WAL record failed its frame checksum inside the durable region");
+        return Err(corrupt(
+            "WAL record failed its frame checksum inside the durable region",
+            [("offset", Value::from(offset))],
+        ));
     }
     Ok(Frame { payload, end })
 }
@@ -118,23 +150,38 @@ pub(crate) fn read_durable_region(
     if durable_byte_length < SEGMENT_HEADER_BYTES || durable_byte_length > data.len() {
         return Err(corrupt(
             "Commit marker durable byte length is outside the segment",
+            [
+                ("durableByteLength", Value::from(durable_byte_length)),
+                ("segmentLength", Value::from(data.len())),
+            ],
         ));
     }
     let mut entries: Vec<LogEntry> = Vec::new();
     let mut offset = SEGMENT_HEADER_BYTES;
     while offset < durable_byte_length {
-        let frame = frame_at(data, offset, durable_byte_length).map_err(corrupt)?;
+        let frame = frame_at(data, offset, durable_byte_length)?;
         let entry = decode_entry(frame.payload).map_err(|error| {
-            corrupt(format!(
-                "WAL record payload failed to decode inside the durable region: {}",
-                error.message()
-            ))
+            corrupt(
+                format!(
+                    "WAL record payload failed to decode inside the durable region: {}",
+                    error.message()
+                ),
+                [
+                    ("offset", Value::from(offset)),
+                    ("cause", Value::from(error.message())),
+                ],
+            )
         })?;
-        if entries
-            .last()
-            .is_some_and(|last| entry.seq_no <= last.seq_no)
+        if let Some(last) = entries.last()
+            && entry.seq_no <= last.seq_no
         {
-            return Err(corrupt("WAL sequence numbers are not strictly increasing"));
+            return Err(corrupt(
+                "WAL sequence numbers are not strictly increasing",
+                [
+                    ("previousSeqNo", Value::from(last.seq_no)),
+                    ("seqNo", Value::from(entry.seq_no)),
+                ],
+            ));
         }
         entries.push(entry);
         offset = frame.end;

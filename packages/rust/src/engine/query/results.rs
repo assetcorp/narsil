@@ -1,17 +1,16 @@
-use std::collections::BTreeMap;
 use std::time::Duration;
 
 use crate::value::{Map, Value};
 
-/// The numbers that BM25 combined into one hit's score.
+/// The numbers that BM25 combined into one hit's score, each list in the order that the scoring first met its key.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ScoreComponents {
     /// How often each query term occurs in each field, keyed as `field:term`.
-    pub term_frequencies: BTreeMap<String, f64>,
+    pub term_frequencies: Vec<(String, f64)>,
     /// The length of each field that the query searched, keyed by field.
-    pub field_lengths: BTreeMap<String, f64>,
+    pub field_lengths: Vec<(String, f64)>,
     /// The inverse document frequency of each query term, keyed by term.
-    pub idf: BTreeMap<String, f64>,
+    pub idf: Vec<(String, f64)>,
 }
 
 /// One match inside a highlighted field, as offsets into the field's text counted in UTF-16 code units, the unit
@@ -44,8 +43,8 @@ pub struct Hit {
     pub document: Map,
     /// The parts of the score, where the query asked for them.
     pub score_components: Option<ScoreComponents>,
-    /// The highlighted fields, where the query asked for them.
-    pub highlights: Option<BTreeMap<String, HighlightMatch>>,
+    /// The highlighted fields in the order that the query lists them, where the query asked for them.
+    pub highlights: Option<Vec<(String, HighlightMatch)>>,
 }
 
 /// The counts of one facet field.

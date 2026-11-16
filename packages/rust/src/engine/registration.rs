@@ -5,6 +5,7 @@ use super::vectors::embedding::validate_embedding_fields;
 use crate::adapters::{EmbeddingAdapter, RerankAdapter};
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::util::text::javascript_trim;
+use crate::value::Value;
 
 /// Registers an embedding adapter under `name`, after checking it against every index that names it, so that a
 /// replacement either rebinds every such index or leaves the old adapter in place.
@@ -27,7 +28,11 @@ pub(crate) fn register_embedding_adapter(
             format!(
                 "Embedding adapter \"{name}\" dimensions must be a positive integer, got {dimensions}"
             ),
-        ));
+        )
+        .with_details([
+            ("adapter", Value::from(name)),
+            ("dimensions", Value::from(dimensions)),
+        ]));
     }
     let mut registered = engine.adapters.embedding_mut();
     for (index_name, index) in engine.indexes().iter() {
@@ -44,10 +49,14 @@ pub(crate) fn register_embedding_adapter(
                     "Cannot bind embedding adapter \"{name}\" to index \"{index_name}\": {}",
                     error.message()
                 ),
-            ));
+            )
+            .with_details([
+                ("indexName", Value::from(index_name.as_str())),
+                ("adapter", Value::from(name)),
+            ]));
         }
     }
-    registered.insert(name.to_string(), adapter);
+    registered.insert(name, adapter);
     Ok(())
 }
 

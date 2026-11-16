@@ -234,7 +234,7 @@ fn write_file(
             .map_err(|error| save_failed(&partial, error.error()))?;
         file.sync_all()
             .map_err(|error| save_failed(&partial, error))?;
-        std::fs::rename(&partial, path).map_err(|error| save_failed(path, error))
+        narsil::rename_replacing(&partial, path).map_err(|error| save_failed(path, error))
     })();
     if outcome.is_err() {
         let _ = std::fs::remove_file(&partial);

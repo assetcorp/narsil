@@ -11,6 +11,7 @@ use self::parse_wildcard::parse_wildcard;
 use self::positions::pattern_positions;
 use super::constants::MAX_PATTERN_POSITIONS;
 use crate::error::{ErrorCode, NarsilError, Result};
+use crate::value::Value;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum ExpressionOperator {
@@ -44,6 +45,11 @@ fn refused(operator: ExpressionOperator, field_path: &str, failure: ParseFailure
             failure.reason
         ),
     )
+    .with_details([
+        ("fieldPath", Value::from(field_path)),
+        ("operator", Value::from(operator.as_str())),
+        ("codePoint", Value::from(failure.at + 1)),
+    ])
 }
 
 pub(crate) fn check_expression(
@@ -72,5 +78,10 @@ pub(crate) fn check_expression(
             "The engine refuses {} before it builds a matcher, because the pattern holds more than {MAX_PATTERN_POSITIONS} positions{folded}. A literal code point, a class, and a set each count as one position. A count such as {{5}} multiplies the positions of what it repeats. A number range counts the positions of the pattern that it stands for",
             describe(operator, field_path)
         ),
-    ))
+    )
+    .with_details([
+        ("fieldPath", Value::from(field_path)),
+        ("operator", Value::from(operator.as_str())),
+        ("limit", Value::from(MAX_PATTERN_POSITIONS)),
+    ]))
 }

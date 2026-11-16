@@ -32,9 +32,19 @@ const BAD_VALUES: ReadonlyArray<{ label: string; bm25: unknown; json?: boolean }
   { label: 'an unknown key on a field', bm25: { fields: { title: { k2: 1 } } } },
 ]
 const NOT_TEXT_FIELDS = ['price', 'embedding', 'missing', 'constructor', 'toString', 'hasOwnProperty', 'valueOf']
+const SEARCH_TYPE_REFUSALS = new Map([
+  ['string k1', 'Field "bm25.k1" must be a number'],
+  ['object k1 with a toString', 'Field "bm25.k1" must be a number'],
+  ['string b', 'Field "bm25.b" must be a number'],
+  ['an array', 'Field "bm25" must be an object'],
+  ['a string', 'Field "bm25" must be an object'],
+  ['fields as a list', 'Field "bm25.fields" must be an object keyed by field name'],
+  ['a field pair as a number', 'Field "bm25.fields.title" must be an object'],
+])
+const ABSENT_ON_SEARCH = new Set(['null k1', 'null'])
 
 interface ErrorBody {
-  error: { code: string }
+  error: { code: string; message: string }
 }
 
 const servers: GarageServer[] = []
@@ -98,7 +108,18 @@ describe('hostile BM25 values', () => {
       const change = await postJson<ErrorBody>(server.base, bm25Path, bm25)
       expect([change.status, change.body.error.code], label).toEqual([400, 'CONFIG_INVALID'])
       const search = await postJson<ErrorBody>(server.base, searchPath, { term: 'road', bm25 })
-      expect([search.status, search.body.error.code], label).toEqual([400, 'CONFIG_INVALID'])
+      const refusal = SEARCH_TYPE_REFUSALS.get(label)
+      if (ABSENT_ON_SEARCH.has(label)) {
+        expect(search.status, label).toBe(200)
+      } else if (refusal === undefined) {
+        expect([search.status, search.body.error.code], label).toEqual([400, 'CONFIG_INVALID'])
+      } else {
+        expect([search.status, search.body.error.code, search.body.error.message], label).toEqual([
+          400,
+          'INVALID_REQUEST',
+          refusal,
+        ])
+      }
     }
 
     const hostile = ['__proto__', 'constructor', 'toString', 'prototype']

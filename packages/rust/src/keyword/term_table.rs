@@ -15,7 +15,7 @@ const GENERATION: usize = 3;
 const UNITS_USED: usize = 4;
 const FIRST_UNIT_COUNT: usize = 0x10000;
 const LAST_SLOT_ORDINAL: usize = 0x7fff_fffe;
-const LAST_SLOT_CAPACITY: usize = 0x8000_0000;
+pub(crate) const LAST_SLOT_CAPACITY: usize = 0x8000_0000;
 const LAST_OFFSET: usize = u32::MAX as usize;
 
 fn term_hash(units: &[u16]) -> u32 {
@@ -127,6 +127,44 @@ impl TermTable {
         self.accounted_count = self.count();
         self.occupied = (self.occupied + added).min(self.slots.len());
         self.occupied
+    }
+
+    pub(crate) fn capacity_after(&self, added_terms: usize) -> usize {
+        let terms = self.count().saturating_add(added_terms);
+        if terms <= self.term_offset.len() {
+            return self.term_offset.len();
+        }
+        terms
+            .max(self.term_offset.len() * TERM_REGION_GROWTH_FACTOR)
+            .min(LAST_SLOT_ORDINAL + 1)
+    }
+
+    pub(crate) fn growth_bytes(&self, added_terms: usize, added_units: usize) -> usize {
+        let mut bytes: usize = 0;
+        let capacity = self.capacity_after(added_terms);
+        if capacity > self.term_offset.len() {
+            bytes = bytes.saturating_add(capacity.saturating_mul(3 * size_of::<u32>()));
+        }
+        let units = self.units_used().saturating_add(added_units);
+        if units > self.units.len() {
+            let capacity = units
+                .max(self.units.len() * TERM_REGION_GROWTH_FACTOR)
+                .min(LAST_OFFSET);
+            bytes = bytes.saturating_add(capacity.saturating_mul(size_of::<u16>()));
+        }
+        let occupied = self
+            .count()
+            .min(self.slots.len())
+            .saturating_add(added_terms);
+        if occupied.saturating_mul(TERM_SLOT_LOAD_DENOMINATOR)
+            >= self.slots.len() * TERM_SLOT_LOAD_NUMERATOR
+        {
+            let slots = slots_holding(self.live_count().saturating_add(added_terms))
+                .unwrap_or(LAST_SLOT_CAPACITY)
+                .max(self.slots.len());
+            bytes = bytes.saturating_add(slots.saturating_mul(size_of::<i32>()));
+        }
+        bytes
     }
 
     pub(crate) fn reserve(&mut self, terms: usize, units: usize) -> Result<()> {

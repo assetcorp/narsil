@@ -1,0 +1,2 @@
+pub const RUNTIME_SHUTDOWN_TIMEOUT_MS: u64 = 5_000;
+pub const FAILURE_EXIT_CODE: u8 = 1;

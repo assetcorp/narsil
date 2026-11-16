@@ -31,6 +31,28 @@ pub enum NarsilEventKind {
     QuerySuggestionsBuild,
     /// The engine worked around a problem with popular query suggestions, such as a damaged history file.
     QuerySuggestionsWarning,
+    /// A change to an index that each device feed and each change feed of the index has to act on at once.
+    FeedChange,
+}
+
+/// What changed about an index that its device feeds and change feeds follow, which a
+/// [`NarsilEvent::FeedChange`] reports once the change is durable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum FeedChange {
+    /// Device sync went off, so the published snapshot is gone and every device feed of the index closes.
+    SyncOff,
+    /// The index took a new epoch after a clear, a restore, a partition count change, or the switch of an
+    /// analysis change, so every device and every change feed subscriber has to load a fresh copy.
+    Epoch,
+    /// The BM25 setting or the synonym set of an index with device sync on changed, which each device applies.
+    Settings,
+    /// Change capture went off, so every change feed of the index closes.
+    ChangesOff,
+    /// The index stopped recording the document before each write, so every filtered change feed closes.
+    PreviousDocumentOff,
+    /// The engine dropped the index, so every feed of the index closes.
+    Dropped,
 }
 
 /// The stage that a rebuild or a rewrite has reached.
@@ -148,6 +170,13 @@ pub enum NarsilEvent {
         /// The message of the error behind the problem, where an error caused it.
         message: Option<String>,
     },
+    /// `change` happened to `index_name`, which its device feeds and change feeds act on at once.
+    FeedChange {
+        /// The index that changed.
+        index_name: String,
+        /// What changed.
+        change: FeedChange,
+    },
 }
 
 impl NarsilEvent {
@@ -162,6 +191,7 @@ impl NarsilEvent {
             NarsilEvent::DurabilityError { .. } => NarsilEventKind::DurabilityError,
             NarsilEvent::QuerySuggestionsBuild { .. } => NarsilEventKind::QuerySuggestionsBuild,
             NarsilEvent::QuerySuggestionsWarning { .. } => NarsilEventKind::QuerySuggestionsWarning,
+            NarsilEvent::FeedChange { .. } => NarsilEventKind::FeedChange,
         }
     }
 }
@@ -235,6 +265,28 @@ impl EventBus {
             self.emit(NarsilEvent::Write {
                 index_name: index_name.to_string(),
             });
+        }
+    }
+
+    /// Raises a feed change event for `index_name` where any listener hears one.
+    pub(crate) fn feed_changed(&self, index_name: &str, change: FeedChange) {
+        if self.listens(NarsilEventKind::FeedChange) {
+            self.emit(NarsilEvent::FeedChange {
+                index_name: index_name.to_string(),
+                change,
+            });
+        }
+    }
+
+    /// Raises the epoch event of `index_name` where its feeds followed the epoch `before` and now follow another.
+    pub(crate) fn epoch_moved(
+        &self,
+        index_name: &str,
+        before: Option<String>,
+        after: Option<String>,
+    ) {
+        if before.is_some() && after.is_some() && before != after {
+            self.feed_changed(index_name, FeedChange::Epoch);
         }
     }
 

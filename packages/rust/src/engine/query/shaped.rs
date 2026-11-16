@@ -1,5 +1,5 @@
 use super::assemble::{assemble_groups, ranked_hit, sorted_hit};
-use super::cursor::{decode_page_cursor, require_matching_cursor};
+use super::cursor::decode_matching_cursor;
 use super::gather::{QueryRun, text_ranked};
 use super::highlight::highlight_hits;
 use super::hybrid::hybrid_hits;
@@ -24,8 +24,7 @@ fn cursor_depth(run: &QueryRun<'_>) -> Result<usize> {
     let Some(cursor) = run.params.search_after.as_deref() else {
         return Ok(0);
     };
-    let decoded = decode_page_cursor(cursor)?;
-    require_matching_cursor(&decoded, run.signature.as_deref(), true, run.binding())?;
+    let decoded = decode_matching_cursor(cursor, run.signature.as_deref(), true, run.binding())?;
     Ok(usize::try_from(decoded.depth).unwrap_or(usize::MAX))
 }
 

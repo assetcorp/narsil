@@ -1,0 +1,39 @@
+[package]
+name = "delali-narsil-container"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "The startup program of the Narsil container image that serves one Narsil node from the Rust server and takes every setting from environment variables."
+license = "Apache-2.0"
+repository = "https://github.com/assetcorp/narsil"
+homepage = "https://narsil.sondelali.com"
+publish = false
+
+[[bin]]
+name = "narsil-container"
+path = "src/main.rs"
+
+[dependencies]
+base64 = "=0.23.1"
+bytes = "=1.12.1"
+delali-narsil = { path = "../rust" }
+delali-narsil-server = { path = "../rust-server" }
+getrandom = "=0.4.3"
+hmac = "=0.13.0"
+http = "=1.5.0"
+http-body-util = "=0.1.5"
+hyper = { version = "=1.12.0", features = ["client", "http1"] }
+hyper-rustls = { version = "=0.27.10", default-features = false, features = ["http1", "tls12", "ring"] }
+hyper-util = { version = "=0.1.21", features = ["client-legacy", "http1", "tokio"] }
+percent-encoding = "=2.3.2"
+rustls = { version = "=0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
+sha2 = "=0.11.1"
+tokio = { version = "=1.54.1", features = ["rt-multi-thread", "net", "sync", "time", "macros", "io-util", "fs", "signal"] }
+webpki-roots = "=1.0.12"
+
+[profile.dev]
+opt-level = 1
+
+[profile.release]
+codegen-units = 1
+lto = "thin"

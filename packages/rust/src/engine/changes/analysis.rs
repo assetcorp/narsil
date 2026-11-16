@@ -55,6 +55,7 @@ fn refused_stop_words(index_name: &str) -> NarsilError {
             "The stop words of index \"{index_name}\" must change to a name registered with registerStopWords or to a list of words, because a function survives neither a worker boundary nor a restart"
         ),
     )
+    .with_details([("indexName", crate::value::Value::from(index_name))])
 }
 
 fn kept<T: Clone>(setting: &AnalysisSetting<T>, current: Option<&T>) -> Option<T> {
@@ -102,9 +103,10 @@ pub(crate) fn resolve_target(
     change: &AnalysisChange,
 ) -> Result<AnalysisTarget> {
     let config = index.config();
+    let languages = &engine.settings.languages;
     let language = match &change.language {
-        Some(name) => Language::named(name)?,
-        None => Language::named(config.language.as_deref().unwrap_or(DEFAULT_LANGUAGE))?,
+        Some(name) => languages.resolve(name)?,
+        None => languages.resolve(config.language.as_deref().unwrap_or(DEFAULT_LANGUAGE))?,
     };
     let tokenizer = match &change.tokenizer {
         AnalysisSetting::Keep => config.tokenizer.clone(),
@@ -133,7 +135,7 @@ pub(crate) fn pending_target(
     index: &IndexState,
     pending: &PendingAnalysis,
 ) -> Result<AnalysisTarget> {
-    let language = Language::named(&pending.language)?;
+    let language = engine.settings.languages.resolve(&pending.language)?;
     let named = &pending.analysis;
     let tokenizer = named.tokenizer.clone().map(TokenizerSetting::Named);
     let stop_words = match (&named.stop_words, &named.stop_word_list) {

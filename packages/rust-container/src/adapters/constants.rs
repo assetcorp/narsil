@@ -1,0 +1,10 @@
+pub const RETRYABLE_STATUS_CODES: [u16; 5] = [429, 500, 502, 503, 504];
+pub const MAX_BACKOFF_MS: u64 = 30_000;
+pub const BASE_BACKOFF_MS: u64 = 1_000;
+pub const MAX_JITTER_MS: u64 = 1_000;
+pub const MAX_ERROR_ANSWER_BYTES: usize = 65_536;
+pub const ANSWER_OVERHEAD_BYTES: usize = 1_048_576;
+pub const MAX_JSON_BYTES_PER_EMBEDDING_VALUE: usize = 32;
+pub const MAX_JSON_BYTES_PER_RESULT: usize = 256;
+pub const RERANK_ECHO_FACTOR: usize = 2;
+pub const MAX_INPUTS_PER_REQUEST: usize = 2_048;

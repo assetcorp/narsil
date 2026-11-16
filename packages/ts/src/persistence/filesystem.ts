@@ -1,3 +1,4 @@
+import { renameReplacing } from '#platform/durable-fs'
 import { ErrorCodes, NarsilError } from '../errors'
 import type { PersistenceAdapter } from '../types/adapters'
 import { OBJECT_STORE_PART_BYTES } from './constants'
@@ -185,11 +186,15 @@ export function createFilesystemPersistence(config: FilesystemPersistenceConfig)
       const tempPath = pathMod.join(dir, unfinishedSaveName(pathMod.basename(resolvedPath)))
       try {
         await writeSyncedFile(fs, tempPath, data, key)
-        await fs.rename(tempPath, resolvedPath)
+        await renameReplacing(tempPath, resolvedPath)
         await fsyncDirectory(dir, fs)
       } catch (err: unknown) {
         await fs.unlink(tempPath).catch(() => undefined)
-        throw err
+        if (err instanceof NarsilError) throw err
+        throw new NarsilError(ErrorCodes.PERSISTENCE_SAVE_FAILED, `The adapter could not save "${key}"`, {
+          key,
+          cause: err instanceof Error ? err.message : String(err),
+        })
       }
     },
 
@@ -235,7 +240,7 @@ export function createFilesystemPersistence(config: FilesystemPersistenceConfig)
         await handle.sync()
         await handle.close()
         handle = null
-        await fs.rename(tempPath, resolvedPath)
+        await renameReplacing(tempPath, resolvedPath)
         await fsyncDirectory(dir, fs)
       } catch (err: unknown) {
         if (handle !== null) await handle.close().catch(() => undefined)

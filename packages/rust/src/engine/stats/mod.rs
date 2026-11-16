@@ -1,11 +1,10 @@
-mod constants;
 mod memory;
 
 use super::Narsil;
 use super::index::IndexState;
+use crate::engine::memory::{read_process_memory, read_resident_bytes};
 use crate::error::Result;
 use crate::value::Value;
-use constants::{KIBIBYTE_BYTES, PROCESS_STATUS_PATH, RESIDENT_SET_FIELD};
 use memory::partition_bytes;
 
 /// The figures that [`Narsil::get_stats`] reports for one index.
@@ -55,6 +54,10 @@ pub struct PartitionStats {
 pub struct MemoryStats {
     /// The resident set size of the process, which Linux reports and other systems leave as `None`.
     pub process_resident_bytes: Option<u64>,
+    /// The memory that the process may use: its cgroup's limit where one lies below the machine's memory, and
+    /// otherwise the smaller of the machine's memory and the process's memory plus the memory available, or `None`
+    /// on a system that reports no limit.
+    pub process_limit_bytes: Option<u64>,
     /// The sum of every open index's estimate.
     pub estimated_index_bytes: u64,
     /// The number of indexes that the engine holds open.
@@ -102,15 +105,6 @@ pub(crate) fn index_bytes(index: &IndexState) -> u64 {
         .fold(vector_bytes(index), |total, partition| {
             total.saturating_add(partition.estimated_memory_bytes)
         })
-}
-
-fn process_resident_bytes() -> Option<u64> {
-    let status = std::fs::read_to_string(PROCESS_STATUS_PATH).ok()?;
-    let line = status
-        .lines()
-        .find_map(|line| line.strip_prefix(RESIDENT_SET_FIELD))?;
-    let kibibytes: u64 = line.trim().strip_suffix("kB")?.trim().parse().ok()?;
-    kibibytes.checked_mul(KIBIBYTE_BYTES)
 }
 
 impl Narsil {
@@ -188,7 +182,8 @@ impl Narsil {
             total.saturating_add(index_bytes(index))
         });
         MemoryStats {
-            process_resident_bytes: process_resident_bytes(),
+            process_resident_bytes: read_resident_bytes(),
+            process_limit_bytes: read_process_memory().map(|memory| memory.limit_bytes),
             estimated_index_bytes,
             open_index_count: indexes.len(),
         }

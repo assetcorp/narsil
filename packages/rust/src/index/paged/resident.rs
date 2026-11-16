@@ -1,7 +1,7 @@
 use super::documents::BlockEntry;
 use super::file::PagedFile;
 use super::open::required;
-use crate::error::{ErrorCode, Result, load_failed};
+use crate::error::{ErrorCode, Result, load_failed, load_failed_with};
 use crate::format::fields::Fields;
 use crate::format::keyword_segment::{KeywordSegment, MAX_SEGMENT_FIELD_NAMES};
 use crate::format::paged_segment::head::PagedHead;
@@ -112,36 +112,43 @@ fn require_blocks(
     let token_count = posting_offsets.len().saturating_sub(1);
     for (at, &token) in lists.iter().enumerate() {
         if at > 0 && token <= lists[at - 1] {
-            return load_failed(format!(
-                "blockLists of \"{key}\" fails to ascend at entry {at}"
-            ));
+            return load_failed_with(
+                format!("blockLists of \"{key}\" fails to ascend at entry {at}"),
+                [("at", Value::from(at))],
+            );
         }
         if token as usize >= token_count {
-            return load_failed(format!(
-                "blockLists of \"{key}\" holds token {token} of {token_count}"
-            ));
+            return load_failed_with(
+                format!("blockLists of \"{key}\" holds token {token} of {token_count}"),
+                [("at", Value::from(at))],
+            );
         }
         let length = posting_offsets[token as usize + 1] - posting_offsets[token as usize];
         if length as usize <= SMALLEST_BLOCK_POSTINGS {
-            return load_failed(format!(
-                "blockLists of \"{key}\" lists token {token}, which holds too few postings"
-            ));
+            return load_failed_with(
+                format!(
+                    "blockLists of \"{key}\" lists token {token}, which holds too few postings"
+                ),
+                [("token", Value::from(token))],
+            );
         }
         let mut before = 0u32;
         for block in offsets[at]..offsets[at + 1] {
             let end = le_u32(summaries, block as usize * BLOCK_SUMMARY_BYTES);
             let place = block - offsets[at];
             if end <= before || end > length {
-                return load_failed(format!(
-                    "Block {place} of token {token} of \"{key}\" ends outside its list"
-                ));
+                return load_failed_with(
+                    format!("Block {place} of token {token} of \"{key}\" ends outside its list"),
+                    [("token", Value::from(token)), ("block", Value::from(place))],
+                );
             }
             before = end;
         }
         if before != length {
-            return load_failed(format!(
-                "The blocks of token {token} of \"{key}\" fail to cover its list"
-            ));
+            return load_failed_with(
+                format!("The blocks of token {token} of \"{key}\" fail to cover its list"),
+                [("token", Value::from(token))],
+            );
         }
     }
     Ok(())
@@ -180,9 +187,10 @@ fn document_blocks(
         }
         let end = block.offset.saturating_add(u64::from(block.length));
         if block.offset != previous_end || end > section_length {
-            return load_failed(format!(
-                "Document block {at} of \"{key}\" lies outside its section"
-            ));
+            return load_failed_with(
+                format!("Document block {at} of \"{key}\" lies outside its section"),
+                [("at", Value::from(at))],
+            );
         }
         if block.raw_length > MAX_DOCUMENT_BLOCK_RAW_BYTES {
             return load_failed(format!(
@@ -215,15 +223,17 @@ fn id_sample(value: &Value, path: &str) -> Result<Vec<(String, u32)>> {
             _ => None,
         };
         let Some((id, position)) = pair else {
-            return load_failed(format!(
-                "Section \"idSample\" of \"{path}\" holds an invalid entry at {at}"
-            ));
+            return load_failed_with(
+                format!("Section \"idSample\" of \"{path}\" holds an invalid entry at {at}"),
+                [("at", Value::from(at))],
+            );
         };
         let position = position as u32;
         if sample.last().is_some_and(|(_, before)| position <= *before) {
-            return load_failed(format!(
-                "Section \"idSample\" of \"{path}\" fails to ascend at entry {at}"
-            ));
+            return load_failed_with(
+                format!("Section \"idSample\" of \"{path}\" fails to ascend at entry {at}"),
+                [("at", Value::from(at))],
+            );
         }
         sample.push((id.clone(), position));
     }
@@ -234,7 +244,8 @@ fn id_sample(value: &Value, path: &str) -> Result<Vec<(String, u32)>> {
 /// rules of the keyword segment payload.
 pub(super) fn read_resident(file: &PagedFile, head: &PagedHead, key: &str) -> Result<Resident> {
     let empty = Map::new();
-    let fields = Fields::new(&empty, ErrorCode::PERSISTENCE_LOAD_FAILED, ERROR_PREFIX);
+    let fields =
+        Fields::new(&empty, ErrorCode::PERSISTENCE_LOAD_FAILED, ERROR_PREFIX).naming_fields();
     require_valid_field_types(&head.schema)?;
     if head.field_names.len() > MAX_SEGMENT_FIELD_NAMES {
         return load_failed(format!(
@@ -252,9 +263,10 @@ pub(super) fn read_resident(file: &PagedFile, head: &PagedHead, key: &str) -> Re
     let document_frequencies = checked_u32s(file, head, "documentFrequencies", key)?;
     let posting_offsets = checked_u32s(file, head, "postingOffsets", key)?;
     if document_frequencies.len() != token_count || posting_offsets.len() != token_count + 1 {
-        return load_failed(format!(
-            "The token columns of \"{key}\" disagree on the token count"
-        ));
+        return load_failed_with(
+            format!("The token columns of \"{key}\" disagree on the token count"),
+            [("key", Value::from(key))],
+        );
     }
     let posting_bytes = required(head, "postings", key)?.length;
     if posting_bytes % POSTING_WIDTH_BYTES != 0 {
@@ -271,9 +283,12 @@ pub(super) fn read_resident(file: &PagedFile, head: &PagedHead, key: &str) -> Re
     for (token, &frequency) in document_frequencies.iter().enumerate() {
         let postings = posting_offsets[token + 1] - posting_offsets[token];
         if frequency == 0 || frequency > postings {
-            return load_failed(format!(
-                "documentFrequencies of \"{key}\" gives token {token} a count of {frequency}"
-            ));
+            return load_failed_with(
+                format!(
+                    "documentFrequencies of \"{key}\" gives token {token} a count of {frequency}"
+                ),
+                [("token", Value::from(token))],
+            );
         }
     }
     let block_lists = checked_u32s(file, head, "blockLists", key)?;
@@ -306,7 +321,8 @@ pub(super) fn read_resident(file: &PagedFile, head: &PagedHead, key: &str) -> Re
         })?;
         lists.insert("surfaceForms", value);
     }
-    let columns = Fields::new(&lists, ErrorCode::PERSISTENCE_LOAD_FAILED, ERROR_PREFIX);
+    let columns =
+        Fields::new(&lists, ErrorCode::PERSISTENCE_LOAD_FAILED, ERROR_PREFIX).naming_fields();
     let mut segment = KeywordSegment {
         schema: head.schema.clone(),
         tombstones: head.tombstones.clone(),

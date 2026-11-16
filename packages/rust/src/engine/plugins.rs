@@ -7,7 +7,7 @@ use super::query::params::QueryParams;
 use super::query::results::QueryResult;
 use crate::config::IndexConfig;
 use crate::error::{ErrorCode, NarsilError, Result};
-use crate::value::Map;
+use crate::value::{Map, Value};
 
 /// Hooks that the engine calls alongside its own work, so that an application can add validation, auditing,
 /// enrichment, or metrics without forking the engine.
@@ -142,13 +142,20 @@ impl PluginRegistry {
             match catch_unwind(AssertUnwindSafe(|| hook(plugin.as_ref()))) {
                 Ok(outcome) => outcome?,
                 Err(_) => {
-                    return Err(NarsilError::new(
+                    let refusal = NarsilError::new(
                         panicked,
                         format!(
                             "The {label} hook of plugin \"{}\" rejects the call",
                             plugin.name()
                         ),
-                    ));
+                    );
+                    if panicked != ErrorCode::DOC_VALIDATION_FAILED {
+                        return Err(refusal);
+                    }
+                    return Err(refusal.with_details([
+                        ("plugin", Value::from(plugin.name())),
+                        ("hook", Value::from(label)),
+                    ]));
                 }
             }
         }

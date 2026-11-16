@@ -2,11 +2,12 @@ use std::sync::Arc;
 
 use super::durable::config::NarsilConfig;
 use super::index_lifecycle::constants::DEFAULT_MAX_REOPEN_WAITERS;
+use super::languages::LanguageList;
 use super::memory::constants::{DEFAULT_BLOCK_WRITES_ABOVE, DEFAULT_RESUME_WRITES_BELOW};
 use super::rerank_settings::RerankSettings;
 use super::stale_review::StaleRebuild;
 use crate::error::{ErrorCode, NarsilError, Result};
-use crate::value::MAX_SAFE_INTEGER;
+use crate::value::{MAX_SAFE_INTEGER, Value};
 
 /// Returns the ID of a document inserted without one, in place of the UUID version 7 that the engine generates by
 /// default. When the function panics, the insert fails with `INTERNAL_ERROR` and the text of the panic. The engine
@@ -44,7 +45,9 @@ pub struct IndexLifecycleConfig {
 /// and on Windows the private working set. The limit is the cgroup's memory limit on Linux where one is set below
 /// the machine's memory, and otherwise the machine's memory, which Linux counts as the process's memory plus the
 /// memory available. A full engine refuses each insert and update with `MEMORY_WRITE_BLOCKED`, and keeps accepting
-/// removes, searches, and reads, so that removing documents frees memory.
+/// removes, searches, and reads, so that removing documents frees memory. An engine below the block fraction also
+/// refuses an insert or an update whose document can take enough memory to carry the process past that fraction
+/// while the engine indexes it.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct MemoryConfig {
     /// The engine counts as full once the process's memory passes this fraction of the limit: above
@@ -124,6 +127,7 @@ pub(crate) struct EngineSettings {
     pub(crate) lifecycle: Option<LifecycleLimits>,
     pub(crate) memory: MemoryFractions,
     pub(crate) rerank: RerankSettings,
+    pub(crate) languages: LanguageList,
 }
 
 impl Default for EngineSettings {
@@ -138,6 +142,7 @@ impl Default for EngineSettings {
                 resume: DEFAULT_RESUME_WRITES_BELOW,
             },
             rerank: RerankSettings::default(),
+            languages: LanguageList::default(),
         }
     }
 }
@@ -150,7 +155,11 @@ fn positive_limit(name: &str, value: Option<u64>) -> Result<Option<u64>> {
     match value {
         Some(value) if value == 0 || value > MAX_SAFE_INTEGER => Err(config_invalid(format!(
             "lifecycle.{name} must be a positive safe integer"
-        ))),
+        ))
+        .with_details([
+            ("field", Value::from(format!("lifecycle.{name}"))),
+            ("value", Value::from(value)),
+        ])),
         _ => Ok(value),
     }
 }
@@ -163,7 +172,11 @@ fn lifecycle_limits(config: &IndexLifecycleConfig) -> Result<LifecycleLimits> {
         Some(value) if value > MAX_SAFE_INTEGER => {
             return Err(config_invalid(
                 "lifecycle.maxReopenWaiters must be a non-negative safe integer".to_string(),
-            ));
+            )
+            .with_details([
+                ("field", Value::from("lifecycle.maxReopenWaiters")),
+                ("value", Value::from(value)),
+            ]));
         }
         Some(value) => usize::try_from(value).unwrap_or(usize::MAX),
         None => DEFAULT_MAX_REOPEN_WAITERS,
@@ -180,7 +193,8 @@ fn require_fraction(name: &str, value: Option<f64>) -> Result<()> {
     match value {
         Some(value) if !(value.is_finite() && value > 0.0 && value <= 1.0) => Err(config_invalid(
             format!("memory.{name} must be a number above 0 and at most 1"),
-        )),
+        )
+        .with_details([(name, Value::Number(value))])),
         _ => Ok(()),
     }
 }
@@ -200,7 +214,11 @@ fn memory_fractions(config: Option<&MemoryConfig>) -> Result<MemoryFractions> {
     if resume >= block {
         return Err(config_invalid(format!(
             "memory.resumeWritesBelow ({resume}) must lie below blockWritesAbove ({block})"
-        )));
+        ))
+        .with_details([
+            ("blockWritesAbove", Value::Number(block)),
+            ("resumeWritesBelow", Value::Number(resume)),
+        ]));
     }
     Ok(MemoryFractions { block, resume })
 }
@@ -216,6 +234,7 @@ pub(crate) fn engine_settings(config: &NarsilConfig) -> Result<EngineSettings> {
         .transpose()?;
     let memory = memory_fractions(config.memory.as_ref())?;
     let analysis = config.analysis.clone().unwrap_or_default();
+    let languages = LanguageList::checked(config.languages.as_deref())?;
     Ok(EngineSettings {
         id_generator: config.id_generator.clone(),
         rebuild_mode: analysis.rebuild.unwrap_or_default(),
@@ -223,5 +242,6 @@ pub(crate) fn engine_settings(config: &NarsilConfig) -> Result<EngineSettings> {
         lifecycle,
         memory,
         rerank,
+        languages,
     })
 }

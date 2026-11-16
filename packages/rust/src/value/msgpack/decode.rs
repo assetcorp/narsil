@@ -235,13 +235,13 @@ impl<'a> Decoder<'a> {
             }
             0x80..=0x8f | 0xde | 0xdf => {
                 let length = self.read_map_length()?;
-                let mut map = Map::with_capacity(length.min(self.bytes.len() - self.at));
+                let mut entries = Vec::with_capacity(length.min(self.bytes.len() - self.at));
                 for _ in 0..length {
                     let key = self.read_key()?;
                     let entry = self.read_value(depth + 1)?;
-                    map.insert(key, entry);
+                    entries.push((key, entry));
                 }
-                Ok(Value::Object(map))
+                Ok(Value::Object(Map::from_inserted(entries)))
             }
             0xd4..=0xd8 | 0xc7..=0xc9 => {
                 self.at += 1;

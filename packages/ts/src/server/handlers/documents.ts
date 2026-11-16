@@ -2,8 +2,8 @@ import { writeBlockLookupOf } from '../../narsil/write-blocks'
 import { isRemoveOnlyBatch } from '../batch-scan'
 import type { HandlerDeps } from '../deps'
 import {
-  parseJson,
-  parseWriteJson,
+  parseJsonObject,
+  parseWriteJsonObject,
   rejectInvalid,
   respondError,
   respondJson,
@@ -28,7 +28,7 @@ export function createDocumentHandlers(deps: HandlerDeps) {
   const reads = createDocumentReadHandlers(deps)
 
   async function insert(ctx: RouteContext): Promise<void> {
-    const body = await parseWriteJson<InsertBody>(ctx, writeBlock)
+    const body = await parseWriteJsonObject<InsertBody>(ctx, writeBlock)
     if (!body) return
     const failure = validateDocumentBody(body)
     if (failure) {
@@ -44,7 +44,7 @@ export function createDocumentHandlers(deps: HandlerDeps) {
   }
 
   async function put(ctx: RouteContext): Promise<void> {
-    const body = await parseWriteJson<DocumentBody>(ctx, writeBlock)
+    const body = await parseWriteJsonObject<DocumentBody>(ctx, writeBlock)
     if (!body) return
     const failure = validateDocumentBody(body)
     if (failure) {
@@ -66,7 +66,7 @@ export function createDocumentHandlers(deps: HandlerDeps) {
   }
 
   async function patch(ctx: RouteContext): Promise<void> {
-    const body = await parseWriteJson<DocumentBody>(ctx, writeBlock)
+    const body = await parseWriteJsonObject<DocumentBody>(ctx, writeBlock)
     if (!body) return
     const failure = validateDocumentBody(body)
     if (failure) {
@@ -100,7 +100,7 @@ export function createDocumentHandlers(deps: HandlerDeps) {
   }
 
   async function batch(ctx: RouteContext): Promise<void> {
-    const body = parseJson<BatchBody>(ctx, ctx.rawBody && isRemoveOnlyBatch(ctx.rawBody) ? 'read' : 'write')
+    const body = parseJsonObject<BatchBody>(ctx, ctx.rawBody && isRemoveOnlyBatch(ctx.rawBody) ? 'read' : 'write')
     if (!body) return
     const failure = validateBatch(body)
     if (failure) {

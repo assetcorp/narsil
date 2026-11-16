@@ -7,6 +7,7 @@ use crate::format::manifest::{DecodedManifest, PartitionCheckpoint, SegmentManif
 use crate::format::manifest_refs::FileRef;
 use crate::format::metadata::{IndexMetadata, open_lenient_envelope, read_metadata_file};
 use crate::format::wal::LogEntry;
+use crate::value::Value;
 
 use super::checkpoint_files::{
     manifest_keys, metadata_key, read_manifest, snapshot_bundle_key, unlisted_segment_keys,
@@ -59,12 +60,25 @@ fn settle_stored_analysis(metadata: &mut IndexMetadata, stored: Option<u64>) -> 
             Ok(true)
         }
         pending => {
+            let pending_generation = pending.as_ref().map(|held| held.generation);
             metadata.pending_analysis = pending;
             Err(NarsilError::new(
                 ErrorCode::CONFIG_INVALID,
                 format!(
                     "The saved terms of index \"{}\" come from analysis generation {stored}, which matches no settings that its metadata records",
                     metadata.index_name
+                ),
+            )
+            .with_details(
+                [
+                    ("indexName", Value::from(metadata.index_name.as_str())),
+                    ("storedGeneration", Value::from(stored)),
+                    ("currentGeneration", Value::from(current)),
+                ]
+                .into_iter()
+                .chain(
+                    pending_generation
+                        .map(|generation| ("pendingGeneration", Value::from(generation))),
                 ),
             ))
         }

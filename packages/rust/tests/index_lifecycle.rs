@@ -12,7 +12,7 @@ use narsil::{
     DurabilityConfig, DurabilityMode, ErrorCode, IndexConfig, IndexLifecycleConfig,
     IndexResidencyState, Map, Narsil, NarsilConfig, QueryParams, Value,
 };
-use support::ScratchDirectory;
+use support::{ScratchDirectory, details_json};
 
 const INDEX: &str = "tickets";
 const WORDS: [&str; 4] = ["boiler", "gutter", "window", "carpet"];
@@ -519,6 +519,10 @@ fn a_restart_with_lifecycle_limits_leaves_indexes_closed_until_a_call_reaches_th
         .create_index(INDEX, index_config())
         .expect_err("a closed index keeps its name");
     assert_eq!(created.code(), ErrorCode::INDEX_ALREADY_EXISTS);
+    assert_eq!(
+        details_json(&created),
+        Some(format!(r#"{{"indexName":"{INDEX}"}}"#))
+    );
     require_holds_exactly(&engine, INDEX, &written, "after the first call reopens it");
     assert_eq!(
         state_of(&engine, INDEX).map(|(state, _, _)| state),
