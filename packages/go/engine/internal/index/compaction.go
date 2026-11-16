@@ -1,6 +1,7 @@
 package index
 
 import (
+	"context"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -12,6 +13,7 @@ type compactionScheduler struct {
 	quietAt   time.Time
 	running   bool
 	finished  chan struct{}
+	passDone  chan struct{}
 	idleDue   bool
 	ingestDue bool
 	stopped   atomic.Bool
@@ -88,9 +90,30 @@ func (ix *Index) runCompactions(finished chan struct{}) {
 			s.mu.Unlock()
 			return
 		}
+		passDone := make(chan struct{})
+		s.passDone = passDone
 		s.mu.Unlock()
 		_, _ = ix.compactSegments(policy, s.stopped.Load)
+		s.mu.Lock()
+		s.passDone = nil
+		s.mu.Unlock()
+		close(passDone)
 	}
+}
+
+func (ix *Index) AwaitCompactionPass(ctx context.Context) error {
+	s := &ix.compactions
+	s.mu.Lock()
+	passDone := s.passDone
+	s.mu.Unlock()
+	if passDone != nil {
+		select {
+		case <-passDone:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return ctx.Err()
 }
 
 func (ix *Index) StopCompactions() {
