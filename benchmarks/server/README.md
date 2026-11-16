@@ -27,7 +27,7 @@ reporting) lives in `src/ir_bench/core`, and each engine is a small driver in
 ## Engines and pinned versions
 
 Each engine runs from a pinned image. Every version was checked against the
-engine's release source on 2026-11-15.
+engine's release source on 2026-11-16.
 
 | Engine | Image (pinned) | Version | Source |
 | ------ | -------------- | ------- | ------ |
@@ -35,10 +35,10 @@ engine's release source on 2026-11-15.
 | Narsil Rust server (`narsil-rust`) | built from this repo (`debian:trixie-slim` base) | working tree | local source |
 | Elasticsearch | `docker.elastic.co/elasticsearch/elasticsearch:9.5.6` | 9.5.6 | [release notes](https://www.elastic.co/docs/release-notes/elasticsearch), [GitHub releases](https://github.com/elastic/elasticsearch/releases) |
 | OpenSearch | `opensearchproject/opensearch:3.9.0` | 3.9.0 | [opensearch.org/releases](https://opensearch.org/releases/), [GitHub releases](https://github.com/opensearch-project/OpenSearch/releases) |
-| Qdrant | `qdrant/qdrant:v1.20.1` | 1.20.1 | [GitHub releases](https://github.com/qdrant/qdrant/releases), [Docker Hub](https://hub.docker.com/r/qdrant/qdrant/tags) |
+| Qdrant | `qdrant/qdrant:v1.20.2` | 1.20.2 | [GitHub releases](https://github.com/qdrant/qdrant/releases), [Docker Hub](https://hub.docker.com/r/qdrant/qdrant/tags) |
 | Weaviate | `cr.weaviate.io/semitechnologies/weaviate:1.40.5` | 1.40.5 | [GitHub releases](https://github.com/weaviate/weaviate/releases) |
 | Typesense | `typesense/typesense:30.2` | 30.2 | [GitHub releases](https://github.com/typesense/typesense/releases) |
-| Meilisearch | `getmeili/meilisearch:v1.56.2` | 1.56.2 | [GitHub releases](https://github.com/meilisearch/meilisearch/releases) |
+| Meilisearch | `getmeili/meilisearch:v1.57.0` | 1.57.0 | [GitHub releases](https://github.com/meilisearch/meilisearch/releases) |
 
 ## Tracks and which engines run them
 

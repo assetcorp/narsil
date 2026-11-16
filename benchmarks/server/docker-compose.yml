@@ -95,7 +95,7 @@ services:
 
   qdrant:
     profiles: ["qdrant"]
-    image: qdrant/qdrant:v1.20.1
+    image: qdrant/qdrant:v1.20.2
     mem_limit: "${BENCH_MEM_CAP:-8g}"
     cpuset: "${BENCH_ENGINE_CPUSET:-}"
     environment:
@@ -134,7 +134,7 @@ services:
 
   meilisearch:
     profiles: ["meilisearch"]
-    image: getmeili/meilisearch:v1.56.2
+    image: getmeili/meilisearch:v1.57.0
     mem_limit: "${BENCH_MEM_CAP:-8g}"
     cpuset: "${BENCH_ENGINE_CPUSET:-}"
     environment:
