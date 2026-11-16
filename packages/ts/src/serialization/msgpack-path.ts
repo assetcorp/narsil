@@ -11,7 +11,6 @@ export type EncodedArrayStep = 'decode-document' | 'missing'
 const encoder = new TextEncoder()
 const PROTO_KEY_BYTES = encoder.encode('__proto__')
 const MISSING: EncodedPathRead = { found: false, value: undefined }
-const foundRead: EncodedPathRead = { found: true, value: undefined }
 const mapHeader: ValueHeader = { headerBytes: 0, bodyBytes: 0, children: 0 }
 const keyHeader: ValueHeader = { headerBytes: 0, bodyBytes: 0, children: 0 }
 let pathDecoder: Decoder | null = null
@@ -57,6 +56,7 @@ export function readEncodedPath(
   bytes: Uint8Array,
   segments: readonly Uint8Array[],
   arrays: EncodedArrayStep,
+  foundRead: EncodedPathRead,
 ): EncodedPathRead | null {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
   let start = 0

@@ -27,7 +27,6 @@ export interface FrozenDocumentSource {
 }
 
 const encodedProjectionPaths = new WeakMap<readonly string[], Uint8Array[] | null>()
-const projectedRead: ProjectedPathRead = { found: true, value: undefined }
 
 function encodedProjectionPathOf(path: readonly string[]): Uint8Array[] | null {
   let segments = encodedProjectionPaths.get(path)
@@ -162,21 +161,22 @@ export function createEncodedDocumentSource(
   const docAt = (ordinal: number): AnyDocument =>
     documentWithOwnBuffers(decodeStoredDocument(bytesAt(ordinal), discardedFields))
 
-  function projectedPathAt(ordinal: number, path: string[]): ProjectedPathRead {
+  function projectedPathAt(ordinal: number, path: string[], result: ProjectedPathRead): ProjectedPathRead {
     const segments = encodedProjectionPathOf(path)
     if (segments === null) return { found: false, value: undefined }
-    const read = touchesDiscarded(path) ? null : readEncodedPath(bytesAt(ordinal), segments, 'missing')
+    const read = touchesDiscarded(path) ? null : readEncodedPath(bytesAt(ordinal), segments, 'missing', result)
     if (read === null) return readProjectedPath(docAt(ordinal) as Record<string, unknown>, path)
     if (!read.found) return read
-    projectedRead.value = valueWithOwnBuffers(read.value)
-    return projectedRead
+    read.value = valueWithOwnBuffers(read.value)
+    return read
   }
 
   function projectedAt(ordinal: number, projection?: ResolvedProjection): AnyDocument {
     if (projection === undefined || projection.kind === 'full') return docAt(ordinal)
     if (projection.kind === 'none') return {}
     if (projection.include === null) return cloneProjected(docAt(ordinal) as Record<string, unknown>, projection)
-    return projectIncludedPaths(projection.include, projection.exclude, path => projectedPathAt(ordinal, path))
+    const result: ProjectedPathRead = { found: true, value: undefined }
+    return projectIncludedPaths(projection.include, projection.exclude, path => projectedPathAt(ordinal, path, result))
   }
 
   return {
@@ -193,7 +193,9 @@ export function createEncodedDocumentSource(
       if (segments === null) return () => undefined
       const decodesDocument = touchesDiscarded(path)
       return ordinal => {
-        const read = decodesDocument ? null : readEncodedPath(bytesAt(ordinal), segments, 'decode-document')
+        const read = decodesDocument
+          ? null
+          : readEncodedPath(bytesAt(ordinal), segments, 'decode-document', { found: true, value: undefined })
         if (read !== null) return valueWithOwnBuffers(read.value)
         return getNestedValue(docAt(ordinal) as Record<string, unknown>, fieldPath)
       }
