@@ -3,9 +3,9 @@ import type { BatchResult } from '../../types/results'
 import type { InsertOptions } from '../../types/schema'
 import type { IndexHold } from '../index-hold'
 import { asBatchInsertError } from './batch-admissions'
-import { batchStopped, failAsShutDown, unlessShutDown } from './batch-shutdown'
+import { docIdOf, failAsShutDown, shutDownStarted, unlessShutDown } from './batch-shutdown'
 import type { MutationContext } from './context'
-import { type AdmittedInsert, admittedDocIdOf } from './insert-batch-admission'
+import type { AdmittedInsert } from './insert-batch-admission'
 import { applyInsertChunk } from './insert-batch-apply'
 import { runOutside } from './outside-hold'
 
@@ -34,7 +34,7 @@ export async function runAfterInsertHooks(
       }
     }),
   )
-  return batchStopped(ctx) || ctx.executor.getManager(indexName) !== manager
+  return shutDownStarted(ctx) || ctx.executor.getManager(indexName) !== manager
 }
 
 export async function applyAdmittedDocuments(
@@ -49,8 +49,8 @@ export async function applyAdmittedDocuments(
   const touchedVectorFields = new Set<string>()
 
   for (let chunkStart = 0; chunkStart < admitted.length; chunkStart += BATCH_CHUNK_SIZE) {
-    if (batchStopped(ctx)) {
-      failAsShutDown(failed, admitted, admittedDocIdOf, chunkStart)
+    if (shutDownStarted(ctx)) {
+      failAsShutDown(failed, admitted, docIdOf, chunkStart)
       break
     }
 
@@ -86,7 +86,7 @@ export async function applyAdmittedDocuments(
       return { succeeded, touchedVectorFields, unrecorded: admitted.slice(applied) }
     }
     if (applied < admitted.length) {
-      if (!batchStopped(ctx)) ctx.checkHeapPressure(indexName)
+      if (!shutDownStarted(ctx)) ctx.checkHeapPressure(indexName)
       await new Promise<void>(r => setTimeout(r, 0))
     }
   }

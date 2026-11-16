@@ -28,6 +28,7 @@ import {
   type PartitionBatchDeps,
   partitionFailureFor,
   recordBatchesByPartition,
+  shutDownRefusal,
 } from './mutation-batch'
 import { buildMutationEntry } from './mutation-entry'
 import { createPartitionFailureRouting } from './partition-failure'
@@ -204,10 +205,8 @@ export function createDurabilityManager(
   }
 
   async function recordMutations(records: readonly MutationRecord[]): Promise<MutationOutcome[]> {
-    if (fatalError !== null) {
-      const error = fatalError
-      return records.map(() => ({ ok: false, error }))
-    }
+    const refusal = fatalError ?? (shuttingDown ? shutDownRefusal() : null)
+    if (refusal !== null) return records.map(() => ({ ok: false, error: refusal }))
     const outcomes = await recordBatchesByPartition(
       records,
       record => getOrCreatePartition(record.indexName, record.partitionId, 0),
@@ -386,6 +385,7 @@ export function createDurabilityManager(
           await indexState.checkpointInFlight.catch(() => undefined)
         }
         for (const partition of indexState.partitions.values()) {
+          await partition.appendChain
           await closeWriterReportingFailure(closePartitionWriter(partition))
         }
       }

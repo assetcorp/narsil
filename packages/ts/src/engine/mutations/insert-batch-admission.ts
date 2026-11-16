@@ -18,8 +18,13 @@ import type { BatchResult } from '../../types/results'
 import type { AnyDocument } from '../../types/schema'
 import type { WriteEmbedding } from '../embed'
 import type { IndexHold } from '../index-hold'
-import { asBatchInsertError, createPendingAdmissions, recordPendingAdmission } from './batch-admissions'
-import { batchStopped, failAsShutDown, providedDocIdOrEmpty, shutDownError, stoppedByShutdown } from './batch-shutdown'
+import {
+  asBatchInsertError,
+  createPendingAdmissions,
+  providedDocIdOrEmpty,
+  recordPendingAdmission,
+} from './batch-admissions'
+import { causedByShutdown, docIdOf, failAsShutDown, shutDownError, shutDownStarted } from './batch-shutdown'
 import type { MutationContext } from './context'
 import { type PreparedWrites, prepareDocumentWrites, type WritePreparation } from './write-preparation'
 
@@ -91,8 +96,8 @@ export async function prepareInsertDocuments(
   const pending: PendingInsert[] = []
   for (let i = start; i < end; i++) {
     if (turnsAreBudgeted && turnIsSpent()) await yieldTurn()
-    if (batchStopped(ctx)) {
-      failAsShutDown(failed, pending, pendingDocIdOf)
+    if (shutDownStarted(ctx)) {
+      failAsShutDown(failed, pending, docIdOf)
       failAsShutDown(failed, documents, providedDocIdOrEmpty, i, end)
       return null
     }
@@ -109,7 +114,7 @@ export async function prepareInsertDocuments(
   }
   let prepared: PreparedWrites
   try {
-    if (batchStopped(ctx)) throw shutDownError()
+    if (shutDownStarted(ctx)) throw shutDownError()
     prepared = await prepareDocumentWrites(
       ctx,
       indexName,
@@ -119,8 +124,8 @@ export async function prepareInsertDocuments(
       earlier,
     )
   } catch (err) {
-    if (!stoppedByShutdown(ctx, err)) throw err
-    failAsShutDown(failed, pending, pendingDocIdOf)
+    if (!causedByShutdown(ctx, err)) throw err
+    failAsShutDown(failed, pending, docIdOf)
     return null
   }
   const { entry, embedding } = prepared
@@ -137,14 +142,6 @@ export async function prepareInsertDocuments(
   return { entry, candidates, embedding }
 }
 
-function pendingDocIdOf(item: PendingInsert): string {
-  return item.docId
-}
-
-export function candidateDocIdOf(candidate: InsertCandidate): string {
-  return candidate.docId
-}
-
 export async function admitBatchDocuments(
   ctx: MutationContext,
   indexName: string,
@@ -155,8 +152,8 @@ export async function admitBatchDocuments(
   const prepared = await prepareInsertDocuments(ctx, indexName, documents, 0, documents.length, hold, true, failed)
   if (prepared === null) return { admitted: [], embedding: null }
   const { entry, candidates, embedding } = prepared
-  if (batchStopped(ctx)) {
-    failAsShutDown(failed, candidates, candidateDocIdOf)
+  if (shutDownStarted(ctx)) {
+    failAsShutDown(failed, candidates, docIdOf)
     return { admitted: [], embedding }
   }
   const manager = ctx.requireManager(indexName)
@@ -169,9 +166,9 @@ export async function admitBatchDocuments(
 
   for (let position = 0; position < candidates.length; position++) {
     if (position > 0 && position % BATCH_CHUNK_SIZE === 0) await new Promise<void>(r => setTimeout(r, 0))
-    if (batchStopped(ctx)) {
-      failAsShutDown(failed, admitted, admittedDocIdOf)
-      failAsShutDown(failed, candidates, candidateDocIdOf, position)
+    if (shutDownStarted(ctx)) {
+      failAsShutDown(failed, admitted, docIdOf)
+      failAsShutDown(failed, candidates, docIdOf, position)
       return { admitted: [], embedding }
     }
     const { docId, document } = candidates[position]
@@ -203,8 +200,4 @@ export async function admitBatchDocuments(
   }
 
   return { admitted, embedding }
-}
-
-export function admittedDocIdOf(doc: AdmittedInsert): string {
-  return doc.docId
 }

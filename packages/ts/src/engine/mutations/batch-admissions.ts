@@ -1,5 +1,6 @@
-import { capsEachPartition, ErrorCodes, NarsilError } from '#platform/optional-writes-host'
+import { capsEachPartition, ErrorCodes, type NarsilError, providedDocId } from '#platform/optional-writes-host'
 import type { PartitionManager } from '../../partitioning/manager'
+import type { AnyDocument } from '../../types/schema'
 import { batchFailureOf } from './batch-shutdown'
 import type { MutationContext } from './context'
 
@@ -24,10 +25,10 @@ export function recordPendingAdmission(
   pending.byPartition.set(partitionId, (pending.byPartition.get(partitionId) ?? 0) + 1)
 }
 
-function insertErrorOf(err: unknown): NarsilError {
-  return err instanceof NarsilError ? err : new NarsilError(ErrorCodes.DOC_VALIDATION_FAILED, String(err))
+export function asBatchInsertError(ctx: MutationContext, err: unknown): NarsilError {
+  return batchFailureOf(ctx, err, ErrorCodes.DOC_VALIDATION_FAILED)
 }
 
-export function asBatchInsertError(ctx: MutationContext, err: unknown): NarsilError {
-  return batchFailureOf(ctx, err, insertErrorOf)
+export function providedDocIdOrEmpty(document: AnyDocument): string {
+  return providedDocId(document) ?? ''
 }

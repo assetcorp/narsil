@@ -61,7 +61,17 @@ async function batchHasWritten(narsil: Narsil, kind: BatchKind): Promise<boolean
   return kind === 'remove' ? count < DOCUMENTS_IN_BATCH : count > 0
 }
 
-async function shutDownPartway(narsil: Narsil, kind: BatchKind, batch: Promise<BatchResult>): Promise<boolean> {
+interface Interruption {
+  stoppedPartway: boolean
+  workerCopiesLoaded: boolean
+}
+
+async function workerCopiesLoaded(narsil: Narsil): Promise<boolean> {
+  const stats = await narsil.getMemoryStats()
+  return stats.workerCopies.some(report => report.indexName === INDEX && report.scaledOut)
+}
+
+async function shutDownPartway(narsil: Narsil, kind: BatchKind, batch: Promise<BatchResult>): Promise<Interruption> {
   let settled = false
   batch.then(
     () => {
@@ -73,13 +83,14 @@ async function shutDownPartway(narsil: Narsil, kind: BatchKind, batch: Promise<B
   )
   while (!settled) {
     await new Promise<void>(resolve => setTimeout(resolve, 0))
-    if (settled) return false
+    if (settled) return { stoppedPartway: false, workerCopiesLoaded: false }
     if (await batchHasWritten(narsil, kind)) {
+      const loaded = await workerCopiesLoaded(narsil)
       void narsil.shutdown()
-      return true
+      return { stoppedPartway: true, workerCopiesLoaded: loaded }
     }
   }
-  return false
+  return { stoppedPartway: false, workerCopiesLoaded: false }
 }
 
 async function searchedIds(narsil: Narsil, word: string): Promise<string[]> {
@@ -114,11 +125,12 @@ describe('a batch write that the engine shuts down partway through', () => {
     }
 
     const batch = startBatch(writer, kind, ids)
-    const stoppedPartway = await shutDownPartway(writer, kind, batch)
+    const interruption = await shutDownPartway(writer, kind, batch)
     const result = await batch
     await writer.shutdown()
 
-    expect(stoppedPartway).toBe(true)
+    expect(interruption.stoppedPartway).toBe(true)
+    expect(interruption.workerCopiesLoaded).toBe(kind === 'insert by segments')
     const failedIds = result.failed.map(failure => failure.docId)
     const reported = [...result.succeeded, ...failedIds]
     expect(reported.length).toBe(DOCUMENTS_IN_BATCH)

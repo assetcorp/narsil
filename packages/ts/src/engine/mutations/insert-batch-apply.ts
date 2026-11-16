@@ -1,7 +1,7 @@
 import { admitInsert, indexChangeOutsideExternalWaits, insertDocumentVectors } from '#platform/optional-writes-host'
 import type { PreparedTextChange } from '../../core/partition/prepared-text'
 import type { AnyDocument, InsertOptions } from '../../types/schema'
-import { batchStopped, shutDownError, unlessShutDown } from './batch-shutdown'
+import { shutDownError, shutDownStarted, unlessShutDown } from './batch-shutdown'
 import type { ApplyMutation, MutationContext } from './context'
 import { rollbackInsertedDocument } from './durable-rollback'
 import type { AdmittedInsert } from './insert-batch-admission'
@@ -26,7 +26,7 @@ export function applyInsertDocument(
 ): ApplyMutation {
   const manager = ctx.requireManager(indexName)
   const insertIntoIndex = () => {
-    if (batchStopped(ctx)) {
+    if (shutDownStarted(ctx)) {
       progress.skipped = true
       throw shutDownError()
     }

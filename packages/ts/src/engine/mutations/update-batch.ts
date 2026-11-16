@@ -13,10 +13,11 @@ import type { AnyDocument, WriteOptions } from '../../types/schema'
 import type { IndexHold } from '../index-hold'
 import {
   applyUnlessShutDown,
-  batchStopped,
+  causedByShutdown,
+  docIdOf,
   failAsShutDown,
   shutDownError,
-  stoppedByShutdown,
+  shutDownStarted,
   unlessShutDown,
 } from './batch-shutdown'
 import type { MutationContext } from './context'
@@ -72,7 +73,7 @@ async function prepareChunk(
   }
   let entry: PreparedWrites['entry']
   try {
-    if (batchStopped(ctx)) throw shutDownError()
+    if (shutDownStarted(ctx)) throw shutDownError()
     const writes = await prepareDocumentWrites(
       ctx,
       indexName,
@@ -82,16 +83,16 @@ async function prepareChunk(
     )
     entry = writes.entry
   } catch (err) {
-    if (!stoppedByShutdown(ctx, err)) throw err
-    failAsShutDown(failed, preparations, pendingDocIdOf)
+    if (!causedByShutdown(ctx, err)) throw err
+    failAsShutDown(failed, preparations, docIdOf)
     return []
   }
   const prepared: PreparedUpdate[] = []
   for (let position = 0; position < preparations.length; position++) {
     if (turnsAreBudgeted && turnIsSpent()) await yieldTurn()
-    if (batchStopped(ctx)) {
-      failAsShutDown(failed, prepared, pendingDocIdOf)
-      failAsShutDown(failed, preparations, pendingDocIdOf, position)
+    if (shutDownStarted(ctx)) {
+      failAsShutDown(failed, prepared, docIdOf)
+      failAsShutDown(failed, preparations, docIdOf, position)
       return []
     }
     const { docId, preparation } = preparations[position]
@@ -110,10 +111,6 @@ interface PendingUpdate {
   preparation: WritePreparation
 }
 
-function pendingDocIdOf(pending: { docId: string }): string {
-  return pending.docId
-}
-
 export async function updateDocumentBatch(
   ctx: MutationContext,
   indexName: string,
@@ -129,14 +126,14 @@ export async function updateDocumentBatch(
   const failed: BatchResult['failed'] = []
   const touchedVectorFields = new Set<string>()
   for (let chunkStart = 0; chunkStart < updates.length; chunkStart += BATCH_CHUNK_SIZE) {
-    if (batchStopped(ctx)) {
+    if (shutDownStarted(ctx)) {
       failAsShutDown(failed, updates, reportedDocIdOf, chunkStart)
       break
     }
     const chunkEnd = Math.min(chunkStart + BATCH_CHUNK_SIZE, updates.length)
     const prepared = await prepareChunk(ctx, indexName, updates, chunkStart, chunkEnd, hold, failed)
-    if (batchStopped(ctx)) {
-      failAsShutDown(failed, prepared, pendingDocIdOf)
+    if (shutDownStarted(ctx)) {
+      failAsShutDown(failed, prepared, docIdOf)
       failAsShutDown(failed, updates, reportedDocIdOf, chunkEnd)
       break
     }
@@ -193,12 +190,12 @@ export async function updateDocumentBatch(
     await unlessShutDown(ctx, () => settleUpdates(ctx, indexName, settled, hold))
 
     if (chunkEnd < updates.length) {
-      if (!batchStopped(ctx)) ctx.checkHeapPressure(indexName)
+      if (!shutDownStarted(ctx)) ctx.checkHeapPressure(indexName)
       await new Promise<void>(r => setTimeout(r, 0))
     }
   }
 
-  if (batchStopped(ctx)) return { succeeded, failed }
+  if (shutDownStarted(ctx)) return { succeeded, failed }
   const vectorIndexes = ctx.executor.getManager(indexName)?.getVectorIndexes()
   for (const fieldPath of touchedVectorFields) {
     vectorIndexes?.get(fieldPath)?.scheduleBuild()
