@@ -2,14 +2,19 @@ package callerctx
 
 import (
 	"context"
+	"slices"
 	"sync"
 )
+
+type writerTurn struct {
+	_ byte
+}
 
 type RWMutex struct {
 	mu      sync.Mutex
 	readers int
-	writers int
 	writing bool
+	queued  []*writerTurn
 	changed chan struct{}
 }
 
@@ -35,25 +40,42 @@ func (m *RWMutex) wait(stopped <-chan struct{}) bool {
 	}
 }
 
+func (m *RWMutex) leaveQueue(turn *writerTurn) {
+	if at := slices.Index(m.queued, turn); at >= 0 {
+		m.queued = slices.Delete(m.queued, at, at+1)
+	}
+	m.notify()
+}
+
 func (m *RWMutex) LockContext(ctx context.Context) error {
 	stopped := ctx.Done()
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.writers++
-	defer func() { m.writers-- }()
+	select {
+	case <-stopped:
+		return ctx.Err()
+	default:
+	}
+	if !m.writing && m.readers == 0 && len(m.queued) == 0 {
+		m.writing = true
+		return nil
+	}
+	turn := &writerTurn{}
+	m.queued = append(m.queued, turn)
 	for {
 		select {
 		case <-stopped:
-			m.notify()
+			m.leaveQueue(turn)
 			return ctx.Err()
 		default:
 		}
-		if !m.writing && m.readers == 0 {
+		if !m.writing && m.readers == 0 && m.queued[0] == turn {
+			m.queued = m.queued[1:]
 			m.writing = true
 			return nil
 		}
 		if !m.wait(stopped) {
-			m.notify()
+			m.leaveQueue(turn)
 			return ctx.Err()
 		}
 	}
@@ -69,7 +91,7 @@ func (m *RWMutex) RLockContext(ctx context.Context) error {
 			return ctx.Err()
 		default:
 		}
-		if !m.writing && m.writers == 0 {
+		if !m.writing && len(m.queued) == 0 {
 			m.readers++
 			return nil
 		}
@@ -90,7 +112,7 @@ func (m *RWMutex) RLock() {
 func (m *RWMutex) TryLock() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.writing || m.readers != 0 || m.writers != 0 {
+	if m.writing || m.readers != 0 || len(m.queued) != 0 {
 		return false
 	}
 	m.writing = true

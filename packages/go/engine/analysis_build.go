@@ -69,7 +69,7 @@ func storedWrite(ctx context.Context, source *index.Index, id string) (persist.W
 }
 
 func copyChunk(ctx context.Context, handle *persist.Handle, source *index.Index, target *index.Index,
-	ids []string) error {
+	ids []string, holds *copyHolds) error {
 	writes := make([]persist.Write, 0, len(ids))
 	for _, id := range ids {
 		write, found, err := storedWrite(ctx, source, id)
@@ -81,20 +81,23 @@ func copyChunk(ctx context.Context, handle *persist.Handle, source *index.Index,
 		}
 		writes = append(writes, write)
 	}
-	failures, err := handle.ApplyTo(ctx, target, writes, false)
-	if err != nil {
-		return err
-	}
-	for _, failure := range failures {
-		if failure != nil {
-			return failure
+	for start, hold := 0, 0; start < len(writes); start += hold {
+		hold = holds.next()
+		failures, err := handle.ApplyTo(ctx, target, writes[start:min(start+hold, len(writes))], false)
+		if err != nil {
+			return err
+		}
+		for _, failure := range failures {
+			if failure != nil {
+				return failure
+			}
 		}
 	}
 	return nil
 }
 
 func copyDocuments(ctx context.Context, handle *persist.Handle, source *index.Index, target *index.Index,
-	proceed func() error, onPartition func(int)) error {
+	proceed func() error, onPartition func(int), holds *copyHolds) error {
 	for partitionID := range source.PartitionCount() {
 		ids, err := sortedIDsOf(ctx, source, partitionID)
 		if err != nil {
@@ -104,7 +107,8 @@ func copyDocuments(ctx context.Context, handle *persist.Handle, source *index.In
 			if err := proceed(); err != nil {
 				return err
 			}
-			if err := copyChunk(ctx, handle, source, target, ids[start:min(start+rebuildChunkDocuments, len(ids))]); err != nil {
+			if err := copyChunk(ctx, handle, source, target, ids[start:min(start+rebuildChunkDocuments, len(ids))],
+				holds); err != nil {
 				return err
 			}
 		}
@@ -113,34 +117,18 @@ func copyDocuments(ctx context.Context, handle *persist.Handle, source *index.In
 	return proceed()
 }
 
-func (entry *indexEntry) beginRebuildLog() {
+func (entry *indexEntry) beginRebuildLog(shadow *index.Index) {
 	entry.lockWrites()
 	defer entry.writeMu.Unlock()
 	entry.swap.mu.Lock()
 	defer entry.swap.mu.Unlock()
-	entry.swap.log = &rebuildLog{ids: map[string]struct{}{}}
+	entry.swap.log = newRebuildLog(shadow)
 }
 
 func (entry *indexEntry) endRebuildLog() {
 	entry.swap.mu.Lock()
 	defer entry.swap.mu.Unlock()
 	entry.swap.log = nil
-}
-
-func (entry *indexEntry) takeLogged() ([]string, bool) {
-	entry.swap.mu.Lock()
-	defer entry.swap.mu.Unlock()
-	log := entry.swap.log
-	if log == nil {
-		return nil, false
-	}
-	ids := make([]string, 0, len(log.ids))
-	for id := range log.ids {
-		ids = append(ids, id)
-	}
-	cleared := log.cleared
-	entry.swap.log = &rebuildLog{ids: map[string]struct{}{}}
-	return ids, cleared
 }
 
 func (entry *indexEntry) loggedCount() int {
@@ -150,50 +138,4 @@ func (entry *indexEntry) loggedCount() int {
 		return 0
 	}
 	return len(entry.swap.log.ids)
-}
-
-func (entry *indexEntry) catchUpLocked(ctx context.Context, side *index.Index) error {
-	ids, cleared := entry.takeLogged()
-	if cleared {
-		if err := side.Clear(nil); err != nil {
-			return err
-		}
-	}
-	if len(ids) == 0 {
-		return nil
-	}
-	live := entry.index()
-	writes := make([]persist.Write, len(ids))
-	for at, id := range ids {
-		write, _, err := storedWrite(ctx, live, id)
-		if err != nil {
-			return err
-		}
-		writes[at] = write
-	}
-	failures, err := entry.handle.ApplyTo(ctx, side, writes, false)
-	if err != nil {
-		return err
-	}
-	for at, failure := range failures {
-		if failure != nil && writes[at].Document != nil {
-			return failure
-		}
-	}
-	return nil
-}
-
-func (entry *indexEntry) catchUp(ctx context.Context, side *index.Index, proceed func() error) error {
-	for entry.loggedCount() > rebuildSwitchBacklogDocuments {
-		if err := proceed(); err != nil {
-			return err
-		}
-		entry.lockWrites()
-		err := entry.catchUpLocked(ctx, side)
-		entry.writeMu.Unlock()
-		if err != nil {
-			return err
-		}
-	}
-	return nil
 }

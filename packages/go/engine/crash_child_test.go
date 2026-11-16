@@ -62,6 +62,20 @@ func TestMain(m *testing.M) {
 		}
 		os.Exit(0)
 	}
+	if room := os.Getenv(rebuildMemoryChildVariable); room != "" {
+		if err := runRebuildMemoryChild(os.Stdout, room); err != nil {
+			fmt.Fprintln(os.Stderr, "the rebuild memory child stopped:", engine.ErrorCode(err), err)
+			os.Exit(3)
+		}
+		os.Exit(0)
+	}
+	if directory := os.Getenv(switchCrashDirectoryVariable); directory != "" {
+		if err := runSwitchCrashChild(directory, os.Getenv(switchCrashLogVariable), os.Getenv(switchCrashRoundVariable)); err != nil {
+			fmt.Fprintln(os.Stderr, "the switch crash child stopped:", engine.ErrorCode(err), err)
+			os.Exit(3)
+		}
+		os.Exit(0)
+	}
 	if directory := os.Getenv(growthDirectoryVariable); directory != "" {
 		if err := runGrowthCheckpointChild(directory, os.Getenv(growthReadyVariable)); err != nil {
 			fmt.Fprintln(os.Stderr, "the growth checkpoint child stopped:", engine.ErrorCode(err), err)

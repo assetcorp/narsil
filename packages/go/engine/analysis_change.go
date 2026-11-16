@@ -93,6 +93,14 @@ func megabytesOf(bytes int64) int64 {
 	return (bytes + (1 << 20) - 1) >> 20
 }
 
+func keptTokenBytes(termBytes int64, documents int) int64 {
+	if documents <= 0 {
+		return 0
+	}
+	perDocument := termBytes / int64(documents)
+	return perDocument * rebuildKeptTokenDocuments * rebuildKeptTokenCopies
+}
+
 func requireRebuildMemory(indexName string, termBytes int64) error {
 	limit, bounded := heapLimit()
 	if !bounded || termBytes <= limit-heapUsed() {
@@ -158,9 +166,13 @@ func (n *Narsil) startChange(entry *indexEntry, target analysisTarget, held bool
 		if err := entry.requireSynonymsUnder(target); err != nil {
 			return nil, err
 		}
-		termBytes, err := entry.index().EstimateMemoryBytes()
+		live := entry.index()
+		termBytes, err := live.EstimateMemoryBytes()
 		if err != nil {
 			return nil, err
+		}
+		if target.analyzer.CallsCallerCode() {
+			termBytes += keptTokenBytes(termBytes, live.Count())
 		}
 		if err := requireRebuildMemory(entry.name, termBytes); err != nil {
 			return nil, err

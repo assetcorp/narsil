@@ -80,15 +80,16 @@ func (durable *Durable) installLayout(swap IndexSwap) swappedLayout {
 	return previous
 }
 
-func (durable *Durable) checkpointEveryPartition(ctx context.Context) error {
+func (durable *Durable) checkpointEveryPartition(ctx context.Context) (checkpointOutcome, error) {
 	durable.stall.begin()
 	defer durable.stall.end()
 	options := checkpointOptions{everyPartition: true, locked: true}
 	for {
 		outcome, err := durable.boundedCheckpoint(ctx, options)
 		if err != nil || outcome.left == 0 || durable.closed.Load() || ctx.Err() != nil {
-			return err
+			return outcome, err
 		}
+		outcome.releaseHeld()
 		options.prior = nil
 	}
 }
@@ -132,17 +133,27 @@ func (durable *Durable) revertLayout(swap IndexSwap, previous swappedLayout) err
 }
 
 func (durable *Durable) SwapIndex(ctx context.Context, prepare func() (IndexSwap, bool, error)) (bool, error) {
+	swapped, committed, err := durable.swapIndexLocked(ctx, prepare)
+	defer committed.releaseHeld()
+	if swapped && err == nil && !committed.superseded && !committed.repin {
+		_ = durable.adoptCommitted(ctx, committed.pin, committed.adoptions)
+	}
+	return swapped, err
+}
+
+func (durable *Durable) swapIndexLocked(ctx context.Context, prepare func() (IndexSwap, bool, error)) (bool,
+	checkpointOutcome, error) {
 	durable.checkpointMutex.Lock()
 	defer durable.checkpointMutex.Unlock()
 	if err := durable.refuseWrites(); err != nil {
-		return false, err
+		return false, checkpointOutcome{}, err
 	}
 	durable.lockLayout()
 	held := durable.partitions
 	swap, proceed, err := prepare()
 	if err != nil || !proceed {
 		durable.unlockLayout(held)
-		return false, err
+		return false, checkpointOutcome{}, err
 	}
 	previous := durable.installLayout(swap)
 	durable.layoutEpoch++
@@ -155,24 +166,26 @@ func (durable *Durable) SwapIndex(ctx context.Context, prepare func() (IndexSwap
 	if swap.MetadataFirst {
 		err = durable.writeMetadata(ctx, uint64(swap.Index.Count()))
 	}
+	var committed checkpointOutcome
 	if err == nil {
-		err = durable.checkpointEveryPartition(ctx)
+		committed, err = durable.checkpointEveryPartition(ctx)
 	}
 	if err == nil {
 		durable.retire(retired)
-		return true, nil
+		return true, committed, nil
 	}
+	committed.releaseHeld()
 	read, readErr := checkpoint.ReadManifest(context.WithoutCancel(ctx), durable.manager.store, durable.handle.Name)
 	if readErr == nil && read.Kind == checkpoint.ManifestCurrent && swap.Committed != nil && swap.Committed(read.Manifest) {
 		durable.retire(retired)
 		if metaErr := durable.writeMetadata(context.WithoutCancel(ctx), uint64(swap.Index.Count())); metaErr != nil {
-			return true, metaErr
+			return true, checkpointOutcome{}, metaErr
 		}
-		return true, nil
+		return true, checkpointOutcome{}, nil
 	}
 	reverted := durable.revertLayout(swap, previous)
 	_ = durable.writeMetadata(context.WithoutCancel(ctx), uint64(previous.index.Count()))
-	return false, errors.Join(err, reverted)
+	return false, checkpointOutcome{}, errors.Join(err, reverted)
 }
 
 func (handle *Handle) ApplyTo(ctx context.Context, target *index.Index, writes []Write, withVectors bool) ([]error,

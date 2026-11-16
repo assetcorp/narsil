@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/index/analysis"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/persist"
 )
@@ -20,6 +21,9 @@ type rebalanceRun struct {
 type rebuildLog struct {
 	ids     map[string]struct{}
 	cleared bool
+	shadow  *index.Index
+	tokens  *analysis.Pass
+	kept    int
 }
 
 func rebalancingBackpressure(indexName string, message string) error {
@@ -74,6 +78,8 @@ func (entry *indexEntry) intercept(ctx context.Context, writes []persist.Write) 
 		for _, write := range writes {
 			log.ids[write.DocumentID] = struct{}{}
 		}
+		log.keep(shadowTokensOf(ctx), len(writes))
+		entry.swap.logged += uint64(len(writes))
 	}
 	entry.swap.mu.Unlock()
 	if run == nil {

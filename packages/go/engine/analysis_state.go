@@ -24,6 +24,7 @@ type swapState struct {
 	mu        sync.Mutex
 	rebalance *rebalanceRun
 	log       *rebuildLog
+	logged    uint64
 	change    *changeRun
 	pending   *metadata.PendingAnalysis
 	restores  int

@@ -171,7 +171,7 @@ func (directory *Directory) SyncDirectoryOf(key string) error {
 func temporarySuffix() string {
 	random := make([]byte, temporaryNameRandomBytes)
 	_, _ = rand.Read(random)
-	return ".tmp-" + strconv.Itoa(os.Getpid()) + "-" + hex.EncodeToString(random)
+	return TemporaryMark + strconv.Itoa(os.Getpid()) + "-" + hex.EncodeToString(random)
 }
 
 func writeAll(file *os.File, chunks [][]byte, key string) error {

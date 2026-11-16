@@ -194,7 +194,7 @@ func (n *Narsil) rebalanceHeld(ctx context.Context, entry *indexEntry, targetPar
 	built, err := index.New(settings)
 	if err == nil {
 		defer n.retireReplaced(entry, live, built)
-		err = copyDocuments(ctx, entry.handle, live, built, proceed, func(int) {})
+		err = copyDocuments(ctx, entry.handle, live, built, proceed, func(int) {}, steadyCopyHolds())
 	}
 	if err != nil {
 		return nil, errors.Join(err, entry.abandonRebalance(ctx, run))

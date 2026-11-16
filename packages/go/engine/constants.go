@@ -69,4 +69,11 @@ const (
 	maxRebalanceQueueEntries      = 10_000
 	rebuildChunkDocuments         = 1000
 	rebuildSwitchBacklogDocuments = 1000
+	rebuildKeptTokenDocuments     = 2000
+	rebuildKeptTokenCopies        = 3
+	shadowTokenRounds             = 3
+
+	rebuildCopyHoldDocuments             = 256
+	rebuildCopyHoldDocumentsBesideWrites = 64
+	rebuildCopyQuietHolds                = 16
 )

@@ -2,10 +2,13 @@ package engine
 
 import (
 	"context"
+	"errors"
+	"reflect"
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/manifest"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/analysis"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/index/synonyms"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/persist"
 )
@@ -63,6 +66,40 @@ func (entry *indexEntry) installTerms(ctx context.Context, install func() (persi
 }
 
 func (entry *indexEntry) switchTerms(ctx context.Context, built *index.Index, settings index.Settings, side sideRebuild) error {
+	for {
+		if err := side.proceed(); err != nil {
+			return err
+		}
+		if err := entry.catchUpRound(ctx, built); err != nil {
+			return err
+		}
+		from := entry.currentConfig().Synonyms
+		lookup, rules, err := prepareSynonyms(side.analyzer, from, false)
+		if err != nil {
+			return err
+		}
+		err = entry.cutover(ctx, built, settings, side, preparedSynonyms{from: from, lookup: lookup, rules: rules})
+		var missed *analysis.MissedTokens
+		switch {
+		case errors.As(err, &missed):
+			entry.rememberLogged(missed.Sources)
+		case errors.Is(err, analysis.ErrTokensNotKept), errors.Is(err, errSynonymsReplaced):
+		default:
+			return err
+		}
+	}
+}
+
+type preparedSynonyms struct {
+	from   []model.SynonymRule
+	lookup *synonyms.Lookup
+	rules  []model.SynonymRule
+}
+
+var errSynonymsReplaced = errors.New("the synonym sets changed while the analysis switch prepared them")
+
+func (entry *indexEntry) cutover(ctx context.Context, built *index.Index, settings index.Settings, side sideRebuild,
+	prepared preparedSynonyms) error {
 	entry.lockWrites()
 	defer entry.writeMu.Unlock()
 	previous := entry.index()
@@ -70,13 +107,13 @@ func (entry *indexEntry) switchTerms(ctx context.Context, built *index.Index, se
 		if err := side.proceed(); err != nil {
 			return persist.IndexSwap{}, false, err
 		}
-		if err := entry.catchUpLocked(ctx, built); err != nil {
+		if !reflect.DeepEqual(entry.currentConfig().Synonyms, prepared.from) {
+			return persist.IndexSwap{}, false, errSynonymsReplaced
+		}
+		if err := entry.cutoverWrites(ctx, built); err != nil {
 			return persist.IndexSwap{}, false, err
 		}
-		lookup, rules, err := prepareSynonyms(side.analyzer, entry.currentConfig().Synonyms, false)
-		if err != nil {
-			return persist.IndexSwap{}, false, err
-		}
+		lookup, rules := prepared.lookup, prepared.rules
 		built.SetSynonyms(lookup)
 		built.SetBM25(previous.BM25())
 		settings.Synonyms = lookup
@@ -92,8 +129,6 @@ func (entry *indexEntry) switchTerms(ctx context.Context, built *index.Index, se
 }
 
 func (n *Narsil) rebuildSide(entry *indexEntry, side sideRebuild) error {
-	entry.beginRebuildLog()
-	defer entry.endRebuildLog()
 	live := entry.index()
 	entry.lockWrites()
 	settings := entry.settingsFor(side.analyzer, live.PartitionCount())
@@ -102,6 +137,8 @@ func (n *Narsil) rebuildSide(entry *indexEntry, side sideRebuild) error {
 	if err != nil {
 		return err
 	}
+	entry.beginRebuildLog(built)
+	defer entry.endRebuildLog()
 	defer n.retireReplaced(entry, live, built)
 	step := func() error {
 		if err := side.proceed(); err != nil {
@@ -109,7 +146,8 @@ func (n *Narsil) rebuildSide(entry *indexEntry, side sideRebuild) error {
 		}
 		return entry.catchUp(n.stopping, built, side.proceed)
 	}
-	if err := copyDocuments(n.stopping, entry.handle, live, built, step, side.onPartitions); err != nil {
+	if err := copyDocuments(n.stopping, entry.handle, live, built, step, side.onPartitions,
+		copyHoldsBesideWritesOf(entry)); err != nil {
 		return err
 	}
 	if err := entry.catchUp(n.stopping, built, side.proceed); err != nil {

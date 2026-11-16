@@ -31,13 +31,13 @@ func (n *Narsil) applyLocked(ctx context.Context, entry *indexEntry, locked lock
 
 func (n *Narsil) applyKeepingTokens(ctx context.Context, name string, entry *indexEntry, release func(),
 	writes []persist.Write, locked lockedWrite) (*indexEntry, func(), error) {
-	target := entry.index()
-	if !target.CallsCallerCode() {
+	target, shadow := entry.index(), entry.shadowBuild()
+	if !target.CallsCallerCode() && (shadow == nil || !shadow.CallsCallerCode()) {
 		return entry, release, n.applyLocked(ctx, entry, locked)
 	}
 	release()
 	documents, kind := persist.DocumentWrites(writes), writeKindOf(writes)
-	tokens, err := tokensOutsideTheIndex(target, documents)
+	tokens, shadowTokens, err := writeTokensOutside(ctx, target, shadow, kind, documents)
 	changes := 0
 	for {
 		if err != nil {
@@ -54,8 +54,8 @@ func (n *Narsil) applyKeepingTokens(ctx context.Context, name string, entry *ind
 			if changes++; changes >= maxCallsAcrossIndexChanges {
 				return nil, releasedNothing, indexReplacedDuringAnalysis(name, changes)
 			}
-			target = held
-			tokens, err = tokensOutsideTheIndex(target, documents)
+			target, shadow = held, entry.shadowBuild()
+			tokens, shadowTokens, err = writeTokensOutside(ctx, target, shadow, kind, documents)
 			continue
 		}
 		entry.writeMu.Lock()
@@ -71,7 +71,7 @@ func (n *Narsil) applyKeepingTokens(ctx context.Context, name string, entry *ind
 			entry.writeMu.Unlock()
 			return entry, release, err
 		}
-		commit, err := locked(index.WithWriteTokens(ctx, tokens), entry)
+		commit, err := locked(withShadowTokens(index.WithWriteTokens(ctx, tokens), shadowTokens), entry)
 		if awaited := entry.unlockAndAwait(ctx, commit); err == nil {
 			err = awaited
 		}
@@ -83,14 +83,26 @@ func (n *Narsil) applyKeepingTokens(ctx context.Context, name string, entry *ind
 	}
 }
 
-func tokensOutsideTheIndex(target *index.Index, documents []index.DocumentWrite) (*analysis.Pass, error) {
+func writeTokensOutside(ctx context.Context, target *index.Index, shadow *index.Index, kind index.WriteKind,
+	documents []index.DocumentWrite) (*analysis.Pass, *analysis.Pass, error) {
+	if shadow == nil || !shadow.CallsCallerCode() {
+		tokens, err := tokensOutsideTheIndex(ctx, target, kind, documents)
+		return tokens, nil, err
+	}
+	shadowed := make(chan *analysis.Pass, 1)
+	go func() { shadowed <- shadowTokensOutside(ctx, shadow, target, documents) }()
+	tokens, err := tokensOutsideTheIndex(ctx, target, kind, documents)
+	return tokens, <-shadowed, err
+}
+
+func tokensOutsideTheIndex(ctx context.Context, target *index.Index, kind index.WriteKind,
+	documents []index.DocumentWrite) (*analysis.Pass, error) {
 	tokens, err := target.WriteTokens()
 	if err != nil {
 		return nil, err
 	}
 	var missed *analysis.MissedTokens
-	if err := target.MissingWriteTokens(context.Background(), tokens, index.WriteInsert, documents); errors.As(err,
-		&missed) {
+	if err := target.MissingWriteTokens(ctx, tokens, kind, documents); errors.As(err, &missed) {
 		tokens.Remember(missed.Sources)
 	} else if err != nil {
 		return nil, err

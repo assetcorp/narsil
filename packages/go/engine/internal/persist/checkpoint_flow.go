@@ -23,11 +23,19 @@ type checkpointPin struct {
 
 type checkpointOutcome struct {
 	written    manifest.Manifest
+	pin        uint64
 	left       uint64
 	superseded bool
 	repin      bool
 	adoptions  []pendingAdoption
 	garbage    []string
+	release    func()
+}
+
+func (outcome checkpointOutcome) releaseHeld() {
+	if outcome.release != nil {
+		outcome.release()
+	}
 }
 
 func (handle *Handle) pinned() *Handle {
@@ -59,18 +67,44 @@ func (durable *Durable) boundedCheckpoint(ctx context.Context, options checkpoin
 	if err != nil {
 		return checkpointOutcome{}, err
 	}
-	defer func() { pin.held.release() }()
+	held := pin.held
+	keeps := false
+	defer func() {
+		if !keeps {
+			held.release()
+		}
+	}()
 	written, built := durable.buildPinned(pin)
 	outcome, err := durable.commitPinned(pin, written, built)
 	if err != nil || outcome.superseded || outcome.repin {
 		return outcome, err
 	}
-	if len(outcome.adoptions) > 0 && durable.stillCommitted(pin) {
+	outcome.pin = pin.build.pin
+	if pin.locked && len(outcome.adoptions) > 0 {
+		keeps = true
+		outcome.release = func() { held.release() }
+	}
+	if !pin.locked && len(outcome.adoptions) > 0 && durable.stillCommitted(pin) {
 		if err := durable.adoptAll(context.WithoutCancel(ctx), durable.manager.store, outcome.adoptions); err != nil {
 			return outcome, err
 		}
 	}
 	return outcome, durable.removePinnedGarbage(pin, outcome.garbage)
+}
+
+func (durable *Durable) adoptCommitted(ctx context.Context, pin uint64, adoptions []pendingAdoption) error {
+	if len(adoptions) == 0 {
+		return nil
+	}
+	if err := durable.checkpointMutex.LockContext(ctx); err != nil {
+		return err
+	}
+	current := durable.committedPin == pin && !durable.closed.Load()
+	durable.checkpointMutex.Unlock()
+	if !current {
+		return nil
+	}
+	return durable.adoptAll(context.WithoutCancel(ctx), durable.manager.store, adoptions)
 }
 
 func (durable *Durable) lockFor(pin *checkpointPin) (func(), error) {

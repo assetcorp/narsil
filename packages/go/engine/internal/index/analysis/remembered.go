@@ -125,6 +125,29 @@ func (p *Pass) Remember(sources []string) {
 	}
 }
 
+func (p *Pass) Absorb(other *Pass) int {
+	if p == nil || p.remembered == nil || other == nil || other.remembered == nil || other.analyzer != p.analyzer ||
+		other.remembered == p.remembered {
+		return 0
+	}
+	other.remembered.mu.Lock()
+	held := make(map[string]rememberedTokenization, len(other.remembered.entries))
+	for source, tokenization := range other.remembered.entries {
+		held[source] = tokenization
+	}
+	other.remembered.mu.Unlock()
+	p.remembered.mu.Lock()
+	defer p.remembered.mu.Unlock()
+	added := 0
+	for source, tokenization := range held {
+		if _, found := p.remembered.entries[source]; !found {
+			p.remembered.entries[source] = tokenization
+			added++
+		}
+	}
+	return added
+}
+
 func (p *Pass) Of(analyzer *Analyzer) bool {
 	return p != nil && p.analyzer == analyzer
 }

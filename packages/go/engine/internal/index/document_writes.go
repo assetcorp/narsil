@@ -120,7 +120,7 @@ func (ix *Index) ApplyWith(kind WriteKind, writes []DocumentWrite, vectors []vec
 		tokens = nil
 	}
 	kept := keptWrite(tokens)
-	if len(vectors) > 0 || kind != WriteInsert && ix.settings.Analyzer.CallsCallerCode() {
+	if len(vectors) > 0 || kind != WriteInsert && kept == nil && ix.settings.Analyzer.CallsCallerCode() {
 		batch := ix.PrepareBatch(kind, writes, kept)
 		err := ix.Write(context.Background(), func(w *Write) error {
 			w.write.Tokens = kept

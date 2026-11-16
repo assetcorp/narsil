@@ -15,6 +15,7 @@ import (
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/persist/checkpoint"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/persist/storage"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/persist/writeahead"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/schema"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/vector/payload"
@@ -144,9 +145,28 @@ func (manager *Manager) recoverDurable(ctx context.Context, handle *Handle) (*Du
 	return durable, nil
 }
 
+func removeInterruptedWrites(ctx context.Context, store checkpoint.Store, indexName string) error {
+	keys, err := store.List(ctx, indexName+"/")
+	if err != nil {
+		return err
+	}
+	for _, key := range keys {
+		directChild := strings.Count(key, "/") == 1
+		if directChild && strings.Contains(key, storage.TemporaryMark) {
+			if err := store.Remove(ctx, key); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func (manager *Manager) loadCheckpoint(ctx context.Context, store checkpoint.Store, handle *Handle) ([]uint64,
 	*layoutUpgrade, error) {
 	applied := make([]uint64, handle.Index.PartitionCount())
+	if err := removeInterruptedWrites(ctx, store, handle.Name); err != nil {
+		return nil, nil, err
+	}
 	read, err := checkpoint.ReadManifest(ctx, store, handle.Name)
 	if err != nil {
 		return nil, nil, err

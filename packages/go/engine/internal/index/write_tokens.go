@@ -6,6 +6,7 @@ import (
 	"github.com/assetcorp/narsil/packages/go/engine/internal/callerctx"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/codec"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/analysis"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/index/partition"
 )
 
 type writeTokensKey struct{}
@@ -64,6 +65,61 @@ func (ix *Index) MissingWriteTokens(ctx context.Context, tokens *analysis.Pass, 
 		}
 	}
 	return analysis.MissedIn(collecting)
+}
+
+func analyseWrittenValues(collecting *analysis.Pass, analysing *partition.Partition, writes []DocumentWrite) {
+	for _, write := range writes {
+		values := write.ordered()
+		if codec.DocumentFailure(values) != nil {
+			continue
+		}
+		_ = analysing.Analyse(collecting, values)
+	}
+}
+
+func (ix *Index) MissingTokensBeside(ctx context.Context, tokens *analysis.Pass, writes []DocumentWrite) error {
+	if !ix.KeepsTokensOf(tokens) || len(ix.partitions) == 0 {
+		return nil
+	}
+	collecting := tokens.Collecting()
+	analyseWrittenValues(collecting, ix.partitions[0], writes)
+	if err := ix.collectStoredTokens(ctx, collecting, writes); err != nil {
+		return err
+	}
+	return analysis.MissedIn(collecting)
+}
+
+func (ix *Index) MissingTokensFrom(ctx context.Context, tokens *analysis.Pass, writes []DocumentWrite,
+	source *Index) error {
+	if !ix.KeepsTokensOf(tokens) || len(ix.partitions) == 0 {
+		return nil
+	}
+	collecting := tokens.Collecting()
+	analysing := ix.partitions[0]
+	analyseWrittenValues(collecting, analysing, writes)
+	if err := source.collectStoredTokensWith(ctx, collecting, writes, analysing); err != nil {
+		return err
+	}
+	return analysis.MissedIn(collecting)
+}
+
+func (ix *Index) collectStoredTokensWith(ctx context.Context, collecting *analysis.Pass, writes []DocumentWrite,
+	analysing *partition.Partition) error {
+	reading, err := ix.Read(ctx)
+	if err != nil {
+		return err
+	}
+	defer reading.Release()
+	for _, write := range writes {
+		stored, present, err := reading.Snapshots[ix.partitionOf(write.ID)].Document(write.ID)
+		if err != nil {
+			return err
+		}
+		if present {
+			_ = analysing.Analyse(collecting, stored)
+		}
+	}
+	return nil
 }
 
 func (ix *Index) collectStoredTokens(ctx context.Context, collecting *analysis.Pass, writes []DocumentWrite) error {

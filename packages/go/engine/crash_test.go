@@ -118,7 +118,23 @@ func requireAcknowledgedWrites(t *testing.T, label string, oracle map[string]any
 	return found
 }
 
-func waitForKillPoint(t *testing.T, logPath string, mode string, random *rand.Rand, child *exec.Cmd, exited chan error, stderr *bytes.Buffer) {
+type crashKill struct {
+	directory       string
+	untilBuildFiles bool
+}
+
+func (kill crashKill) ready(t *testing.T, random *rand.Rand) bool {
+	t.Helper()
+	if !kill.untilBuildFiles {
+		time.Sleep(time.Duration(random.Int63n(int64(crashLatestKillDelay))))
+		return true
+	}
+	stray, err := strayFiles(kill.directory, crashIndexName)
+	return err == nil && len(stray) > 0
+}
+
+func waitForKillPoint(t *testing.T, logPath string, mode string, random *rand.Rand, child *exec.Cmd, exited chan error,
+	stderr *bytes.Buffer, kill crashKill) {
 	t.Helper()
 	wantedAcks := crashLeastAcks + random.Intn(crashMostExtraAcks)
 	deadline := time.Now().Add(crashProgressTimeout)
@@ -130,8 +146,7 @@ func waitForKillPoint(t *testing.T, logPath string, mode string, random *rand.Ra
 		}
 		data, _ := os.ReadFile(logPath)
 		parsed := parseCrashLog(t, data)
-		if parsed.acks >= wantedAcks && (mode == crashModeInserts || parsed.inCheckpoint) {
-			time.Sleep(time.Duration(random.Int63n(int64(crashLatestKillDelay))))
+		if parsed.acks >= wantedAcks && (mode == crashModeInserts || parsed.inCheckpoint) && kill.ready(t, random) {
 			return
 		}
 		time.Sleep(crashPoll)
@@ -148,6 +163,7 @@ func reopenedDocuments(t *testing.T, directory string, mode string) map[string]a
 	if err != nil {
 		t.Fatalf("the engine refused the directory after the kill with %s: %v", codeOrMessage(err), err)
 	}
+	requireNoStrayFiles(t, directory, crashIndexName, "once the engine opened the directory that the kill left")
 	defer func() {
 		if err := narsil.Shutdown(ctx); err != nil {
 			t.Fatalf("the engine failed to shut down after the restart: %v", err)
@@ -175,8 +191,9 @@ func TestCrashKeepsEveryAcknowledgedWrite(t *testing.T) {
 			directory := t.TempDir()
 			random := rand.New(rand.NewSource(int64(174 + modeNumber)))
 			oracle := map[string]any{}
-			insideCheckpoints := 0
+			insideCheckpoints, withBuildFiles := 0, 0
 			for round := range crashRounds {
+				kill := crashKill{directory: directory, untilBuildFiles: mode != crashModeInserts && round%2 == 1}
 				logPath := filepath.Join(t.TempDir(), "journal.log")
 				child := exec.Command(executable, "-test.run=^$")
 				child.Env = append(os.Environ(), crashDirectoryVariable+"="+directory, crashLogVariable+"="+logPath,
@@ -188,11 +205,14 @@ func TestCrashKeepsEveryAcknowledgedWrite(t *testing.T) {
 				}
 				exited := make(chan error, 1)
 				go func() { exited <- child.Wait() }()
-				waitForKillPoint(t, logPath, mode, random, child, exited, &stderr)
+				waitForKillPoint(t, logPath, mode, random, child, exited, &stderr, kill)
 				if err := child.Process.Kill(); err != nil {
 					t.Fatalf("killing the child failed: %v", err)
 				}
 				<-exited
+				if left, err := strayFiles(directory, crashIndexName); err == nil && len(left) > 0 {
+					withBuildFiles++
+				}
 				if strings.Contains(stderr.String(), "DATA RACE") {
 					t.Fatalf("the race detector reported a race in the child:\n%s", stderr.String())
 				}
@@ -212,6 +232,9 @@ func TestCrashKeepsEveryAcknowledgedWrite(t *testing.T) {
 			}
 			if mode != crashModeInserts && insideCheckpoints == 0 {
 				t.Fatalf("no kill landed inside a checkpoint in %d rounds", crashRounds)
+			}
+			if mode != crashModeInserts && withBuildFiles == 0 {
+				t.Fatalf("no kill in %d rounds left checkpoint files that no manifest lists", crashRounds)
 			}
 		})
 	}
