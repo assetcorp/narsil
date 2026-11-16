@@ -60,6 +60,62 @@ func (durable *Durable) unregisterBuild(build *checkpointBuild) {
 	defer durable.buildsMu.Unlock()
 	delete(durable.builds, build)
 	build.stop()
+	if len(durable.builds) == 0 && durable.buildsGone != nil {
+		close(durable.buildsGone)
+		durable.buildsGone = nil
+	}
+}
+
+func (durable *Durable) awaitBuilds() {
+	durable.buildsMu.Lock()
+	if len(durable.builds) == 0 {
+		durable.buildsMu.Unlock()
+		return
+	}
+	if durable.buildsGone == nil {
+		durable.buildsGone = make(chan struct{})
+	}
+	gone := durable.buildsGone
+	durable.buildsMu.Unlock()
+	<-gone
+}
+
+func (durable *Durable) holdCommittedGarbage(pin uint64, garbage []string) {
+	durable.buildsMu.Lock()
+	defer durable.buildsMu.Unlock()
+	if durable.committedGarbage == nil {
+		durable.committedGarbage = map[uint64][]string{}
+	}
+	durable.committedGarbage[pin] = garbage
+}
+
+func (durable *Durable) takeCommittedGarbage(pin uint64) []string {
+	durable.buildsMu.Lock()
+	defer durable.buildsMu.Unlock()
+	garbage := durable.committedGarbage[pin]
+	delete(durable.committedGarbage, pin)
+	return garbage
+}
+
+func (durable *Durable) takeEveryCommittedGarbage() []string {
+	durable.buildsMu.Lock()
+	defer durable.buildsMu.Unlock()
+	var garbage []string
+	for pin, keys := range durable.committedGarbage {
+		garbage = append(garbage, keys...)
+		delete(durable.committedGarbage, pin)
+	}
+	return garbage
+}
+
+func (durable *Durable) removeGarbageLeftAtClose() error {
+	ctx, store := context.Background(), durable.manager.store
+	garbage := durable.takeEveryCommittedGarbage()
+	current, err := checkpoint.ReadManifest(ctx, store, durable.handle.Name)
+	if err != nil || current.Kind != checkpoint.ManifestCurrent {
+		return err
+	}
+	return durable.removeGarbage(ctx, store, current.Manifest, garbage)
 }
 
 func (durable *Durable) buildsInFlight() []*checkpointBuild {

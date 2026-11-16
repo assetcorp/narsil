@@ -37,15 +37,17 @@ type Durable struct {
 
 	deferredGarbage []string
 
-	buildsMu     sync.Mutex
-	builds       map[*checkpointBuild]struct{}
-	orphaned     []string
-	nextPin      uint64
-	committedPin uint64
-	layoutEpoch  uint64
-	settled      settledCounts
-	ids          checkpointIDs
-	idsSeeded    bool
+	buildsMu         sync.Mutex
+	builds           map[*checkpointBuild]struct{}
+	buildsGone       chan struct{}
+	committedGarbage map[uint64][]string
+	orphaned         []string
+	nextPin          uint64
+	committedPin     uint64
+	layoutEpoch      uint64
+	settled          settledCounts
+	ids              checkpointIDs
+	idsSeeded        bool
 }
 
 func (manager *Manager) newDurable(handle *Handle, applied []uint64) *Durable {
@@ -287,8 +289,12 @@ func (durable *Durable) close() error {
 		return nil
 	}
 	durable.checkpointMutex.Lock()
-	defer durable.checkpointMutex.Unlock()
 	durable.cancelBuilds()
+	durable.checkpointMutex.Unlock()
+	durable.awaitBuilds()
+	durable.checkpointMutex.Lock()
+	defer durable.checkpointMutex.Unlock()
+	_ = durable.removeGarbageLeftAtClose()
 	durable.layoutMutex.Lock()
 	defer durable.layoutMutex.Unlock()
 	var first error

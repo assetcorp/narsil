@@ -28,7 +28,6 @@ type checkpointOutcome struct {
 	superseded bool
 	repin      bool
 	adoptions  []pendingAdoption
-	garbage    []string
 	release    func()
 }
 
@@ -87,7 +86,7 @@ func (durable *Durable) boundedCheckpoint(ctx context.Context, options checkpoin
 	if !pin.locked && len(outcome.adoptions) > 0 && durable.stillCommitted(pin) {
 		err = durable.adoptAll(ctx, durable.manager.store, outcome.adoptions)
 	}
-	if removed := durable.removePinnedGarbage(pin, outcome.garbage); err == nil {
+	if removed := durable.removePinnedGarbage(pin); err == nil {
 		err = removed
 	}
 	return outcome, err
@@ -221,7 +220,8 @@ func (durable *Durable) commitPinned(pin *checkpointPin, written checkpoint.Writ
 		return checkpointOutcome{}, err
 	}
 	durable.committedPin = build.pin
-	outcome := checkpointOutcome{written: written.Manifest, left: pin.held.left, garbage: garbage}
+	durable.holdCommittedGarbage(build.pin, garbage)
+	outcome := checkpointOutcome{written: written.Manifest, left: pin.held.left}
 	durable.manager.sizes.recordSaved(durable.handle.Name, savedSizeOf(written.Manifest))
 	if err := written.Record(ctx); err != nil {
 		return outcome, err
@@ -251,16 +251,17 @@ func (durable *Durable) stillCommitted(pin *checkpointPin) bool {
 	return durable.committedPin == pin.build.pin && pin.epoch == durable.layoutEpoch && !durable.closed.Load()
 }
 
-func (durable *Durable) removePinnedGarbage(pin *checkpointPin, garbage []string) error {
+func (durable *Durable) removePinnedGarbage(pin *checkpointPin) error {
 	unlock, err := durable.lockFor(pin)
 	if err != nil {
-		durable.orphanGarbage(garbage)
+		durable.orphanGarbage(durable.takeCommittedGarbage(pin.build.pin))
 		return nil
 	}
 	defer unlock()
 	if durable.closed.Load() {
 		return nil
 	}
+	garbage := durable.takeCommittedGarbage(pin.build.pin)
 	ctx, store := context.WithoutCancel(pin.caller), durable.manager.store
 	current, err := checkpoint.ReadManifest(ctx, store, durable.handle.Name)
 	if err != nil {
