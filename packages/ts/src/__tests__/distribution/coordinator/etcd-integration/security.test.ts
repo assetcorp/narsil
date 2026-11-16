@@ -9,10 +9,10 @@ import { generateTlsBundles, type TlsBundles } from '../../transport/tcp-tls/fix
 import {
   ETCD_IMAGE,
   eventually,
-  getAvailablePort,
   makeAllocationTable,
   makeNodeRegistration,
   runDocker,
+  runDockerOnFreePort,
   stopEtcdContainer,
 } from './fixtures'
 
@@ -64,17 +64,16 @@ describe('an etcd that requires TLS, a client certificate, and a password', () =
       await writeFile(join(certificates, name), contents, { mode: 0o644 })
     }
 
-    const hostPort = await getAvailablePort()
-    endpoint = `https://127.0.0.1:${hostPort}`
-    containerName = `narsil-etcd-${randomUUID()}`
-    await runDocker([
+    const name = `narsil-etcd-${randomUUID()}`
+    containerName = name
+    const hostPort = await runDockerOnFreePort(name, port => [
       'run',
       '--detach',
       '--rm',
       '--name',
-      containerName,
+      name,
       '-p',
-      `127.0.0.1:${hostPort}:2379`,
+      `127.0.0.1:${port}:2379`,
       '-v',
       `${certificates}:${CERTIFICATE_DIRECTORY}:ro`,
       ETCD_IMAGE,
@@ -86,7 +85,7 @@ describe('an etcd that requires TLS, a client certificate, and a password', () =
       '--listen-client-urls',
       'https://0.0.0.0:2379',
       '--advertise-client-urls',
-      endpoint,
+      `https://127.0.0.1:${port}`,
       '--cert-file',
       `${CERTIFICATE_DIRECTORY}/server.crt`,
       '--key-file',
@@ -101,6 +100,7 @@ describe('an etcd that requires TLS, a client certificate, and a password', () =
       '--initial-cluster',
       'node1=http://127.0.0.1:2380',
     ])
+    endpoint = `https://127.0.0.1:${hostPort}`
     await eventually(
       async () => {
         await etcdctl('endpoint', 'health')
