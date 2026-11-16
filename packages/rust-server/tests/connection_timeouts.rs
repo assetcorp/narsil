@@ -16,6 +16,10 @@ const TRICKLE_INTERVAL: Duration = Duration::from_secs(1);
 const TRICKLE_DECLARED_BYTES: usize = 100_000;
 const STALLED_READER_PAUSE: Duration = Duration::from_secs(20);
 const DRAIN_WITHIN: Duration = Duration::from_secs(60);
+const SLOW_READER_RECEIVE_BUFFER_BYTES: u32 = 32 * 1024;
+const SLOW_READER_READ_BYTES: usize = 32 * 1024;
+const SLOW_READER_READ_INTERVAL: Duration = Duration::from_secs(5);
+const SLOW_READER_PAUSE: Duration = Duration::from_secs(25);
 const EXPORT_DOCUMENTS: usize = 10_000;
 const TITLE_BYTES: usize = 4_000;
 
@@ -149,10 +153,10 @@ fn whole_listing() -> String {
     format!(r#"{{"limit":{EXPORT_DOCUMENTS}}}"#)
 }
 
-async fn stalled_reader_received(port: u16) -> Option<usize> {
+async fn listing_requested(port: u16, receive_buffer_bytes: u32) -> TcpStream {
     let socket = TcpSocket::new_v4().expect("a socket opens");
     socket
-        .set_recv_buffer_size(STALLED_READER_RECEIVE_BUFFER_BYTES)
+        .set_recv_buffer_size(receive_buffer_bytes)
         .expect("the receive buffer takes a fixed size");
     let mut stream = socket
         .connect(([127, 0, 0, 1], port).into())
@@ -167,8 +171,31 @@ async fn stalled_reader_received(port: u16) -> Option<usize> {
         .write_all(request.as_bytes())
         .await
         .expect("the request goes out");
+    stream
+}
+
+async fn stalled_reader_received(port: u16) -> Option<usize> {
+    let mut stream = listing_requested(port, STALLED_READER_RECEIVE_BUFFER_BYTES).await;
     tokio::time::sleep(STALLED_READER_PAUSE).await;
     read_until_closed(&mut stream, DRAIN_WITHIN).await
+}
+
+async fn slow_reader_received(port: u16) -> Option<usize> {
+    let mut stream = listing_requested(port, SLOW_READER_RECEIVE_BUFFER_BYTES).await;
+    let mut slice = vec![0; SLOW_READER_READ_BYTES];
+    let mut received = 0;
+    let started = Instant::now();
+    while started.elapsed() < SLOW_READER_PAUSE {
+        tokio::time::sleep(SLOW_READER_READ_INTERVAL).await;
+        match tokio::time::timeout(DRAIN_WITHIN, stream.read_exact(&mut slice)).await {
+            Err(_) => return None,
+            Ok(Err(_)) => return Some(received),
+            Ok(Ok(_)) => received += SLOW_READER_READ_BYTES,
+        }
+    }
+    read_until_closed(&mut stream, DRAIN_WITHIN)
+        .await
+        .map(|rest| received + rest)
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -229,4 +256,37 @@ async fn a_client_that_stops_reading_a_listing_is_disconnected_as_the_typescript
         );
     }
     servers.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_client_that_reads_a_listing_a_few_kilobytes_at_a_time_is_disconnected() {
+    let engine = Narsil::new();
+    engine
+        .create_index(
+            "articles",
+            IndexConfig {
+                schema: parsed(SCHEMA),
+                ..IndexConfig::default()
+            },
+        )
+        .expect("the engine creates the index");
+    let rust = RustServer::start(engine, ServerOptions::default()).await;
+    import(rust.port, &export_lines()).await;
+    let full = send(
+        rust.port,
+        &Call::new("POST", "/indexes/articles/documents/_list")
+            .header("content-type", "application/json")
+            .raw(whole_listing()),
+    )
+    .await;
+    assert_eq!(full.status, 200, "the server lists every document");
+    let received = slow_reader_received(rust.port)
+        .await
+        .expect("the server closes a slow reader's connection");
+    assert!(
+        received < full.body.len(),
+        "the server sent all {} bytes to a reader that took {SLOW_READER_READ_BYTES} bytes every {SLOW_READER_READ_INTERVAL:?}, where it should have disconnected",
+        full.body.len()
+    );
+    rust.stop().await;
 }
