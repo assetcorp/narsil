@@ -11,11 +11,13 @@ export {
 } from '#platform/turn-budget'
 export { fnv1a } from '../core/hash'
 export { generateId } from '../core/id-generator'
+export { isCompositePartition } from '../core/partition/composite'
 export { createFrozenSegment } from '../core/partition/frozen'
 export { createSharedFrozenSegment } from '../core/partition/frozen/shared'
 export { getNestedValue } from '../core/partition/utils'
 export { ErrorCodes, NarsilError } from '../errors'
 export { getLanguage } from '../languages/registry'
+export { setNestedValue } from '../partitioning/manager/nested-values'
 export { loadStorageCode } from '../persistence/storage-code'
 export { validateEmbeddingConfig } from '../schema/embedding-validator'
 export {

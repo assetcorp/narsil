@@ -1,16 +1,20 @@
 import { decode, headerAt, MAP_TAGS } from '#platform/segment-codec-host'
 
+import type { ValueHeader } from './msgpack-header'
+
 export { headerAt } from '#platform/segment-codec-host'
 export type { ValueHeader } from './msgpack-header'
 
 const FORBIDDEN_KEYS = new Set(['__proto__', 'constructor', 'prototype'])
 const keyDecoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
 
+const walkedHeader: ValueHeader = { headerBytes: 0, bodyBytes: 0, children: 0 }
+
 export function endOfValue(view: DataView, start: number): number | null {
   let offset = start
   let pending = 1
   while (pending > 0) {
-    const header = headerAt(view, offset)
+    const header = headerAt(view, offset, walkedHeader)
     if (header === null) return null
     offset += header.headerBytes + header.bodyBytes
     if (offset > view.byteLength) return null

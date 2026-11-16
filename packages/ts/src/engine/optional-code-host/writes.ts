@@ -8,6 +8,7 @@ import { fnv1a } from '../../core/hash'
 import { generateId } from '../../core/id-generator'
 import { createFrozenSegment } from '../../core/partition/frozen'
 import { getLanguage } from '../../languages/registry'
+import { setNestedValue } from '../../partitioning/manager/nested-values'
 import { loadStorageCode } from '../../persistence/storage-code'
 import { validateEmbeddingConfig } from '../../schema/embedding-validator'
 import {
@@ -95,6 +96,7 @@ export function writesHostPart() {
     requireDocumentWithinSizeLimit,
     requireMatchingDocId,
     requireSurfaceFormsForPartialFields,
+    setNestedValue,
     storedBM25Params,
     turnsAreBudgeted,
     updateDocumentVectors,

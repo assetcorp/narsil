@@ -5,6 +5,7 @@ import { computeBM25WithIDF, computeIDF } from '../scorer'
 import { fieldRun, orderRunByFieldName } from './field-order'
 import { fieldLengthOf, loadFieldScoring } from './field-scoring'
 import {
+  addGroupScores,
   computeGroupContributions,
   type GroupScoringContext,
   groupPostingCount,
@@ -261,10 +262,14 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
 
   function scoreGroup(group: ResolvedTokenPostings['group'], only: Uint32Array | null): void {
     if (group === null) return
-    for (const [internalId, contribution] of computeGroupContributions(groupContext, group, collectComponents)) {
-      if (only !== null && !bitsetHas(only, internalId)) continue
-      mergeGroupContribution(internalId, contribution)
+    if (components !== null) {
+      for (const [internalId, contribution] of computeGroupContributions(groupContext, group)) {
+        if (only !== null && !bitsetHas(only, internalId)) continue
+        mergeGroupContribution(internalId, contribution)
+      }
+      return
     }
+    addGroupScores(groupContext, group, scoreBuffer, only, coverage)
   }
 
   const prunableList = phrases === undefined ? prunableSingleTermList(params, state.invertedIdx, fieldNames) : null
