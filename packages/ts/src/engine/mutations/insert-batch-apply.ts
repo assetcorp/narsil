@@ -1,16 +1,13 @@
 import { admitInsert, indexChangeOutsideExternalWaits, insertDocumentVectors } from '#platform/optional-writes-host'
 import type { PreparedTextChange } from '../../core/partition/prepared-text'
 import type { AnyDocument, InsertOptions } from '../../types/schema'
+import { shutDownError, shutDownStarted, unlessShutDown } from './batch-shutdown'
 import type { ApplyMutation, MutationContext } from './context'
 import { rollbackInsertedDocument } from './durable-rollback'
 import type { AdmittedInsert } from './insert-batch-admission'
 import { recordChunk } from './record-batch'
 
-export type InsertApplication =
-  | { status: 'inserted' }
-  | { status: 'buffered' }
-  | { status: 'skipped' }
-  | { status: 'failed'; error: unknown }
+export type InsertApplication = { status: 'inserted' } | { status: 'buffered' } | { status: 'failed'; error: unknown }
 
 export interface InsertProgress {
   appliedRef?: AnyDocument
@@ -29,9 +26,9 @@ export function applyInsertDocument(
 ): ApplyMutation {
   const manager = ctx.requireManager(indexName)
   const insertIntoIndex = () => {
-    if (ctx.abortController.signal.aborted) {
+    if (shutDownStarted(ctx)) {
       progress.skipped = true
-      throw ctx.abortController.signal.reason
+      throw shutDownError()
     }
     admitInsert(ctx, indexName, manager, doc.docId)
     const queued = ctx.bufferIfRebalancing(indexName, {
@@ -96,12 +93,12 @@ export async function applyInsertChunk(
   const progress: InsertProgress[] = docs.map(() => ({ inserted: false, buffered: false, skipped: false }))
   const applies = docs.map((doc, i) => applyInsertDocument(ctx, indexName, doc, options, progress[i]))
   const failures = await recordChunk(ctx, indexName, docs, applies)
-  await ctx.orchestrator.settlePublications(indexName)
+  await unlessShutDown(ctx, () => ctx.orchestrator.settlePublications(indexName))
 
   const applications: InsertApplication[] = []
   for (let i = 0; i < docs.length; i++) {
     if (progress[i].skipped) {
-      applications.push({ status: 'skipped' })
+      applications.push({ status: 'failed', error: shutDownError() })
       continue
     }
     const failure = failures[i]

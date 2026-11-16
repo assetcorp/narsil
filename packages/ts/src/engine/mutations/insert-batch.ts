@@ -2,6 +2,8 @@ import { MIN_DOCUMENTS_FOR_SEGMENTS, validateBatchList } from '#platform/optiona
 import type { BatchResult } from '../../types/results'
 import type { AnyDocument, InsertOptions } from '../../types/schema'
 import type { IndexHold } from '../index-hold'
+import { providedDocIdOrEmpty } from './batch-admissions'
+import { failAsShutDown, shutDownStarted, unlessShutDown } from './batch-shutdown'
 import type { MutationContext } from './context'
 import { finishInsertBatch, insertInChunks } from './insert-batch-chunks'
 import { insertBatchViaSegments } from './insert-batch-segments'
@@ -17,7 +19,12 @@ export async function insertDocumentBatch(
   ctx.requireIndex(indexName)
   validateBatchList(documents, 'documents')
 
-  await ctx.orchestrator.scaleOutBeforeBatch(indexName, documents.length)
+  const failed: BatchResult['failed'] = []
+  await unlessShutDown(ctx, () => ctx.orchestrator.scaleOutBeforeBatch(indexName, documents.length))
+  if (shutDownStarted(ctx)) {
+    failAsShutDown(failed, documents, providedDocIdOrEmpty)
+    return { succeeded: [], failed }
+  }
 
   const copiesBuildSegments = ctx.orchestrator.segmentBuildConcurrency(indexName) > 0
 
@@ -25,7 +32,6 @@ export async function insertDocumentBatch(
     return insertBatchViaSegments(ctx, indexName, documents, options, hold)
   }
 
-  const failed: BatchResult['failed'] = []
   const inserts = await insertInChunks(ctx, indexName, documents, options, hold, true, failed)
   await finishInsertBatch(ctx, indexName, inserts, options)
 
