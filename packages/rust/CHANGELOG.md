@@ -1,3 +1,60 @@
+## 0.2.1 (2026-11-16)
+
+### 🚀 Features
+
+- **rust-server:** release the server crate to crates.io and document the Rust server ([fb27cd14](https://github.com/assetcorp/narsil/commit/fb27cd14))
+- **rust:** accept only the languages that NarsilConfig lists, as the TypeScript engine accepts only registered ones ([efce89b6](https://github.com/assetcorp/narsil/commit/efce89b6))
+- **rust:** carry the TypeScript engine's details on every refusal that a caller's request meets ([c8b7edb4](https://github.com/assetcorp/narsil/commit/c8b7edb4))
+- **rust:** refuse an insert or update whose memory bound would pass the block fraction ([b4168ae1](https://github.com/assetcorp/narsil/commit/b4168ae1))
+- **rust:** carry details on restore staging, segment key, and section offset refusals ([e89933d8](https://github.com/assetcorp/narsil/commit/e89933d8))
+- **rust:** carry details on vector file and graph part refusals ([351e13fe](https://github.com/assetcorp/narsil/commit/351e13fe))
+- **rust:** carry details on paged segment refusals ([8cf1e8ee](https://github.com/assetcorp/narsil/commit/8cf1e8ee))
+- **rust:** carry details on keyword segment refusals ([a5dfa972](https://github.com/assetcorp/narsil/commit/a5dfa972))
+- **rust:** carry details on restore validation, checkpoint load, journal, and directory refusals ([4942a313](https://github.com/assetcorp/narsil/commit/4942a313))
+- **rust:** carry details on envelope, durable file, log, archive, and manifest refusals ([cc24de75](https://github.com/assetcorp/narsil/commit/cc24de75))
+- **rust:** encode MessagePack publicly and bound feed reads the way the TypeScript engine does ([95977870](https://github.com/assetcorp/narsil/commit/95977870))
+- **rust:** list documents in a caller's sort order ([1c714770](https://github.com/assetcorp/narsil/commit/1c714770))
+- **rust:** expose synonym parsing and document id generation ([5c80e909](https://github.com/assetcorp/narsil/commit/5c80e909))
+- **rust:** carry details on engine errors and report them in the server's error body ([ac989feb](https://github.com/assetcorp/narsil/commit/ac989feb))
+- **rust-server:** serve the search and query suggestion routes ([343ae2a2](https://github.com/assetcorp/narsil/commit/343ae2a2))
+- **rust:** read and write plain JSON and report the process memory limit and rerank window ([4e2c49b9](https://github.com/assetcorp/narsil/commit/4e2c49b9))
+- **rust:** publish the sync snapshot on request and raise feed change events ([65e670e7](https://github.com/assetcorp/narsil/commit/65e670e7))
+
+### 🩹 Fixes
+
+- **python:** retry a snapshot save onto a file that another program holds open on Windows ([f7ba809b](https://github.com/assetcorp/narsil/commit/f7ba809b))
+- **durability:** retry a Windows rename while another program holds the file so an outside reader cannot stop an index saving ([5aca97bb](https://github.com/assetcorp/narsil/commit/5aca97bb))
+- **durability:** recover the committed partition layout ([59d850c4](https://github.com/assetcorp/narsil/commit/59d850c4))
+- **persistence:** choose balanced merges and the highest removed share so checkpoints stop rewriting large segments ([991f5fdb](https://github.com/assetcorp/narsil/commit/991f5fdb))
+- **rust-server:** refuse a JSON body or import line whose parse would pass the memory block with parse_would_fill_memory ([cbee0e6d](https://github.com/assetcorp/narsil/commit/cbee0e6d))
+- **rust-server:** answer a document nested past the parser's depth cap with DOC_VALIDATION_FAILED on every route that parses one ([f2302936](https://github.com/assetcorp/narsil/commit/f2302936))
+- **json:** write dates beyond four-digit years as JavaScript's toISOString writes them ([59b53421](https://github.com/assetcorp/narsil/commit/59b53421))
+- **engine:** reserve the copy of a shared tail before a write removes from it ([a10ba33f](https://github.com/assetcorp/narsil/commit/a10ba33f))
+- **engine:** answer a closed index's sync bounds and feed state from its files without reopening it ([252eb94e](https://github.com/assetcorp/narsil/commit/252eb94e))
+- **rust:** keep the shutdown wake for reads waiting on a restore ([b5b93944](https://github.com/assetcorp/narsil/commit/b5b93944))
+- **rust:** stop nested listings when shutdown begins ([8998ce82](https://github.com/assetcorp/narsil/commit/8998ce82))
+- **rust:** wake restore readers when shutdown begins ([6b2db904](https://github.com/assetcorp/narsil/commit/6b2db904))
+- **rust:** stop reads and listings waiting on a shutdown or on their own thread's search ([e7164b6d](https://github.com/assetcorp/narsil/commit/e7164b6d))
+- **rust:** report the process's resident memory on macOS and Windows as well as Linux ([644e582f](https://github.com/assetcorp/narsil/commit/644e582f))
+- **rust:** build a write's memory reservation only once its compare-and-swap succeeds ([02db76b8](https://github.com/assetcorp/narsil/commit/02db76b8))
+- **rust:** reserve write memory in one compare-and-swap so concurrent writes cannot share headroom ([5c357af7](https://github.com/assetcorp/narsil/commit/5c357af7))
+- **rust:** carry the refused efSearch and oversample in the details of their refusals ([a3129698](https://github.com/assetcorp/narsil/commit/a3129698))
+- **rust:** list indexes in creation order, and after a restart in the order that recovery reads them ([b9700c5b](https://github.com/assetcorp/narsil/commit/b9700c5b))
+- ⚠️  **rust:** list score components and highlights in the order that the TypeScript engine lists them ([efc81717](https://github.com/assetcorp/narsil/commit/efc81717))
+- **rust:** parse a JSON or MessagePack object with many keys in linear time ([c56592f1](https://github.com/assetcorp/narsil/commit/c56592f1))
+- **search:** cap and drop the single group of a query that groups by no field in every engine ([8ad608d0](https://github.com/assetcorp/narsil/commit/8ad608d0))
+- **rust:** join vector build threads before releasing files ([cc2a042f](https://github.com/assetcorp/narsil/commit/cc2a042f))
+- **rust:** drain reads before releasing index files on shutdown ([e93e08dc](https://github.com/assetcorp/narsil/commit/e93e08dc))
+- **rust:** join the vector loader before shutdown returns so that no file of an index stays open ([9fd8a072](https://github.com/assetcorp/narsil/commit/9fd8a072))
+
+### ⚠️  Breaking Changes
+
+- **rust:** list score components and highlights in the order that the TypeScript engine lists them  ([efc81717](https://github.com/assetcorp/narsil/commit/efc81717))
+
+### ❤️ Thank You
+
+- assetcorp
+
 ## 0.2.0 (2026-11-14)
 
 ### 🚀 Features
