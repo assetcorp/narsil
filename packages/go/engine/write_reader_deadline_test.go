@@ -57,6 +57,10 @@ func insertReaderHeldSeed(t *testing.T, narsil *engine.Narsil) {
 
 func expiredBesideAReadOf(t *testing.T, narsil *engine.Narsil, count int, write writeBesideRead, expected *string) bool {
 	t.Helper()
+	if *expected == "" {
+		insertReaderHeldSeed(t, narsil)
+		*expected = readerHeldSeedTitle
+	}
 	ids := make([]string, count)
 	for at := range ids {
 		ids[at] = "kept"
@@ -112,8 +116,7 @@ func clearBesideRead(t *testing.T, narsil *engine.Narsil, _ int, expected *strin
 		return narsil.Clear(bounded, callbackIndex)
 	})
 	if err == nil {
-		insertReaderHeldSeed(t, narsil)
-		*expected = readerHeldSeedTitle
+		*expected = ""
 	}
 	return err
 }
@@ -142,11 +145,17 @@ func requireOnlyTitle(t *testing.T, narsil *engine.Narsil, expected string) {
 	t.Helper()
 	ctx := context.Background()
 	document, found, err := narsil.Get(ctx, callbackIndex, "kept")
-	if err != nil || !found {
-		t.Fatalf("the kept document is missing: %v", err)
-	}
-	if title, _ := document.Get("title"); title != expected {
-		t.Fatalf("the document holds %v, expected %s", title, expected)
+	switch {
+	case err != nil:
+		t.Fatalf("reading the kept document failed: %v", err)
+	case expected == "" && found:
+		t.Fatalf("the clear committed, but the index still holds %v", document)
+	case expected != "" && !found:
+		t.Fatalf("the kept document is missing, expected %s", expected)
+	case found:
+		if title, _ := document.Get("title"); title != expected {
+			t.Fatalf("the document holds %v, expected %s", title, expected)
+		}
 	}
 	for _, term := range []string{readerHeldSeedTitle, "pier", "lighthouse"} {
 		want := 0
