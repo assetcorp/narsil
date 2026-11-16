@@ -11,10 +11,7 @@ import (
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 )
 
-const (
-	heapLiveMetric   = "/memory/classes/heap/objects:bytes"
-	memoryFullReason = "memory_full"
-)
+const heapLiveMetric = "/memory/classes/heap/objects:bytes"
 
 type heapWatch struct {
 	block  float64
@@ -86,24 +83,6 @@ func (watch *heapWatch) measure(limit int64) int64 {
 		watch.full = true
 	}
 	return watch.used
-}
-
-func (watch *heapWatch) admit(indexName string) error {
-	limit, limited := heapLimit()
-	if !limited {
-		return nil
-	}
-	watch.mu.Lock()
-	used := watch.measure(limit)
-	full := watch.full
-	watch.mu.Unlock()
-	if !full {
-		return nil
-	}
-	return narsilerr.New(narsilerr.CodeMemoryWriteBlocked,
-		"The engine refuses inserts and updates to index '"+indexName+"' because its memory passed the block level of its limit. Remove documents to free memory, and writes resume once memory falls below the resume level.",
-		map[string]any{"reason": memoryFullReason, "indexName": indexName, "processBytes": nil, "processLimitBytes": nil,
-			"heapBytes": used, "heapLimitBytes": limit})
 }
 
 func (watch *heapWatch) check(indexName string, estimate func() (int64, error)) {
