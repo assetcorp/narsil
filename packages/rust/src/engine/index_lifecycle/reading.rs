@@ -1,11 +1,11 @@
 use std::ops::Deref;
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use super::ClosedListing;
 use super::residency::{IndexResidency, held};
 use crate::engine::EngineInner;
-use crate::engine::callback_scope::CallbackScope;
+use crate::engine::callback_scope::{self, CallbackScope};
 use crate::engine::index::IndexState;
 use crate::error::Result;
 
@@ -19,26 +19,33 @@ pub(crate) trait PreparedRead {
     fn supersede(&mut self);
 }
 
-/// An open index that a read holds, which a restore waits for before it closes the index's files.
+/// An open index that a read holds, which a restore or a shutdown waits for before it closes the index's files.
 struct ReadingIndex {
     index: Arc<IndexState>,
     _scope: CallbackScope,
+    _held_on_thread: CallbackScope,
 }
 
 impl ReadingIndex {
+    /// Holds `index` as a read, or returns it where a swap holds the reads that reach it. A read that a callback
+    /// starts on a thread that already holds `index` enters during a swap too, because the swap waits for the
+    /// read that runs the callback, which keeps the files open until both reads leave.
     fn enter(
         engine: &EngineInner,
         index: Arc<IndexState>,
     ) -> std::result::Result<ReadingIndex, Arc<IndexState>> {
         let residency = &index.residency;
         residency.active_reads.fetch_add(1, Ordering::SeqCst);
-        if residency.swapping.load(Ordering::SeqCst) || index.is_retired() {
+        let held_on_thread = callback_scope::dispatching_on_current_thread(&*index);
+        if (residency.swapping.load(Ordering::SeqCst) && !held_on_thread) || index.is_retired() {
             residency.leave_read();
             return Err(index);
         }
+        let held_on_thread = CallbackScope::enter(&*index);
         Ok(ReadingIndex {
             index,
             _scope: CallbackScope::enter(&engine.lifecycle),
+            _held_on_thread: held_on_thread,
         })
     }
 }
@@ -87,9 +94,14 @@ impl IndexResidency {
         self.changed.notify_all();
     }
 
-    fn wait_for_swap(&self, index: &IndexState) {
+    /// Waits until the swap of `index` ends or retires it, or until `shut_down` is set, because a shutdown that
+    /// swaps the index waits for reads that can depend on the caller, and it retires the index regardless.
+    fn wait_for_swap(&self, index: &IndexState, shut_down: &AtomicBool) {
         let mut turn = held(&self.turn);
-        while self.swapping.load(Ordering::SeqCst) && !index.is_retired() {
+        while self.swapping.load(Ordering::SeqCst)
+            && !index.is_retired()
+            && !shut_down.load(Ordering::Acquire)
+        {
             turn = self
                 .changed
                 .wait(turn)
@@ -101,7 +113,7 @@ impl IndexResidency {
 impl EngineInner {
     /// Runs `read` on the index called `name`, opening it again where a close left it on its files. A read that
     /// arrives while a restore swaps the index's files waits for the swap, then runs on the index that holds the
-    /// name afterwards.
+    /// name afterwards. A read that arrives while a shutdown swaps them fails with `INSTANCE_SHUT_DOWN` at once.
     pub(crate) fn read_index<T>(
         &self,
         name: &str,
@@ -111,7 +123,7 @@ impl EngineInner {
             let index = self.open_index(name)?;
             match ReadingIndex::enter(self, index) {
                 Ok(reading) => return read(&reading),
-                Err(swapped) => swapped.residency.wait_for_swap(&swapped),
+                Err(swapped) => swapped.residency.wait_for_swap(&swapped, &self.shut_down),
             }
         }
     }
@@ -119,11 +131,15 @@ impl EngineInner {
     /// Runs `list` on every open index and every closed index that the engine holds, holding each open one as a
     /// read does. Where a restore swaps the files of one of them, the listing waits for the swap and starts again,
     /// so that it reports the index before the restore or after it, never one whose files the restore closed.
+    /// Where a shutdown has begun by then, `list` runs at once on no index, as it does once the shutdown ends.
     pub(crate) fn read_held_indexes<T>(
         &self,
         list: impl FnOnce(&[&IndexState], Vec<ClosedListing>) -> T,
     ) -> T {
         loop {
+            if self.shut_down.load(Ordering::Acquire) {
+                return list(&[], Vec::new());
+            }
             let (open, closed) = self.held_indexes();
             let mut reading = Vec::with_capacity(open.len());
             let mut swapped = None;
@@ -141,7 +157,7 @@ impl EngineInner {
                 return list(&held, closed);
             };
             drop(reading);
-            index.residency.wait_for_swap(&index);
+            index.residency.wait_for_swap(&index, &self.shut_down);
         }
     }
 
@@ -171,7 +187,7 @@ impl EngineInner {
                     drop(reading);
                     prepared.supersede();
                 }
-                Err(swapped) => swapped.residency.wait_for_swap(&swapped),
+                Err(swapped) => swapped.residency.wait_for_swap(&swapped, &self.shut_down),
             }
             earlier = Some(prepared);
         }

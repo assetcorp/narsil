@@ -52,6 +52,7 @@ type indexEntry struct {
 
 	promoted    atomic.Bool
 	maintenance atomic.Int32
+	boundShape  atomic.Pointer[entryBoundShape]
 
 	settingsMu  sync.RWMutex
 	sync        indexSync

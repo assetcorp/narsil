@@ -204,9 +204,13 @@ func (n *Narsil) importBatch(ctx context.Context, indexName string, batch []pers
 	var notifications []model.Event
 	defer func() { n.events.emitAll(notifications) }()
 	defer func() { release() }()
+	if err := n.memory.refuseWhileFull(indexName); err != nil {
+		return nil, err
+	}
 	failures := make([]error, len(batch))
 	position := make(map[string]int, len(batch))
 	inserts := make([]*model.Document, 0, len(batch))
+	updates := make([]model.DocumentUpdate, 0, len(batch))
 	outcome := newBatchOutcome()
 	defer func() {
 		if entry != nil {
@@ -216,32 +220,29 @@ func (n *Narsil) importBatch(ctx context.Context, indexName string, batch []pers
 	holder := n.holderOf(indexName)
 	for at, document := range batch {
 		position[document.ID] = at
-		if entry == nil {
-			if entry, release, err = holder.reacquire(); err != nil {
-				return nil, err
-			}
-		}
 		held, err := entry.index().Has(ctx, document.ID)
 		if err != nil {
 			return nil, err
 		}
 		imported := model.DocumentFromMap(document.Document)
 		if held {
-			update := model.DocumentUpdate{DocID: document.ID, Document: imported}
-			entry, release, err = n.updateOne(ctx, holder, entry, release, update, outcome.touched)
-			if err != nil {
-				if entry == nil || !isPerDocument(err) {
-					return nil, err
-				}
-				failures[at] = err
-			}
+			updates = append(updates, model.DocumentUpdate{DocID: document.ID, Document: imported})
 			continue
 		}
 		inserts = append(inserts, imported)
 	}
-	for start := 0; start < len(inserts); start += batchChunkSize {
-		end := min(start+batchChunkSize, len(inserts))
-		if entry, release, err = n.insertChunk(ctx, holder, entry, release, inserts[start:end], outcome); err != nil {
+	if len(inserts) > 0 {
+		if entry, release, err = n.insertInGroups(ctx, holder, entry, release, inserts, outcome); err != nil {
+			return nil, err
+		}
+	}
+	if len(updates) > 0 {
+		if entry == nil {
+			if entry, release, err = holder.reacquire(); err != nil {
+				return nil, err
+			}
+		}
+		if entry, release, err = n.updateInGroups(ctx, holder, entry, release, updates, outcome); err != nil {
 			return nil, err
 		}
 	}

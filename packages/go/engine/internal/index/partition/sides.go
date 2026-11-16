@@ -26,6 +26,7 @@ type Sides struct {
 	readers    [sideCount]atomic.Int64
 	gate       atomic.Pointer[chan struct{}]
 	waiting    atomic.Int64
+	growth     atomic.Pointer[GrowthSnapshot]
 }
 
 func NewSides(slots *vector.Slots) *Sides {
@@ -148,6 +149,7 @@ func (s *Sides) publish(write *Write) {
 		documents += partition.sides[write.side].documentCount()
 	}
 	s.documents.Store(int64(documents))
+	s.noteGrowth(write.side)
 	s.heldState[write.side].Store(write.Sequence)
 	s.latest.Store(write.Sequence<<1 | int64(write.side))
 }

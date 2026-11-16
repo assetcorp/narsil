@@ -6,6 +6,7 @@ import (
 	"github.com/assetcorp/narsil/packages/go/engine/internal/callerctx"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/codec"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/memory"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/persist"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/schema"
@@ -64,18 +65,13 @@ func (n *Narsil) runBeforeInsertHooks(ctx context.Context, indexName string, doc
 	}
 }
 
-func (hooked hookedInserts) admitInto(entry *indexEntry, outcome *batchOutcome) {
+func (hooked hookedInserts) admitInto(entry *indexEntry) {
 	for at := range hooked.working {
 		if !hooked.live[at] || len(entry.config.Required) == 0 {
 			continue
 		}
 		if err := schema.ValidateRequiredFields(hooked.working[at], entry.config.Required); err != nil {
 			hooked.refuse(at, hooked.contexts[at].DocID, err)
-		}
-	}
-	for at, refusal := range hooked.refusals {
-		if refusal != nil {
-			outcome.fail(hooked.refusedAs[at], refusal)
 		}
 	}
 }
@@ -97,17 +93,16 @@ func (n *Narsil) InsertBatch(ctx context.Context, indexName string, documents []
 	var notifications []model.Event
 	defer func() { n.events.emitAll(notifications) }()
 	defer func() { release() }()
+	if err := n.memory.refuseWhileFull(indexName); err != nil {
+		return model.BatchResult{}, err
+	}
 	outcome := newBatchOutcome()
 	defer func() {
 		if entry != nil {
 			entry.scheduleVectorBuilds(outcome.touched)
 		}
 	}()
-	err = eachBatchChunk(ctx, documents, func(chunk []*model.Document) error {
-		var chunkErr error
-		entry, release, chunkErr = n.insertChunk(ctx, n.holderOf(indexName), entry, release, chunk, outcome)
-		return chunkErr
-	})
+	entry, release, err = n.insertInGroups(ctx, n.holderOf(indexName), entry, release, documents, outcome)
 	if err != nil {
 		return outcome.result, err
 	}
@@ -129,32 +124,13 @@ func (n *Narsil) insertChunk(ctx context.Context, holder indexHolder, entry *ind
 			return nil, releasedNothing, err
 		}
 	}
-	hooked.admitInto(entry, outcome)
+	hooked.admitInto(entry)
 	entry, release, err := n.embedChunk(ctx, entry, release,
-		chunkEmbedding{working: hooked.working, live: hooked.live, contexts: hooked.contexts, outcome: outcome})
+		chunkEmbedding{working: hooked.working, live: hooked.live, contexts: hooked.contexts, refuse: hooked.refuse})
 	if err != nil {
 		return entry, release, err
 	}
-	pending := make([]pendingInsert, 0, len(documents))
-	for at := range documents {
-		if !hooked.live[at] {
-			continue
-		}
-		write, err := entry.prepared(hooked.working[at])
-		if err != nil {
-			outcome.fail(hooked.contexts[at].DocID, err)
-			continue
-		}
-		write.DocumentID = hooked.contexts[at].DocID
-		pending = append(pending, pendingInsert{id: write.DocumentID, context: hooked.contexts[at], write: write})
-	}
-	if err := n.heap.admit(entry.name); err != nil {
-		for _, insert := range pending {
-			outcome.fail(insert.id, err)
-		}
-		return entry, release, nil
-	}
-	entry, release, inserted, err := n.applyInsertChunk(ctx, entry, release, pending, outcome)
+	entry, release, inserted, err := n.insertPreparedGroups(ctx, holder, entry, release, hooked, outcome)
 	if err != nil || len(inserted) == 0 || !n.plugins.hasHook(hookAfterInsert) {
 		return entry, release, err
 	}
@@ -173,17 +149,26 @@ type refusedInsert struct {
 
 func (n *Narsil) applyInsertChunk(ctx context.Context, entry *indexEntry, release func(), pending []pendingInsert,
 	outcome *batchOutcome) (*indexEntry, func(), []*model.InsertContext, error) {
+	if len(pending) == 0 {
+		return entry, release, nil, nil
+	}
 	candidates := make([]persist.Write, len(pending))
+	ids := make([]string, len(pending))
 	for at, insert := range pending {
 		candidates[at] = insert.write
+		ids[at] = insert.id
 	}
 	var accepted []pendingInsert
 	var refused []refusedInsert
 	var failures []error
+	var burst *memory.Reservation
 	entry, release, err := n.applyKeepingTokens(ctx, entry.name, entry, release, index.WriteInsert, candidates,
 		func(ctx context.Context, entry *indexEntry) (persist.Commit, error) {
 			var commit persist.Commit
 			var err error
+			if burst, err = n.memory.reserveWriteBurst(entry, ids); err != nil {
+				return commit, err
+			}
 			accepted, refused, err = acceptedInserts(ctx, entry, pending)
 			if err != nil {
 				return commit, err
@@ -195,6 +180,9 @@ func (n *Narsil) applyInsertChunk(ctx context.Context, entry *indexEntry, releas
 			failures, commit, err = entry.apply(ctx, writes, index.WriteInsert)
 			return commit, err
 		})
+	if burst != nil {
+		burst.Release()
+	}
 	for _, insert := range refused {
 		outcome.fail(insert.id, insert.err)
 	}

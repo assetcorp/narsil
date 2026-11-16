@@ -92,6 +92,10 @@ func (a *Analyzer) LanguageName() string {
 	return a.languageName
 }
 
+func (a *Analyzer) HasCustomTokenizer() bool {
+	return a.tokenizer != nil
+}
+
 type Pass struct {
 	analyzer   *Analyzer
 	stops      *core.StopWordSet

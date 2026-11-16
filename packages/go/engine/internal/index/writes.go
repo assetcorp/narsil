@@ -48,6 +48,10 @@ func (ix *Index) prepare(documents []DocumentWrite, tokens *analysis.Pass) ([]Pr
 	return prepared, failures
 }
 
+func (ix *Index) WriteGrowth() *partition.GrowthSnapshot {
+	return ix.sides.WriteGrowth()
+}
+
 func (ix *Index) Write(ctx context.Context, apply func(w *Write) error) error {
 	return ix.sides.Write(ctx, func(write *partition.Write) error {
 		return apply(&Write{ix: ix, write: write})

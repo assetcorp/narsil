@@ -69,9 +69,23 @@ func TestMain(m *testing.M) {
 		}
 		os.Exit(0)
 	}
+	if archivePath := os.Getenv(restoreMemoryChildVariable); archivePath != "" {
+		if err := runRestoreMemoryChild(archivePath, os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, "the restore memory child stopped:", engine.ErrorCode(err), err)
+			os.Exit(3)
+		}
+		os.Exit(0)
+	}
 	if directory := os.Getenv(switchCrashDirectoryVariable); directory != "" {
 		if err := runSwitchCrashChild(directory, os.Getenv(switchCrashLogVariable), os.Getenv(switchCrashRoundVariable)); err != nil {
 			fmt.Fprintln(os.Stderr, "the switch crash child stopped:", engine.ErrorCode(err), err)
+			os.Exit(3)
+		}
+		os.Exit(0)
+	}
+	if mode := os.Getenv(memoryChildVariable); mode != "" {
+		if err := runMemoryBlockChild(mode, os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, "the memory block child stopped:", engine.ErrorCode(err), err)
 			os.Exit(3)
 		}
 		os.Exit(0)

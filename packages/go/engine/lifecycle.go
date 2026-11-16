@@ -25,6 +25,7 @@ func (n *Narsil) DropIndex(ctx context.Context, name string) error {
 	if err != nil {
 		return err
 	}
+	n.memory.memoryReleased()
 	return n.plugins.index(ctx, hookOnIndexDrop, &model.IndexContext{IndexName: name, Config: dropped})
 }
 

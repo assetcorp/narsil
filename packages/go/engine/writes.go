@@ -7,6 +7,7 @@ import (
 	"github.com/assetcorp/narsil/packages/go/engine/internal/callerctx"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/codec"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/memory"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/persist"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/schema"
@@ -82,6 +83,9 @@ func (n *Narsil) Insert(ctx context.Context, indexName string, document *Documen
 	var notifications []model.Event
 	defer func() { n.events.emitAll(notifications) }()
 	defer func() { release() }()
+	if err := n.memory.refuseWhileFull(indexName); err != nil {
+		return "", err
+	}
 	working := codec.SnapshotDocument(document)
 	if err := schema.RequireDocument(working); err != nil {
 		return "", err
@@ -103,12 +107,19 @@ func (n *Narsil) Insert(ctx context.Context, indexName string, document *Documen
 	if err != nil {
 		return "", err
 	}
+	var reservation *memory.Reservation
+	entry, release, reservation, err = n.reserveDocumentOutsideCallerCode(n.holderOf(indexName), entry, release, id,
+		insert.Document)
+	if err != nil {
+		return "", err
+	}
+	defer reservation.Release()
 	write, err := n.prepareOne(ctx, entry, insert.Document)
 	if err != nil {
 		return "", err
 	}
 	write.DocumentID = id
-	if err := n.heap.admit(indexName); err != nil {
+	if err := n.memory.refuseWhileFull(indexName); err != nil {
 		return "", err
 	}
 	entry, release, err = n.applyKeepingTokens(ctx, indexName, entry, release, index.WriteInsert,
@@ -133,6 +144,11 @@ func (n *Narsil) Insert(ctx context.Context, indexName string, document *Documen
 
 func (n *Narsil) applyInsertLocked(ctx context.Context, entry *indexEntry, write persist.Write) (persist.Commit,
 	error) {
+	reservation, err := n.memory.reserveWriteBurst(entry, []string{write.DocumentID})
+	if err != nil {
+		return persist.Commit{}, err
+	}
+	defer reservation.Release()
 	if held, err := entry.holds(ctx, write.DocumentID); err != nil || held {
 		return persist.Commit{}, cmp.Or(err, entry.alreadyExists(write.DocumentID))
 	}
@@ -162,6 +178,9 @@ func (n *Narsil) Update(ctx context.Context, indexName string, docID string, doc
 	var notifications []model.Event
 	defer func() { n.events.emitAll(notifications) }()
 	defer func() { release() }()
+	if err := n.memory.refuseWhileFull(indexName); err != nil {
+		return err
+	}
 	if err := schema.ValidateDocID(docID); err != nil {
 		return err
 	}
@@ -218,12 +237,19 @@ func (n *Narsil) replaceDocument(ctx context.Context, entry *indexEntry, release
 		return entry, release, nil, persist.Write{}, err
 	}
 	update.NewDocument = embedded
+	var reservation *memory.Reservation
+	entry, release, reservation, err = n.reserveDocumentOutsideCallerCode(holder, entry, release, docID,
+		update.NewDocument)
+	if err != nil {
+		return entry, release, nil, persist.Write{}, err
+	}
+	defer reservation.Release()
 	write, err := n.prepareOne(ctx, entry, update.NewDocument)
 	if err != nil {
 		return entry, release, nil, persist.Write{}, err
 	}
 	write.DocumentID = docID
-	if err := n.heap.admit(indexName); err != nil {
+	if err := n.memory.refuseWhileFull(indexName); err != nil {
 		return entry, release, nil, persist.Write{}, err
 	}
 	entry, release, err = n.applyKeepingTokens(ctx, indexName, entry, release, index.WriteUpdate,
@@ -238,6 +264,11 @@ func (n *Narsil) replaceDocument(ctx context.Context, entry *indexEntry, release
 
 func (n *Narsil) applyUpdateLocked(ctx context.Context, entry *indexEntry, write persist.Write) (persist.Commit,
 	error) {
+	reservation, err := n.memory.reserveWriteBurst(entry, []string{write.DocumentID})
+	if err != nil {
+		return persist.Commit{}, err
+	}
+	defer reservation.Release()
 	if held, err := entry.holds(ctx, write.DocumentID); err != nil || !held {
 		return persist.Commit{}, cmp.Or(err, documentNotFound(write.DocumentID))
 	}
@@ -277,6 +308,7 @@ func (n *Narsil) Remove(ctx context.Context, indexName string, docID string, opt
 	if err != nil {
 		return err
 	}
+	n.memory.memoryReleased()
 	if n.plugins.hasHook(hookAfterRemove) {
 		release()
 		release = releasedNothing

@@ -16,12 +16,20 @@ import (
 	"github.com/assetcorp/narsil/packages/go/engine/internal/persist/storage"
 )
 
+type EarlierVectors struct {
+	Dimension uint32
+	Count     int
+}
+
 type Restoring struct {
-	IndexName      string
-	Configuration  indexconfig.Configuration
-	Manifest       manifest.Manifest
-	PartitionCount int
-	Replaces       bool
+	IndexName          string
+	Configuration      indexconfig.Configuration
+	Manifest           manifest.Manifest
+	PartitionCount     int
+	Replaces           bool
+	Earlier            bool
+	EarlierStoredBytes int
+	EarlierVectors     []EarlierVectors
 }
 
 type RestoreHooks struct {
