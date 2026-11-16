@@ -39,6 +39,7 @@ pub struct Setup {
     pub window_bytes: Option<u64>,
     pub max_connections: Option<u64>,
     pub grant_ms: Option<u64>,
+    pub max_buffered_bytes: Option<u64>,
     pub allow_regex: bool,
 }
 
@@ -54,6 +55,7 @@ impl Setup {
         FeedOptions {
             window_bytes: self.window_bytes,
             max_connections: self.max_connections,
+            max_buffered_bytes: self.max_buffered_bytes,
             ..FeedOptions::default()
         }
     }
@@ -65,6 +67,9 @@ impl Setup {
         }
         if let Some(maximum) = self.max_connections {
             spec.insert("maxConnections", Value::Number(maximum as f64));
+        }
+        if let Some(maximum) = self.max_buffered_bytes {
+            spec.insert("maxBufferedBytes", Value::Number(maximum as f64));
         }
         Value::Object(spec)
     }

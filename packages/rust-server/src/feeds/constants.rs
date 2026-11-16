@@ -6,6 +6,7 @@ pub(crate) const ENTRIES_MESSAGE_LIMIT_BYTES: u64 = 1_048_576;
 pub(crate) const FEED_HEAD_RETRY_MS: u64 = 200;
 pub(crate) const TIMER_DELAY_LIMIT_MS: u64 = 2_147_483_647;
 pub(crate) const FEED_SOCKET_MAX_PAYLOAD_BYTES: usize = 131_072;
+pub(crate) const FEED_SOCKET_MAX_BACKPRESSURE_BYTES: u64 = 1_073_741_824;
 pub(crate) const FEED_SOCKET_READ_BUFFER_BYTES: usize = 16_384;
 pub(crate) const MAX_FEED_MESSAGE_BYTES: usize = 65_536;
 pub(crate) const FEED_INLINE_DECODE_BYTES: usize = 4_096;

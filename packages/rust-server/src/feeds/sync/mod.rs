@@ -28,6 +28,7 @@ pub(crate) struct SyncFeed {
     cursors: Vec<Option<SyncCursor>>,
     checkpoints: VecDeque<(u32, Vec<u64>)>,
     checkpoint_retry_at: Option<Instant>,
+    settings_due: bool,
 }
 
 impl SyncFeed {
@@ -148,21 +149,42 @@ impl SyncFeed {
         if !self.subscribed {
             return;
         }
+        self.settings_due = true;
+        self.flush_settings(core).await;
+    }
+
+    async fn flush_settings(&mut self, core: &mut Core) {
+        if !self.settings_due || core.closed() || core.outbox.has_charge() {
+            return;
+        }
         let index = core.index.clone();
-        let Some(Ok(Some(state))) = core.blocking(move |engine| state_of(engine, &index)).await
-        else {
+        let Some(read) = core.blocking(move |engine| state_of(engine, &index)).await else {
             return;
         };
-        if let Some(settings) = message(
+        let Ok(Some(state)) = read else {
+            self.settings_due = false;
+            return;
+        };
+        let Some(settings) = message(
             "settings",
             vec![("settings", Value::Object(state.settings))],
-        ) {
-            core.outbox.send(settings);
+        ) else {
+            self.settings_due = false;
+            return;
+        };
+        if !core.outbox.charge(settings.len() as u64) {
+            return;
         }
+        self.settings_due = false;
+        core.outbox.send(settings);
     }
 
     pub(crate) async fn pump(&mut self, core: &mut Core) {
-        if !self.subscribed || core.closed() || !self.refresh_heads(core).await {
+        if !self.subscribed || core.closed() {
+            return;
+        }
+        self.flush_settings(core).await;
+        if self.settings_due || !self.refresh_heads(core).await {
             return;
         }
         self.send_behind(core).await;

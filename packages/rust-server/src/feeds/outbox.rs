@@ -1,10 +1,19 @@
 use std::collections::VecDeque;
 use std::sync::Arc;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use tokio::sync::watch;
+use tokio::time::Instant;
 
+use super::constants::TIMER_DELAY_LIMIT_MS;
 use super::limits::ByteBudget;
 use super::socket::FeedSocket;
+
+fn now_ms() -> f64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0.0, |elapsed| elapsed.as_secs_f64() * 1_000.0)
+}
 
 pub(crate) struct Outbox {
     pub(crate) socket: FeedSocket,
@@ -13,10 +22,15 @@ pub(crate) struct Outbox {
     charged: u64,
     waiting_for_budget: bool,
     closed: bool,
+    expires_at: Option<f64>,
 }
 
 impl Outbox {
-    pub(crate) fn new(socket: FeedSocket, budget: Arc<ByteBudget>) -> Outbox {
+    pub(crate) fn new(
+        socket: FeedSocket,
+        budget: Arc<ByteBudget>,
+        expires_at: Option<f64>,
+    ) -> Outbox {
         let budget_freed = budget.watch_freed();
         Outbox {
             socket,
@@ -25,6 +39,7 @@ impl Outbox {
             charged: 0,
             waiting_for_budget: false,
             closed: false,
+            expires_at,
         }
     }
 
@@ -32,12 +47,23 @@ impl Outbox {
         self.closed
     }
 
+    pub(crate) fn expired(&self) -> bool {
+        self.expires_at
+            .is_some_and(|expires_at| expires_at - now_ms() <= 0.0)
+    }
+
+    pub(crate) fn expiry_deadline(&self) -> Option<Instant> {
+        let remaining = self.expires_at? - now_ms();
+        let wait = remaining.clamp(0.0, TIMER_DELAY_LIMIT_MS as f64).ceil() as u64;
+        Some(Instant::now() + Duration::from_millis(wait))
+    }
+
     pub(crate) fn has_charge(&self) -> bool {
         self.charged > 0
     }
 
     pub(crate) fn send(&mut self, bytes: Vec<u8>) {
-        if self.closed {
+        if self.closed || self.expired() {
             return;
         }
         self.socket.send(bytes);

@@ -16,8 +16,8 @@ use tokio_tungstenite::tungstenite::protocol::{Role, WebSocketConfig};
 use tokio_tungstenite::tungstenite::{Message, Utf8Bytes};
 
 use super::constants::{
-    FEED_CLOSE_HANDSHAKE_MS, FEED_PING_INTERVAL_MS, FEED_SOCKET_MAX_PAYLOAD_BYTES,
-    FEED_SOCKET_READ_BUFFER_BYTES, MAX_FEED_MESSAGE_BYTES,
+    FEED_CLOSE_HANDSHAKE_MS, FEED_PING_INTERVAL_MS, FEED_SOCKET_MAX_BACKPRESSURE_BYTES,
+    FEED_SOCKET_MAX_PAYLOAD_BYTES, FEED_SOCKET_READ_BUFFER_BYTES, MAX_FEED_MESSAGE_BYTES,
 };
 use super::signals::SessionSignals;
 use super::wire::close_reason_of;
@@ -53,6 +53,9 @@ pub(crate) struct FeedSocket {
 
 impl FeedSocket {
     pub(crate) fn send(&self, bytes: Vec<u8>) {
+        if self.buffered_amount() > FEED_SOCKET_MAX_BACKPRESSURE_BYTES {
+            return;
+        }
         let length = bytes.len() as u64;
         self.shared.buffered.fetch_add(length, Ordering::AcqRel);
         if self
@@ -145,6 +148,12 @@ async fn read_frames(
                 continue;
             }
             Some(Ok(_)) => continue,
+            Some(Err(SocketError::Capacity(_))) => {
+                if inbound.send(Inbound::TooLarge).await.is_ok() {
+                    close_deadline.as_mut().await;
+                }
+                break;
+            }
             Some(Err(_)) => break,
         };
         if inbound.send(forwarded).await.is_err() {
