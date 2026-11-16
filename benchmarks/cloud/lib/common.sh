@@ -223,8 +223,8 @@ aggregate_server_runs() {
   local id
   for id in $FETCHED_IDS; do
     log "aggregate benchmarks/server/$(results_dir)/runs/$id from every engine file it holds"
-    ( cd "$REPO_ROOT/benchmarks/server" && BENCH_HOST_RESULTS_DIR="$(results_dir)" BENCH_RUN_ID="$id" docker compose run --rm --entrypoint python harness -m ir_bench.aggregate ) \
-      || log "aggregate for $id failed; rerun it with: cd benchmarks/server && BENCH_HOST_RESULTS_DIR=$(results_dir) BENCH_RUN_ID=$id docker compose run --rm --entrypoint python harness -m ir_bench.aggregate"
+    ( cd "$REPO_ROOT/benchmarks/server" && BENCH_HOST_RESULTS_DIR="$(results_dir)" BENCH_RUN_ID="$id" docker compose run --rm --user "$(id -u):$(id -g)" --entrypoint python harness -m ir_bench.aggregate ) \
+      || log "aggregate for $id failed; rerun it with: cd benchmarks/server && BENCH_HOST_RESULTS_DIR=$(results_dir) BENCH_RUN_ID=$id docker compose run --rm --user \"\$(id -u):\$(id -g)\" --entrypoint python harness -m ir_bench.aggregate"
   done
 }
 
