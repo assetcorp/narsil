@@ -23,3 +23,9 @@ export async function getFs(): Promise<FsModule> {
   }
   return cachedFs
 }
+
+export async function renameReplacing(from: string, to: string): Promise<void> {
+  await (await getFs()).rename(from, to)
+}
+
+export const renameUnlessMissing = renameReplacing

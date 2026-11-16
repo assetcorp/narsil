@@ -14,7 +14,7 @@ use super::constants::{
 use super::platform::{
     DirectoryIdentity, ProcessState, current_process_start_ms, current_thread_number,
     directory_identity, hold_directory_open, process_holds_file_in, process_state, random_token,
-    remove_file, signal_reaches,
+    remove_file, rename_unless_missing, signal_reaches,
 };
 
 pub(crate) const LOCK_FILE_NAME: &str = ".narsil.lock";
@@ -187,7 +187,7 @@ fn create_lock_file(lock_path: &Path, draft: &Path, content: &str) -> io::Result
 }
 
 fn remove_stale_lock(lock_path: &Path, aside: &Path, seen: &LockReading) -> io::Result<()> {
-    match std::fs::rename(lock_path, aside) {
+    match rename_unless_missing(lock_path, aside) {
         Ok(()) => {}
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
         Err(error) => return Err(error),
