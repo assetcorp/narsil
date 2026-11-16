@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use futures_util::FutureExt;
 use narsil::{Map, NarsilError, Value};
+use tokio::sync::oneshot;
 
 use super::listing::{TaskListPage, TaskListQuery, page_of};
 use super::live::{LiveTask, TaskContext, TaskFailure, TaskOperation, now_ms};
@@ -153,15 +154,28 @@ impl TaskRegistry {
         };
         let task = LiveTask::new(record.clone(), Arc::clone(&self.store));
         self.admit(&task, &id)?;
-        if let Err(failure) = task.write_first().wait().await {
-            lock(&self.live).remove(&id);
-            let _ = AssertUnwindSafe(self.store.delete(&id))
-                .catch_unwind()
-                .await;
-            return Err(store_failure(&failure));
+        let first = task.write_first();
+        let (accepted, answer) = oneshot::channel();
+        let (live, store) = (Arc::clone(&self.live), Arc::clone(&self.store));
+        tokio::spawn(async move {
+            match first.wait().await {
+                Ok(()) => {
+                    let _ = accepted.send(Ok(()));
+                    drive(live, task, operation).await;
+                }
+                Err(failure) => {
+                    lock(&live).remove(&id);
+                    let _ = AssertUnwindSafe(store.delete(&id)).catch_unwind().await;
+                    task.mark_finished();
+                    let _ = accepted.send(Err(store_failure(&failure)));
+                }
+            }
+        });
+        match answer.await {
+            Ok(Ok(())) => Ok(record),
+            Ok(Err(failure)) => Err(failure),
+            Err(_) => Err(ServerError::internal()),
         }
-        tokio::spawn(drive(Arc::clone(&self.live), task, operation));
-        Ok(record)
     }
 
     pub(crate) async fn get(&self, id: &str) -> Result<Option<TaskRecord>, BoxError> {
