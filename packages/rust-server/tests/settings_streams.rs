@@ -13,11 +13,12 @@ use support::{
     Call, ReferenceServer, Reply, RustServer, ScratchDirectory, TOKEN, decode_json, send,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpStream;
+use tokio::net::{TcpSocket, TcpStream};
 
 const FIRST_NOTES: usize = 6_000;
 const LATER_NOTES: usize = 500;
 const ABANDONED_BYTES: usize = 4_096;
+const STALLED_RECEIVE_BUFFER_BYTES: u32 = 64 * 1024;
 const LARGE_NOTES: usize = 400;
 const LARGE_TITLE_BYTES: usize = 64 * 1024;
 const STALL: Duration = Duration::from_secs(14);
@@ -206,6 +207,17 @@ async fn exports_and_snapshots_stream_every_document_across_restarts() {
     reference.stop().await;
 }
 
+async fn connect_with_fixed_receive_buffer(port: u16) -> TcpStream {
+    let socket = TcpSocket::new_v4().expect("the client opens a socket");
+    socket
+        .set_recv_buffer_size(STALLED_RECEIVE_BUFFER_BYTES)
+        .expect("the client fixes its receive buffer");
+    socket
+        .connect(([127, 0, 0, 1], port).into())
+        .await
+        .expect("the server accepts a connection")
+}
+
 async fn read_until_closed(stream: &mut TcpStream) -> Vec<u8> {
     let mut received = Vec::new();
     tokio::time::timeout(CLOSE_DEADLINE, stream.read_to_end(&mut received))
@@ -233,9 +245,7 @@ async fn a_stalled_download_is_cut_off_and_never_looks_complete() {
         format!("/indexes/{INDEX}/export"),
         format!("/indexes/{INDEX}/snapshot"),
     ] {
-        let mut stream = TcpStream::connect(("127.0.0.1", rust.port))
-            .await
-            .expect("the server accepts a connection");
+        let mut stream = connect_with_fixed_receive_buffer(rust.port).await;
         let request = format!(
             "GET {path} HTTP/1.1\r\nhost: 127.0.0.1\r\nauthorization: Bearer {TOKEN}\r\n\r\n"
         );
