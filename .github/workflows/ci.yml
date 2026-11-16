@@ -13,7 +13,7 @@ env:
   SEGMENT_DOWNLOAD_TIMEOUT_MINS: 2
 
 concurrency:
-  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -21,6 +21,9 @@ jobs:
     name: Changed areas
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
     outputs:
       typescript: ${{ steps.areas.outputs.typescript }}
       check: ${{ steps.areas.outputs.check }}
@@ -48,7 +51,7 @@ jobs:
       - name: List the areas that this change touches
         id: areas
         env:
-          PUSH_BEFORE: ${{ github.event.before }}
+          GITHUB_TOKEN: ${{ github.token }}
           WORKFLOW_FILE: .github/workflows/ci.yml
         run: node .github/scripts/changed-areas.js
 

@@ -1,11 +1,15 @@
 const { execFileSync } = require('node:child_process')
 const { appendFileSync } = require('node:fs')
+const { lastPassedPushCommit } = require('./last-passed-push.js')
 
-const AREAS_SCRIPT = '.github/scripts/changed-areas.js'
+const AREAS_SCRIPTS = [
+  '.github/scripts/changed-areas.js',
+  '.github/scripts/last-passed-push.js',
+  '.github/scripts/github-api.js',
+]
 const SHARED_ENGINE_WORKFLOW = '.github/workflows/engine.yml'
 const COMPOSITE_ACTIONS = '.github/actions/'
 const ENGINE_API_REPORTS = 'packages/ts/etc/'
-const MISSING_COMMIT = /^0+$/
 const TYPESCRIPT_JOB_AREAS = ['typescript', 'check', 'conformance', 'benchmark_harness', 'benchmark_languages']
 const TYPESCRIPT_AREAS = ['typescript', 'check', 'conformance']
 
@@ -285,15 +289,20 @@ const namesBetween = (from, to) =>
     .split('\0')
     .filter(line => line.length > 0)
 
-const changedFiles = () => {
+const changedFiles = async () => {
   const event = process.env.GITHUB_EVENT_NAME
   if (event === 'pull_request') return namesBetween('HEAD^1', 'HEAD')
   if (event !== 'push') return null
-  const before = process.env.PUSH_BEFORE ?? ''
-  const after = process.env.GITHUB_SHA ?? ''
-  if (before === '' || after === '' || MISSING_COMMIT.test(before)) return null
-  git(['fetch', '--no-tags', '--depth=1', 'origin', before])
-  return namesBetween(before, after)
+  const head = process.env.GITHUB_SHA ?? ''
+  if (head === '') return null
+  const base = await lastPassedPushCommit(process.env.WORKFLOW_FILE ?? '', head)
+  if (base === null) {
+    console.log('No push run of this workflow on main has passed yet.')
+    return null
+  }
+  console.log(`The newest push run of this workflow on main that passed tested ${base}, so this run diffs from it.`)
+  git(['fetch', '--no-tags', '--depth=1', 'origin', base])
+  return namesBetween(base, head)
 }
 
 const compilesInTheCheckJob = path =>
@@ -328,15 +337,15 @@ const writeOutput = (key, value) => {
   if (target !== undefined) appendFileSync(target, `${key}=${value}\n`)
 }
 
-const main = () => {
+const main = async () => {
   let files = null
   try {
-    files = changedFiles()
+    files = await changedFiles()
   } catch (error) {
     console.log(`Reading the changed files failed, so every area counts as changed: ${error.message}`)
   }
 
-  const filesThatTouchEveryArea = new Set([process.env.WORKFLOW_FILE ?? '', AREAS_SCRIPT, SHARED_ENGINE_WORKFLOW])
+  const filesThatTouchEveryArea = new Set([process.env.WORKFLOW_FILE ?? '', ...AREAS_SCRIPTS, SHARED_ENGINE_WORKFLOW])
   const touched = new Set()
   if (files === null) {
     console.log('This event lists no changed files, so every area counts as changed.')
@@ -354,7 +363,12 @@ const main = () => {
   writeOutput('engine', String(CI_AREAS_THAT_LOAD_THE_ENGINE.some(area => touched.has(area))))
 }
 
-if (require.main === module) main()
+if (require.main === module) {
+  main().catch(error => {
+    console.error(error instanceof Error ? error.message : String(error))
+    process.exit(1)
+  })
+}
 
 module.exports = {
   BUILD_CONFIG_FILES,
