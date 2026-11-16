@@ -12,6 +12,7 @@ import {
   updateDocumentBatch as updateBatchUnguarded,
   updateDocument as updateUnguarded,
 } from '../mutations'
+import { docIdOf, failAsShutDown, shutDownStarted } from '../mutations/batch-shutdown'
 import { providedDocId } from '../mutations/insert-admission'
 import { noteDocumentChurn } from './document-churn'
 import type { MemoryGroupedItem } from './grouped-writes'
@@ -64,6 +65,7 @@ async function withReservation<T>(
 }
 
 async function writeInGroups<T extends MemoryGroupedItem>(
+  ctx: MutationContext,
   grouping: MemoryWriteGrouping,
   indexName: string,
   items: T[],
@@ -74,6 +76,11 @@ async function writeInGroups<T extends MemoryGroupedItem>(
   await grouping.applyInGroups(indexName, {
     items,
     failed,
+    refuseFrom: start => {
+      if (!shutDownStarted(ctx)) return false
+      failAsShutDown(failed, items, docIdOf, start)
+      return true
+    },
     apply: async group => {
       const result = await write(group)
       for (const docId of result.succeeded) succeeded.push(docId)
@@ -123,7 +130,7 @@ export async function insertDocumentBatch(
     return insertBatchUnguarded(ctx, indexName, documents, options, hold)
   }
   const items = documents.map(document => ({ docId: providedDocId(document) ?? '', document }))
-  return writeInGroups(grouping, indexName, items, group =>
+  return writeInGroups(ctx, grouping, indexName, items, group =>
     insertBatchUnguarded(
       ctx,
       indexName,
@@ -164,7 +171,7 @@ export async function updateDocumentBatch(
     return updateBatchUnguarded(ctx, indexName, updates, options, hold)
   }
   noteGroupedChurn(ctx, indexName, updates.length)
-  return writeInGroups(grouping, indexName, updates.map(updateItemOf), group =>
+  return writeInGroups(ctx, grouping, indexName, updates.map(updateItemOf), group =>
     updateBatchUnguarded(
       ctx,
       indexName,
