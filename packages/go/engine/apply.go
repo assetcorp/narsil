@@ -96,7 +96,7 @@ func (entry *indexEntry) scheduleVectorBuilds(touched touchedVectors) {
 
 func (entry *indexEntry) applyInMemory(ctx context.Context, writes []persist.Write, kind index.WriteKind) ([]error,
 	error) {
-	return entry.index().ApplyWith(kind, persist.DocumentWrites(writes), entry.handle.NamedVectorFields(),
+	return entry.index().ApplyWith(ctx, kind, persist.DocumentWrites(writes), entry.handle.NamedVectorFields(),
 		index.WriteTokensOf(ctx), index.StoredReadOf(ctx))
 }
 

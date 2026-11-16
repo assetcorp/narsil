@@ -87,7 +87,7 @@ func DocumentWrites(writes []Write) []index.DocumentWrite {
 	return documents
 }
 
-func (handle *Handle) flushRun(run *pendingRun, writes []Write, failures []error) error {
+func (handle *Handle) flushRun(ctx context.Context, run *pendingRun, writes []Write, failures []error) error {
 	if len(run.members) == 0 {
 		return nil
 	}
@@ -95,7 +95,7 @@ func (handle *Handle) flushRun(run *pendingRun, writes []Write, failures []error
 	for at, member := range run.members {
 		selected[at] = writes[member]
 	}
-	refused, err := handle.Index.ApplyWith(run.kind, DocumentWrites(selected), handle.NamedVectorFields(), run.tokens,
+	refused, err := handle.Index.ApplyWith(ctx, run.kind, DocumentWrites(selected), handle.NamedVectorFields(), run.tokens,
 		run.stored)
 	for at, member := range run.members {
 		if at < len(refused) && refused[at] != nil {
@@ -138,7 +138,7 @@ func (handle *Handle) apply(ctx context.Context, writes []Write) ([]error, error
 			}
 		}
 		if repeated || (len(run.members) > 0 && run.kind != kind) {
-			if err := handle.flushRun(run, writes, failures); err != nil {
+			if err := handle.flushRun(ctx, run, writes, failures); err != nil {
 				return nil, err
 			}
 			var err error
@@ -150,7 +150,7 @@ func (handle *Handle) apply(ctx context.Context, writes []Write) ([]error, error
 		run.members = append(run.members, at)
 		run.ids[write.DocumentID] = struct{}{}
 	}
-	if err := handle.flushRun(run, writes, failures); err != nil {
+	if err := handle.flushRun(ctx, run, writes, failures); err != nil {
 		return nil, err
 	}
 	return failures, nil

@@ -85,11 +85,12 @@ func (durable *Durable) boundedCheckpoint(ctx context.Context, options checkpoin
 		outcome.release = func() { held.release() }
 	}
 	if !pin.locked && len(outcome.adoptions) > 0 && durable.stillCommitted(pin) {
-		if err := durable.adoptAll(context.WithoutCancel(ctx), durable.manager.store, outcome.adoptions); err != nil {
-			return outcome, err
-		}
+		err = durable.adoptAll(ctx, durable.manager.store, outcome.adoptions)
 	}
-	return outcome, durable.removePinnedGarbage(pin, outcome.garbage)
+	if removed := durable.removePinnedGarbage(pin, outcome.garbage); err == nil {
+		err = removed
+	}
+	return outcome, err
 }
 
 func (durable *Durable) adoptCommitted(ctx context.Context, pin uint64, adoptions []pendingAdoption) error {
@@ -104,7 +105,7 @@ func (durable *Durable) adoptCommitted(ctx context.Context, pin uint64, adoption
 	if !current {
 		return nil
 	}
-	return durable.adoptAll(context.WithoutCancel(ctx), durable.manager.store, adoptions)
+	return durable.adoptAll(ctx, durable.manager.store, adoptions)
 }
 
 func (durable *Durable) lockFor(pin *checkpointPin) (func(), error) {

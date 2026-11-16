@@ -178,12 +178,16 @@ func (durable *Durable) adoptPartition(ctx context.Context, store checkpoint.Sto
 	}
 	adoption, files, ready := durable.preparedAdoption(ctx, store, target, pending.entry, partitionID, tokens)
 	if !ready {
-		return nil
+		return ctx.Err()
 	}
 	defer files.closeHeld()
 	for round := 1; ; round++ {
 		tokens.AbsorbBorrowed()
 		adopted, err := target.Adopt(ctx, partitionID, adoption, pending.changes, tokens)
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			files.closeOpened()
+			return err
+		}
 		var missed *analysis.MissedTokens
 		if errors.As(err, &missed) && round < partition.TokenRoundsPerWrite {
 			tokens.Remember(missed.Sources)

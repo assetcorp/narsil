@@ -21,7 +21,9 @@ func (n *Narsil) applyAndUnlock(ctx context.Context, entry *indexEntry, locked l
 
 func (n *Narsil) applyKeepingTokens(ctx context.Context, name string, entry *indexEntry, release func(),
 	kind index.WriteKind, writes []persist.Write, locked lockedWrite) (*indexEntry, func(), error) {
-	entry.writeMu.Lock()
+	if err := entry.writeMu.LockContext(ctx); err != nil {
+		return entry, release, err
+	}
 	target, shadow := entry.index(), entry.shadowBuild()
 	if !target.CallsCallerCode() && (shadow == nil || !shadow.CallsCallerCode()) {
 		return entry, release, n.applyAndUnlock(ctx, entry, locked)
@@ -39,10 +41,12 @@ func (n *Narsil) applyKeepingTokens(ctx context.Context, name string, entry *ind
 		if err = ctx.Err(); err != nil {
 			continue
 		}
-		if entry, release, err = n.acquire(name); err != nil {
+		if entry, release, err = n.acquireContext(ctx, name); err != nil {
 			return nil, releasedNothing, err
 		}
-		entry.writeMu.Lock()
+		if err := entry.writeMu.LockContext(ctx); err != nil {
+			return entry, release, err
+		}
 		if held := entry.index(); held != target {
 			entry.writeMu.Unlock()
 			release()

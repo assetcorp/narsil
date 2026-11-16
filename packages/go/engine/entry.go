@@ -43,7 +43,7 @@ type indexEntry struct {
 	embedder     model.EmbeddingAdapter
 	embedBinding uint64
 
-	writeMu          sync.Mutex
+	writeMu          callerctx.RWMutex
 	commits          inFlightCommits
 	watermarkLatched int
 
