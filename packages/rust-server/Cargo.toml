@@ -8,7 +8,6 @@ license = "Apache-2.0"
 repository = "https://github.com/assetcorp/narsil"
 homepage = "https://narsil.sondelali.com"
 readme = "README.md"
-publish = false
 keywords = ["search", "http", "server", "bm25", "hnsw"]
 categories = ["database-implementations", "web-programming::http-server"]
 
@@ -22,7 +21,7 @@ path = "src/bin/narsil-server.rs"
 
 [dependencies]
 bytes = "=1.12.1"
-delali-narsil = { path = "../rust" }
+delali-narsil = { path = "../rust", version = "0.2.0" }
 form_urlencoded = "=1.2.2"
 futures-util = "=0.3.34"
 getrandom = "=0.4.3"

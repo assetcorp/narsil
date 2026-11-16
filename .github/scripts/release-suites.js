@@ -190,6 +190,24 @@ const SUITES = {
     manifestsWithoutVersion: [ENGINE_MANIFEST],
     importers: ['.', 'packages/ts', 'packages/conformance'],
   },
+  'rust-server': {
+    workflows: ['ci.yml'],
+    jobs: [
+      'Rust server / Format and Clippy',
+      ...['linux-x64', 'win32-x64'].map(label => `Rust server / Test on ${label}`),
+      'Rust server / Python and Go clients on the Rust server',
+    ],
+    paths: [
+      ...areaPaths('rust_server'),
+      ...ENGINE_BUILD_FILES,
+      ...WORKSPACE_FILES,
+      ...workflowFiles(CI_WORKFLOW, ENGINE_WORKFLOW),
+    ],
+    except: PATHS_BY_LANGUAGE_AREA.rust_server.except,
+    markdown: compiledMarkdown('rust_server'),
+    manifestsWithoutVersion: [ENGINE_MANIFEST],
+    importers: ['.', 'packages/ts', 'packages/conformance'],
+  },
   'go-engine': {
     workflows: ['ci.yml'],
     jobs: [
@@ -270,6 +288,7 @@ const SUITES_BY_PACKAGE = {
   'github.com/assetcorp/narsil/packages/go/changes': ['go-client'],
   'github.com/assetcorp/narsil/packages/go/engine': ['go-engine'],
   'delali-narsil': ['rust'],
+  'delali-narsil-server': ['rust-server'],
   'delali-narsil on PyPI': ['python-engine'],
 }
 

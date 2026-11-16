@@ -16,6 +16,7 @@
       "narsil-embeddings-transformers",
       "narsil-certutil",
       "narsil-rust",
+      "narsil-rust-server",
       "narsil-python",
       "narsil-python-engine"
     ],

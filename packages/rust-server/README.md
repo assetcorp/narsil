@@ -4,7 +4,7 @@
 
 Only the TypeScript package runs cluster mode, so the Rust server answers the cluster routes, the backup routes, `/metrics`, and `/cluster/health` with `501` and the code `CLUSTER_OPERATION_UNSUPPORTED`, as the TypeScript server does when it has no cluster.
 
-The crate is available only from this repository. To deploy the Rust server without building it, run the container image `ghcr.io/assetcorp/narsil` under a tag that ends in `-rust`, such as `latest-rust`. That image takes every setting from the variables that [the container specification](https://github.com/assetcorp/narsil/blob/main/packages/spec/container.md) defines. The [container guide](https://github.com/assetcorp/narsil/blob/main/docs/container-image.md) shows how you can start a node from that image.
+Add the crate to a Rust program with `cargo add delali-narsil-server`, or install its `narsil-server` binary with `cargo install delali-narsil-server`. To deploy the Rust server without building it, run the container image `ghcr.io/assetcorp/narsil` under a tag that ends in `-rust`, such as `latest-rust`. That image takes every setting from the variables that [the container specification](https://github.com/assetcorp/narsil/blob/main/packages/spec/container.md) defines. The [container guide](https://github.com/assetcorp/narsil/blob/main/docs/container-image.md) shows how you can start a node from that image.
 
 ## Serve an index from the command line
 
