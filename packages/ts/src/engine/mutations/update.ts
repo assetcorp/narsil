@@ -6,7 +6,7 @@ import {
   extractVectorFromDoc,
   getNestedValue,
   indexChangeOutsideExternalWaits,
-  NarsilError,
+  type NarsilError,
   prepareDocumentVectors,
   requireDocumentWithinSizeLimit,
   requireMatchingDocId,
@@ -18,6 +18,7 @@ import type { RemovedSpellings } from '../../core/partition/frozen/surface-slot'
 import type { PreparedTextChange } from '../../core/partition/prepared-text'
 import type { AnyDocument, WriteOptions } from '../../types/schema'
 import type { IndexHold } from '../index-hold'
+import { batchFailureOf } from './batch-shutdown'
 import type { ApplyMutation, MutationContext } from './context'
 import { holdVectorsForRollback, rollbackUpdatedDocument } from './durable-rollback'
 import { runOutside } from './outside-hold'
@@ -74,8 +75,8 @@ export interface PreparedUpdate {
   releaseVectorHolds?: () => void
 }
 
-export function asUpdateError(err: unknown): NarsilError {
-  return err instanceof NarsilError ? err : new NarsilError(ErrorCodes.DOC_NOT_FOUND, String(err))
+export function asUpdateError(ctx: MutationContext, err: unknown): NarsilError {
+  return batchFailureOf(ctx, err, ErrorCodes.DOC_NOT_FOUND)
 }
 
 async function runAfterUpdateHooks(ctx: MutationContext, indexName: string, updates: PreparedUpdate[]): Promise<void> {
