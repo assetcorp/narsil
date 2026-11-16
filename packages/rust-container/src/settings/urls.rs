@@ -33,6 +33,12 @@ pub fn parse_http_url(raw: &str) -> Option<HttpUrl> {
     if authority.host().is_empty() {
         return None;
     }
+    if let Some(port) = authority.port()
+        && !port.as_str().is_empty()
+        && !port.as_str().parse::<u16>().is_ok_and(|number| number > 0)
+    {
+        return None;
+    }
     let path = match uri.path() {
         "" => "/",
         path => path,
