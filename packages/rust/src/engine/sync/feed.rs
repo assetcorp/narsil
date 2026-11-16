@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use super::closed::{ClosedSyncState, sync_settings_of};
 use super::constants::SYNC_ARCHIVE_ENTRY_ESTIMATE_BYTES;
 use super::{log_store_of, sync_epoch_of, sync_is_on};
 use crate::durability::change_reader::{LogCursor, LogRead, LogRecord};
@@ -7,19 +8,11 @@ use crate::durability::store::DurabilityStore;
 use crate::durability::sync_retention::published_archive_bytes;
 use crate::engine::change_capture::ChangePosition;
 use crate::engine::durable::archive::index_configuration;
+use crate::engine::index::IndexState;
+use crate::engine::index_lifecycle::{ClosedIndex, HeldIndex};
 use crate::engine::{EngineInner, Narsil};
 use crate::error::{ErrorCode, NarsilError, Result, index_not_found};
 use crate::value::{Map, Value};
-
-const SYNC_SETTINGS_KEYS: [&str; 7] = [
-    "language",
-    "tokenizer",
-    "stopWords",
-    "stopWordList",
-    "analysisRevision",
-    "bm25",
-    "synonyms",
-];
 
 /// What a device feed reads about a synced index, which [`Narsil::sync_feed_state`] returns.
 #[derive(Debug, Clone, PartialEq)]
@@ -108,43 +101,76 @@ fn engine_log_store(engine: &EngineInner, index_name: &str) -> Result<Arc<Durabi
         })
 }
 
+/// Returns the device sync state of an open index, or `None` while device sync is off for it.
+pub(crate) fn open_feed_state(state: &IndexState) -> Result<Option<SyncFeedState>> {
+    let Some(log) = state.log().filter(|log| log.log_store().is_some()) else {
+        return Ok(None);
+    };
+    let metadata = log.metadata(state);
+    let Some(epoch) = sync_epoch_of(&metadata).filter(|_| sync_is_on(&metadata)) else {
+        return Ok(None);
+    };
+    let configuration = index_configuration(state, &metadata)?;
+    Ok(Some(SyncFeedState {
+        epoch: epoch.to_string(),
+        partition_count: state.partitions().len() as u32,
+        settings: sync_settings_of(&configuration),
+    }))
+}
+
+fn closed_log_head(
+    store: &DurabilityStore,
+    index: &str,
+    closed: &ClosedIndex,
+    partition_id: u32,
+) -> Result<u64> {
+    let heads = match closed.sync.log_heads.get() {
+        Some(heads) => heads,
+        None => {
+            let read = store.stored_log_heads(index, closed.partition_count)?;
+            closed.sync.log_heads.get_or_init(|| read)
+        }
+    };
+    Ok(heads.get(partition_id as usize).copied().unwrap_or(0))
+}
+
 impl Narsil {
     /// Returns the epoch, the partition count, and the device settings of a synced index, or `None` while device
-    /// sync is off for it.
+    /// sync is off for it. The engine answers for a closed index from what it recorded when the index closed, so
+    /// the call leaves a closed index closed.
     ///
     /// Fails with `INDEX_NOT_FOUND` where the engine holds no index called `index`.
     pub fn sync_feed_state(&self, index: &str) -> Result<Option<SyncFeedState>> {
-        let state = self.inner.open_index(index)?;
-        let Some(log) = state.log().filter(|log| log.log_store().is_some()) else {
-            return Ok(None);
-        };
-        let metadata = log.metadata(&state);
-        let Some(epoch) = sync_epoch_of(&metadata).filter(|_| sync_is_on(&metadata)) else {
-            return Ok(None);
-        };
-        let configuration = index_configuration(&state, &metadata)?;
-        let mut settings = Map::new();
-        for key in SYNC_SETTINGS_KEYS {
-            if let Some(value) = configuration.get(key) {
-                settings.insert(key, value.clone());
-            }
+        self.inner.guard_shutdown()?;
+        match self.inner.held_index(index) {
+            Some(HeldIndex::Open(state)) => open_feed_state(&state),
+            Some(HeldIndex::Closed(closed)) => match closed.sync.state {
+                ClosedSyncState::Off => Ok(None),
+                ClosedSyncState::On(state) => Ok(Some(state)),
+                ClosedSyncState::Unread => open_feed_state(self.inner.open_index(index)?.as_ref()),
+            },
+            None => Err(index_not_found(index)),
         }
-        Ok(Some(SyncFeedState {
-            epoch: epoch.to_string(),
-            partition_count: state.partitions().len() as u32,
-            settings,
-        }))
     }
 
-    /// Returns the oldest, the head, and the highest sequence number of one partition's log, opening the index
-    /// where a close left it on disk, because a closed index holds no log in memory.
+    /// Returns the oldest, the head, and the highest sequence number of one partition's log. The engine reads a
+    /// closed index's log files alone, so the call leaves a closed index closed.
     ///
     /// Fails with `INDEX_NOT_FOUND` where the engine holds no index called `index`, and with
     /// `SYNC_DURABILITY_REQUIRED` where the engine has no write-ahead log durability.
     pub fn sync_bounds(&self, index: &str, partition_id: u32) -> Result<SyncBounds> {
-        let state = self.inner.open_index(index)?;
-        let store = log_store_of(&state)?;
-        let positions = store.log_positions(index, partition_id)?;
+        self.inner.guard_shutdown()?;
+        let positions = match self.inner.held_index(index) {
+            Some(HeldIndex::Open(state)) => {
+                log_store_of(&state)?.log_positions(index, partition_id)?
+            }
+            Some(HeldIndex::Closed(closed)) => {
+                let store = engine_log_store(&self.inner, index)?;
+                let head = closed_log_head(&store, index, &closed, partition_id)?;
+                store.stored_log_positions(index, partition_id, head)?
+            }
+            None => return Err(index_not_found(index)),
+        };
         Ok(SyncBounds {
             oldest_seq_no: positions.oldest,
             head: positions.head,

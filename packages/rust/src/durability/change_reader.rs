@@ -9,9 +9,10 @@ use crate::format::wal::{
 use crate::util::hash::crc32;
 use crate::value::Value;
 
+use super::checkpoint_files::read_current_manifest;
 use super::file_errors::read_failed;
 use super::files::DurableDirectory;
-use super::log_reader::list_segments;
+use super::log_reader::{list_segments, read_marker};
 use super::store::DurabilityStore;
 use super::sync_files::list_history;
 
@@ -215,12 +216,49 @@ impl DurabilityStore {
         partition_id: u32,
     ) -> Result<LogPositions> {
         let (head, highest) = self.partition_log_bounds(index_name, partition_id)?;
+        Ok(LogPositions {
+            highest,
+            ..self.stored_log_positions(index_name, partition_id, head)?
+        })
+    }
+
+    /// Returns the head of each partition's log of a closed index from its files: the higher of the sequence
+    /// number that the partition's commit marker records as durable and the one that the newest checkpoint covers.
+    pub(crate) fn stored_log_heads(&self, index_name: &str, partitions: usize) -> Result<Vec<u64>> {
+        let directory = &self.inner.directory;
+        let manifest = read_current_manifest(directory, index_name)?;
+        (0..partitions as u32)
+            .map(|partition_id| {
+                let marked = read_marker(directory, index_name, partition_id)?
+                    .map_or(0, |marker| marker.highest_durable_seq_no);
+                let covered = manifest
+                    .as_ref()
+                    .and_then(|manifest| {
+                        manifest
+                            .checkpoint
+                            .iter()
+                            .find(|entry| entry.partition_id == partition_id)
+                    })
+                    .map_or(0, |entry| entry.last_seq_no);
+                Ok(marked.max(covered))
+            })
+            .collect()
+    }
+
+    /// Returns the positions of one partition of a closed index whose log stands at `head`, which is also its
+    /// highest sequence number, because a closed index holds no write beyond its durable log.
+    pub(crate) fn stored_log_positions(
+        &self,
+        index_name: &str,
+        partition_id: u32,
+        head: u64,
+    ) -> Result<LogPositions> {
         let oldest = all_segments(&self.inner.directory, index_name, partition_id)?
             .first()
             .map_or(head.saturating_add(1), |(start, _)| *start);
         Ok(LogPositions {
             head,
-            highest,
+            highest: head,
             oldest,
         })
     }
