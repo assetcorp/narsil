@@ -10,7 +10,7 @@ use super::file_errors::{
     write_failed,
 };
 use super::log_bytes::LogBytes;
-use super::platform::{remove_file, rename_replacing, sync_directory};
+use super::platform::{remove_file, rename_replacing, rename_unless_missing, sync_directory};
 use super::staged_file::StagedFile;
 
 pub(crate) const TEMPORARY_MARK: &str = ".tmp-";
@@ -207,9 +207,22 @@ impl DurableDirectory {
     }
 
     pub(crate) fn rename(&self, from: &str, to: &str) -> Result<bool> {
+        self.moved(from, to, rename_replacing)
+    }
+
+    pub(crate) fn rename_tree(&self, from: &str, to: &str) -> Result<bool> {
+        self.moved(from, to, rename_unless_missing)
+    }
+
+    fn moved(
+        &self,
+        from: &str,
+        to: &str,
+        rename: fn(&Path, &Path) -> io::Result<()>,
+    ) -> Result<bool> {
         let (source, source_parent) = self.parent_of(from)?;
         let (target, target_parent) = self.ensure_parent(to)?;
-        match rename_replacing(&source, &target) {
+        match rename(&source, &target) {
             Ok(()) => self.log_bytes.moved(from, to, || {
                 std::fs::metadata(&target)
                     .ok()

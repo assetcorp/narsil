@@ -125,7 +125,7 @@ impl RestoreStorage for DurableDirectory {
     }
 
     fn move_tree(&self, from: &str, to: &str) -> Result<()> {
-        self.rename(from, to).map(|_| ())
+        self.rename_tree(from, to).map(|_| ())
     }
 
     fn move_key(&self, from: &str, to: &str) -> Result<()> {

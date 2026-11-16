@@ -12,7 +12,9 @@ pub(crate) const MAX_LOCK_FILE_BYTES: u64 = 4_096;
 pub(crate) const MAX_RESTORE_JOURNAL_BYTES: u64 = 4_096;
 pub(crate) const MAX_INDEX_NAME_LENGTH: usize = 255;
 #[cfg(windows)]
-pub(crate) const WINDOWS_RENAME_ATTEMPTS: u32 = 10;
+pub(crate) const HELD_FILE_RETRY_WINDOW_MS: u64 = 2_000;
 #[cfg(windows)]
-pub(crate) const WINDOWS_RENAME_RETRY_MS: u64 = 20;
+pub(crate) const HELD_FILE_RETRY_FIRST_PAUSE_MS: u64 = 1;
+#[cfg(windows)]
+pub(crate) const HELD_FILE_RETRY_LONGEST_PAUSE_MS: u64 = 250;
 pub(crate) const SINGLE_NODE_PRIMARY_TERM: u64 = 1;

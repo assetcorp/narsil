@@ -1,4 +1,4 @@
-import { type FsModule, getFs, getPath, type PathModule } from '#platform/durable-fs'
+import { type FsModule, getFs, getPath, type PathModule, renameReplacing } from '#platform/durable-fs'
 import { compareCodePoints, ErrorCodes, NarsilError } from '#platform/storage-host'
 import { type DirectoryLock, lockDirectory } from './directory-lock'
 import { listRecursive } from './list-recursive'
@@ -262,7 +262,7 @@ export function createDurableDirectory(root: string): DurableDirectory {
         }
         await handle.close()
         handle = null
-        await fs.rename(tempPath, filePath)
+        await renameReplacing(tempPath, filePath)
         await fsyncDirectory(dir, fs)
       } catch (err: unknown) {
         if (handle !== null) {
@@ -354,7 +354,7 @@ export function createDurableDirectory(root: string): DurableDirectory {
       const target = await resolve(to)
       const fs = await getFs()
       await ensureDir(target.path, target.pathMod, fs)
-      await fs.rename(source.path, target.path)
+      await renameReplacing(source.path, target.path)
       const directories = new Set([target.path, source.path].map(path => target.pathMod.dirname(path)))
       for (const movedIn of directories) await fsyncDirectory(movedIn, fs)
     },
