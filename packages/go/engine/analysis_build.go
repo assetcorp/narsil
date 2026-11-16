@@ -117,12 +117,17 @@ func copyDocuments(ctx context.Context, handle *persist.Handle, source *index.In
 	return proceed()
 }
 
-func (entry *indexEntry) beginRebuildLog(shadow *index.Index) {
+func (entry *indexEntry) beginRebuildLog(shadow *index.Index) error {
+	tokens, err := shadow.WriteTokens()
+	if err != nil {
+		return err
+	}
 	entry.lockWrites()
 	defer entry.writeMu.Unlock()
 	entry.swap.mu.Lock()
 	defer entry.swap.mu.Unlock()
-	entry.swap.log = newRebuildLog(shadow)
+	entry.swap.log = newRebuildLog(shadow, tokens)
+	return nil
 }
 
 func (entry *indexEntry) endRebuildLog() {

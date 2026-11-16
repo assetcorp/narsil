@@ -100,7 +100,13 @@ func (n *Narsil) proceedFor(ctx context.Context, entry *indexEntry, operation st
 func (entry *indexEntry) swapLayout(ctx context.Context, run *rebalanceRun, built *index.Index, settings index.Settings,
 	proceed func() error) error {
 	entry.lockWrites()
-	defer entry.writeMu.Unlock()
+	var finish func()
+	defer func() {
+		entry.writeMu.Unlock()
+		if finish != nil {
+			finish()
+		}
+	}()
 	previous := entry.index()
 	install := func() (persist.IndexSwap, bool, error) {
 		if err := proceed(); err != nil {
@@ -125,7 +131,8 @@ func (entry *indexEntry) swapLayout(ctx context.Context, run *rebalanceRun, buil
 				return err
 			}}, true, nil
 	}
-	err := entry.installTerms(ctx, install)
+	var err error
+	finish, err = entry.installTerms(ctx, install)
 	if entry.rebalancing() == run {
 		err = errors.Join(err, entry.replayInto(ctx, previous, run.take()))
 		if run.buffered != nil {

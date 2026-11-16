@@ -15,10 +15,7 @@ import (
 )
 
 func (held *capture) trackChanges(ctx context.Context, handle *Handle) error {
-	tokens, err := handle.Index.WriteTokens()
-	if err != nil {
-		return err
-	}
+	tokens := handle.Index.BorrowableTokens()
 	if tokens != nil {
 		for partitionID := range handle.Index.PartitionCount() {
 			held.unwatch = append(held.unwatch, handle.Index.WatchWrites(partitionID, tokens))

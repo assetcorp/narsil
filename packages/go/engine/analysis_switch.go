@@ -51,18 +51,17 @@ func (entry *indexEntry) adoptSettings(analyzer *analysis.Analyzer, described an
 	}
 }
 
-func (entry *indexEntry) installTerms(ctx context.Context, install func() (persist.IndexSwap, bool, error)) error {
+func (entry *indexEntry) installTerms(ctx context.Context, install func() (persist.IndexSwap, bool, error)) (func(), error) {
 	if entry.durable != nil {
-		_, err := entry.durable.SwapIndex(ctx, install)
-		return err
+		return entry.durable.SwapIndex(ctx, install)
 	}
 	swap, _, err := install()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	entry.handle.Index = swap.Index
 	entry.handle.NewDetachedIndex = swap.NewDetachedIndex
-	return nil
+	return nil, nil
 }
 
 func (entry *indexEntry) switchTerms(ctx context.Context, built *index.Index, settings index.Settings, side sideRebuild) error {
@@ -101,9 +100,16 @@ var errSynonymsReplaced = errors.New("the synonym sets changed while the analysi
 func (entry *indexEntry) cutover(ctx context.Context, built *index.Index, settings index.Settings, side sideRebuild,
 	prepared preparedSynonyms) error {
 	entry.lockWrites()
-	defer entry.writeMu.Unlock()
+	var finish func()
+	defer func() {
+		entry.writeMu.Unlock()
+		if finish != nil {
+			finish()
+		}
+	}()
 	previous := entry.index()
-	return entry.installTerms(ctx, func() (persist.IndexSwap, bool, error) {
+	var err error
+	finish, err = entry.installTerms(ctx, func() (persist.IndexSwap, bool, error) {
 		if err := side.proceed(); err != nil {
 			return persist.IndexSwap{}, false, err
 		}
@@ -126,6 +132,7 @@ func (entry *indexEntry) cutover(ctx context.Context, built *index.Index, settin
 				return nil
 			}}, true, nil
 	})
+	return err
 }
 
 func (n *Narsil) rebuildSide(entry *indexEntry, side sideRebuild) error {
@@ -137,9 +144,11 @@ func (n *Narsil) rebuildSide(entry *indexEntry, side sideRebuild) error {
 	if err != nil {
 		return err
 	}
-	entry.beginRebuildLog(built)
-	defer entry.endRebuildLog()
 	defer n.retireReplaced(entry, live, built)
+	if err := entry.beginRebuildLog(built); err != nil {
+		return err
+	}
+	defer entry.endRebuildLog()
 	step := func() error {
 		if err := side.proceed(); err != nil {
 			return err

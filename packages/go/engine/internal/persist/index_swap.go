@@ -132,13 +132,14 @@ func (durable *Durable) revertLayout(swap IndexSwap, previous swappedLayout) err
 	return nil
 }
 
-func (durable *Durable) SwapIndex(ctx context.Context, prepare func() (IndexSwap, bool, error)) (bool, error) {
+func (durable *Durable) SwapIndex(ctx context.Context, prepare func() (IndexSwap, bool, error)) (func(), error) {
 	swapped, committed, err := durable.swapIndexLocked(ctx, prepare)
-	defer committed.releaseHeld()
-	if swapped && err == nil && !committed.superseded && !committed.repin {
-		_ = durable.adoptCommitted(ctx, committed.pin, committed.adoptions)
-	}
-	return swapped, err
+	return func() {
+		defer committed.releaseHeld()
+		if swapped && err == nil && !committed.superseded && !committed.repin {
+			_ = durable.adoptCommitted(ctx, committed.pin, committed.adoptions)
+		}
+	}, err
 }
 
 func (durable *Durable) swapIndexLocked(ctx context.Context, prepare func() (IndexSwap, bool, error)) (bool,

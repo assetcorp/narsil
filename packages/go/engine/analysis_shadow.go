@@ -37,8 +37,8 @@ func shadowPassOf(shadow *index.Index) *analysis.Pass {
 	return tokens
 }
 
-func newRebuildLog(shadow *index.Index) *rebuildLog {
-	return &rebuildLog{ids: map[string]struct{}{}, shadow: shadow, tokens: shadowPassOf(shadow)}
+func newRebuildLog(shadow *index.Index, tokens *analysis.Pass) *rebuildLog {
+	return &rebuildLog{ids: map[string]struct{}{}, shadow: shadow, tokens: tokens}
 }
 
 func (log *rebuildLog) keep(tokens *analysis.Pass, documents int) {
@@ -98,7 +98,7 @@ func (entry *indexEntry) takeLogged() ([]string, bool, *analysis.Pass) {
 	for id := range log.ids {
 		ids = append(ids, id)
 	}
-	entry.swap.log = newRebuildLog(log.shadow)
+	entry.swap.log = newRebuildLog(log.shadow, log.tokens.Fresh())
 	return ids, log.cleared, log.tokens
 }
 
@@ -250,9 +250,6 @@ func (entry *indexEntry) cutoverWrites(ctx context.Context, side *index.Index) e
 		return err
 	}
 	if tokens == nil && side.CallsCallerCode() {
-		if _, err := side.WriteTokens(); err != nil {
-			return err
-		}
 		return analysis.ErrTokensNotKept
 	}
 	_, err = keptShadowApply(ctx, entry.handle, side, writes, tokens)

@@ -40,6 +40,10 @@ func (ix *Index) CallsCallerCode() bool {
 	return ix.settings.Analyzer.CallsCallerCode()
 }
 
+func (ix *Index) BorrowableTokens() *analysis.Pass {
+	return ix.settings.Analyzer.BorrowableTokens()
+}
+
 func (ix *Index) KeepsTokensOf(tokens *analysis.Pass) bool {
 	return tokens.Of(ix.settings.Analyzer)
 }

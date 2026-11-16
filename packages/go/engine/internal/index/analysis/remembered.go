@@ -111,6 +111,20 @@ func (p *Pass) Remembering() *Pass {
 		remembered: &rememberedTokens{entries: map[string]rememberedTokenization{}}}
 }
 
+func (p *Pass) Fresh() *Pass {
+	if p == nil {
+		return nil
+	}
+	return (&Pass{analyzer: p.analyzer, stops: p.stops}).Remembering()
+}
+
+func (a *Analyzer) BorrowableTokens() *Pass {
+	if a.tokenizer == nil {
+		return nil
+	}
+	return a.PrepareWithoutStopWords().Remembering()
+}
+
 func (p *Pass) withMissMode(mode missMode) *Pass {
 	remembering := p.Remembering()
 	return &Pass{analyzer: remembering.analyzer, stops: remembering.stops, remembered: remembering.remembered,
