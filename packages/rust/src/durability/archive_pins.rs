@@ -6,6 +6,7 @@ use crate::format::layout::manifest_key;
 use crate::format::manifest::{
     DecodedManifest, SegmentManifest, decode_manifest_payload, open_manifest_payload,
 };
+use crate::value::Value;
 
 use super::checkpoint_files::manifest_keys;
 use super::checkpoint_store::CheckpointStore;
@@ -61,15 +62,17 @@ fn pin_checkpoint(
     let _turn = HeldTurn(state);
     let replacements_at_pin = state.replacements();
     let Some(manifest_bytes) = store.read_within(&manifest_key(index_name), MAX_FILE_BYTES)? else {
-        return Err(save_failed(format!(
-            "Index \"{index_name}\" holds no checkpoint"
-        )));
+        return Err(
+            save_failed(format!("Index \"{index_name}\" holds no checkpoint"))
+                .with_details([("indexName", Value::from(index_name))]),
+        );
     };
     let (_, raw) = open_manifest_payload(&manifest_bytes)?;
     let DecodedManifest::Current(manifest) = decode_manifest_payload(&raw, index_name)? else {
-        return Err(save_failed(format!(
-            "Index \"{index_name}\" holds an earlier layout"
-        )));
+        return Err(
+            save_failed(format!("Index \"{index_name}\" holds an earlier layout"))
+                .with_details([("indexName", Value::from(index_name))]),
+        );
     };
     let keys: Vec<String> = manifest_keys(&manifest).into_iter().collect();
     let pins = IndexState::pin(state, &keys)?;

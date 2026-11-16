@@ -41,7 +41,11 @@ impl IndexVectors {
             None => Err(NarsilError::new(
                 ErrorCode::INDEX_NOT_FOUND,
                 format!("Vector field \"{path}\" not found in index \"{index_name}\""),
-            )),
+            )
+            .with_details([
+                ("indexName", crate::value::Value::from(index_name)),
+                ("fieldName", crate::value::Value::from(path)),
+            ])),
         }
     }
 

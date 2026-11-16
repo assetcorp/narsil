@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { getJson, postJson, postRaw, startTestServer, type TestServer } from './helpers'
+import { getJson, postJson, postRaw, putJson, startTestServer, type TestServer } from './helpers'
 
 const SCHEMA = { title: 'string', embedding: 'vector[4]' }
 
@@ -39,10 +39,139 @@ describe('Narsil HTTP server error mapping and limits', () => {
     expect(res.body.error.code.startsWith('SCHEMA_')).toBe(true)
   })
 
+  it('answers 400 to an optional body that holds JSON other than an object, and starts no task', async () => {
+    const paths = [
+      '/indexes/shapes/vectors/_optimize',
+      '/indexes/shapes/vectors/_compact',
+      '/indexes/shapes/_change-analysis',
+      '/indexes/shapes/_rebalance',
+      '/indexes/shapes/partition-config',
+    ]
+    for (const path of paths) {
+      for (const body of ['null', 'false', '0', '""', '[]', '7', '"text"']) {
+        const res = await postRaw<ErrorBody>(srv.base, path, body, 'application/json')
+        expect({
+          path,
+          body,
+          status: res.status,
+          code: res.body?.error.code,
+          message: res.body?.error.message,
+        }).toEqual({
+          path,
+          body,
+          status: 400,
+          code: 'INVALID_REQUEST',
+          message: 'The request body must be an object',
+        })
+      }
+    }
+    const tasks = await getJson<{ total: number }>(srv.base, '/tasks')
+    expect(tasks.body.total).toBe(0)
+  })
+
+  it('answers 400 to a required body that holds JSON other than an object, and creates nothing', async () => {
+    const routes = [
+      ['POST', '/indexes'],
+      ['POST', '/indexes/shapes/documents'],
+      ['POST', '/indexes/shapes/documents/_batch'],
+      ['POST', '/indexes/shapes/documents/_list'],
+      ['POST', '/indexes/shapes/documents/_multi-get'],
+      ['POST', '/indexes/shapes/search'],
+      ['POST', '/indexes/shapes/search/preflight'],
+      ['POST', '/indexes/shapes/suggest'],
+      ['PUT', '/indexes/shapes/documents/one'],
+      ['PATCH', '/indexes/shapes/documents/one'],
+    ]
+    for (const [method, path] of routes) {
+      for (const body of ['null', 'false', '0', '""', '[]', '7', '"text"']) {
+        const res = await fetch(`${srv.base}${path}`, {
+          method,
+          headers: { 'content-type': 'application/json' },
+          body,
+        })
+        const text = await res.text()
+        const answer = text.length === 0 ? null : (JSON.parse(text) as ErrorBody)
+        expect({
+          method,
+          path,
+          body,
+          status: res.status,
+          code: answer?.error.code,
+          message: answer?.error.message,
+        }).toEqual({
+          method,
+          path,
+          body,
+          status: 400,
+          code: 'INVALID_REQUEST',
+          message: 'The request body must be an object',
+        })
+      }
+    }
+    const indexes = await getJson<{ indexes: unknown[] }>(srv.base, '/indexes')
+    expect(indexes.body.indexes).toEqual([])
+  })
+
   it('returns 404 for an unknown route', async () => {
     const res = await getJson<ErrorBody>(srv.base, '/does/not/exist')
     expect(res.status).toBe(404)
     expect(res.body.error.code).toBe('NOT_FOUND')
+  })
+})
+
+describe('Narsil HTTP server search option types', () => {
+  let srv: TestServer
+
+  beforeAll(async () => {
+    srv = await startTestServer()
+    await postJson(srv.base, '/indexes', { name: 'notes', config: { schema: { title: 'string', year: 'number' } } })
+    await putJson(srv.base, '/indexes/notes/documents/a', { document: { title: 'harbor stone', year: 2020 } })
+    await putJson(srv.base, '/indexes/notes/documents/b', { document: { title: 'harbor light', year: 2011 } })
+  })
+
+  afterAll(async () => {
+    await srv.stop()
+  })
+
+  it('answers 400 with the field path to a search option of the wrong type, on search and preflight', async () => {
+    const cases: Array<[Record<string, unknown>, string]> = [
+      [{ term: 5 }, 'Field "term" must be a string'],
+      [{ term: 'harbor', limit: '5' }, 'Field "limit" must be a number'],
+      [{ term: 'harbor', fields: 'title' }, 'Field "fields" must be a list of strings'],
+      [{ term: 'harbor', termMatch: 'some' }, 'Field "termMatch" must be "all", "any", or a number'],
+      [{ term: 'harbor', mode: 'semantic' }, 'Field "mode" must be one of "vector", "hybrid", or "fulltext"'],
+      [{ term: 'harbor', highlight: {} }, 'Field "highlight.fields" is required and must be a list of strings'],
+      [
+        { term: 'harbor', facets: { year: { ranges: [{ from: 0 }] } } },
+        'Field "facets.year.ranges.0.to" is required and must be a number',
+      ],
+      [{ term: 'harbor', sort: 'year' }, 'Field "sort" must be an object keyed by field name, or a list of fields'],
+      [{ term: 'harbor', document: 'yes' }, 'Field "document" must be true, false, or an object'],
+      [{ term: 'harbor', group: { fields: ['year'], maxPerGroup: '2' } }, 'Field "group.maxPerGroup" must be a number'],
+    ]
+    for (const [body, message] of cases) {
+      for (const path of ['/indexes/notes/search', '/indexes/notes/search/preflight']) {
+        const res = await postJson<ErrorBody>(srv.base, path, body)
+        expect({ path, body, status: res.status, error: res.body.error }).toEqual({
+          path,
+          body,
+          status: 400,
+          error: { code: 'INVALID_REQUEST', message },
+        })
+      }
+    }
+  })
+
+  it('reads a search option set to null as absent', async () => {
+    const res = await postJson<{ hits: Array<{ id: string }>; count: number }>(srv.base, '/indexes/notes/search', {
+      term: 'harbor',
+      limit: null,
+      highlight: null,
+      sort: { year: 'asc' },
+    })
+    expect(res.status).toBe(200)
+    expect(res.body.count).toBe(2)
+    expect(res.body.hits.map(hit => hit.id)).toEqual(['b', 'a'])
   })
 })
 

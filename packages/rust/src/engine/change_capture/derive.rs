@@ -1,6 +1,6 @@
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::format::wal::{LogEntry, Operation};
-use crate::value::{Map, decode_document};
+use crate::value::{Map, Value, decode_document};
 
 use super::types::{Change, ChangeType};
 
@@ -19,7 +19,11 @@ pub(super) fn change_of(entry: LogEntry) -> Result<Change> {
                         "The log entry {seq_no} of index \"{}\" stores document \"{}\" without its body",
                         entry.index_name, entry.document_id
                     ),
-                ));
+                )
+                .with_details([
+                    ("seqNo", Value::from(seq_no)),
+                    ("field", Value::from("document")),
+                ]));
             };
             let change_type = match &entry.previous_document {
                 None => ChangeType::Put,

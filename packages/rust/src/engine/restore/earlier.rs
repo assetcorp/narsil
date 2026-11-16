@@ -45,7 +45,8 @@ pub(super) fn read_earlier_file(head: Vec<u8>, data: &mut dyn Read) -> Result<Ve
     if length > MAX_FILE_BYTES {
         return Err(load_failed(format!(
             "The snapshot declares {length} bytes, above the file size limit of {MAX_FILE_BYTES}"
-        )));
+        ))
+        .with_details([("bytes", Value::from(length))]));
     }
     read_into(data, length - bytes.len() as u64, &mut bytes)?;
     if (bytes.len() as u64) < length {

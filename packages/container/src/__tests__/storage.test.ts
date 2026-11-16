@@ -5,6 +5,8 @@ import {
   ADMIN_KEY,
   call,
   type Env,
+  errorCodeOf,
+  HOLDS_WORKER_COPIES,
   type RunningNode,
   removeFolder,
   runToExit,
@@ -170,6 +172,26 @@ describe('the data folder across a restart', () => {
     expect(lines[0]).toContain('french')
     expect(lines[0]).toContain('menu')
   })
+
+  it('refuses an index in a language outside NARSIL_LANGUAGES and keeps no trace of it across a restart', async () => {
+    const folder = dataFolder('unlisted-language')
+    const first = await start({ NARSIL_DATA_DIR: folder })
+    for (const language of ['french', 'klingon']) {
+      const answer = await call(first, 'POST', '/indexes', {
+        credential: ADMIN_KEY,
+        body: { name: `menu-${language}`, config: { schema: { dish: 'string' }, language } },
+      })
+      expect(answer.status).toBe(400)
+      expect(errorCodeOf(answer)).toBe('LANGUAGE_NOT_SUPPORTED')
+    }
+    await stopCleanly(first)
+
+    const second = await start({ NARSIL_DATA_DIR: folder })
+    const listed = await call(second, 'GET', '/indexes', { credential: ADMIN_KEY })
+    expect(listed.status).toBe(200)
+    expect(JSON.stringify(listed.body)).not.toContain('menu-')
+    await stopCleanly(second)
+  })
 })
 
 describe('a language that only NARSIL_LANGUAGES loads', () => {
@@ -191,8 +213,10 @@ describe('a language that only NARSIL_LANGUAGES loads', () => {
       })
       expect(answer.status).toBe(201)
     }
-    const promoted = await node.waitForStdout(line => line.includes('"engine.workerPromote"'))
-    expect(JSON.parse(promoted).data.reason).toContain('boutique')
+    if (HOLDS_WORKER_COPIES) {
+      const promoted = await node.waitForStdout(line => line.includes('"engine.workerPromote"'))
+      expect(JSON.parse(promoted).data.reason).toContain('boutique')
+    }
     expect(await searchIds(node, 'boutique', 'chaussure')).toEqual(['p1'])
     expect(node.stdoutLines().some(line => line.includes('"engine.workerPromoteFailure"'))).toBe(false)
     expect(node.stdoutLines().some(line => line.includes('"engine.workerCrash"'))).toBe(false)

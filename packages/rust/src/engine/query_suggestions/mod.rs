@@ -22,6 +22,7 @@ pub(crate) mod runtime;
 pub(crate) mod schedule;
 pub(crate) mod scramble;
 pub(crate) mod setting;
+pub(crate) mod setting_input;
 pub(crate) mod stored_state;
 pub(crate) mod suggestions_writer;
 pub(crate) mod timers;

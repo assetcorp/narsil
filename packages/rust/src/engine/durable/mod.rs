@@ -82,6 +82,14 @@ impl Durable {
         self.backing.files()
     }
 
+    /// Returns the write-ahead log store where the engine keeps one, which a feed reads without opening an index.
+    pub(crate) fn log_store(&self) -> Option<&Arc<crate::durability::store::DurabilityStore>> {
+        match &self.backing {
+            Backing::Log(store) => Some(store),
+            Backing::Snapshot(_) => None,
+        }
+    }
+
     /// Reports whether the engine keeps its files in a directory, which disk-backed storage reads from.
     pub(crate) fn holds_directory(&self) -> bool {
         matches!(self.backing, Backing::Log(_))

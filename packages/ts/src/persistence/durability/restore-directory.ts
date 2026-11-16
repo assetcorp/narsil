@@ -1,4 +1,4 @@
-import { getFs } from '#platform/durable-fs'
+import { getFs, renameUnlessMissing } from '#platform/durable-fs'
 import { ErrorCodes, NarsilError } from '#platform/storage-host'
 import type { ErrorCode } from '../../errors'
 import type { DurableDirectory } from './durable-filesystem'
@@ -36,9 +36,8 @@ function fileTreeOperations(
     async moveTree(from: string, to: string): Promise<void> {
       const source = await pathOf(from)
       const target = await pathOf(to)
-      const fs = await getFs()
       try {
-        await fs.rename(source, target)
+        await renameUnlessMissing(source, target)
       } catch (error) {
         if (missing(error)) return
         throw storageFailed(ErrorCodes.PERSISTENCE_SAVE_FAILED, `Failed to move "${from}" to "${to}"`, from, error)

@@ -3,12 +3,13 @@ use std::path::PathBuf;
 use super::PagedSections;
 use super::file::PagedFile;
 use super::resident::{read_resident, resident_bytes};
-use crate::error::{ErrorCode, NarsilError, Result, load_failed};
+use crate::error::{ErrorCode, NarsilError, Result, load_failed, load_failed_with};
 use crate::format::envelope::{HEADER_BYTES, read_header};
 use crate::format::keyword_segment::KeywordSegment;
 use crate::format::paged_segment::head::{PagedHead, PagedSection, decode_paged_head};
 use crate::format::paged_segment::{PAGED_SEGMENT_ENVELOPE_VERSION, PAYLOAD_PREFIX_BYTES};
 use crate::util::hash::crc32;
+use crate::value::Value;
 
 /// A paged segment file as the manifest lists it.
 pub(crate) struct PagedListing {
@@ -21,17 +22,25 @@ pub(crate) struct PagedListing {
 fn opened_file(listing: &PagedListing) -> Result<PagedFile> {
     let key = &listing.key;
     if !listing.path.exists() {
-        return load_failed(format!(
-            "The segment \"{key}\" that the manifest lists is missing"
-        ));
+        return load_failed_with(
+            format!("The segment \"{key}\" that the manifest lists is missing"),
+            [("key", Value::from(key.as_str()))],
+        );
     }
     let file = PagedFile::open(&listing.path)?;
     let length = file.length()?;
     if length != listing.bytes {
-        return load_failed(format!(
-            "The segment \"{key}\" holds {length} bytes where the manifest lists {}",
-            listing.bytes
-        ));
+        return load_failed_with(
+            format!(
+                "The segment \"{key}\" holds {length} bytes where the manifest lists {}",
+                listing.bytes
+            ),
+            [
+                ("key", Value::from(key.as_str())),
+                ("bytes", Value::from(length)),
+                ("listed", Value::from(listing.bytes)),
+            ],
+        );
     }
     Ok(file)
 }
@@ -39,8 +48,12 @@ fn opened_file(listing: &PagedListing) -> Result<PagedFile> {
 fn read_head(file: &PagedFile, listing: &PagedListing) -> Result<PagedHead> {
     let key = &listing.key;
     let mut start = [0u8; HEADER_BYTES + PAYLOAD_PREFIX_BYTES];
+    let key_detail = || ("key", Value::from(key.as_str()));
     if listing.bytes < start.len() as u64 {
-        return load_failed(format!("The segment \"{key}\" is too short to hold a head"));
+        return load_failed_with(
+            format!("The segment \"{key}\" is too short to hold a head"),
+            [key_detail(), ("bytes", Value::from(listing.bytes))],
+        );
     }
     file.read_into(0, &mut start)?;
     let header = read_header(&start)?;
@@ -51,7 +64,11 @@ fn read_head(file: &PagedFile, listing: &PagedListing) -> Result<PagedHead> {
                 "The segment \"{key}\" holds envelope format v{}",
                 header.envelope_format_version
             ),
-        ));
+        )
+        .with_details([
+            key_detail(),
+            ("version", Value::from(header.envelope_format_version)),
+        ]));
     }
     if header.compressed {
         return load_failed(format!(
@@ -60,25 +77,32 @@ fn read_head(file: &PagedFile, listing: &PagedListing) -> Result<PagedHead> {
     }
     let payload_length = u64::from(header.payload_length);
     if HEADER_BYTES as u64 + payload_length != listing.bytes {
-        return load_failed(format!(
-            "The segment \"{key}\" holds {} bytes where its header gives {}",
-            listing.bytes,
-            HEADER_BYTES as u64 + payload_length
-        ));
+        return load_failed_with(
+            format!(
+                "The segment \"{key}\" holds {} bytes where its header gives {}",
+                listing.bytes,
+                HEADER_BYTES as u64 + payload_length
+            ),
+            [key_detail()],
+        );
     }
     if header.checksum != listing.checksum {
-        return load_failed(format!(
-            "The segment \"{key}\" carries checksum {} where the manifest lists {}",
-            header.checksum, listing.checksum
-        ));
+        return load_failed_with(
+            format!(
+                "The segment \"{key}\" carries checksum {} where the manifest lists {}",
+                header.checksum, listing.checksum
+            ),
+            [key_detail()],
+        );
     }
     let prefix = &start[HEADER_BYTES..];
     let head_length = u32::from_le_bytes([prefix[0], prefix[1], prefix[2], prefix[3]]);
     let head_checksum = u32::from_le_bytes([prefix[4], prefix[5], prefix[6], prefix[7]]);
     if PAYLOAD_PREFIX_BYTES as u64 + u64::from(head_length) > payload_length {
-        return load_failed(format!(
-            "The head of the segment \"{key}\" ends outside its payload"
-        ));
+        return load_failed_with(
+            format!("The head of the segment \"{key}\" ends outside its payload"),
+            [key_detail(), ("headLength", Value::from(head_length))],
+        );
     }
     let mut head = vec![0u8; head_length as usize];
     file.read_into((HEADER_BYTES + PAYLOAD_PREFIX_BYTES) as u64, &mut head)?;
@@ -86,7 +110,8 @@ fn read_head(file: &PagedFile, listing: &PagedListing) -> Result<PagedHead> {
         return Err(NarsilError::new(
             ErrorCode::PERSISTENCE_CRC_MISMATCH,
             format!("The head of the segment \"{key}\" fails its checksum"),
-        ));
+        )
+        .with_details([key_detail()]));
     }
     decode_paged_head(&head, payload_length, &format!("the segment \"{key}\""))
 }
@@ -99,11 +124,30 @@ pub(crate) fn resident_section_bytes(listing: &PagedListing) -> Result<u64> {
     Ok(resident_bytes(&head))
 }
 
-pub(super) fn required(head: &PagedHead, name: &str, key: &str) -> Result<PagedSection> {
-    head.section(name).cloned().map_or_else(
-        || load_failed(format!("The segment \"{key}\" holds no section \"{name}\"")),
-        Ok,
+fn section_or_refusal(
+    head: &PagedHead,
+    name: &str,
+    key: &str,
+    names_key: bool,
+) -> Result<PagedSection> {
+    if let Some(section) = head.section(name) {
+        return Ok(section.clone());
+    }
+    let key_detail = names_key.then(|| ("key", Value::from(key)));
+    load_failed_with(
+        format!("The segment \"{key}\" holds no section \"{name}\""),
+        key_detail
+            .into_iter()
+            .chain([("section", Value::from(name))]),
     )
+}
+
+pub(super) fn required(head: &PagedHead, name: &str, key: &str) -> Result<PagedSection> {
+    section_or_refusal(head, name, key, true)
+}
+
+fn read_through(head: &PagedHead, name: &str, key: &str) -> Result<PagedSection> {
+    section_or_refusal(head, name, key, false)
 }
 
 /// Opens a paged keyword segment: checks its header against the manifest, its head, and every page and rule of
@@ -120,27 +164,28 @@ pub(crate) fn open_paged_segment(
     let position_offsets = optional("positionOffsets");
     let positions = optional("positions");
     if position_offsets.is_some() != positions.is_some() {
-        return load_failed(format!(
-            "The segment \"{key}\" holds one of positionOffsets and positions"
-        ));
+        return load_failed_with(
+            format!("The segment \"{key}\" holds one of positionOffsets and positions"),
+            [("key", Value::from(key))],
+        );
     }
     let sections = PagedSections {
         key: key.to_string(),
         document_count: head.document_count,
         field_count: head.field_names.len(),
-        postings: required(&head, "postings", key)?,
+        postings: read_through(&head, "postings", key)?,
         token_totals: optional("tokenTotals"),
         position_offsets,
         positions,
-        documents: required(&head, "documents", key)?,
-        ids: required(&head, "ids", key)?,
-        id_offsets: required(&head, "idOffsets", key)?,
-        id_order: required(&head, "idOrder", key)?,
-        removal_offsets: required(&head, "removalOffsets", key)?,
-        removals: required(&head, "removals", key)?,
-        block_lists: required(&head, "blockLists", key)?,
-        block_list_offsets: required(&head, "blockListOffsets", key)?,
-        block_summaries: required(&head, "blockSummaries", key)?,
+        documents: read_through(&head, "documents", key)?,
+        ids: read_through(&head, "ids", key)?,
+        id_offsets: read_through(&head, "idOffsets", key)?,
+        id_order: read_through(&head, "idOrder", key)?,
+        removal_offsets: read_through(&head, "removalOffsets", key)?,
+        removals: read_through(&head, "removals", key)?,
+        block_lists: read_through(&head, "blockLists", key)?,
+        block_list_offsets: read_through(&head, "blockListOffsets", key)?,
+        block_summaries: read_through(&head, "blockSummaries", key)?,
         seq_nos: optional("seqNos"),
         primary_terms: optional("primaryTerms"),
         document_blocks: resident.document_blocks,

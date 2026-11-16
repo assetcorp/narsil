@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use crate::error::{ErrorCode, NarsilError, Result};
+use crate::value::Value;
 
 use super::build::schedule_build;
 use super::constants::{MAX_VECTOR_ORDINALS, MIN_ORDINAL_CAPACITY};
@@ -21,12 +22,25 @@ pub(crate) enum Held<'a> {
     },
 }
 
-pub(crate) fn require_dimension_of(shared: &Shared, length: usize) -> Result<()> {
+pub(crate) fn require_dimension_of(
+    shared: &Shared,
+    length: usize,
+    doc_id: Option<&str>,
+) -> Result<()> {
     let dimension = shared.settings.dimension;
     if length != dimension {
         return Err(NarsilError::new(
             ErrorCode::VECTOR_DIMENSION_MISMATCH,
             format!("Vector dimension mismatch: expected {dimension}, got {length}"),
+        )
+        .with_details(
+            doc_id
+                .map(|doc_id| ("docId", Value::from(doc_id)))
+                .into_iter()
+                .chain([
+                    ("expected", Value::from(dimension)),
+                    ("received", Value::from(length)),
+                ]),
         ));
     }
     Ok(())
@@ -34,7 +48,7 @@ pub(crate) fn require_dimension_of(shared: &Shared, length: usize) -> Result<()>
 
 impl VectorField {
     pub(crate) fn insert(&self, doc_id: &str, vector: &[f32]) -> Result<()> {
-        require_dimension_of(&self.shared, vector.len())?;
+        require_dimension_of(&self.shared, vector.len(), Some(doc_id))?;
         let sequence = self.shared.sequence.next();
         if let Some(hold) = self.shared.cold_hold()
             && hold.insert(doc_id, vector, sequence)?
@@ -206,7 +220,11 @@ pub(crate) fn append(
             format!(
                 "A vector field holds at most {MAX_VECTOR_ORDINALS} vectors, deleted ones included, until it is rebuilt"
             ),
-        ));
+        )
+        .with_details([
+            ("ordinal", Value::from(ordinal)),
+            ("maxOrdinals", Value::from(MAX_VECTOR_ORDINALS)),
+        ]));
     }
     ensure_room(shared, writer, ordinal as usize + 1);
     let generation = Arc::clone(&writer.generation);

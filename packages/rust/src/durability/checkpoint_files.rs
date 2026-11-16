@@ -14,7 +14,7 @@ use crate::format::metadata::{IndexMetadata, write_metadata_file};
 use super::checkpoint_store::CheckpointStore;
 use super::earlier::decode_earlier_manifest;
 use super::envelope_sink::{EnvelopeSink, packed_file_ref};
-use super::files::require_valid_key;
+use super::file_errors::require_valid_key;
 use super::sync_files::read_published;
 
 /// The step that a checkpoint commit takes once its manifest is durable and before it removes the files that the

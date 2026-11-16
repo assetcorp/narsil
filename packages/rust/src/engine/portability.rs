@@ -6,6 +6,7 @@ use super::durable::constants::MAX_SNAPSHOT_ANALYSIS_ATTEMPTS;
 use super::query_suggestions::archive_history::HistoryEntries;
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::format::archive::{ArchiveSource, write_snapshot_archive};
+use crate::value::Value;
 
 /// What [`Narsil::snapshot_with`] adds to the archive beyond the checkpoint.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -87,6 +88,7 @@ impl Narsil {
                 "The analysis of index \"{}\" changed while the engine wrote its snapshot, so try the snapshot again once the change has a durable checkpoint",
                 state.name
             ),
-        ))
+        )
+        .with_details([("indexName", Value::from(state.name.as_str()))]))
     }
 }

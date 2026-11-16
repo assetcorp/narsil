@@ -1,15 +1,20 @@
+pub(crate) mod closed;
 pub(crate) mod constants;
+pub(crate) mod feed;
+pub(crate) mod notify;
 pub(crate) mod retention;
+pub(crate) mod snapshot;
 
 use std::sync::Arc;
 
 use super::Narsil;
 use super::index::IndexState;
 use crate::durability::store::DurabilityStore;
+use crate::engine::events::FeedChange;
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::format::metadata::IndexMetadata;
 use crate::format::metadata_parts::SyncSetting as StoredSyncSetting;
-use crate::value::Value;
+use crate::value::{Value, number_to_text};
 use constants::{MAX_SYNC_LIMIT, SYNC_EPOCH_BYTES};
 
 /// The device sync setting of one index, which [`Narsil::update_sync`] takes.
@@ -181,12 +186,13 @@ pub(crate) fn require_limit(feature: &str, name: &str, value: Option<u64>) -> Re
         Some(limit) if limit == 0 || limit > MAX_SYNC_LIMIT => Err(NarsilError::new(
             ErrorCode::CONFIG_INVALID,
             format!("The {feature} setting {name} must be a positive whole number"),
-        )),
+        )
+        .with_details([(name, Value::from(number_to_text(limit as f64)))])),
         _ => Ok(()),
     }
 }
 
-fn log_store_of(index: &IndexState) -> Result<Arc<DurabilityStore>> {
+pub(super) fn log_store_of(index: &IndexState) -> Result<Arc<DurabilityStore>> {
     index
         .log()
         .and_then(|log| log.log_store())
@@ -199,6 +205,7 @@ fn log_store_of(index: &IndexState) -> Result<Arc<DurabilityStore>> {
                     index.name
                 ),
             )
+            .with_details([("indexName", Value::from(index.name.as_str()))])
         })
 }
 
@@ -215,13 +222,18 @@ fn require_no_query_suggestions(metadata: &IndexMetadata, index_name: &str) -> R
         format!(
             "Index \"{index_name}\" has popular query suggestions on, so it cannot sync to devices: a device receives the whole index of one user, while a suggestion comes from the searches of several people"
         ),
-    ))
+    )
+    .with_details([("indexName", Value::from(index_name))]))
 }
 
-fn apply_setting(index: &IndexState, store: &DurabilityStore, setting: &SyncSetting) -> Result<()> {
+fn apply_setting(
+    index: &IndexState,
+    store: &DurabilityStore,
+    setting: &SyncSetting,
+) -> Result<Option<FeedChange>> {
     let _writer = index.lock_writes()?;
     let Some(log) = index.log() else {
-        return Ok(());
+        return Ok(None);
     };
     let mut metadata = log.metadata(index);
     if setting.enabled {
@@ -230,11 +242,12 @@ fn apply_setting(index: &IndexState, store: &DurabilityStore, setting: &SyncSett
     let was_on = sync_is_on(&metadata);
     if !setting.enabled {
         if !was_on {
-            return Ok(());
+            return Ok(None);
         }
         clear_sync(&mut metadata);
         log.write_recorded(metadata.clone())?;
-        return release_unneeded(store, &index.name, &metadata);
+        release_unneeded(store, &index.name, &metadata)?;
+        return Ok(Some(FeedChange::SyncOff));
     }
     let kept_epoch = metadata.captures_changes();
     metadata.sync = Some(StoredSyncSetting {
@@ -249,7 +262,8 @@ fn apply_setting(index: &IndexState, store: &DurabilityStore, setting: &SyncSett
             metadata.sync_epoch = Some(new_sync_epoch()?);
         }
     }
-    log.write_recorded(metadata)
+    log.write_recorded(metadata)?;
+    Ok(None)
 }
 
 fn status_of(metadata: &IndexMetadata) -> SyncStatus {
@@ -280,9 +294,15 @@ impl Narsil {
         self.inner.open_index(index)?;
         require_limit("sync", "historyMaxAgeMs", setting.history_max_age_ms)?;
         require_limit("sync", "historyMaxBytes", setting.history_max_bytes)?;
-        let (_name, state) = self.inner.open_index_in_turn(index)?;
-        let store = log_store_of(&state)?;
-        apply_setting(&state, &store, setting)
+        let change = {
+            let (_name, state) = self.inner.open_index_in_turn(index)?;
+            let store = log_store_of(&state)?;
+            apply_setting(&state, &store, setting)?
+        };
+        if let Some(change) = change {
+            self.inner.events.feed_changed(index, change);
+        }
+        Ok(())
     }
 
     /// Returns the device sync state of an index: its setting, whether a device has asked for the published

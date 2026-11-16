@@ -21,7 +21,7 @@ import { createStoredSizesRecord } from './index-stored-sizes'
 import { createLogBytesLedger } from './log-bytes'
 import { closePartitionWriter, type IndexState } from './manager-state'
 import { createIndexStorageAccess } from './manager-storage'
-import { createMetadataWriteQueue } from './metadata-write-queue'
+import { createMetadataWriteQueue, writeIndexMetadataFile } from './metadata-write-queue'
 import {
   commitAppended,
   commitEveryPartition,
@@ -332,7 +332,7 @@ export function createDurabilityManager(
           return
         }
         const bytes = await writeMetadataEnvelope(metadata, { checksum: true })
-        await directory.atomicWrite(`${indexName}/meta`, bytes)
+        await writeIndexMetadataFile(directory, indexName, bytes)
         getOrCreateIndexState(indexName)
       })
     },

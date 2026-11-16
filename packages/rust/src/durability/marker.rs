@@ -7,7 +7,8 @@ use crate::format::wal::{
     encode_marker_slot, read_commit_marker,
 };
 
-use super::files::{DurableDirectory, fsync_failed, read_failed, write_failed};
+use super::file_errors::{fsync_failed, read_failed, write_failed};
+use super::files::DurableDirectory;
 use super::platform::sync_file;
 
 pub(crate) fn marker_key(index_name: &str, partition_id: u32) -> String {

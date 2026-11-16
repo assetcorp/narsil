@@ -136,7 +136,7 @@ describe('the signed webhook queue', () => {
     expect(event.type).toBe('task.finished')
     expect(event.data.id).toBe(taskId)
     expect(Number.isNaN(Date.parse(event.timestamp))).toBe(false)
-    expect(node.stdoutLines()).toContain(delivery.body)
+    expect(await node.waitForStdout(line => line === delivery.body)).toBe(delivery.body)
     expect(receiver.received.every(item => JSON.parse(item.body).type === 'task.finished')).toBe(true)
     await stop(node)
   })

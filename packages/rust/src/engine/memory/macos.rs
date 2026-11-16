@@ -88,6 +88,12 @@ pub(super) fn process_bytes() -> Option<u64> {
     task_information(MACH_TASK_BASIC_INFO, &mut basic).then_some(basic.resident_size)
 }
 
+/// Returns the whole resident size of this process, file-backed pages included.
+pub(super) fn resident_bytes() -> Option<u64> {
+    let mut basic = MachTaskBasicInfo::default();
+    task_information(MACH_TASK_BASIC_INFO, &mut basic).then_some(basic.resident_size)
+}
+
 /// Returns the machine's memory, which bounds a process on macOS.
 pub(super) fn limit_bytes(_process_bytes: u64) -> Option<u64> {
     let mut bytes: u64 = 0;

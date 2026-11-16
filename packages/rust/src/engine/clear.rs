@@ -3,6 +3,7 @@ use super::changes::ChangeKind;
 use super::durable::checkpoint_now;
 use super::durable::log::PendingLog;
 use super::index::IndexState;
+use super::sync::notify::announcing_epoch;
 use super::sync::renew_epoch_locked;
 use crate::error::Result;
 use crate::index::partition::Partition;
@@ -83,12 +84,14 @@ impl Narsil {
     /// that the clear removes, and with the error of the index's log where an earlier write left that log unusable;
     /// the index keeps its documents in each of those cases.
     pub fn clear(&self, index: &str) -> Result<()> {
-        let writable = self.inner.writable_index(index)?;
-        let state = std::sync::Arc::clone(writable.index());
-        let outcome = clear_index(&state);
-        drop(writable);
-        self.inner.events.wrote(&state.name);
-        self.inner.events.check_watermark(&state);
-        outcome
+        announcing_epoch(&self.inner, index, || {
+            let writable = self.inner.writable_index(index)?;
+            let state = std::sync::Arc::clone(writable.index());
+            let outcome = clear_index(&state);
+            drop(writable);
+            self.inner.events.wrote(&state.name);
+            self.inner.events.check_watermark(&state);
+            outcome
+        })
     }
 }

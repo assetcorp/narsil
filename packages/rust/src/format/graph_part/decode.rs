@@ -4,6 +4,7 @@ use super::{
 };
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::format::fields::{Fields, whole_number_up_to};
+use crate::format::manifest_refs::listed_detail;
 use crate::format::vector_file::require_payload_version;
 use crate::util::bytes::u32_list;
 use crate::value::{Value, decode_value};
@@ -63,7 +64,9 @@ fn decode_graph(raw: &Value) -> Result<NumberedGraph> {
         Some(Value::String(name)) => Metric::parse(name),
         _ => None,
     }) else {
-        return Err(fields.error("metric must name a supported metric"));
+        return Err(fields
+            .error("metric must name a supported metric")
+            .with_details(listed_detail("metric", map.get("metric"))));
     };
     let Some(Value::Bytes(levels)) = map.get("levels") else {
         return Err(fields.error("levels must be bytes"));

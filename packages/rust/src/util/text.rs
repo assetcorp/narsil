@@ -27,3 +27,8 @@ pub(crate) fn javascript_trim(text: &str) -> &str {
 pub(crate) fn utf16_length(text: &str) -> usize {
     text.chars().map(char::len_utf16).sum()
 }
+
+pub(crate) fn utf16_prefix(text: &str, units: usize) -> String {
+    let kept: Vec<u16> = text.encode_utf16().take(units).collect();
+    String::from_utf16_lossy(&kept)
+}

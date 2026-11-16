@@ -225,7 +225,7 @@ When we measure Narsil in one process against Orama and MiniSearch, with the sam
 | [Persistence and durability](docs/persistence-and-durability.md) | Storage backends, the write-ahead log, checkpoints, recovery, the index lifecycle, snapshots, document exports, and indexes from an earlier release |
 | [Partitions and workers](docs/partitions-and-workers.md) | Partition routing, online rebalancing, worker copies, and multi-instance invalidation |
 | [Language support](docs/language-support.md) | Every language module, analysis revisions and rebuilds, and named tokenizers and stop words |
-| [Container image](docs/container-image.md) | Starting a node from the published image with Docker Compose, connecting each client, and keeping the data across a restart |
+| [Container image](docs/container-image.md) | Starting a node from the published image with Docker Compose, connecting each client, keeping the data across a restart, and serving from the Rust server under a `-rust` tag |
 | [HTTP server](docs/http-server.md) | Wrapping an engine in a REST API, every route it serves, and long-running tasks |
 | [Cluster mode](docs/cluster.md) | Multi-node indexes: nodes and roles, etcd over TLS, node identity across restarts, replication, routed writes, distributed searches and reads, cluster health and metrics, and the calls that fail in a cluster |
 | [Client](docs/client.md) | Reaching a server from a browser or Node, following a task, and the codes it raises |

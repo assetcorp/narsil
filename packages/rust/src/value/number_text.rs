@@ -3,6 +3,19 @@ use super::Value;
 const LARGEST_PLAIN_EXPONENT: i32 = 21;
 const SMALLEST_PLAIN_EXPONENT: i32 = -6;
 
+pub(crate) fn javascript_typeof(value: &Value) -> &'static str {
+    match value {
+        Value::Bool(_) => "boolean",
+        Value::Number(_) => "number",
+        Value::String(_) => "string",
+        Value::Null
+        | Value::Array(_)
+        | Value::Bytes(_)
+        | Value::Timestamp(_)
+        | Value::Object(_) => "object",
+    }
+}
+
 pub(crate) fn javascript_text(value: Option<&Value>) -> String {
     match value {
         None => "undefined".to_string(),

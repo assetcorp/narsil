@@ -43,12 +43,13 @@ func (ix *Index) PreflightWith(ctx context.Context, request model.QueryParams, o
 	if err := ix.analyseQueryTerm(prepared, pass); err != nil {
 		return model.PreflightResult{}, err
 	}
-	prepared.ctx = ctx
 	pinned, unpin, err := ix.Pin(ctx)
 	if err != nil {
 		return model.PreflightResult{}, err
 	}
 	defer unpin()
+	ctx = pinned
+	prepared.ctx = ctx
 	if err := ix.openQuery(pinned, prepared); err != nil {
 		return model.PreflightResult{}, err
 	}

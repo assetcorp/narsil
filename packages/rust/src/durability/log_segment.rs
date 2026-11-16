@@ -8,7 +8,10 @@ use crate::format::wal::{
     Operation, SEGMENT_HEADER_BYTES, WAL_FORMAT_VERSION_AT, segment_header, segment_version,
 };
 
-use super::files::{DurableDirectory, fsync_failed, write_failed};
+use crate::value::Value;
+
+use super::file_errors::{fsync_failed, write_failed, write_fully};
+use super::files::DurableDirectory;
 use super::platform::sync_file;
 
 pub(crate) fn wal_prefix(index_name: &str, partition_id: u32) -> String {
@@ -157,7 +160,12 @@ impl ActiveSegment {
         Ok(())
     }
 
-    pub(crate) fn write_frames(&mut self, frames: &[u8]) -> Result<()> {
+    pub(crate) fn write_frames(
+        &mut self,
+        frames: &[u8],
+        index_name: &str,
+        partition_id: u32,
+    ) -> Result<()> {
         if self.bytes + frames.len() as u64 > MAX_FILE_BYTES {
             return Err(NarsilError::new(
                 ErrorCode::PERSISTENCE_SAVE_FAILED,
@@ -166,11 +174,14 @@ impl ActiveSegment {
                     frames.len(),
                     self.key
                 ),
-            ));
+            )
+            .with_details([
+                ("indexName", Value::from(index_name)),
+                ("partitionId", Value::from(partition_id)),
+                ("bytes", Value::from(frames.len())),
+            ]));
         }
-        (&*self.file)
-            .write_all(frames)
-            .map_err(|error| write_failed(&self.key, &error))?;
+        write_fully(&mut &*self.file, frames, &self.key)?;
         self.bytes += frames.len() as u64;
         Ok(())
     }

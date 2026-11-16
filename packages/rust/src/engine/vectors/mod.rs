@@ -139,7 +139,12 @@ impl IndexVectors {
                         entry.path,
                         items.len()
                     ),
-                ));
+                )
+                .with_details([
+                    ("field", Value::from(entry.path.as_str())),
+                    ("expected", Value::from(expected)),
+                    ("received", Value::from(items.len())),
+                ]));
             }
         }
         Ok(())

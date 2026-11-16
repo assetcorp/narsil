@@ -12,6 +12,7 @@ use crate::native::workspace::with_workspace;
 use crate::search::components::ScoreComponents;
 use crate::search::keyword::KeywordHit;
 use crate::search::rankings::id_ranks;
+use crate::value::Value;
 
 /// The fusion settings of a hybrid query once the engine has checked them.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -30,10 +31,11 @@ pub(crate) fn resolve_fusion(hybrid: Option<&HybridConfig>) -> Result<Fusion> {
     let k = match hybrid.and_then(|config| config.k) {
         None => DEFAULT_RANK_CONSTANT,
         Some(k) if k.is_finite() && k.fract() == 0.0 && k >= MIN_RANK_CONSTANT => k,
-        Some(_) => {
+        Some(k) => {
             return Err(config_invalid(format!(
                 "hybrid.k must be a whole number of at least {MIN_RANK_CONSTANT}"
-            )));
+            ))
+            .with_details([("k", Value::Number(k))]));
         }
     };
     let alpha = match hybrid.and_then(|config| config.alpha) {
@@ -43,10 +45,11 @@ pub(crate) fn resolve_fusion(hybrid: Option<&HybridConfig>) -> Result<Fusion> {
         {
             alpha
         }
-        Some(_) => {
+        Some(alpha) => {
             return Err(config_invalid(format!(
                 "hybrid.alpha must be a number from {MIN_LINEAR_ALPHA} to {MAX_LINEAR_ALPHA}"
-            )));
+            ))
+            .with_details([("alpha", Value::Number(alpha))]));
         }
     };
     Ok(Fusion {
@@ -64,9 +67,10 @@ pub(crate) fn fixed_hybrid_depth(hybrid: Option<&HybridConfig>) -> Result<Option
     match hybrid.and_then(|config| config.depth) {
         None => Ok(None),
         Some(depth) if (MIN_HYBRID_DEPTH..=MAX_HYBRID_DEPTH).contains(&depth) => Ok(Some(depth)),
-        Some(_) => Err(config_invalid(format!(
+        Some(depth) => Err(config_invalid(format!(
             "hybrid.depth must be a whole number from {MIN_HYBRID_DEPTH} to {MAX_HYBRID_DEPTH}"
-        ))),
+        ))
+        .with_details([("depth", Value::from(depth))])),
     }
 }
 
@@ -86,7 +90,12 @@ pub(crate) fn require_within_hybrid_depth(
         format!(
             "A hybrid query pages through the first {depth} fused results, and this page starts at {start}. Raise hybrid.depth to page further"
         ),
-    ))
+    )
+    .with_details([
+        ("offset", Value::from(offset)),
+        ("cursorDepth", Value::from(cursor_depth)),
+        ("depth", Value::from(depth)),
+    ]))
 }
 
 const HYBRID_FUSION: &str = "a fusion of hybrid rankings";

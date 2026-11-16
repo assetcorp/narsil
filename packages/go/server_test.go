@@ -33,7 +33,16 @@ const (
 	proxyErrorPage     = "<!doctype html><html><body><h1>502 Bad Gateway</h1></body></html>"
 )
 
-var launcher = filepath.Join("..", "ts", "scripts", "client-test-server.mjs")
+const launcherVariable = "NARSIL_CLIENT_TEST_LAUNCHER"
+
+var launcher = launcherPath()
+
+func launcherPath() string {
+	if chosen := os.Getenv(launcherVariable); chosen != "" {
+		return chosen
+	}
+	return filepath.Join("..", "ts", "scripts", "client-test-server.mjs")
+}
 
 type nodeProcess struct {
 	command *exec.Cmd

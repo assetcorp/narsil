@@ -13,7 +13,7 @@ env:
   SEGMENT_DOWNLOAD_TIMEOUT_MINS: 2
 
 concurrency:
-  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -21,6 +21,9 @@ jobs:
     name: Changed areas
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
     outputs:
       typescript: ${{ steps.areas.outputs.typescript }}
       check: ${{ steps.areas.outputs.check }}
@@ -28,11 +31,13 @@ jobs:
       benchmark_harness: ${{ steps.areas.outputs.benchmark_harness }}
       benchmark_languages: ${{ steps.areas.outputs.benchmark_languages }}
       rust: ${{ steps.areas.outputs.rust }}
+      rust_server: ${{ steps.areas.outputs.rust_server }}
       python_engine: ${{ steps.areas.outputs.python_engine }}
       go_engine: ${{ steps.areas.outputs.go_engine }}
       native_core: ${{ steps.areas.outputs.native_core }}
       clients: ${{ steps.areas.outputs.clients }}
       container: ${{ steps.areas.outputs.container }}
+      rust_container: ${{ steps.areas.outputs.rust_container }}
       cluster: ${{ steps.areas.outputs.cluster }}
       vector_recall: ${{ steps.areas.outputs.vector_recall }}
       engine: ${{ steps.areas.outputs.engine }}
@@ -46,7 +51,7 @@ jobs:
       - name: List the areas that this change touches
         id: areas
         env:
-          PUSH_BEFORE: ${{ github.event.before }}
+          GITHUB_TOKEN: ${{ github.token }}
           WORKFLOW_FILE: .github/workflows/ci.yml
         run: node .github/scripts/changed-areas.js
 
@@ -242,6 +247,39 @@ jobs:
           path: packages/ts/test-evidence/vector-misses/
           if-no-files-found: ignore
           retention-days: 14
+
+  windows-held-files:
+    name: Saves beside files that another program holds open on Windows
+    needs: [changes, engine]
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.engine.result == 'success' && (needs.changes.result != 'success' || needs.changes.outputs.typescript == 'true') }}
+    runs-on: windows-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Download the code that the checkpoint worker loads
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: narsil-ts-dist
+          path: packages/ts/dist
+
+      - name: Save an index while another program holds its files open
+        working-directory: packages/ts
+        run: pnpm run test:held-files
 
   conformance:
     name: Conformance suite
@@ -537,11 +575,33 @@ jobs:
       push: false
       version: 0.0.0-ci
 
+  rust-container:
+    name: Rust container
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.rust_container == 'true') }}
+    uses: ./.github/workflows/rust-container.yml
+
+  rust-container-image:
+    name: Rust container image
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.rust_container == 'true') }}
+    uses: ./.github/workflows/container-image.yml
+    with:
+      push: false
+      server: rust
+      version: 0.0.0-ci
+
   rust:
     name: Rust crate
     needs: [changes, engine]
     if: ${{ !cancelled() && needs.engine.result == 'success' && (needs.changes.result != 'success' || needs.changes.outputs.rust == 'true') }}
     uses: ./.github/workflows/rust.yml
+
+  rust-server:
+    name: Rust server
+    needs: [changes, engine]
+    if: ${{ !cancelled() && needs.engine.result == 'success' && (needs.changes.result != 'success' || needs.changes.outputs.rust_server == 'true') }}
+    uses: ./.github/workflows/rust-server.yml
 
   go-engine:
     name: Go engine

@@ -5,7 +5,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::error::{ErrorCode, NarsilError, Result};
 
-use super::files::{TEMPORARY_MARK, fsync_failed, write_failed};
+use super::file_errors::{fsync_failed, write_failed, write_fully};
+use super::files::TEMPORARY_MARK;
 use super::platform::{remove_file, rename_replacing, sync_file};
 
 static TEMPORARY_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -62,9 +63,7 @@ impl StagedFile {
 
     pub(crate) fn write_bytes(&mut self, bytes: &[u8]) -> Result<()> {
         let key = self.key.clone();
-        self.handle()?
-            .write_all(bytes)
-            .map_err(|error| write_failed(&key, &error))?;
+        write_fully(self.handle()?, bytes, &key)?;
         self.written += bytes.len() as u64;
         Ok(())
     }
