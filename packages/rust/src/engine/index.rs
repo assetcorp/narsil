@@ -356,5 +356,6 @@ impl IndexState {
             ErrorCode::DOC_NOT_FOUND,
             format!("Document \"{id}\" not found in any partition"),
         )
+        .with_details([("docId", crate::value::Value::from(id))])
     }
 }

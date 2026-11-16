@@ -92,7 +92,7 @@ pub(crate) fn prepare_restored_index(
         .and_then(Value::as_str)
         .unwrap_or_default()
         .to_string();
-    let language = Language::named(&language_name)?;
+    let language = engine.settings.languages.resolve(&language_name)?;
     config.language = Some(language_name);
     config.schema = payload.get("schema").cloned().unwrap_or(Value::Null);
     let schema = compiled_config_schema(&config)?;

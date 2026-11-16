@@ -1,11 +1,12 @@
 mod batch;
+mod batch_groups;
 mod replay;
 
 use std::sync::Arc;
 
 use super::durable::log::PendingLog;
 use super::index::IndexState;
-use super::memory::MemoryGuard;
+use super::memory::{MemoryGuard, reserve_for_document};
 use super::vectors::HeldWrite;
 use crate::config::validate_doc_id;
 use crate::error::{ErrorCode, NarsilError, Result};
@@ -59,7 +60,11 @@ pub(crate) fn require_matching_doc_id(doc_id: &str, document: &Map) -> Result<()
             format!(
                 "The call names document id \"{doc_id}\" while the document's own id field is \"{embedded}\", so the stored document would contradict the key that it is stored under"
             ),
-        )),
+        )
+        .with_details([
+            ("docId", Value::from(doc_id)),
+            ("documentId", Value::from(embedded)),
+        ])),
         _ => Ok(()),
     }
 }
@@ -114,7 +119,14 @@ fn assert_capacity(index: &IndexState, partitions: &[Arc<Partition>], pending: u
             "Index \"{}\" has reached its capacity of {total_capacity} documents ({per_partition} per partition × {count} partitions)",
             index.name
         ),
-    ))
+    )
+    .with_details([
+        ("indexName", Value::from(index.name.as_str())),
+        ("currentCount", Value::from(current)),
+        ("totalCapacity", Value::from(total_capacity)),
+        ("maxDocsPerPartition", Value::from(per_partition)),
+        ("partitionCount", Value::from(count)),
+    ]))
 }
 
 fn validated(index: &IndexState, document: &Map) -> Result<()> {
@@ -130,6 +142,10 @@ fn already_exists(id: &str, partition: usize) -> NarsilError {
         ErrorCode::DOC_ALREADY_EXISTS,
         format!("Document \"{id}\" already exists in partition {partition}"),
     )
+    .with_details([
+        ("docId", Value::from(id)),
+        ("partitionId", Value::from(partition)),
+    ])
 }
 
 /// Adds a document that passed every check before the partition, while the caller holds the write lock.
@@ -203,6 +219,7 @@ pub(crate) fn insert(
     let appended = {
         let _writer = index.lock_writes()?;
         memory.refuse_while_full(&index.name)?;
+        let _reserved = reserve_for_document(memory, index, held_document(held.prepared())?, None)?;
         let document = held.take().ok_or_else(|| index.not_found(&id))?;
         let mut log = PendingLog::begin(index.log())?;
         let partitions = index.partitions();
@@ -301,6 +318,8 @@ pub(crate) fn update(
     let appended = {
         let _writer = index.lock_writes()?;
         memory.refuse_while_full(&index.name)?;
+        let prepared = held_document(held.prepared())?;
+        let _reserved = reserve_for_document(memory, index, prepared, Some(doc_id))?;
         let document = held.take().ok_or_else(|| index.not_found(doc_id))?;
         let mut log = PendingLog::begin(index.log())?;
         let partitions = index.partitions();

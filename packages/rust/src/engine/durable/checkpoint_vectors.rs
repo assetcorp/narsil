@@ -10,6 +10,7 @@ use crate::format::graph_part::{GRAPH_PART_ENVELOPE_VERSION, encode_graph_part};
 use crate::format::layout::{graph_part_key, vector_file_key};
 use crate::format::manifest_refs::{FileRef, VectorFieldRef, VectorFileRef};
 use crate::format::vector_file::{VECTOR_FILE_ENVELOPE_VERSION, encode_vector_file};
+use crate::value::Value;
 use crate::vector::checkpoint::{VectorCheckpointPlan, WrittenVectorFile};
 use crate::vector::disk::VectorFileLayout;
 use crate::vector::field::VectorField;
@@ -70,6 +71,7 @@ fn kept_file_ref(prior: Option<&VectorFieldRef>, key: &str) -> Result<FileRef> {
                     "The checkpoint keeps the vector file \"{key}\", which the previous manifest does not list"
                 ),
             )
+            .with_details([("key", Value::from(key))])
         })
 }
 

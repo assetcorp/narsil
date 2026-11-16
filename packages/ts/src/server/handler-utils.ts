@@ -6,7 +6,7 @@ import { type ParsedBodyKind, parseRefusalOf } from './parse-heap'
 import type { RouteContext } from './request'
 import { type ResponseSink, sendError, sendJson } from './response'
 import type { BatchResponse } from './types'
-import type { ValidationFailure } from './validation'
+import { isPlainObject, type ValidationFailure } from './validation'
 
 function refusesParse(ctx: RouteContext, raw: Buffer | null, kind: ParsedBodyKind): boolean {
   const refusal = ctx.bodyRefusal ?? (raw === null ? null : parseRefusalOf(raw, kind))
@@ -34,6 +34,27 @@ export function parseJson<T>(ctx: RouteContext, kind: ParsedBodyKind = 'write'):
   }
 }
 
+function refusesShape(ctx: RouteContext, parsed: unknown): boolean {
+  if (isPlainObject(parsed)) return false
+  if (!ctx.abort.aborted) badRequest(ctx.res, 'The request body must be an object')
+  return true
+}
+
+export function parseJsonObject<T extends object>(ctx: RouteContext, kind: ParsedBodyKind = 'write'): T | undefined {
+  const parsed = parseJson<unknown>(ctx, kind)
+  if (parsed === undefined || refusesShape(ctx, parsed)) return undefined
+  return parsed as T
+}
+
+export async function parseWriteJsonObject<T extends object>(
+  ctx: RouteContext,
+  writeBlock: WriteBlockLookup | undefined,
+): Promise<T | undefined> {
+  const parsed = await parseWriteJson<unknown>(ctx, writeBlock)
+  if (parsed === undefined || refusesShape(ctx, parsed)) return undefined
+  return parsed as T
+}
+
 export async function parseWriteJson<T>(
   ctx: RouteContext,
   writeBlock: WriteBlockLookup | undefined,
@@ -58,14 +79,8 @@ export async function parseWriteJson<T>(
 /** Parses an optional JSON body, treating an empty body as an empty object. */
 export function parseJsonOptional<T extends object>(ctx: RouteContext): T | undefined {
   const raw = ctx.rawBody
-  if (refusesParse(ctx, raw, 'write')) return undefined
-  if (!raw || raw.length === 0) return {} as T
-  try {
-    return JSON.parse(raw.toString('utf8')) as T
-  } catch {
-    sendError(ctx.res, 400, ServerErrorCodes.INVALID_JSON, 'Request body is not valid JSON')
-    return undefined
-  }
+  if (ctx.bodyRefusal === null && (!raw || raw.length === 0)) return {} as T
+  return parseJsonObject<T>(ctx)
 }
 
 /** Writes the mapped HTTP status and safe envelope for any thrown value, unless

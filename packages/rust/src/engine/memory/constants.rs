@@ -1,7 +1,29 @@
 pub(crate) const DEFAULT_BLOCK_WRITES_ABOVE: f64 = 0.9;
 pub(crate) const DEFAULT_RESUME_WRITES_BELOW: f64 = 0.8;
+pub(crate) const READ_PARSE_BLOCK_FRACTION: f64 = 0.95;
 pub(crate) const MEMORY_FIGURES_MAX_AGE_MS: u64 = 10;
+pub(crate) const RECENT_MEMORY_FIGURES_MAX_ADMITTED_FRACTION: f64 = 0.01;
 pub(crate) const FREE_PAGE_RELEASE_INTERVAL_MS: u64 = 5_000;
+pub(crate) const REFUSAL_PAGE_RELEASE_MIN_INTERVAL_MS: u64 = 1_000;
+pub(crate) const REFUSAL_PAGE_RELEASE_TIME_MULTIPLE: u32 = 10;
 pub(crate) const MEGABYTE_BYTES: u64 = 1_048_576;
 pub(crate) const KIBIBYTE_BYTES: u64 = 1_024;
 pub(crate) const RESTORE_PROCESS_BYTES_PER_STORED_BYTE: u64 = 4;
+pub(crate) const DOCUMENT_ENTRY_BYTES: u64 = 512;
+pub(crate) const DOCUMENT_VALUE_BYTES: u64 = 128;
+pub(crate) const DOCUMENT_PROPERTY_BYTES: u64 = 128;
+pub(crate) const DOCUMENT_BYTES_PER_VALUE_BYTE: u64 = 3;
+pub(crate) const DISTINCT_TERM_BYTES: u64 = 512;
+pub(crate) const TERM_UNIT_BYTES: u64 = 32;
+pub(crate) const PARTIAL_SPELLING_BYTES: u64 = 512;
+pub(crate) const PARTIAL_SPELLING_UNIT_BYTES: u64 = 128;
+pub(crate) const PATTERN_UNIT_BYTES: u64 = 8;
+pub(crate) const ENUM_VALUE_BYTES: u64 = 256;
+pub(crate) const VECTOR_COMPONENT_BYTES: u64 = 16;
+pub(crate) const VECTOR_DOCUMENT_BYTES: u64 = 2_048;
+pub(crate) const NORMALIZATION_EXPANSION_FACTOR: u64 = 3;
+pub(crate) const CASE_FOLD_EXPANSION_FACTOR: u64 = 3;
+pub(crate) const UNITS_PER_TERM_BETWEEN_SEPARATORS: u64 = 2;
+pub(crate) const LANGUAGES_ANALYSED_IN_NGRAMS: [&str; 7] = [
+    "burmese", "chinese", "japanese", "khmer", "korean", "lao", "thai",
+];

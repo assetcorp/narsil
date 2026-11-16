@@ -21,6 +21,7 @@ use crate::search::phrase::{AnalysedPhrase, PhraseWork};
 use crate::search::query::KeywordQuery;
 use crate::search::stats::{candidate_terms, partition_query_stats};
 use crate::util::text::javascript_trim;
+use crate::value::Value;
 
 /// A query's text after analysis: its terms in first-seen order and its distinct phrases, which every partition
 /// searches.
@@ -47,7 +48,8 @@ fn require_search_fields(index: &IndexState, fields: &[String]) -> Result<()> {
             return Err(NarsilError::new(
                 ErrorCode::SEARCH_INVALID_FIELD,
                 format!("Field \"{field}\" does not exist in the schema"),
-            ));
+            )
+            .with_details([("field", Value::from(field.as_str()))]));
         };
         if !field_type.base.is_word_indexed() {
             return Err(NarsilError::new(
@@ -56,7 +58,11 @@ fn require_search_fields(index: &IndexState, fields: &[String]) -> Result<()> {
                     "Field \"{field}\" has type \"{}\" which cannot be used for full-text search",
                     field_type.name
                 ),
-            ));
+            )
+            .with_details([
+                ("field", Value::from(field.as_str())),
+                ("fieldType", Value::from(field_type.name.as_str())),
+            ]));
         }
     }
     Ok(())

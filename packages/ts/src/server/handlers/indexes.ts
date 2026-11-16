@@ -1,7 +1,7 @@
 import { indexReadsOf } from '../../narsil/index-reads'
 import { mapHttpIndexConfig } from '../config-mapping'
 import type { HandlerDeps } from '../deps'
-import { parseJson, rejectInvalid, respondError, respondJson } from '../handler-utils'
+import { parseJsonObject, rejectInvalid, respondError, respondJson } from '../handler-utils'
 import type { RouteContext } from '../request'
 import type {
   CreateIndexRequest,
@@ -18,7 +18,7 @@ export function createIndexHandlers(deps: HandlerDeps) {
   const { engine } = deps
 
   async function create(ctx: RouteContext): Promise<void> {
-    const body = parseJson<CreateIndexRequest>(ctx)
+    const body = parseJsonObject<CreateIndexRequest>(ctx)
     if (!body) return
     const failure = validateCreateIndex(body)
     if (failure) {

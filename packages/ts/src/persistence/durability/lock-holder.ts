@@ -1,8 +1,9 @@
 import { close, openSync, readFileSync } from 'node:fs'
-import { readdir, readFile, readlink, realpath, rename, unlink, writeFile } from 'node:fs/promises'
+import { readdir, readFile, readlink, realpath, unlink, writeFile } from 'node:fs/promises'
 import { endianness } from 'node:os'
 import { dirname } from 'node:path'
 import { DIRECTORY_LOCK_PROCESS_START_TOLERANCE_MS } from './constants'
+import { renameUnlessMissing } from './node-fs'
 
 interface RecordedProcess {
   pid: number
@@ -156,7 +157,7 @@ export async function removeStaleLock(
   isStale: (text: string) => boolean,
 ): Promise<void> {
   try {
-    await rename(lockPath, asidePath)
+    await renameUnlessMissing(lockPath, asidePath)
   } catch (err) {
     if (errnoOf(err) === 'ENOENT') return
     throw err

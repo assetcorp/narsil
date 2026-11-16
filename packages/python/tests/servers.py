@@ -16,7 +16,8 @@ from pathlib import Path
 from typing import Any
 
 REPOSITORY = Path(__file__).resolve().parents[3]
-LAUNCHER = REPOSITORY / "packages" / "ts" / "scripts" / "client-test-server.mjs"
+TYPESCRIPT_LAUNCHER = REPOSITORY / "packages" / "ts" / "scripts" / "client-test-server.mjs"
+LAUNCHER = Path(os.environ.get("NARSIL_CLIENT_TEST_LAUNCHER") or TYPESCRIPT_LAUNCHER)
 READY_TIMEOUT_SECONDS = 90.0
 STOP_TIMEOUT_SECONDS = 15.0
 HTML_PAGE = b"<!doctype html><html><body><h1>502 Bad Gateway</h1></body></html>"

@@ -70,6 +70,15 @@ impl IdTable {
         }
     }
 
+    pub(crate) fn bytes_for_entries(entries: usize) -> usize {
+        let wanted = entries.saturating_mul(100) / ID_TABLE_MAX_LOAD_PERCENT + 1;
+        wanted
+            .max(MIN_ID_TABLE_SLOTS)
+            .checked_next_power_of_two()
+            .unwrap_or(usize::MAX)
+            .saturating_mul(size_of::<AtomicU32>())
+    }
+
     pub(crate) fn fits(&self, used: usize) -> bool {
         used.saturating_mul(100) < self.slots.len() * ID_TABLE_MAX_LOAD_PERCENT
     }

@@ -6,14 +6,14 @@ mod plan;
 use std::sync::Arc;
 
 use super::constants::{DEFAULT_PAGE_SIZE, RESULT_WINDOW};
-use super::cursor::{decode_page_cursor, query_binding_of, require_matching_cursor};
+use super::cursor::{decode_matching_cursor, query_binding_of};
 use super::embedded::EmbeddedQuery;
 use super::fusion::{fixed_hybrid_depth, require_within_hybrid_depth};
 use super::params::{DocumentProjection, Pin, QueryParams, RerankConfig, SearchMode};
 use super::projection::resolve_projection;
 use super::results::QueryResult;
 use super::shaped_query;
-use super::vector::has_term;
+use super::vector::{has_term, window_details};
 use crate::engine::index::IndexState;
 use crate::engine::vectors::paths::value_at;
 use crate::error::{ErrorCode, NarsilError, Result};
@@ -62,7 +62,8 @@ fn first_stage_depth(
                 format!(
                     "The engine pages a reranked query through the first {RESULT_WINDOW} results, and this page ends at {reach}"
                 ),
-            ));
+            )
+            .with_details(window_details(limit, offset, cursor_depth)));
         }
         return Ok(window
             .saturating_add(1)
@@ -105,8 +106,7 @@ fn cursor_depth(params: &QueryParams, binding: &str) -> Result<usize> {
     let Some(cursor) = params.search_after.as_deref() else {
         return Ok(0);
     };
-    let decoded = decode_page_cursor(cursor)?;
-    require_matching_cursor(&decoded, None, true, binding)?;
+    let decoded = decode_matching_cursor(cursor, None, true, binding)?;
     Ok(usize::try_from(decoded.depth).unwrap_or(usize::MAX))
 }
 

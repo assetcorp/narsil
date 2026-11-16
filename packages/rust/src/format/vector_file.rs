@@ -4,7 +4,7 @@ use crate::format::file_sections::{
     FileSection, PayloadBuilder, RECORD_PAGE_BYTES, SEGMENT_PAGE_BYTES, binary_header_bytes,
     settled_head, string_entry_bytes, write_sections,
 };
-use crate::format::manifest_refs::Head;
+use crate::format::manifest_refs::{Head, listed_detail};
 use crate::util::bytes::{f32_bytes, f32_list, f64_bytes, f64_list, u32_bytes, u32_list};
 use crate::value::{
     Value, decode_value, write_array_header, write_binary, write_json, write_map_header, write_nil,
@@ -55,6 +55,10 @@ pub(crate) fn osq_record_bytes(dimension: usize, bits: u8) -> usize {
     osq_code_bytes(dimension, bits) + OSQ_RECORD_TAIL_BYTES
 }
 
+pub(crate) fn count_and_bytes(count: usize, bytes: usize) -> [(&'static str, Value); 2] {
+    [("count", Value::from(count)), ("bytes", Value::from(bytes))]
+}
+
 pub(crate) fn require_payload_version(
     payload: &str,
     found: Option<&Value>,
@@ -75,7 +79,8 @@ pub(crate) fn require_payload_version(
         format!(
             "This {payload} payload was written in layout {shown}, and this build reads layout {expected} alone"
         ),
-    ))
+    )
+    .with_details(listed_detail("version", found)))
 }
 
 fn decode_codes(
@@ -95,7 +100,11 @@ fn decode_codes(
     };
     let bits = match codes.raw("bits") {
         Some(Value::Number(number)) if [1.0, 2.0, 4.0, 8.0].contains(number) => *number as u8,
-        _ => return Err(fields.error("codes.bits must be 8, 4, 2, or 1")),
+        _ => {
+            return Err(fields
+                .error("codes.bits must be 8, 4, 2, or 1")
+                .with_details(listed_detail("bits", codes.raw("bits"))));
+        }
     };
     let centroid = match codes.raw("centroid") {
         Some(Value::Array(items)) if items.len() == dimension => items
@@ -112,7 +121,9 @@ fn decode_codes(
         _ => return Err(fields.error("codes.records must be bytes")),
     };
     if Some(records.len()) != count.checked_mul(osq_record_bytes(dimension, bits)) {
-        return Err(fields.error("codes.records must hold one record per vector"));
+        return Err(fields
+            .error("codes.records must hold one record per vector")
+            .with_details(count_and_bytes(count, records.len())));
     }
     Ok(Some(VectorCodes {
         bits,
@@ -174,16 +185,20 @@ pub(crate) fn decode_vector_file(payload: &[u8]) -> Result<VectorFile> {
         _ => return Err(fields.error("docIds must be a list of strings")),
     };
     if doc_ids.len() > VECTOR_FILE_MAX_VECTORS {
-        return Err(fields.error(format!(
-            "a file holds at most {VECTOR_FILE_MAX_VECTORS} vectors"
-        )));
+        return Err(fields
+            .error(format!(
+                "a file holds at most {VECTOR_FILE_MAX_VECTORS} vectors"
+            ))
+            .with_details([("count", Value::from(doc_ids.len()))]));
     }
     let vector_bytes = match map.get("vectors") {
         Some(Value::Bytes(bytes)) => bytes,
         _ => return Err(fields.error("vectors must be bytes")),
     };
     if vector_bytes.len() != doc_ids.len() * dimension * 4 {
-        return Err(fields.error("vectors must hold dimension float32 components per document"));
+        return Err(fields
+            .error("vectors must hold dimension float32 components per document")
+            .with_details(count_and_bytes(doc_ids.len(), vector_bytes.len())));
     }
     let codes = decode_codes(&fields, dimension, doc_ids.len())?;
     let disk = decode_disk_columns(&fields, doc_ids.len())?;

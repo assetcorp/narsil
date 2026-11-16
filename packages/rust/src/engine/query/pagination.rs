@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::ops::Range;
 
-use super::cursor::{PageCursor, decode_page_cursor, encode_page_cursor, require_matching_cursor};
+use super::cursor::{PageCursor, decode_matching_cursor, encode_page_cursor};
 use super::gather::QueryRun;
 use super::page_start::{AnchorBits, page_start};
 use super::params::Pin;
@@ -109,11 +109,12 @@ pub(crate) fn paginate(
         .as_deref()
         .filter(|cursor| !cursor.is_empty())
     {
-        Some(cursor) => {
-            let decoded = decode_page_cursor(cursor)?;
-            require_matching_cursor(&decoded, run.signature.as_deref(), true, run.binding())?;
-            Some(decoded)
-        }
+        Some(cursor) => Some(decode_matching_cursor(
+            cursor,
+            run.signature.as_deref(),
+            true,
+            run.binding(),
+        )?),
         None => None,
     };
     if run.limit == 0 {

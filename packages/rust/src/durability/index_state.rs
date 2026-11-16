@@ -41,6 +41,7 @@ impl CheckpointTurn {
 pub(crate) struct IndexState {
     pub(crate) checkpoint_turn: CheckpointTurn,
     pub(crate) metadata_turn: Mutex<()>,
+    pub(crate) publish_turn: Mutex<()>,
     pub(crate) mutations: AtomicU64,
     pub(crate) last_checkpoint: Mutex<Instant>,
     pub(crate) pins: Mutex<HashMap<String, usize>>,
@@ -54,6 +55,7 @@ impl IndexState {
         IndexState {
             checkpoint_turn: CheckpointTurn::default(),
             metadata_turn: Mutex::new(()),
+            publish_turn: Mutex::new(()),
             mutations: AtomicU64::new(0),
             last_checkpoint: Mutex::new(Instant::now()),
             pins: Mutex::new(HashMap::new()),

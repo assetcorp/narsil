@@ -33,16 +33,19 @@ pub use config::{
     TokenizerSetting, VectorPromotion,
 };
 pub use durability::persistence::{FilesystemPersistence, MemoryPersistence, PersistenceAdapter};
+#[doc(hidden)]
+pub use durability::platform::rename_replacing;
 pub use engine::{
     AnalysisChange, AnalysisSetting, BatchFailure, BatchResult, DocumentImportResult,
     DocumentProjection, DurabilityConfig, DurabilityMode, DurabilityTier, EarlierLayout,
-    FacetResult, FacetSpec, GroupConfig, GroupReduce, GroupReducer, GroupResult, HighlightConfig,
-    HighlightMatch, HighlightPosition, Hit, HybridConfig, HybridStrategy, ImportRefusal, IndexInfo,
-    IndexStats, ListParams, ListResult, ListedDocument, ListenerId, MemoryStats, Narsil,
-    NarsilConfig, NarsilEvent, NarsilEventKind, PartitionStats, Pin, Plugin, PreflightResult,
-    QueryCoverage, QueryParams, QueryResult, RerankConfig, ScoreComponents, SearchMode,
-    SortDirection, SortField, SortMode, SuggestParams, SuggestResult, SuggestedTerm, SyncSetting,
-    SyncStatus, TermMatch, VectorMaintenanceStatus, VectorQuery, WorkStatus,
+    FacetResult, FacetSpec, FeedChange, GroupConfig, GroupReduce, GroupReducer, GroupResult,
+    HighlightConfig, HighlightMatch, HighlightPosition, Hit, HybridConfig, HybridStrategy,
+    ImportRefusal, IndexInfo, IndexStats, ListParams, ListResult, ListedDocument, ListenerId,
+    MemoryStats, Narsil, NarsilConfig, NarsilEvent, NarsilEventKind, ParseKind, ParseShortfall,
+    PartitionStats, Pin, Plugin, PreflightResult, QueryCoverage, QueryParams, QueryResult,
+    RerankConfig, ScoreComponents, SearchMode, SortDirection, SortField, SortMode, SuggestParams,
+    SuggestResult, SuggestedTerm, SyncSetting, SyncStatus, TermMatch, VectorMaintenanceStatus,
+    VectorQuery, WorkStatus,
 };
 pub use engine::{
     AnalysisConfig, AnalysisRebuildMode, IdGenerator, IndexLifecycleConfig, IndexResidencyState,
@@ -60,6 +63,11 @@ pub use engine::{
     QuerySuggestionsSource, QuerySuggestionsStatus, QuerySuggestionsWarningReason,
     RecordQueryOutcome, RecordQueryResult, RecordedQuery, SnapshotOptions,
 };
+pub use engine::{SyncBounds, SyncCursor, SyncEntry, SyncFeedState, SyncRead, SyncSnapshot};
 pub use error::{ErrorCode, NarsilError, Result};
 pub use filters::{DistanceUnit, FieldTests, Filter, GeoPolygon, GeoRadius, Scalar, Tolerance};
-pub use value::{Map, Timestamp, Value, parse_json, write_json};
+pub use synonyms::wire::synonym_rules_from_json;
+pub use value::{
+    Map, Timestamp, Value, decode_msgpack, encode_msgpack, json_nests_too_deep, parse_json,
+    parse_plain_json, write_json, write_plain_json, write_plain_json_into,
+};

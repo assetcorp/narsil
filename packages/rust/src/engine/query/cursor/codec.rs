@@ -1,10 +1,11 @@
 use super::base64::decode_as_node;
 use super::constants::{
     MAX_CURSOR_ANCHOR_CODE_POINTS, MAX_CURSOR_UTF16_UNITS, MAX_SORT_FIELDS,
-    MAX_SORT_VALUE_CODE_POINTS,
+    MAX_SORT_VALUE_CODE_POINTS, SHOWN_CURSOR_UTF16_UNITS,
 };
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::util::base64;
+use crate::util::text::{utf16_length, utf16_prefix};
 use crate::value::{
     MAX_SAFE_INTEGER, Map, Value, number_to_text, parse_json_raw, write_json_string,
 };
@@ -31,6 +32,14 @@ fn invalid_cursor(reason: &str) -> NarsilError {
         ErrorCode::SEARCH_INVALID_CURSOR,
         format!("Failed to decode cursor: {reason}"),
     )
+}
+
+fn showing_cursor(error: NarsilError, cursor: &str) -> NarsilError {
+    let shown = match utf16_length(cursor) > SHOWN_CURSOR_UTF16_UNITS {
+        true => format!("{}...", utf16_prefix(cursor, SHOWN_CURSOR_UTF16_UNITS)),
+        false => cursor.to_string(),
+    };
+    error.with_details([("cursor", Value::from(shown))])
 }
 
 fn write_json_number(out: &mut String, number: f64) {
@@ -186,7 +195,25 @@ fn versioned_score(object: &Map) -> Option<Option<f64>> {
 
 /// Decodes a cursor and checks it against every rule of the cursor format, in the order that the reference engine
 /// checks them, raising `SEARCH_INVALID_CURSOR` with the same reason where one fails.
-pub(crate) fn decode_page_cursor(cursor: &str) -> Result<PageCursor> {
+fn decode_page_cursor(cursor: &str) -> Result<PageCursor> {
+    decode_cursor_fields(cursor).map_err(|error| showing_cursor(error, cursor))
+}
+
+/// Decodes `cursor` and checks that the request with `signature`, `score_anchored`, and `binding` produced it,
+/// raising `SEARCH_INVALID_CURSOR` with the cursor text in its details where either step fails.
+pub(crate) fn decode_matching_cursor(
+    cursor: &str,
+    signature: Option<&str>,
+    score_anchored: bool,
+    binding: &str,
+) -> Result<PageCursor> {
+    let decoded = decode_page_cursor(cursor)?;
+    require_matching_cursor(&decoded, signature, score_anchored, binding)
+        .map_err(|error| showing_cursor(error, cursor))?;
+    Ok(decoded)
+}
+
+fn decode_cursor_fields(cursor: &str) -> Result<PageCursor> {
     let object = decoded_object(cursor)?;
     let binding = object.get("q");
     if !is_binding(binding) {
@@ -237,10 +264,7 @@ pub(crate) fn decode_page_cursor(cursor: &str) -> Result<PageCursor> {
     })
 }
 
-/// Raises `SEARCH_INVALID_CURSOR` for a cursor that another request produced: one whose binding differs, a sorted
-/// cursor under another sort or on an unsorted request, or a score cursor where the request anchors on the
-/// document ID alone, as a listing does.
-pub(crate) fn require_matching_cursor(
+fn require_matching_cursor(
     cursor: &PageCursor,
     signature: Option<&str>,
     score_anchored: bool,

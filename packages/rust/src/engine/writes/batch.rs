@@ -1,17 +1,16 @@
+use super::batch_groups::{InsertItem, insert_in_groups, update_in_groups};
 use super::{
-    BatchFailure, BatchResult, NextDocumentId, apply_insert, apply_remove, apply_update,
-    assert_capacity, prepare_update, provided_doc_id, require_matching_doc_id,
+    BatchFailure, BatchResult, NextDocumentId, apply_remove, prepare_update, provided_doc_id,
     require_required_fields,
 };
 use crate::config::validate_doc_id;
 use crate::engine::constants::BATCH_CHUNK_DOCUMENTS;
-use crate::engine::durable::log::{LogFailure, PendingLog};
+use crate::engine::durable::log::{AppendedLog, LogFailure, PendingLog};
 use crate::engine::index::IndexState;
-use crate::engine::memory::MemoryGuard;
+use crate::engine::memory::{MemoryGuard, refused_after};
 use crate::engine::vectors::{HeldChunk, HeldWrite};
 use crate::error::{NarsilError, Result};
 use crate::index::partition::in_keyword_batch;
-use crate::schema::require_document_within_size_limit;
 use crate::value::Map;
 
 /// Moves each document whose log record failed from the batch's successes to its failures.
@@ -55,6 +54,9 @@ pub(crate) enum ChunkWrite {
         error: NarsilError,
         failed: Vec<BatchFailure>,
     },
+    Stopped {
+        refused_doc_id: String,
+    },
 }
 
 /// One chunk of a batch insert, with the ID that a plugin hook already saw for each document where one did.
@@ -75,6 +77,29 @@ impl InsertChunk {
                 result
                     .failed
                     .push(refused_without_id(document, id.as_deref(), error.clone()));
+            }
+        }
+    }
+
+    pub(crate) fn refuse_after(
+        self,
+        index_name: &str,
+        refused_doc_id: &str,
+        result: &mut BatchResult,
+    ) {
+        result.failed.extend(self.refusals);
+        let documents = self.held.documents().iter().zip(&self.refused);
+        for ((document, refused), id) in documents.zip(&self.ids) {
+            if !*refused {
+                let doc_id = id
+                    .as_deref()
+                    .or_else(|| provided_doc_id(document))
+                    .unwrap_or_default();
+                let error = refused_after(index_name, doc_id, refused_doc_id);
+                result.failed.push(BatchFailure {
+                    doc_id: doc_id.to_string(),
+                    error,
+                });
             }
         }
     }
@@ -172,39 +197,29 @@ pub(crate) fn insert_chunk(
         result.failed.append(&mut failed);
         let documents = chunk.held.take();
         let ids = std::mem::take(&mut chunk.ids);
+        let items = documents
+            .into_iter()
+            .zip(&refused)
+            .zip(ids)
+            .filter(|((_, refused), _)| !**refused)
+            .map(|((document, _), resolved)| InsertItem { document, resolved })
+            .collect();
         let mut log = PendingLog::begin(index.log())?;
-        let partitions = index.partitions();
-        for ((document, refused), resolved) in documents.into_iter().zip(&refused).zip(ids) {
-            if *refused {
-                continue;
-            }
-            let id = match resolved.or_else(|| provided_doc_id(&document).map(str::to_string)) {
-                Some(id) => id,
-                None => match next_id() {
-                    Ok(id) => id,
-                    Err(error) => {
-                        result
-                            .failed
-                            .push(refused_without_id(&document, None, error));
-                        continue;
-                    }
-                },
-            };
-            let outcome = require_document_within_size_limit(&document)
-                .and_then(|()| require_matching_doc_id(&id, &document))
-                .and_then(|()| validate_doc_id(&id))
-                .and_then(|()| index.vectors.require_dimensions(&document))
-                .and_then(|()| assert_capacity(index, &partitions, 0))
-                .and_then(|()| apply_insert(index, &partitions, &id, document, &mut log));
-            match outcome {
-                Ok(()) => result.succeeded.push(id),
-                Err(error) => result.failed.push(BatchFailure { doc_id: id, error }),
-            }
-        }
-        log.append()
+        let stopped = insert_in_groups(index, memory, items, &mut log, result, next_id);
+        (log.append(), stopped)
     };
+    settle(result, appended)
+}
+
+fn settle(
+    result: &mut BatchResult,
+    (appended, stopped): (AppendedLog<'_>, Option<String>),
+) -> Result<ChunkWrite> {
     settle_logged(result, appended.wait());
-    Ok(ChunkWrite::Written)
+    Ok(match stopped {
+        Some(refused_doc_id) => ChunkWrite::Stopped { refused_doc_id },
+        None => ChunkWrite::Written,
+    })
 }
 
 /// One chunk of a batch update, each update with its ID.
@@ -220,6 +235,18 @@ impl UpdateChunk {
             self.updates.into_iter().map(|(doc_id, _)| doc_id),
             error,
         );
+    }
+
+    pub(crate) fn refuse_after(
+        self,
+        index_name: &str,
+        refused_doc_id: &str,
+        result: &mut BatchResult,
+    ) {
+        for (doc_id, _) in self.updates {
+            let error = refused_after(index_name, &doc_id, refused_doc_id);
+            result.failed.push(BatchFailure { doc_id, error });
+        }
     }
 }
 
@@ -282,26 +309,17 @@ pub(crate) fn update_chunk(
         };
         result.failed.append(&mut failed);
         let mut log = PendingLog::begin(index.log())?;
-        let partitions = index.partitions();
-        for ((doc_id, held), prepared) in chunk.updates.iter_mut().zip(&prepared) {
-            if !*prepared {
-                continue;
-            }
-            let Some(document) = held.take() else {
-                continue;
-            };
-            match apply_update(index, &partitions, doc_id, document, &mut log) {
-                Ok(()) => result.succeeded.push(doc_id.clone()),
-                Err(error) => result.failed.push(BatchFailure {
-                    doc_id: doc_id.clone(),
-                    error,
-                }),
-            }
-        }
-        log.append()
+        let stopped = update_in_groups(
+            index,
+            memory,
+            &mut chunk.updates,
+            &prepared,
+            &mut log,
+            result,
+        );
+        (log.append(), stopped)
     };
-    settle_logged(result, appended.wait());
-    Ok(ChunkWrite::Written)
+    settle(result, appended)
 }
 
 /// Removes many documents, refusing each missing one alone.

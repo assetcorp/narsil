@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { errorCodeOf, errorFieldOf, sendRaw, startDocumentServer, stopDocumentServers } from './harness'
+import { errorCodeOf, errorFieldOf, errorMessageOf, sendRaw, startDocumentServer, stopDocumentServers } from './harness'
 
 const INDEX = 'orders'
 const SCHEMA = {
@@ -169,25 +169,35 @@ describe('a document request built to break the server', () => {
   it('refuses a projection whose field list holds anything but strings, on a search and on a listing', async () => {
     const { base, client } = await readyServer()
     await client.insert(INDEX, { title: 'brass lamp', price: 12, shipping: { city: 'Accra', weight: 2 } }, 'lamp')
-    const projections = [
-      '{"include":[1]}',
-      '{"include":[null]}',
-      '{"include":["title",{"path":"price"}]}',
-      '{"include":[["title"]]}',
-      '{"include":"title"}',
-      '{"include":{"0":"title"}}',
-      '{"exclude":[true]}',
-      '{"exclude":null}',
-      '{"include":["title"],"exclude":[5]}',
+    const includeRefusal = 'Field "document.include" must be a list of strings'
+    const excludeRefusal = 'Field "document.exclude" must be a list of strings'
+    const projections: ReadonlyArray<readonly [string, string | null]> = [
+      ['{"include":[1]}', includeRefusal],
+      ['{"include":[null]}', includeRefusal],
+      ['{"include":["title",{"path":"price"}]}', includeRefusal],
+      ['{"include":[["title"]]}', includeRefusal],
+      ['{"include":"title"}', includeRefusal],
+      ['{"include":{"0":"title"}}', includeRefusal],
+      ['{"exclude":[true]}', excludeRefusal],
+      ['{"exclude":null}', null],
+      ['{"include":["title"],"exclude":[5]}', excludeRefusal],
     ]
-    for (const projection of projections) {
+    for (const [projection, searchRefusal] of projections) {
       const searched = await sendRaw(
         base,
         'POST',
         `/indexes/${INDEX}/search`,
         `{"term":"lamp","document":${projection}}`,
       )
-      expect([searched.status, errorCodeOf(searched.body)], projection).toEqual([400, 'SEARCH_INVALID_FIELD'])
+      if (searchRefusal === null) {
+        expect(searched.status, projection).toBe(200)
+      } else {
+        expect([searched.status, errorCodeOf(searched.body), errorMessageOf(searched.body)], projection).toEqual([
+          400,
+          'INVALID_REQUEST',
+          searchRefusal,
+        ])
+      }
       const listed = await sendRaw(base, 'POST', `${DOCUMENTS_PATH}/_list`, `{"document":${projection}}`)
       expect([listed.status, errorCodeOf(listed.body)], projection).toEqual([400, 'SEARCH_INVALID_FIELD'])
     }

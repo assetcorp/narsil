@@ -4,6 +4,7 @@ use super::constants::{
 };
 use crate::config::SynonymRule;
 use crate::error::{ErrorCode, NarsilError, Result};
+use crate::value::Value;
 
 const FIRST_PRINTABLE_CODE: char = '\u{20}';
 
@@ -13,8 +14,8 @@ struct Tally {
     bytes: usize,
 }
 
-fn invalid(source: &str, message: String) -> NarsilError {
-    NarsilError::new(ErrorCode::CONFIG_INVALID, format!("{source}{message}"))
+fn invalid(source: &str, message: String, details: [(&str, Value); 1]) -> NarsilError {
+    NarsilError::new(ErrorCode::CONFIG_INVALID, format!("{source}{message}")).with_details(details)
 }
 
 fn check_word(word: &str, rule: usize, tally: &mut Tally, source: &str) -> Result<()> {
@@ -25,6 +26,7 @@ fn check_word(word: &str, rule: usize, tally: &mut Tally, source: &str) -> Resul
         return Err(invalid(
             source,
             format!("Synonym rule {rule} holds a word with a control character"),
+            [("rule", Value::from(rule))],
         ));
     }
     tally.words += 1;
@@ -33,6 +35,7 @@ fn check_word(word: &str, rule: usize, tally: &mut Tally, source: &str) -> Resul
         return Err(invalid(
             source,
             format!("A synonym set holds at most {MAX_SYNONYM_WORDS} words"),
+            [("maxWords", Value::from(MAX_SYNONYM_WORDS))],
         ));
     }
     if tally.bytes > MAX_SYNONYM_WORD_BYTES {
@@ -41,6 +44,7 @@ fn check_word(word: &str, rule: usize, tally: &mut Tally, source: &str) -> Resul
             format!(
                 "The words of a synonym set hold at most {MAX_SYNONYM_WORD_BYTES} bytes in UTF-8"
             ),
+            [("maxWordBytes", Value::from(MAX_SYNONYM_WORD_BYTES))],
         ));
     }
     Ok(())
@@ -60,6 +64,7 @@ fn check_words(
             format!(
                 "Synonym rule {rule} needs \"{key}\" as a list of {minimum} to {maximum} words"
             ),
+            [("rule", Value::from(rule))],
         ));
     }
     words
@@ -73,6 +78,7 @@ pub(crate) fn validate_synonym_rules(rules: &[SynonymRule], source: &str) -> Res
         return Err(invalid(
             source,
             format!("A synonym set holds at most {MAX_SYNONYM_RULES} rules"),
+            [("maxRules", Value::from(MAX_SYNONYM_RULES))],
         ));
     }
     let mut tally = Tally::default();

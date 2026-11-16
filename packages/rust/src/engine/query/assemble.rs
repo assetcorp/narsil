@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use super::documents::Location;
@@ -75,7 +74,7 @@ fn organic_highlights<'h>(
     page: &'h [Hit],
     pinned: &[bool],
     id: &str,
-) -> Option<&'h BTreeMap<String, HighlightMatch>> {
+) -> Option<&'h Vec<(String, HighlightMatch)>> {
     page.iter()
         .zip(pinned)
         .find(|(hit, pinned)| !**pinned && hit.id == id)

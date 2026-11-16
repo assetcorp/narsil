@@ -34,7 +34,8 @@ impl Scrambler {
             return Err(config_invalid(format!(
                 "The query suggestions key must hold at least {MIN_KEY_BYTES} bytes, and it holds {}",
                 key.len()
-            )));
+            ))
+            .with_details([("bytes", crate::value::Value::from(key.len()))]));
         }
         let hashed;
         let block_key = if key.len() > SHA256_BLOCK_BYTES {

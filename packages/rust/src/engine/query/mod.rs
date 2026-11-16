@@ -45,6 +45,7 @@ use crate::engine::index::IndexState;
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::pattern::SearchLimits;
 use crate::search::components::ScoreComponents as SegmentComponents;
+use crate::value::Value;
 use constants::{DEFAULT_PAGE_SIZE, MAX_PREFIX_LENGTH, MAX_TOLERANCE, RESULT_WINDOW};
 use cursor::sort_signature_of;
 use embedded::{EmbeddedQuery, resolve_vector_text};
@@ -66,7 +67,12 @@ fn require_integer_up_to(option: &str, value: Option<u32>, maximum: u32) -> Resu
             format!(
                 "The query option \"{option}\" takes an integer from 0 to {maximum}, and this query sets {value}"
             ),
-        )),
+        )
+        .with_details([
+            ("option", Value::from(option)),
+            ("value", Value::from(value.to_string())),
+            ("maximum", Value::from(maximum)),
+        ])),
         _ => Ok(()),
     }
 }
@@ -81,14 +87,19 @@ fn require_within_result_window(limit: usize, offset: usize) -> Result<()> {
         format!(
             "A request reaches the first {RESULT_WINDOW} results, and offset + limit is {depth}. Page past that with the cursor each result carries"
         ),
-    ))
+    )
+    .with_details([
+        ("limit", Value::from(limit)),
+        ("offset", Value::from(offset)),
+        ("window", Value::from(RESULT_WINDOW)),
+    ]))
 }
 
 fn public_components(components: SegmentComponents) -> ScoreComponents {
     ScoreComponents {
-        term_frequencies: components.term_frequencies.into_iter().collect(),
-        field_lengths: components.field_lengths.into_iter().collect(),
-        idf: components.idf.into_iter().collect(),
+        term_frequencies: components.term_frequencies,
+        field_lengths: components.field_lengths,
+        idf: components.idf,
     }
 }
 
@@ -173,6 +184,10 @@ fn index_replaced_during_reranks(name: &str, reranks: u32) -> NarsilError {
             "Changes to index \"{name}\" replaced it during each of {reranks} calls to its rerank adapter"
         ),
     )
+    .with_details([
+        ("indexName", Value::from(name)),
+        ("attempts", Value::from(reranks)),
+    ])
 }
 
 /// Returns the result of `params` on the index called `name`, reporting the time since `started`. Each search of

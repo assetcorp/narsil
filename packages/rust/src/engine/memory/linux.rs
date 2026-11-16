@@ -34,13 +34,23 @@ unsafe extern "C" {
     fn getpagesize() -> std::ffi::c_int;
 }
 
+fn statm_resident_bytes() -> Option<u64> {
+    let statm = std::fs::read_to_string(PROCESS_STATM_PATH).ok()?;
+    let pages: u64 = statm.split_whitespace().nth(1)?.parse().ok()?;
+    let page_bytes = u64::try_from(unsafe { getpagesize() }).ok()?;
+    pages.checked_mul(page_bytes)
+}
+
 pub(super) fn process_bytes() -> Option<u64> {
-    status_bytes().or_else(|| {
-        let statm = std::fs::read_to_string(PROCESS_STATM_PATH).ok()?;
-        let pages: u64 = statm.split_whitespace().nth(1)?.parse().ok()?;
-        let page_bytes = u64::try_from(unsafe { getpagesize() }).ok()?;
-        pages.checked_mul(page_bytes)
-    })
+    status_bytes().or_else(statm_resident_bytes)
+}
+
+/// Returns the whole resident set of this process, file-backed pages included.
+pub(super) fn resident_bytes() -> Option<u64> {
+    std::fs::read_to_string(PROCESS_STATUS_PATH)
+        .ok()
+        .and_then(|status| kibibyte_field(&status, RESIDENT_SET_FIELD))
+        .or_else(statm_resident_bytes)
 }
 
 fn limit_in(path: &std::path::Path) -> Option<u64> {

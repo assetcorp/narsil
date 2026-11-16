@@ -1,9 +1,9 @@
-use super::constants::{MAX_SORT_FIELD_NAME_LENGTH, MAX_SORT_FIELDS};
+use super::constants::{MAX_SORT_FIELD_NAME_LENGTH, MAX_SORT_FIELDS, SHOWN_SORT_FIELD_UTF16_UNITS};
 use crate::engine::query::params::{SortDirection, SortField, SortMode};
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::ordering::default_sort_mode;
-use crate::util::text::utf16_length;
-use crate::value::write_json_string;
+use crate::util::text::{utf16_length, utf16_prefix};
+use crate::value::{Value, write_json_string};
 
 fn direction_name(direction: SortDirection) -> &'static str {
     match direction {
@@ -31,18 +31,28 @@ pub(crate) fn sort_signature_of(sort: Option<&[SortField]>) -> Result<Option<Str
             format!(
                 "A sort names at most {MAX_SORT_FIELDS} fields, because the paging cursor carries one value per field"
             ),
-        ));
+        )
+        .with_details([
+            ("count", Value::from(fields.len())),
+            ("limit", Value::from(MAX_SORT_FIELDS)),
+        ]));
     }
-    if fields
+    if let Some((entry, length)) = fields
         .iter()
-        .any(|entry| utf16_length(&entry.field) > MAX_SORT_FIELD_NAME_LENGTH)
+        .map(|entry| (entry, utf16_length(&entry.field)))
+        .find(|(_, length)| *length > MAX_SORT_FIELD_NAME_LENGTH)
     {
         return Err(NarsilError::new(
             ErrorCode::SEARCH_INVALID_FIELD,
             format!(
                 "A sort field name holds at most {MAX_SORT_FIELD_NAME_LENGTH} characters, because the paging cursor carries the sort with every page"
             ),
-        ));
+        )
+        .with_details([
+            ("field", Value::from(utf16_prefix(&entry.field, SHOWN_SORT_FIELD_UTF16_UNITS))),
+            ("length", Value::from(length)),
+            ("limit", Value::from(MAX_SORT_FIELD_NAME_LENGTH)),
+        ]));
     }
     let mut signature = String::from("[");
     for (at, entry) in fields.iter().enumerate() {
