@@ -25,29 +25,55 @@ func (log *ChangeLog) changedIDs() []string {
 	return ids
 }
 
+func (p *Partition) trackedLogs() []*ChangeLog {
+	if tracked := p.changes.Load(); tracked != nil {
+		return *tracked
+	}
+	return nil
+}
+
+func (p *Partition) swapTracked(change func(logs []*ChangeLog) []*ChangeLog) {
+	for {
+		current := p.changes.Load()
+		var held []*ChangeLog
+		if current != nil {
+			held = *current
+		}
+		next := change(slices.Clone(held))
+		if p.changes.CompareAndSwap(current, &next) {
+			return
+		}
+	}
+}
+
 func (p *Partition) TrackChanges(_ *Write) *ChangeLog {
 	log := &ChangeLog{ids: map[string]struct{}{}, clears: p.clears}
-	p.changes.Store(log)
+	p.swapTracked(func(logs []*ChangeLog) []*ChangeLog { return append(logs, log) })
 	return log
 }
 
 func (p *Partition) StopTracking(log *ChangeLog) {
-	p.changes.CompareAndSwap(log, nil)
+	p.swapTracked(func(logs []*ChangeLog) []*ChangeLog {
+		return slices.DeleteFunc(logs, func(held *ChangeLog) bool { return held == log })
+	})
 }
 
 func (p *Partition) noteChange(op *operation) {
-	changes := p.changes.Load()
+	changes := p.trackedLogs()
 	switch op.kind {
 	case clearDocuments, attachFrozen, adoptFrozen:
 		if op.kind == clearDocuments {
 			p.clears++
 		}
-		if changes != nil {
-			changes.replaced = true
+		for _, log := range changes {
+			log.replaced = true
 		}
 	case insertDocument, removeDocument, replaceDocument, updateValues, removeFrozenDocument:
-		if changes != nil && !op.failed {
-			changes.ids[op.id] = struct{}{}
+		if op.failed {
+			return
+		}
+		for _, log := range changes {
+			log.ids[op.id] = struct{}{}
 		}
 	}
 }

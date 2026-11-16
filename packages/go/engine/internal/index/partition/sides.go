@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/index/analysis"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/vector"
 )
 
@@ -38,6 +39,7 @@ func (s *Sides) Add(partition *Partition) {
 type Write struct {
 	Workspace *core.Workspace
 	Sequence  int64
+	Tokens    *analysis.Pass
 	side      int
 }
 

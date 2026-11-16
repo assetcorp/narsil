@@ -67,7 +67,7 @@ func (entry *indexEntry) apply(ctx context.Context, writes []persist.Write, kind
 	if entry.durable != nil {
 		failures, commit, err = entry.durable.Apply(ctx, writes)
 	} else {
-		failures, err = entry.applyInMemory(writes, kind)
+		failures, err = entry.applyInMemory(ctx, writes, kind)
 	}
 	if err != nil {
 		return nil, persist.Commit{}, err
@@ -94,8 +94,10 @@ func (entry *indexEntry) scheduleVectorBuilds(touched touchedVectors) {
 	}
 }
 
-func (entry *indexEntry) applyInMemory(writes []persist.Write, kind index.WriteKind) ([]error, error) {
-	return entry.index().Apply(kind, persist.DocumentWrites(writes), entry.handle.NamedVectorFields())
+func (entry *indexEntry) applyInMemory(ctx context.Context, writes []persist.Write, kind index.WriteKind) ([]error,
+	error) {
+	return entry.index().ApplyWith(kind, persist.DocumentWrites(writes), entry.handle.NamedVectorFields(),
+		index.WriteTokensOf(ctx))
 }
 
 func engineErrorOf(err error) *narsilerr.Error {

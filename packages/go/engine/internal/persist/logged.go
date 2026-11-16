@@ -38,10 +38,11 @@ func firstSaveFailure(errs []error) error {
 	return nil
 }
 
-func (durable *Durable) readLoggedChanges(partitionID int, from uint64, to uint64) (loggedChanges, error) {
+func (durable *Durable) readLoggedChanges(handle *Handle, partitionID int, from uint64, to uint64) (loggedChanges,
+	error) {
 	changes := loggedChanges{live: map[string]Write{}, deleted: map[string]struct{}{}}
-	vectorPaths := durable.handle.vectorPaths()
-	err := writeahead.ReadRange(durable.manager.directory, durable.handle.Name, uint32(partitionID), from, to,
+	vectorPaths := handle.vectorPaths()
+	err := writeahead.ReadRange(durable.manager.directory, handle.Name, uint32(partitionID), from, to,
 		func(entry wal.Entry) error {
 			write, err := writeOfEntry(entry, vectorPaths)
 			if err != nil {
@@ -105,10 +106,10 @@ func priorSeqNoOf(prior *manifest.Manifest, partitionID int) uint64 {
 	return prior.LastSeqNo(uint32(partitionID))
 }
 
-func (durable *Durable) writeLoggedPartition(ctx context.Context, store checkpoint.Store, prior *manifest.Manifest,
-	partitionID int, to uint64) (manifest.PartitionEntry, error) {
+func (durable *Durable) writeLoggedPartition(ctx context.Context, store checkpoint.Store, handle *Handle,
+	prior *manifest.Manifest, partitionID int, to uint64, pagedText bool) (manifest.PartitionEntry, error) {
 	entry := priorEntryOf(prior, partitionID)
-	changes, err := durable.readLoggedChanges(partitionID, priorSeqNoOf(prior, partitionID), to)
+	changes, err := durable.readLoggedChanges(handle, partitionID, priorSeqNoOf(prior, partitionID), to)
 	if err != nil {
 		return entry, err
 	}
@@ -116,7 +117,7 @@ func (durable *Durable) writeLoggedPartition(ctx context.Context, store checkpoi
 	if len(changes.live) == 0 && len(tombstones) == 0 {
 		return entry, nil
 	}
-	detached, err := detachedIndexOf(durable.handle)
+	detached, err := detachedIndexOf(handle)
 	if err != nil {
 		return entry, err
 	}
@@ -124,14 +125,13 @@ func (durable *Durable) writeLoggedPartition(ctx context.Context, store checkpoi
 	if err := insertDocuments(detached, changes.live); err != nil {
 		return entry, err
 	}
-	pagedText := durable.textStoredOnDisk()
 	if pagedText {
 		if tombstones, err = pagedTombstonesFor(ctx, store, entry.Segments, sortedKeys(changes.live),
 			tombstones); err != nil {
 			return entry, err
 		}
 	}
-	return entry, writePartitionSegments(ctx, store, durable.handle.Name, detached, &entry,
-		segmentWriteRequest{schema: flatSchema(durable.handle), schemaOrder: schemaOrderOf(durable.handle),
+	return entry, writePartitionSegments(ctx, store, handle.Name, detached, &entry,
+		segmentWriteRequest{schema: flatSchema(handle), schemaOrder: schemaOrderOf(handle),
 			tombstones: tombstones}, pagedText)
 }

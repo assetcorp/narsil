@@ -18,21 +18,43 @@ type frozenSegment struct {
 	documents [][]byte
 	source    documentSource
 	columns   atomic.Pointer[frozenColumns]
+	holders   atomic.Int64
+}
+
+func (f *frozenSegment) hold() bool {
+	for {
+		held := f.holders.Load()
+		if held <= 0 {
+			return false
+		}
+		if f.holders.CompareAndSwap(held, held+1) {
+			return true
+		}
+	}
 }
 
 func (f *frozenSegment) release() {
+	if f.holders.Add(-1) != 0 {
+		return
+	}
 	f.columns.Swap(nil).release()
 	if f.paged != nil {
 		f.paged.Close()
 	}
 }
 
+func ownedFrozenSegment(segment *frozenSegment) *frozenSegment {
+	segment.holders.Store(1)
+	return segment
+}
+
 func newFrozenSegment(frozen *segments.Frozen, ids []string, documents [][]byte) *frozenSegment {
-	return &frozenSegment{frozen: frozen, ids: newResidentIDs(ids), documents: documents}
+	return ownedFrozenSegment(&frozenSegment{frozen: frozen, ids: newResidentIDs(ids), documents: documents})
 }
 
 func newPagedFrozenSegment(paged *segments.Paged) *frozenSegment {
-	return &frozenSegment{frozen: &paged.Frozen, paged: paged, ids: pagedIDs{paged: paged}, source: paged}
+	return ownedFrozenSegment(&frozenSegment{frozen: &paged.Frozen, paged: paged, ids: pagedIDs{paged: paged},
+		source: paged})
 }
 
 func (f *frozenSegment) keyword() *segments.Keyword {

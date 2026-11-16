@@ -170,7 +170,7 @@ func (n *Narsil) removeChunk(ctx context.Context, holder indexHolder, entry *ind
 			return nil, releasedNothing, err
 		}
 	}
-	removed, err := n.applyRemoveChunk(ctx, entry, contexts, outcome)
+	entry, release, removed, err := n.applyRemoveChunk(ctx, entry, release, contexts, outcome)
 	if err != nil || len(removed) == 0 || !n.plugins.hasHook(hookAfterRemove) {
 		return entry, release, err
 	}
@@ -181,41 +181,37 @@ func (n *Narsil) removeChunk(ctx context.Context, holder indexHolder, entry *ind
 	return nil, releasedNothing, nil
 }
 
-func (n *Narsil) applyRemoveChunk(ctx context.Context, entry *indexEntry, contexts []*model.RemoveContext,
-	outcome *batchOutcome) ([]*model.RemoveContext, error) {
-	entry.writeMu.Lock()
-	candidates := make([]string, len(contexts))
+func (n *Narsil) applyRemoveChunk(ctx context.Context, entry *indexEntry, release func(),
+	contexts []*model.RemoveContext, outcome *batchOutcome) (*indexEntry, func(), []*model.RemoveContext, error) {
+	candidates := make([]persist.Write, len(contexts))
 	for at, remove := range contexts {
-		candidates[at] = remove.DocID
+		candidates[at] = persist.Write{DocumentID: remove.DocID}
 	}
-	present, err := entry.presence(ctx, candidates)
-	if err != nil {
-		entry.writeMu.Unlock()
-		return nil, err
-	}
-	accepted := make([]*model.RemoveContext, 0, len(contexts))
-	seen := make(map[string]struct{}, len(contexts))
-	for at, remove := range contexts {
-		if _, repeated := seen[remove.DocID]; repeated || !present[at] {
-			outcome.fail(remove.DocID, documentNotFound(remove.DocID))
-			continue
-		}
-		seen[remove.DocID] = struct{}{}
-		accepted = append(accepted, remove)
-	}
-	writes := make([]persist.Write, len(accepted))
-	for at, remove := range accepted {
-		writes[at] = persist.Write{DocumentID: remove.DocID}
-	}
-	failures, commit, err := entry.apply(ctx, writes, index.WriteRemove)
-	if awaited := entry.unlockAndAwait(ctx, commit); err == nil {
-		err = awaited
+	var accepted []*model.RemoveContext
+	var missing []string
+	var failures []error
+	entry, release, err := n.applyKeepingTokens(ctx, entry.name, entry, release, candidates,
+		func(ctx context.Context, entry *indexEntry) (persist.Commit, error) {
+			var commit persist.Commit
+			var err error
+			if accepted, missing, err = acceptedRemovals(ctx, entry, contexts); err != nil {
+				return commit, err
+			}
+			writes := make([]persist.Write, len(accepted))
+			for at, remove := range accepted {
+				writes[at] = persist.Write{DocumentID: remove.DocID}
+			}
+			failures, commit, err = entry.apply(ctx, writes, index.WriteRemove)
+			return commit, err
+		})
+	for _, id := range missing {
+		outcome.fail(id, documentNotFound(id))
 	}
 	if err != nil {
 		for _, remove := range accepted {
 			outcome.fail(remove.DocID, err)
 		}
-		return nil, err
+		return entry, release, nil, err
 	}
 	removed := make([]*model.RemoveContext, 0, len(accepted))
 	for at, remove := range accepted {
@@ -226,5 +222,29 @@ func (n *Narsil) applyRemoveChunk(ctx context.Context, entry *indexEntry, contex
 		outcome.result.Succeeded = append(outcome.result.Succeeded, remove.DocID)
 		removed = append(removed, remove)
 	}
-	return removed, nil
+	return entry, release, removed, nil
+}
+
+func acceptedRemovals(ctx context.Context, entry *indexEntry, contexts []*model.RemoveContext) (
+	[]*model.RemoveContext, []string, error) {
+	candidates := make([]string, len(contexts))
+	for at, remove := range contexts {
+		candidates[at] = remove.DocID
+	}
+	present, err := entry.presence(ctx, candidates)
+	if err != nil {
+		return nil, nil, err
+	}
+	accepted := make([]*model.RemoveContext, 0, len(contexts))
+	var missing []string
+	seen := make(map[string]struct{}, len(contexts))
+	for at, remove := range contexts {
+		if _, repeated := seen[remove.DocID]; repeated || !present[at] {
+			missing = append(missing, remove.DocID)
+			continue
+		}
+		seen[remove.DocID] = struct{}{}
+		accepted = append(accepted, remove)
+	}
+	return accepted, missing, nil
 }

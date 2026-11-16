@@ -5,6 +5,7 @@ import (
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/codec"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/index/analysis"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/growing"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/schema"
 )
@@ -16,8 +17,9 @@ type Prepared struct {
 	text    preparedText
 }
 
-func (p *Partition) Prepare(id string, values *codec.Document, encoded []byte) (Prepared, error) {
-	analysed, err := p.analyser()
+func (p *Partition) Prepare(kept *analysis.Pass, id string, values *codec.Document, encoded []byte) (Prepared,
+	error) {
+	analysed, err := p.analyser(kept)
 	if err != nil {
 		return Prepared{}, err
 	}
@@ -32,12 +34,13 @@ type planner struct {
 	partition  *Partition
 	write      *Write
 	side       *side
+	tokens     *analysis.Pass
 	begun      bool
 	operations []operation
 }
 
 func (p *Partition) planner(write *Write) *planner {
-	return &planner{partition: p, write: write, side: p.sides[write.side]}
+	return &planner{partition: p, write: write, side: p.sides[write.side], tokens: write.Tokens}
 }
 
 func (pl *planner) commit(err *error) {
@@ -194,7 +197,7 @@ func (pl *planner) previous(id string) (location, *codec.Document, preparedText,
 	if err != nil {
 		return location{}, nil, preparedText{}, err
 	}
-	analysed, err := pl.partition.analyser()
+	analysed, err := pl.partition.analyser(pl.tokens)
 	if err != nil {
 		return location{}, nil, preparedText{}, err
 	}

@@ -30,6 +30,14 @@ func (s Selection) Document(ordinal uint32) (string, []byte, error) {
 	return stored.id, stored.encoded, nil
 }
 
+func (s Selection) Hold() bool {
+	return s.segment.hold()
+}
+
+func (s Selection) Release() {
+	s.segment.release()
+}
+
 func (s Selection) Paged() bool {
 	return s.segment.paged != nil
 }

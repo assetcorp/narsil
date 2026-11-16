@@ -111,11 +111,10 @@ func (n *Narsil) Insert(ctx context.Context, indexName string, document *Documen
 	if err := n.heap.admit(indexName); err != nil {
 		return "", err
 	}
-	entry.writeMu.Lock()
-	commit, err := n.applyInsertLocked(ctx, entry, write)
-	if awaited := entry.unlockAndAwait(ctx, commit); err == nil {
-		err = awaited
-	}
+	entry, release, err = n.applyKeepingTokens(ctx, indexName, entry, release, []persist.Write{write},
+		func(ctx context.Context, entry *indexEntry) (persist.Commit, error) {
+			return n.applyInsertLocked(ctx, entry, write)
+		})
 	if err != nil {
 		return "", err
 	}
@@ -227,11 +226,10 @@ func (n *Narsil) replaceDocument(ctx context.Context, entry *indexEntry, release
 	if err := n.heap.admit(indexName); err != nil {
 		return entry, release, nil, persist.Write{}, err
 	}
-	entry.writeMu.Lock()
-	commit, err := n.applyUpdateLocked(ctx, entry, write)
-	if awaited := entry.unlockAndAwait(ctx, commit); err == nil {
-		err = awaited
-	}
+	entry, release, err = n.applyKeepingTokens(ctx, indexName, entry, release, []persist.Write{write},
+		func(ctx context.Context, entry *indexEntry) (persist.Commit, error) {
+			return n.applyUpdateLocked(ctx, entry, write)
+		})
 	if err != nil {
 		return entry, release, nil, persist.Write{}, err
 	}
@@ -272,11 +270,10 @@ func (n *Narsil) Remove(ctx context.Context, indexName string, docID string, opt
 			return err
 		}
 	}
-	entry.writeMu.Lock()
-	commit, err := n.applyRemoveLocked(ctx, entry, docID)
-	if awaited := entry.unlockAndAwait(ctx, commit); err == nil {
-		err = awaited
-	}
+	entry, release, err = n.applyKeepingTokens(ctx, indexName, entry, release, []persist.Write{{DocumentID: docID}},
+		func(ctx context.Context, entry *indexEntry) (persist.Commit, error) {
+			return n.applyRemoveLocked(ctx, entry, docID)
+		})
 	if err != nil {
 		return err
 	}

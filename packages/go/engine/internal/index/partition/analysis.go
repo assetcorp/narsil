@@ -95,6 +95,15 @@ func (a analyser) prepare(document *codec.Document) (preparedText, error) {
 	return ownedText(collected.Fields(), a.text), nil
 }
 
+func (p *Partition) Analyse(tokens *analysis.Pass, document *codec.Document) error {
+	analysed, err := p.analyser(tokens)
+	if err != nil {
+		return err
+	}
+	_, err = analysed.prepare(document)
+	return err
+}
+
 func ownedText(fields []core.FieldTokens, text []schema.Field) preparedText {
 	prepared := preparedText{fields: make([]core.FieldTokens, len(fields)), paths: make([]string, len(fields))}
 	for at, field := range fields {

@@ -17,7 +17,7 @@ type PartitionCapture struct {
 	Checkpoint manifest.PartitionCheckpoint
 	Rewritten  bool
 	Segments   []*keyword.Segment
-	Stream     func(ctx context.Context, entry *manifest.PartitionEntry) error
+	Stream     func(ctx context.Context, store Store, entry *manifest.PartitionEntry) error
 	Listed     *manifest.PartitionEntry
 }
 
@@ -87,7 +87,7 @@ func writeSegments(ctx context.Context, store Store, input Input, capture Partit
 	entry := manifest.PartitionEntry{PartitionID: partitionID, NextSegmentID: prior.NextSegmentID,
 		Segments: []manifest.SegmentRef{}}
 	if capture.Stream != nil {
-		return entry, capture.Stream(ctx, &entry)
+		return entry, capture.Stream(ctx, store, &entry)
 	}
 	return entry, AppendSegments(ctx, store, input.IndexName, &entry, capture.Segments)
 }
@@ -99,9 +99,7 @@ func requireRoom(entry *manifest.PartitionEntry, adding int) error {
 			map[string]any{"partitionId": entry.PartitionID, "segments": len(entry.Segments) + adding})
 	}
 	if entry.NextSegmentID > manifest.MaxSegmentID {
-		return narsilerr.New(narsilerr.CodePersistenceSaveFailed,
-			"The partition has used every segment number a manifest accepts",
-			map[string]any{"partitionId": entry.PartitionID})
+		return usedEverySegmentID(entry.PartitionID)
 	}
 	return nil
 }
@@ -115,7 +113,10 @@ func AppendSegments(ctx context.Context, store Store, indexName string, entry *m
 		if err := requireRoom(entry, 0); err != nil {
 			return err
 		}
-		id := entry.NextSegmentID
+		id, err := nextSegmentID(store, entry)
+		if err != nil {
+			return err
+		}
 		ref := manifest.FileRef{Key: manifest.SegmentKey(indexName, entry.PartitionID, id)}
 		packed, err := keyword.Pack(segment, false)
 		if err != nil {
@@ -127,7 +128,6 @@ func AppendSegments(ctx context.Context, store Store, indexName string, entry *m
 		if err := store.Write(ctx, ref.Key, packed); err != nil {
 			return err
 		}
-		entry.NextSegmentID++
 		entry.Segments = append(entry.Segments, manifest.SegmentRef{ID: id, DocCount: segment.DocumentCount,
 			TombstoneCount: uint32(len(segment.Tombstones)), File: ref})
 	}
@@ -139,7 +139,10 @@ func AppendStreamed(ctx context.Context, store Store, indexName string, entry *m
 	if err := requireRoom(entry, 1); err != nil {
 		return err
 	}
-	id := entry.NextSegmentID
+	id, err := nextSegmentID(store, entry)
+	if err != nil {
+		return err
+	}
 	ref := manifest.FileRef{Key: manifest.SegmentKey(indexName, entry.PartitionID, id)}
 	streaming, streams := store.(StreamingStore)
 	path, held := store.PathOf(ref.Key)
@@ -150,7 +153,7 @@ func AppendStreamed(ctx context.Context, store Store, indexName string, entry *m
 	}
 	var written keyword.Written
 	var documents uint32
-	err := streaming.WriteStream(ctx, ref.Key, func(writer io.Writer) error {
+	err = streaming.WriteStream(ctx, ref.Key, func(writer io.Writer) error {
 		var err error
 		written, documents, err = segment.WriteStreamed(ctx, writer, path, streamed)
 		return err
@@ -159,7 +162,6 @@ func AppendStreamed(ctx context.Context, store Store, indexName string, entry *m
 		return err
 	}
 	ref.Bytes, ref.Checksum = uint64(written.Bytes), written.Checksum
-	entry.NextSegmentID++
 	entry.Segments = append(entry.Segments, manifest.SegmentRef{ID: id, DocCount: documents,
 		TombstoneCount: uint32(len(streamed.Tombstones)), File: ref})
 	return nil
@@ -213,8 +215,7 @@ func writeField(ctx context.Context, store Store, input Input, capture VectorCap
 		if err != nil {
 			return ref, done, err
 		}
-		id := ref.NextFileID
-		ref.NextFileID++
+		id := nextVectorFileID(store, &ref)
 		key, err := manifest.VectorFileKey(input.IndexName, capture.FieldPath, id)
 		if err != nil {
 			return ref, done, err
@@ -246,7 +247,7 @@ func writeField(ctx context.Context, store Store, input Input, capture VectorCap
 	}
 	parts := capture.Plan.GraphParts()
 	if len(parts) > 0 {
-		ref.GraphGeneration++
+		nextGraphGeneration(store, &ref)
 		for index, part := range parts {
 			key, err := manifest.GraphPartKey(input.IndexName, capture.FieldPath, ref.GraphGeneration, uint64(index))
 			if err != nil {

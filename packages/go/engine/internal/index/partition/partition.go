@@ -30,7 +30,7 @@ type Partition struct {
 	pendingSide int
 	staleSide   bool
 	merging     sync.Mutex
-	changes     atomic.Pointer[ChangeLog]
+	changes     atomic.Pointer[[]*ChangeLog]
 	clears      uint64
 }
 
@@ -69,10 +69,14 @@ func (p *Partition) Release() {
 	}
 }
 
-func (p *Partition) analyser() (analyser, error) {
-	pass, err := p.settings.Analyzer.Prepare()
-	if err != nil {
-		return analyser{}, err
+func (p *Partition) analyser(kept *analysis.Pass) (analyser, error) {
+	pass := kept
+	if !kept.Of(p.settings.Analyzer) {
+		prepared, err := p.settings.Analyzer.Prepare()
+		if err != nil {
+			return analyser{}, err
+		}
+		pass = prepared
 	}
 	options := analysis.IndexingOptions
 	options.CollectSurfaces = p.settings.CollectSurfaces

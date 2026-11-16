@@ -19,21 +19,10 @@ type capture struct {
 	vectors    []checkpoint.VectorCapture
 	partitions []checkpoint.PartitionCapture
 	selections []*heldSelections
-	frozen     *frozenReading
+	inMemory   map[int]*heldSelections
 	changes    []*partition.ChangeLog
 	tracked    *index.Index
-}
-
-type frozenReading struct {
-	reading    *index.Reading
-	partitions []int
-}
-
-func (frozen *frozenReading) release() {
-	if frozen != nil && frozen.reading != nil {
-		frozen.reading.Release()
-		frozen.reading = nil
-	}
+	count      uint64
 }
 
 func (held capture) release() {
@@ -44,7 +33,6 @@ func (held capture) release() {
 	for _, selections := range held.selections {
 		selections.release()
 	}
-	held.frozen.release()
 }
 
 func segmentWriteRequestOf(handle *Handle) segmentWriteRequest {
@@ -52,14 +40,9 @@ func segmentWriteRequestOf(handle *Handle) segmentWriteRequest {
 }
 
 func (held capture) writeFrozenPartitions(handle *Handle) error {
-	frozen := held.frozen
-	if frozen == nil || frozen.reading == nil {
-		return nil
-	}
-	defer frozen.release()
 	request := segmentWriteRequestOf(handle)
-	for _, partitionID := range frozen.partitions {
-		files, err := writeSegmentsOf(frozen.reading.Snapshots[partitionID].Selections(), request)
+	for partitionID, selections := range held.inMemory {
+		files, err := writeSegmentsOf(selections.selections, request)
 		if err != nil {
 			return err
 		}
@@ -68,8 +51,7 @@ func (held capture) writeFrozenPartitions(handle *Handle) error {
 	return nil
 }
 
-func (held *capture) freezeWholePartitions(ctx context.Context, handle *Handle, store checkpoint.Store,
-	pagedText bool) error {
+func (held *capture) freezeWholePartitions(ctx context.Context, handle *Handle, pagedText bool) error {
 	held.partitions = make([]checkpoint.PartitionCapture, len(held.seqNos))
 	var whole []int
 	for partitionID, seqNo := range held.seqNos {
@@ -88,19 +70,21 @@ func (held *capture) freezeWholePartitions(ctx context.Context, handle *Handle, 
 	if err != nil {
 		return err
 	}
-	held.frozen = &frozenReading{reading: reading, partitions: whole}
-	if !pagedText {
-		return nil
-	}
-	defer held.frozen.release()
+	defer reading.Release()
 	request := segmentWriteRequestOf(handle)
+	held.inMemory = map[int]*heldSelections{}
 	for _, partitionID := range whole {
 		selections, err := holdSelectionsOf(reading, partitionID)
 		if err != nil {
 			return err
 		}
 		held.selections = append(held.selections, selections)
-		held.partitions[partitionID].Stream = func(ctx context.Context, entry *manifest.PartitionEntry) error {
+		if !pagedText {
+			held.inMemory[partitionID] = selections
+			continue
+		}
+		held.partitions[partitionID].Stream = func(ctx context.Context, store checkpoint.Store,
+			entry *manifest.PartitionEntry) error {
 			return selections.stream(ctx, store, handle.Name, entry, request)
 		}
 	}

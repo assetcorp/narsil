@@ -2,9 +2,11 @@ package partition
 
 import (
 	"context"
+	"errors"
 	"slices"
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/index/analysis"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/fields"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/segments"
 )
@@ -108,18 +110,54 @@ func (p *Partition) Merge(ctx context.Context, sides *Sides, pick func(sizes []S
 		}
 		merged.output = append(merged.output, output)
 	}
+	tokens, err := p.keptTokens()
+	if err != nil {
+		return false, err
+	}
 	installed := false
-	err = sides.Write(ctx, func(write *Write) (err error) {
+	for round := 1; ; round++ {
+		err = p.installMerge(ctx, sides, merged, snapshot, tokens, &installed)
+		var missed *analysis.MissedTokens
+		if !errors.As(err, &missed) {
+			return installed, err
+		}
+		if round >= TokenRoundsPerWrite {
+			return false, nil
+		}
+		tokens.Remember(missed.Sources)
+	}
+}
+
+func (p *Partition) keptTokens() (*analysis.Pass, error) {
+	if !p.settings.Analyzer.CallsCallerCode() {
+		return nil, nil
+	}
+	prepared, err := p.settings.Analyzer.Prepare()
+	if err != nil {
+		return nil, err
+	}
+	return prepared.Remembering(), nil
+}
+
+func (p *Partition) installMerge(ctx context.Context, sides *Sides, merged *mergeResult, snapshot mergeSnapshot,
+	tokens *analysis.Pass, installed *bool) error {
+	return sides.Write(ctx, func(write *Write) (err error) {
 		pl := p.planner(write)
+		if tokens != nil {
+			pl.tokens = tokens.Collecting()
+		}
 		defer pl.commit(&err)
+		merged.late = nil
 		inputsHeld, err := pl.lateRemovals(merged, snapshot)
 		if err != nil || !inputsHeld {
 			return err
 		}
-		installed = true
+		if err := analysis.MissedIn(pl.tokens); err != nil {
+			return err
+		}
+		*installed = true
 		return pl.run(operation{kind: installMerge, merge: merged})
 	})
-	return installed, err
 }
 
 func (pl *planner) lateRemovals(merged *mergeResult, snapshot mergeSnapshot) (bool, error) {
@@ -152,7 +190,7 @@ func (pl *planner) removedText(segment *frozenSegment, ordinal uint32) (prepared
 	if err != nil {
 		return preparedText{}, err
 	}
-	analysed, err := pl.partition.analyser()
+	analysed, err := pl.partition.analyser(pl.tokens)
 	if err != nil {
 		return preparedText{}, err
 	}

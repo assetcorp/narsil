@@ -5,6 +5,7 @@ import (
 	"errors"
 	"slices"
 
+	"github.com/assetcorp/narsil/packages/go/engine/internal/index/analysis"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/partition"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/segments"
 )
@@ -99,20 +100,28 @@ func (ix *Index) ResumePagedFiles(ctx context.Context, relocate func(path string
 	return errors.Join(failures...)
 }
 
-func (ix *Index) PrepareAdoption(partitionID int, paged []*segments.Paged, kept []bool) (*partition.Adoption, error) {
+func (ix *Index) PrepareAdoption(partitionID int, paged []*segments.Paged, kept []bool,
+	tokens *analysis.Pass) (*partition.Adoption, error) {
 	if err := ix.checkedPartition(partitionID); err != nil {
 		return nil, err
 	}
-	return ix.partitions[partitionID].PrepareAdoption(paged, kept)
+	if !ix.KeepsTokensOf(tokens) {
+		tokens = nil
+	}
+	return ix.partitions[partitionID].PrepareAdoption(tokens, paged, kept)
 }
 
 func (ix *Index) Adopt(ctx context.Context, partitionID int, adoption *partition.Adoption,
-	log *partition.ChangeLog) (bool, error) {
+	log *partition.ChangeLog, tokens *analysis.Pass) (bool, error) {
 	if err := ix.checkedPartition(partitionID); err != nil {
 		return false, err
 	}
+	if !ix.KeepsTokensOf(tokens) {
+		tokens = nil
+	}
 	adopted := false
 	err := ix.Write(ctx, func(w *Write) error {
+		w.write.Tokens = keptWrite(tokens)
 		var failed error
 		adopted, failed = ix.partitions[partitionID].Adopt(w.write, adoption, log)
 		return failed

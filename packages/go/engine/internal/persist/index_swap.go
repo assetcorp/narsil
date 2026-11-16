@@ -83,10 +83,10 @@ func (durable *Durable) installLayout(swap IndexSwap) swappedLayout {
 func (durable *Durable) checkpointEveryPartition(ctx context.Context) error {
 	durable.stall.begin()
 	defer durable.stall.end()
-	options := checkpointOptions{everyPartition: true}
+	options := checkpointOptions{everyPartition: true, locked: true}
 	for {
-		_, left, err := durable.boundedCheckpoint(ctx, options)
-		if err != nil || left == 0 || durable.closed.Load() || ctx.Err() != nil {
+		outcome, err := durable.boundedCheckpoint(ctx, options)
+		if err != nil || outcome.left == 0 || durable.closed.Load() || ctx.Err() != nil {
 			return err
 		}
 		options.prior = nil
@@ -145,6 +145,7 @@ func (durable *Durable) SwapIndex(ctx context.Context, prepare func() (IndexSwap
 		return false, err
 	}
 	previous := durable.installLayout(swap)
+	durable.layoutEpoch++
 	durable.unlockLayout(layoutUnion(held, durable.partitions))
 	var retired []*partitionLog
 	if len(previous.partitions) > len(durable.partitions) {

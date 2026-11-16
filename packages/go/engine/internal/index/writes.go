@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/codec"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/index/analysis"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/partition"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/vector"
 )
@@ -22,7 +23,7 @@ func (w *Write) Sequence() int64 {
 	return w.write.Sequence
 }
 
-func (ix *Index) prepare(documents []DocumentWrite) ([]PreparedDocument, []error) {
+func (ix *Index) prepare(documents []DocumentWrite, tokens *analysis.Pass) ([]PreparedDocument, []error) {
 	prepared := make([]PreparedDocument, len(documents))
 	failures := make([]error, len(documents))
 	for at, document := range documents {
@@ -37,7 +38,7 @@ func (ix *Index) prepare(documents []DocumentWrite) ([]PreparedDocument, []error
 			continue
 		}
 		target := ix.partitionOf(document.ID)
-		analysed, err := ix.partitions[target].Prepare(document.ID, values, encoded)
+		analysed, err := ix.partitions[target].Prepare(tokens, document.ID, values, encoded)
 		if err != nil {
 			failures[at] = err
 			continue

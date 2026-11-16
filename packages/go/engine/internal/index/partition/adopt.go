@@ -3,6 +3,7 @@ package partition
 import (
 	"slices"
 
+	"github.com/assetcorp/narsil/packages/go/engine/internal/index/analysis"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/segments"
 )
 
@@ -27,7 +28,7 @@ type Adoption struct {
 	removed  map[removalKey]struct{}
 }
 
-func (p *Partition) PrepareAdoption(paged []*segments.Paged, kept []bool) (*Adoption, error) {
+func (p *Partition) PrepareAdoption(tokens *analysis.Pass, paged []*segments.Paged, kept []bool) (*Adoption, error) {
 	adoption := &Adoption{paged: paged, kept: kept, listed: make([]*frozenSegment, len(paged)),
 		removed: map[removalKey]struct{}{}}
 	for at, segment := range paged {
@@ -35,7 +36,7 @@ func (p *Partition) PrepareAdoption(paged []*segments.Paged, kept []bool) (*Adop
 			adoption.listed[at] = newPagedFrozenSegment(segment)
 		}
 	}
-	analysing := &planner{partition: p}
+	analysing := &planner{partition: p, tokens: tokens}
 	for at := range paged {
 		for _, newer := range paged[at+1:] {
 			if err := adoption.removeHeld(analysing, at, newer.Tombstones()); err != nil {
@@ -109,7 +110,7 @@ func (pl *planner) currentVersions(adoption *Adoption, ids []string) ([]Prepared
 		if err != nil {
 			return nil, false, err
 		}
-		prepared, err := pl.partition.Prepare(id, values, stored.encoded)
+		prepared, err := pl.partition.Prepare(pl.tokens, id, values, stored.encoded)
 		if err != nil {
 			return nil, false, err
 		}
@@ -137,13 +138,45 @@ func (a *Adoption) installed(s *side) (listed []*frozenSegment, positions []int,
 	return listed, positions, dropped
 }
 
+func (pl *planner) missingAdoptionTokens(adoption *Adoption, changed []string) error {
+	if pl.tokens == nil {
+		return nil
+	}
+	dry := &planner{partition: pl.partition, write: pl.write, side: pl.side, tokens: pl.tokens.Collecting()}
+	if _, _, err := dry.currentVersions(adoption, changed); err != nil {
+		return err
+	}
+	for at, segment := range adoption.listed {
+		if adoption.kept[at] {
+			continue
+		}
+		for _, id := range changed {
+			ordinal, found, err := segment.ordinalOf(id)
+			if err != nil {
+				return err
+			}
+			if !found {
+				continue
+			}
+			if _, err := dry.removedText(segment, ordinal); err != nil {
+				return err
+			}
+		}
+	}
+	return analysis.MissedIn(dry.tokens)
+}
+
 func (p *Partition) Adopt(write *Write, adoption *Adoption, log *ChangeLog) (adopted bool, err error) {
-	p.StopTracking(log)
 	pl := p.planner(write)
 	if log.replaced || !adoption.resolveKept(pl.side) {
+		p.StopTracking(log)
 		return false, nil
 	}
 	changed := log.changedIDs()
+	if err := pl.missingAdoptionTokens(adoption, changed); err != nil {
+		return false, err
+	}
+	p.StopTracking(log)
 	current, adoptable, err := pl.currentVersions(adoption, changed)
 	if err != nil || !adoptable {
 		return false, err

@@ -80,7 +80,7 @@ func ArchiveFromMemory(ctx context.Context, handle *Handle) (*Archive, error) {
 	}
 	store := checkpoint.AdapterStore{Adapter: storage.NewMemory()}
 	defer func() { held.release() }()
-	if err := held.freezeWholePartitions(ctx, handle, store, false); err != nil {
+	if err := held.freezeWholePartitions(ctx, handle, false); err != nil {
 		return nil, err
 	}
 	if err := held.writeFrozenPartitions(handle); err != nil {

@@ -8,7 +8,6 @@ import (
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/metadata"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/persist/checkpoint"
-	"github.com/assetcorp/narsil/packages/go/engine/internal/persist/writeahead"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/vector"
 )
 
@@ -115,6 +114,7 @@ type checkpointOptions struct {
 	everyPartition bool
 	prior          *manifest.Manifest
 	pagedText      bool
+	locked         bool
 }
 
 func (durable *Durable) captureLocked(ctx context.Context, prior *manifest.Manifest, logged bool,
@@ -149,6 +149,7 @@ func (durable *Durable) captureLocked(ctx context.Context, prior *manifest.Manif
 	for partitionID, log := range durable.partitions {
 		held.seqNos[partitionID] = log.applied
 	}
+	held.count = uint64(durable.handle.Index.Count())
 	durable.planPartitions(prior, logged, options, &held)
 	held.live = durable.liveDocumentCounts(ctx, &held)
 	vectors, err := planVectors(ctx, durable.handle, prior, consistent)
@@ -156,15 +157,9 @@ func (durable *Durable) captureLocked(ctx context.Context, prior *manifest.Manif
 		return held, err
 	}
 	held.vectors = vectors
-	if err := held.freezeWholePartitions(ctx, durable.handle, durable.manager.store, options.pagedText); err != nil {
+	if err := held.freezeWholePartitions(ctx, durable.handle, options.pagedText); err != nil {
 		held.release()
 		return held, err
-	}
-	if consistent {
-		if err := held.writeFrozenPartitions(durable.handle); err != nil {
-			held.release()
-			return held, err
-		}
 	}
 	if logged {
 		for _, log := range durable.partitions {
@@ -194,8 +189,7 @@ func (durable *Durable) checkpoint(ctx context.Context, consistent bool) error {
 
 func (durable *Durable) prepareCheckpoint(ctx context.Context, logged bool) error {
 	if durable.closed.Load() {
-		return narsilerr.New(narsilerr.CodeInstanceShutDown,
-			`Index "`+durable.handle.Name+`" is closed`, map[string]any{"indexName": durable.handle.Name})
+		return durable.closedError()
 	}
 	if err := durable.refuseFailedPartitions(ctx); err != nil {
 		return err
@@ -215,103 +209,4 @@ func (durable *Durable) prepareCheckpoint(ctx context.Context, logged bool) erro
 		}
 	}
 	return nil
-}
-
-func (durable *Durable) checkpointWith(ctx context.Context, options checkpointOptions) (manifest.Manifest, error) {
-	if err := durable.checkpointMutex.LockContext(ctx); err != nil {
-		return manifest.Manifest{}, err
-	}
-	defer durable.checkpointMutex.Unlock()
-	durable.stall.begin()
-	defer durable.stall.end()
-	for {
-		written, left, err := durable.boundedCheckpoint(ctx, options)
-		if err != nil || left == 0 || durable.closed.Load() || ctx.Err() != nil {
-			return written, err
-		}
-		options.prior = nil
-	}
-}
-
-func (durable *Durable) boundedCheckpoint(ctx context.Context, options checkpointOptions) (manifest.Manifest, uint64,
-	error) {
-	store, logged := durable.manager.store, durable.manager.logged()
-	if err := durable.prepareCheckpoint(ctx, logged); err != nil {
-		return manifest.Manifest{}, 0, err
-	}
-	for _, field := range durable.handle.vectorFields() {
-		if err := field.UntilColdLoaded(ctx); err != nil {
-			return manifest.Manifest{}, 0, err
-		}
-	}
-	prior := options.prior
-	if prior == nil {
-		read, err := durable.priorManifest(ctx, store)
-		if err != nil {
-			return manifest.Manifest{}, 0, err
-		}
-		prior = read
-	}
-	since := durable.sinceCheckpoint.Load()
-	sinceBytes := durable.bytesSinceCheckpoint.Load()
-	options.pagedText = durable.textStoredOnDisk()
-	held, err := durable.captureLocked(ctx, prior, logged, options)
-	if err != nil {
-		return manifest.Manifest{}, 0, err
-	}
-	defer func() { held.release() }()
-	if !options.consistent {
-		if err := held.writeFrozenPartitions(durable.handle); err != nil {
-			return manifest.Manifest{}, 0, err
-		}
-	}
-	if err := durable.buildLoggedPartitions(ctx, store, prior, &held); err != nil {
-		return manifest.Manifest{}, 0, err
-	}
-	written, err := durable.commitCheckpoint(ctx, store, prior, held)
-	if err != nil {
-		return manifest.Manifest{}, 0, err
-	}
-	durable.noteCheckpointCommitted(since, sinceBytes, int64(held.left))
-	if !logged {
-		return written, held.left, nil
-	}
-	if err := durable.truncateCovered(held.seqNos); err != nil {
-		return written, held.left, err
-	}
-	return written, held.left, writeahead.RemoveBeyondCount(durable.manager.directory, durable.handle.Name,
-		len(durable.partitions))
-}
-
-func (durable *Durable) commitCheckpoint(ctx context.Context, store checkpoint.Store, prior *manifest.Manifest,
-	held capture) (manifest.Manifest, error) {
-	meta, err := durable.handle.metadata(uint64(durable.handle.Index.Count()))
-	if err != nil {
-		return manifest.Manifest{}, err
-	}
-	input := checkpointInput(durable.handle, meta, prior, held)
-	written, err := checkpoint.WriteFiles(ctx, store, input)
-	if err != nil {
-		return manifest.Manifest{}, err
-	}
-	rewritten, err := compactWritten(ctx, store, durable.handle, prior, &written,
-		durable.manager.settings.checkpointLimits(), durable.textStoredOnDisk(), held.live)
-	if err != nil {
-		return manifest.Manifest{}, err
-	}
-	held.rewritten = rewritten
-	if err := checkpoint.CommitManifest(ctx, store, durable.handle.Name, written); err != nil {
-		return manifest.Manifest{}, err
-	}
-	durable.manager.sizes.recordSaved(durable.handle.Name, savedSizeOf(written.Manifest))
-	if err := written.Record(ctx); err != nil {
-		return written.Manifest, err
-	}
-	if err := durable.adoptWritten(ctx, store, written.Manifest, held); err != nil {
-		return written.Manifest, err
-	}
-	if err := durable.removeGarbage(ctx, store, written.Manifest, written.Garbage); err != nil {
-		return written.Manifest, err
-	}
-	return written.Manifest, durable.writeMetadata(ctx, uint64(durable.handle.Index.Count()))
 }

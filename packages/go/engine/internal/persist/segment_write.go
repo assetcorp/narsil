@@ -260,6 +260,7 @@ func partitionSegmentFiles(ctx context.Context, target *index.Index, partitionID
 type heldSelections struct {
 	selections []partition.Selection
 	paged      []*segments.Paged
+	memory     []partition.Selection
 }
 
 func (held *heldSelections) release() {
@@ -267,6 +268,10 @@ func (held *heldSelections) release() {
 		paged.Close()
 	}
 	held.paged = nil
+	for _, selection := range held.memory {
+		selection.Release()
+	}
+	held.memory = nil
 }
 
 func holdPartitionSelections(ctx context.Context, target *index.Index, partitionID int) (*heldSelections, error) {
@@ -283,6 +288,13 @@ func holdSelectionsOf(reading *index.Reading, partitionID int) (*heldSelections,
 	for _, selection := range held.selections {
 		paged := selection.PagedSegment()
 		if paged == nil {
+			if !selection.Hold() {
+				held.release()
+				return nil, narsilerr.New(narsilerr.CodePersistenceSaveFailed,
+					"A segment of the partition was released while its checkpoint segments were being built",
+					map[string]any{"partitionId": partitionID})
+			}
+			held.memory = append(held.memory, selection)
 			continue
 		}
 		if !paged.Hold() {

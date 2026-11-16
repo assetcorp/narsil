@@ -11,14 +11,14 @@ import (
 
 type writeStall struct {
 	mutex    sync.Mutex
-	inFlight bool
+	inFlight int
 	released chan struct{}
 }
 
 func (stall *writeStall) begin() {
 	stall.mutex.Lock()
 	defer stall.mutex.Unlock()
-	stall.inFlight = true
+	stall.inFlight++
 	if stall.released == nil {
 		stall.released = make(chan struct{})
 	}
@@ -27,17 +27,20 @@ func (stall *writeStall) begin() {
 func (stall *writeStall) end() {
 	stall.mutex.Lock()
 	defer stall.mutex.Unlock()
-	stall.inFlight = false
+	stall.inFlight = max(0, stall.inFlight-1)
 	if stall.released != nil {
 		close(stall.released)
 		stall.released = nil
+	}
+	if stall.inFlight > 0 {
+		stall.released = make(chan struct{})
 	}
 }
 
 func (stall *writeStall) waiting() (<-chan struct{}, bool) {
 	stall.mutex.Lock()
 	defer stall.mutex.Unlock()
-	if !stall.inFlight || stall.released == nil {
+	if stall.inFlight == 0 || stall.released == nil {
 		return nil, false
 	}
 	return stall.released, true
@@ -53,15 +56,6 @@ func (durable *Durable) checkpointDue(mutationThreshold int64) bool {
 		return true
 	}
 	return durable.bytesSinceCheckpoint.Load() >= WritesStallAboveUncheckpointedBytes
-}
-
-func (durable *Durable) noteCheckpointCommitted(records int64, documentBytes int64, left int64) {
-	covered := max(0, records-left)
-	if records > 0 && covered < records {
-		documentBytes = int64(float64(documentBytes) * float64(covered) / float64(records))
-	}
-	durable.sinceCheckpoint.Add(-covered)
-	durable.bytesSinceCheckpoint.Add(-documentBytes)
 }
 
 func (durable *Durable) stallWhileCheckpointsFallBehind(ctx context.Context) {

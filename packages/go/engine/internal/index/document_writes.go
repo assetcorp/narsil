@@ -5,6 +5,7 @@ import (
 	"slices"
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/codec"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/index/analysis"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/partition"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/vector"
@@ -47,12 +48,12 @@ type Batch struct {
 	Failures []error
 }
 
-func (ix *Index) PrepareBatch(kind WriteKind, writes []DocumentWrite) *Batch {
+func (ix *Index) PrepareBatch(kind WriteKind, writes []DocumentWrite, tokens *analysis.Pass) *Batch {
 	batch := &Batch{kind: kind, writes: writes, Failures: make([]error, len(writes))}
 	if kind == WriteRemove {
 		return batch
 	}
-	batch.prepared, batch.Failures = ix.prepare(writes)
+	batch.prepared, batch.Failures = ix.prepare(writes, tokens)
 	return batch
 }
 
@@ -110,17 +111,30 @@ func (w *Write) ApplyBatch(b *Batch, vectors []vector.NamedField) error {
 }
 
 func (ix *Index) Apply(kind WriteKind, writes []DocumentWrite, vectors []vector.NamedField) ([]error, error) {
+	return ix.ApplyWith(kind, writes, vectors, nil)
+}
+
+func (ix *Index) ApplyWith(kind WriteKind, writes []DocumentWrite, vectors []vector.NamedField,
+	tokens *analysis.Pass) ([]error, error) {
+	if !ix.KeepsTokensOf(tokens) {
+		tokens = nil
+	}
+	kept := keptWrite(tokens)
 	if len(vectors) > 0 || kind != WriteInsert && ix.settings.Analyzer.CallsCallerCode() {
-		batch := ix.PrepareBatch(kind, writes)
-		err := ix.Write(context.Background(), func(w *Write) error { return w.ApplyBatch(batch, vectors) })
+		batch := ix.PrepareBatch(kind, writes, kept)
+		err := ix.Write(context.Background(), func(w *Write) error {
+			w.write.Tokens = kept
+			return w.ApplyBatch(batch, vectors)
+		})
 		ix.noteGrowth()
 		return batch.Failures, err
 	}
 	failures := make([]error, 0, len(writes))
 	var err error
 	for start := 0; start < len(writes) && err == nil; start += InPlaceWriteChunkDocuments {
-		batch := ix.PrepareBatch(kind, writes[start:min(start+InPlaceWriteChunkDocuments, len(writes))])
+		batch := ix.PrepareBatch(kind, writes[start:min(start+InPlaceWriteChunkDocuments, len(writes))], kept)
 		err = ix.sides.WriteInPlace(context.Background(), func(write *partition.Write) error {
+			write.Tokens = kept
 			return (&Write{ix: ix, write: write}).ApplyBatch(batch, nil)
 		})
 		failures = append(failures, batch.Failures...)

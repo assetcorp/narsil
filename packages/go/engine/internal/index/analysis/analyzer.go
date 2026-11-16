@@ -96,6 +96,8 @@ type Pass struct {
 	analyzer   *Analyzer
 	stops      *core.StopWordSet
 	remembered *rememberedTokens
+	miss       missMode
+	missed     *missedSources
 }
 
 func (a *Analyzer) Prepare() (*Pass, error) {
@@ -259,6 +261,9 @@ func (p *Pass) customTokens(source string) ([]model.Token, error) {
 	}
 	if held, found := p.remembered.lookup(source); found {
 		return held.tokens, held.err
+	}
+	if p.miss != tokenizesOnMiss {
+		return p.missedTokens(source)
 	}
 	entries, err := p.checkedCustomTokens(source)
 	p.remembered.keep(source, entries, err)

@@ -2,7 +2,6 @@ package engine_test
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
@@ -73,8 +72,8 @@ func TestSearchesAndCheckpointsBesideATokenizingRemove(t *testing.T) {
 		<-checkpointed
 		t.Fatal("the checkpoint waited beyond its deadline for the writer")
 	}
-	if !errors.Is(checkpointErr, context.DeadlineExceeded) {
-		t.Fatalf("the checkpoint returned %v", checkpointErr)
+	if checkpointErr != nil {
+		t.Fatalf("the checkpoint beside the tokenizing remove returned %v", checkpointErr)
 	}
 	result, err := narsil.Query(ctx, callbackIndex, engine.QueryParams{Term: "lighthouse"})
 	if err != nil || result.Count != 0 {

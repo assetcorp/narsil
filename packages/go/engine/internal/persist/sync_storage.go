@@ -66,19 +66,31 @@ func (durable *Durable) withoutSyncKept(garbage []string) ([]string, error) {
 func (durable *Durable) removeGarbage(ctx context.Context, store checkpoint.Store, listed manifest.Manifest,
 	garbage []string) error {
 	referenced := checkpoint.ReferencedKeys(listed)
-	candidates := make([]string, 0, len(durable.deferredGarbage)+len(garbage))
-	for _, key := range append(durable.deferredGarbage, garbage...) {
-		if _, kept := referenced[key]; !kept {
-			candidates = append(candidates, key)
+	readByBuilds := durable.keysThatBuildsRead()
+	pending := append(append(append([]string(nil), durable.deferredGarbage...), durable.takeOrphaned()...), garbage...)
+	seen := map[string]struct{}{}
+	var candidates, heldForBuilds []string
+	for _, key := range pending {
+		if _, repeated := seen[key]; repeated {
+			continue
 		}
+		seen[key] = struct{}{}
+		if _, kept := referenced[key]; kept {
+			continue
+		}
+		if _, read := readByBuilds[key]; read {
+			heldForBuilds = append(heldForBuilds, key)
+			continue
+		}
+		candidates = append(candidates, key)
 	}
-	durable.deferredGarbage = candidates
+	durable.deferredGarbage = append(heldForBuilds, candidates...)
 	removable, err := durable.withoutSyncKept(candidates)
 	if err != nil {
 		return err
 	}
 	stillRead, err := checkpoint.RemoveGarbage(ctx, store, removable, durable.handle.vectorFields())
-	durable.deferredGarbage = stillRead
+	durable.deferredGarbage = append(heldForBuilds, stillRead...)
 	return err
 }
 
@@ -136,10 +148,15 @@ func (durable *Durable) removeUnlisted(ctx context.Context, previous map[string]
 	if read.Kind == checkpoint.ManifestCurrent {
 		current = checkpoint.ReferencedKeys(read.Manifest)
 	}
+	readByBuilds := durable.keysThatBuildsRead()
 	for key := range previous {
 		_, stillPublished := kept[key]
 		_, stillListed := current[key]
 		if stillPublished || stillListed {
+			continue
+		}
+		if _, read := readByBuilds[key]; read {
+			durable.deferredGarbage = append(durable.deferredGarbage, key)
 			continue
 		}
 		if err := durable.manager.directory.Remove(key); err != nil {

@@ -80,13 +80,14 @@ func (durable *Durable) liveDocumentCounts(ctx context.Context, held *capture) [
 	return live
 }
 
-func (durable *Durable) buildLoggedPartitions(ctx context.Context, store checkpoint.Store, prior *manifest.Manifest,
-	held *capture) error {
+func (durable *Durable) buildLoggedPartitions(ctx context.Context, store checkpoint.Store, handle *Handle,
+	prior *manifest.Manifest, held *capture, pagedText bool) error {
 	for partitionID, fromLog := range held.logged {
 		if !fromLog {
 			continue
 		}
-		entry, err := durable.writeLoggedPartition(ctx, store, prior, partitionID, held.seqNos[partitionID])
+		entry, err := durable.writeLoggedPartition(ctx, store, handle, prior, partitionID, held.seqNos[partitionID],
+			pagedText)
 		if err != nil {
 			return err
 		}

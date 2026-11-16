@@ -8,6 +8,7 @@ const (
 	SideCopyAtPendingOperations = 512
 	SideReaderWaitFirstDelay    = 2 * time.Microsecond
 	SideReaderWaitMaxDelay      = time.Millisecond
+	TokenRoundsPerWrite         = 3
 )
 
 const documentTableFirstChunkBits = 4

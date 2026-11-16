@@ -154,7 +154,7 @@ func (n *Narsil) insertChunk(ctx context.Context, holder indexHolder, entry *ind
 		}
 		return entry, release, nil
 	}
-	inserted, err := n.applyInsertChunk(ctx, entry, pending, outcome)
+	entry, release, inserted, err := n.applyInsertChunk(ctx, entry, release, pending, outcome)
 	if err != nil || len(inserted) == 0 || !n.plugins.hasHook(hookAfterInsert) {
 		return entry, release, err
 	}
@@ -166,45 +166,43 @@ func (n *Narsil) insertChunk(ctx context.Context, holder indexHolder, entry *ind
 	return nil, releasedNothing, nil
 }
 
-func (n *Narsil) applyInsertChunk(ctx context.Context, entry *indexEntry, pending []pendingInsert,
-	outcome *batchOutcome) ([]*model.InsertContext, error) {
-	entry.writeMu.Lock()
-	ids := make([]string, len(pending))
+type refusedInsert struct {
+	id  string
+	err error
+}
+
+func (n *Narsil) applyInsertChunk(ctx context.Context, entry *indexEntry, release func(), pending []pendingInsert,
+	outcome *batchOutcome) (*indexEntry, func(), []*model.InsertContext, error) {
+	candidates := make([]persist.Write, len(pending))
 	for at, insert := range pending {
-		ids[at] = insert.id
+		candidates[at] = insert.write
 	}
-	present, err := entry.presence(ctx, ids)
-	if err != nil {
-		entry.writeMu.Unlock()
-		return nil, err
-	}
-	accepted := make([]pendingInsert, 0, len(pending))
-	seen := make(map[string]struct{}, len(pending))
-	for at, insert := range pending {
-		if _, repeated := seen[insert.id]; repeated || present[at] {
-			outcome.fail(insert.id, entry.alreadyExists(insert.id))
-			continue
-		}
-		if err := entry.capacityError(len(accepted)); err != nil {
-			outcome.fail(insert.id, err)
-			continue
-		}
-		seen[insert.id] = struct{}{}
-		accepted = append(accepted, insert)
-	}
-	writes := make([]persist.Write, len(accepted))
-	for at, insert := range accepted {
-		writes[at] = insert.write
-	}
-	failures, commit, err := entry.apply(ctx, writes, index.WriteInsert)
-	if awaited := entry.unlockAndAwait(ctx, commit); err == nil {
-		err = awaited
+	var accepted []pendingInsert
+	var refused []refusedInsert
+	var failures []error
+	entry, release, err := n.applyKeepingTokens(ctx, entry.name, entry, release, candidates,
+		func(ctx context.Context, entry *indexEntry) (persist.Commit, error) {
+			var commit persist.Commit
+			var err error
+			accepted, refused, err = acceptedInserts(ctx, entry, pending)
+			if err != nil {
+				return commit, err
+			}
+			writes := make([]persist.Write, len(accepted))
+			for at, insert := range accepted {
+				writes[at] = insert.write
+			}
+			failures, commit, err = entry.apply(ctx, writes, index.WriteInsert)
+			return commit, err
+		})
+	for _, insert := range refused {
+		outcome.fail(insert.id, insert.err)
 	}
 	if err != nil {
 		for _, insert := range accepted {
 			outcome.fail(insert.id, err)
 		}
-		return nil, err
+		return entry, release, nil, err
 	}
 	inserted := make([]*model.InsertContext, 0, len(accepted))
 	for at, insert := range accepted {
@@ -216,5 +214,33 @@ func (n *Narsil) applyInsertChunk(ctx context.Context, entry *indexEntry, pendin
 		outcome.touched.note(insert.write)
 		inserted = append(inserted, insert.context)
 	}
-	return inserted, nil
+	return entry, release, inserted, nil
+}
+
+func acceptedInserts(ctx context.Context, entry *indexEntry, pending []pendingInsert) ([]pendingInsert,
+	[]refusedInsert, error) {
+	ids := make([]string, len(pending))
+	for at, insert := range pending {
+		ids[at] = insert.id
+	}
+	present, err := entry.presence(ctx, ids)
+	if err != nil {
+		return nil, nil, err
+	}
+	accepted := make([]pendingInsert, 0, len(pending))
+	var refused []refusedInsert
+	seen := make(map[string]struct{}, len(pending))
+	for at, insert := range pending {
+		if _, repeated := seen[insert.id]; repeated || present[at] {
+			refused = append(refused, refusedInsert{id: insert.id, err: entry.alreadyExists(insert.id)})
+			continue
+		}
+		if err := entry.capacityError(len(accepted)); err != nil {
+			refused = append(refused, refusedInsert{id: insert.id, err: err})
+			continue
+		}
+		seen[insert.id] = struct{}{}
+		accepted = append(accepted, insert)
+	}
+	return accepted, refused, nil
 }
