@@ -24,6 +24,10 @@ const NOTES: [(&str, &str); 3] = [
 ];
 const HOSTILE_VALUES: &str = r#"[null,true,0,5,-1,1.5,"x",[],["x"],{}]"#;
 const MAX_LISTED_DIFFERENCES: usize = 25;
+const UNKNOWN_BM25_KEYS: [&str; 2] = [
+    r#"{"term":"alpha","bm25":{"bogus":1}}"#,
+    r#"{"bm25":{"fields":{"title":{"bogus":1}}}}"#,
+];
 
 struct Frame {
     body: &'static str,
@@ -176,6 +180,7 @@ fn hostile_bodies() -> Vec<Value> {
         *target_mut(&mut emptied, frame.target) = Map::new();
         bodies.push(emptied);
     }
+    bodies.extend(UNKNOWN_BM25_KEYS.iter().map(|body| parsed(body)));
     bodies
 }
 

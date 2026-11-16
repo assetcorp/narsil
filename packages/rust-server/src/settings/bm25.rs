@@ -128,6 +128,56 @@ pub(crate) fn bm25_params_of(body: &Value) -> Outcome<Bm25Params> {
     }
 }
 
+pub(crate) struct UnknownBm25Key {
+    sentinel: Bm25Params,
+    failure: ServerError,
+}
+
+impl UnknownBm25Key {
+    pub(crate) fn refusal<T>(
+        self,
+        engine: &Narsil,
+        search: impl FnOnce(&Narsil, Bm25Params) -> narsil::Result<T>,
+    ) -> ServerError {
+        let sentinel = self.sentinel;
+        after_engine_checks(
+            engine,
+            self.failure,
+            |engine| search(engine, sentinel),
+            provoked,
+        )
+    }
+}
+
+pub(crate) fn unknown_bm25_key(raw: &Map, params: &Bm25Params) -> Option<UnknownBm25Key> {
+    if let Err(failure) = known_keys("bm25", raw, &TOP_LEVEL_KEYS) {
+        let sentinel = Bm25Params {
+            k1: Some(f64::NAN),
+            ..Bm25Params::default()
+        };
+        return Some(UnknownBm25Key { sentinel, failure });
+    }
+    let Some(Value::Object(named)) = raw.get("fields") else {
+        return None;
+    };
+    let converted = params.fields.as_deref().unwrap_or_default();
+    named.iter().enumerate().find_map(|(at, (name, pair))| {
+        let Value::Object(pair) = pair else {
+            return None;
+        };
+        let label = format!("bm25.fields.{}", displayed_name(name));
+        let failure = known_keys(&label, pair, &FIELD_KEYS).err()?;
+        let mut checked = converted.get(..at).map(<[_]>::to_vec).unwrap_or_default();
+        checked.push((name.clone(), not_a_number()));
+        let sentinel = Bm25Params {
+            k1: params.k1,
+            b: params.b,
+            fields: Some(checked),
+        };
+        Some(UnknownBm25Key { sentinel, failure })
+    })
+}
+
 fn provoked(raised: &NarsilError) -> bool {
     raised.code() == ErrorCode::CONFIG_INVALID && raised.message().ends_with(PROVOKED_SUFFIX)
 }
