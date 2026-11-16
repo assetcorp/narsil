@@ -90,6 +90,9 @@ func (manager *Manager) RecoverIndex(ctx context.Context, name string) (*Durable
 		return nil, narsilerr.New(narsilerr.CodeIndexNotFound, `Index "`+name+`" holds no durable metadata`,
 			map[string]any{"indexName": name})
 	}
+	if err := manager.settleStoredPartitions(ctx, name, &meta); err != nil {
+		return nil, err
+	}
 	handle, err := manager.hooks.CreateIndex(ctx, meta)
 	if err != nil {
 		return nil, err
