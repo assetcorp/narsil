@@ -5,6 +5,7 @@ import (
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/keyword"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/format/paged"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/segments"
 )
 
@@ -35,6 +36,7 @@ func (ix *Index) AttachSegmentFile(ctx context.Context, partitionID int, file *k
 type PagedSegmentFile struct {
 	Path         string
 	RemovalPages *core.PageCache
+	Reads        *paged.ReadCache
 	Replaces     func(fieldSchema map[string]string, tombstones []string, documentCount uint32) error
 }
 
@@ -57,14 +59,14 @@ func (ix *Index) AttachPagedSegmentFile(ctx context.Context, partitionID int, fi
 	if err != nil {
 		return err
 	}
-	paged, err := segments.OpenPaged(w, file.Path, file.RemovalPages)
+	opened, err := segments.OpenPaged(w, file.Path, file.RemovalPages, file.Reads)
 	w.Release()
 	if err != nil {
 		return err
 	}
-	attached, err := ix.attachOpenedPaged(ctx, partitionID, paged, file)
+	attached, err := ix.attachOpenedPaged(ctx, partitionID, opened, file)
 	if err != nil || !attached {
-		paged.Close()
+		opened.Close()
 	}
 	return err
 }

@@ -6,6 +6,7 @@ import (
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/format/manifest"
+	"github.com/assetcorp/narsil/packages/go/engine/internal/format/paged"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/analysis"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/partition"
@@ -120,8 +121,8 @@ func (files *adoptionFiles) closeOpened() {
 func (files *adoptionFiles) open(ctx context.Context, store checkpoint.Store, refs []manifest.SegmentRef,
 	pages *core.PageCache) (bool, error) {
 	for _, ref := range refs {
-		path, paged, err := checkpoint.ListedPagedPath(ctx, store, ref.File)
-		if err != nil || !paged {
+		path, onDisk, err := checkpoint.ListedPagedPath(ctx, store, ref.File)
+		if err != nil || !onDisk {
 			return false, err
 		}
 		if existing, found := files.held[path]; found {
@@ -132,7 +133,7 @@ func (files *adoptionFiles) open(ctx context.Context, store checkpoint.Store, re
 		if err != nil {
 			return false, err
 		}
-		opened, err := segments.OpenPaged(w, path, pages)
+		opened, err := segments.OpenPaged(w, path, pages, paged.SharedReadCache())
 		w.Release()
 		if err != nil {
 			return false, err
