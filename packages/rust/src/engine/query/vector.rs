@@ -15,6 +15,7 @@ use crate::pattern::SearchStop;
 use crate::search::components::ScoreComponents;
 use crate::search::keyword::KeywordHit;
 use crate::util::text::javascript_trim;
+use crate::value::Value;
 use crate::vector::search::VectorSearchOptions;
 
 /// The hits that a query ranked, best first, with the number of documents that matched and whether that number is
@@ -77,10 +78,17 @@ pub(crate) fn plan_search(params: &QueryParams) -> Result<SearchPlan> {
     let vector_only = (params.mode == Some(SearchMode::Vector) || (vector && !term)) && !hybrid;
     let sorted = params.sort.as_ref().is_some_and(|sort| !sort.is_empty());
     if sorted && (hybrid || params.hybrid.is_some()) {
+        let fields: Vec<&str> = params
+            .sort
+            .iter()
+            .flatten()
+            .map(|entry| entry.field.as_str())
+            .collect();
         return Err(NarsilError::new(
             ErrorCode::SEARCH_INVALID_MODE,
             "A hybrid query cannot carry a sort, because fusion defines the order of hybrid results",
-        ));
+        )
+        .with_details([("sort", Value::from(fields))]));
     }
     Ok(match (vector_only, hybrid) {
         (true, _) => SearchPlan::Vector,
@@ -106,18 +114,46 @@ pub(crate) fn require_vector_searchable(
                 "A \"{}\" query needs a vector clause naming the field to search",
                 mode_name(params.mode)
             ),
+        )
+        .with_details(
+            params
+                .mode
+                .map(|mode| ("mode", Value::from(mode_name(Some(mode))))),
         ));
     };
     if index.vectors.field(&clause.field).is_some() {
         return Ok(());
     }
+    let vector_fields: Vec<&str> = index
+        .vectors
+        .fields()
+        .iter()
+        .map(|entry| entry.path.as_str())
+        .collect();
     Err(NarsilError::new(
         ErrorCode::SEARCH_INVALID_FIELD,
         format!(
             "Field \"{}\" has no vector index, so a vector search cannot use it",
             clause.field
         ),
-    ))
+    )
+    .with_details([
+        ("field", Value::from(clause.field.as_str())),
+        ("vectorFields", Value::from(vector_fields)),
+    ]))
+}
+
+pub(crate) fn window_details(
+    limit: usize,
+    offset: usize,
+    cursor_depth: usize,
+) -> [(&'static str, Value); 4] {
+    [
+        ("limit", Value::from(limit)),
+        ("offset", Value::from(offset)),
+        ("cursorDepth", Value::from(cursor_depth)),
+        ("window", Value::from(RESULT_WINDOW)),
+    ]
 }
 
 /// Returns how many vectors a page of a vector search fetches: one past the page, so that the engine knows whether
@@ -134,7 +170,8 @@ pub(crate) fn vector_fetch_depth(
             format!(
                 "The engine pages a vector search through the first {RESULT_WINDOW} results, and this page ends at {reach}. Narrow the search with a filter or a similarity floor"
             ),
-        ));
+        )
+        .with_details(window_details(limit, offset, cursor_depth)));
     }
     Ok((reach + 1).min(RESULT_WINDOW))
 }

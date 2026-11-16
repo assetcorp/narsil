@@ -4,14 +4,15 @@ mod field_type;
 
 pub(crate) use compiled::CompiledSchema;
 pub(crate) use document::{
-    DEFAULT_PATTERN_VALUE_LIMIT, require_document_within_size_limit, validate_document,
-    validate_document_strict, validate_required_fields,
+    DEFAULT_PATTERN_VALUE_LIMIT, MAX_DOCUMENT_NESTING_DEPTH, require_document_within_size_limit,
+    validate_document, validate_document_strict, validate_required_fields,
 };
 pub(crate) use field_type::MAX_VECTOR_DIMENSION;
 pub use field_type::{BaseType, FieldType, parse_field_type};
 
 use crate::error::{ErrorCode, NarsilError, Result};
-use crate::value::{Map, Value};
+use crate::value::{Map, Value, javascript_text};
+use document::typeof_of;
 
 const MAX_NESTING_DEPTH: usize = 4;
 const MAX_TEXT_FIELDS: usize = 65_536;
@@ -34,6 +35,20 @@ fn field_name_is_valid(name: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
 }
 
+fn invalid_type_definition(path: &str, type_value: &Value) -> NarsilError {
+    NarsilError::new(
+        ErrorCode::SCHEMA_INVALID_TYPE,
+        format!(
+            "Field \"{path}\" has an invalid type definition: {}",
+            type_value.to_json()
+        ),
+    )
+    .with_details([
+        ("field", Value::from(path)),
+        ("type", Value::from(javascript_text(Some(type_value)))),
+    ])
+}
+
 fn validate_fields(definition: &Map, depth: usize, prefix: &str) -> Result<Map> {
     if depth > MAX_NESTING_DEPTH {
         return Err(NarsilError::new(
@@ -41,7 +56,11 @@ fn validate_fields(definition: &Map, depth: usize, prefix: &str) -> Result<Map> 
             format!(
                 "Schema nesting exceeds the maximum depth of {MAX_NESTING_DEPTH} at \"{prefix}\""
             ),
-        ));
+        )
+        .with_details([
+            ("path", Value::from(prefix)),
+            ("maxDepth", Value::from(MAX_NESTING_DEPTH)),
+        ]));
     }
     let mut canonical = Map::with_capacity(definition.len());
     for (field, type_value) in definition.iter() {
@@ -50,11 +69,18 @@ fn validate_fields(definition: &Map, depth: usize, prefix: &str) -> Result<Map> 
         } else {
             format!("{prefix}.{field}")
         };
+        let field_and_path = || {
+            [
+                ("field", Value::from(field.as_str())),
+                ("path", Value::from(path.as_str())),
+            ]
+        };
         if PROTOTYPE_KEYS.contains(&field.as_str()) {
             return Err(NarsilError::new(
                 ErrorCode::SCHEMA_INVALID_TYPE,
                 format!("Field name \"{field}\" is not allowed in a schema"),
-            ));
+            )
+            .with_details(field_and_path()));
         }
         if !field_name_is_valid(field) {
             return Err(NarsilError::new(
@@ -62,13 +88,15 @@ fn validate_fields(definition: &Map, depth: usize, prefix: &str) -> Result<Map> 
                 format!(
                     "Field name \"{field}\" contains characters that are not allowed; use letters, digits, and underscores only"
                 ),
-            ));
+            )
+            .with_details(field_and_path()));
         }
         if depth == 1 && field == RESERVED_ROOT_FIELD {
             return Err(NarsilError::new(
                 ErrorCode::SCHEMA_INVALID_TYPE,
                 format!("Field \"{field}\" is reserved and cannot be defined in a schema"),
-            ));
+            )
+            .with_details(field_and_path()));
         }
         match type_value {
             Value::Object(nested) => {
@@ -81,15 +109,7 @@ fn validate_fields(definition: &Map, depth: usize, prefix: &str) -> Result<Map> 
                 let parsed = parse_field_type(type_name, &path)?;
                 canonical.insert(field.clone(), Value::String(parsed.name));
             }
-            other => {
-                return Err(NarsilError::new(
-                    ErrorCode::SCHEMA_INVALID_TYPE,
-                    format!(
-                        "Field \"{path}\" has an invalid type definition: {}",
-                        other.to_json()
-                    ),
-                ));
-            }
+            other => return Err(invalid_type_definition(&path, other)),
         }
     }
     Ok(canonical)
@@ -104,7 +124,11 @@ fn require_text_field_count(count: usize) -> Result<()> {
         format!(
             "The schema declares {count} string and string[] fields, but a schema holds at most {MAX_TEXT_FIELDS}"
         ),
-    ))
+    )
+    .with_details([
+        ("textFields", Value::from(count)),
+        ("maximum", Value::from(MAX_TEXT_FIELDS)),
+    ]))
 }
 
 /// Checks a nested schema definition and returns it with every type name in canonical form.
@@ -113,7 +137,8 @@ pub(crate) fn validate_schema(definition: &Value) -> Result<Map> {
         return Err(NarsilError::new(
             ErrorCode::SCHEMA_INVALID_TYPE,
             "Schema must be a plain object",
-        ));
+        )
+        .with_details([("received", Value::from(typeof_of(definition)))]));
     };
     if map.is_empty() {
         return Err(NarsilError::new(
@@ -144,7 +169,12 @@ pub(crate) fn require_creatable_schema(fields: &[SchemaField]) -> Result<()> {
                     "Vector field \"{}\" has {} dimensions, but a new index takes at most {MAX_VECTOR_DIMENSION}",
                     field.path, field.field_type.dimension
                 ),
-            ));
+            )
+            .with_details([
+                ("field", Value::from(field.path.as_str())),
+                ("dimension", Value::from(field.field_type.dimension)),
+                ("maximum", Value::from(MAX_VECTOR_DIMENSION)),
+            ]));
         }
     }
     Ok(())
@@ -205,13 +235,7 @@ fn flat_schema_fields(flat: &Map) -> Result<Vec<SchemaField>> {
     let mut fields = Vec::with_capacity(flat.len());
     for (path, type_value) in flat.iter() {
         let Value::String(type_name) = type_value else {
-            return Err(NarsilError::new(
-                ErrorCode::SCHEMA_INVALID_TYPE,
-                format!(
-                    "Field \"{path}\" has an invalid type definition: {}",
-                    type_value.to_json()
-                ),
-            ));
+            return Err(invalid_type_definition(path, type_value));
         };
         fields.push(SchemaField {
             path: path.clone(),

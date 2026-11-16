@@ -28,6 +28,10 @@ export function errorCodeOf(body: unknown): string | null {
   return (body as { error?: { code?: string } } | undefined)?.error?.code ?? null
 }
 
+export function errorMessageOf(body: unknown): string | null {
+  return (body as { error?: { message?: string } } | undefined)?.error?.message ?? null
+}
+
 export function errorFieldOf(body: unknown): unknown {
   return (body as { error?: { details?: { field?: unknown } } } | undefined)?.error?.details?.field
 }

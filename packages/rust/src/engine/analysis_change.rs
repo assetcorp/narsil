@@ -14,6 +14,7 @@ use super::index::IndexState;
 use super::layout::TextLayout;
 use super::memory::require_analysis_rebuild_memory;
 use super::stats::text_bytes;
+use super::sync::notify::announcing_epoch;
 use super::synonyms::prepare_synonyms;
 use super::{EngineInner, Narsil};
 use crate::error::{ErrorCode, NarsilError, Result};
@@ -21,6 +22,7 @@ use crate::format::metadata::IndexMetadata;
 use crate::format::metadata_parts::PendingAnalysis;
 use crate::index::constants::ARRAY_POSITION_GAP;
 use crate::index::partition::Partition;
+use crate::value::Value;
 
 fn recorded_pending(index: &IndexState) -> Option<PendingAnalysis> {
     index
@@ -101,6 +103,7 @@ fn refused_during_rebalance(index_name: &str) -> NarsilError {
             "Index \"{index_name}\" is being rebalanced, so try its analysis change again once the rebalance ends"
         ),
     )
+    .with_details([("indexName", Value::from(index_name))])
 }
 
 /// Rebuilds the terms of `index` under `target` while the index keeps answering searches from its old terms, and
@@ -287,9 +290,11 @@ pub(crate) fn has_pending_change(index: &IndexState) -> bool {
 /// rebuild again on the index that took the name where a close or a restore retired the index meanwhile.
 pub(crate) fn rebuild_named(engine: &EngineInner, name: &str) -> Result<()> {
     let mut reached = None;
-    let outcome = engine.on_current_index(name, |index| {
-        reached = Some(index.name.clone());
-        rebuild_index_analysis(engine, index)
+    let outcome = announcing_epoch(engine, name, || {
+        engine.on_current_index(name, |index| {
+            reached = Some(index.name.clone());
+            rebuild_index_analysis(engine, index)
+        })
     });
     if let Some(name) = reached {
         engine.events.wrote(&name);
@@ -320,7 +325,9 @@ pub(crate) fn resume_interrupted_change(engine: &Arc<EngineInner>, index: &Arc<I
             let Some(pending) = recorded_pending(&index) else {
                 return;
             };
-            let finished = resume(&engine, &index, &ticket, &pending);
+            let finished = announcing_epoch(&engine, &index.name, || {
+                resume(&engine, &index, &ticket, &pending)
+            });
             let _ = announce(&engine, ticket, finished);
             engine.events.wrote(&index.name);
         });
@@ -350,9 +357,11 @@ impl Narsil {
     /// leaves the old terms answering.
     pub fn change_analysis(&self, index: &str, change: &AnalysisChange) -> Result<()> {
         let mut reached = None;
-        let outcome = self.inner.on_current_index(index, |state| {
-            reached = Some(state.name.clone());
-            change_index_analysis(&self.inner, state, change)
+        let outcome = announcing_epoch(&self.inner, index, || {
+            self.inner.on_current_index(index, |state| {
+                reached = Some(state.name.clone());
+                change_index_analysis(&self.inner, state, change)
+            })
         });
         if let Some(name) = reached {
             self.inner.events.wrote(&name);

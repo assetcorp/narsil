@@ -6,7 +6,8 @@ use super::slices::{
     MAX_POOL_ENTRIES, SliceAllocator, grow_to, grown_capacity, region_full, trim_to,
 };
 use super::term_table::{
-    COUNT, HEADER_WORDS, SLOT_CAPACITY, TermTable, rehashed_slots, slots_holding,
+    COUNT, HEADER_WORDS, LAST_SLOT_CAPACITY, SLOT_CAPACITY, TermTable, rehashed_slots,
+    slots_holding,
 };
 use crate::error::Result;
 use crate::ffi;
@@ -65,6 +66,17 @@ impl SurfaceTable {
         self.strings.reserve(entries, units)?;
         self.match_capacity();
         Ok(())
+    }
+
+    pub(crate) fn growth_bytes(&self, entries: usize, units: usize) -> usize {
+        let capacity = self.strings.capacity_after(entries);
+        let columns = match capacity > self.token.len() {
+            true => capacity.saturating_mul(2 * size_of::<u32>()),
+            false => 0,
+        };
+        self.strings
+            .growth_bytes(entries, units)
+            .saturating_add(columns)
     }
 
     pub(crate) fn reserve_more(&mut self, entries: usize, units: usize) -> Result<()> {
@@ -164,6 +176,31 @@ impl RunTable {
             grow_to(&mut self.members, capacity);
         }
         Ok(())
+    }
+
+    fn growth_bytes(&self, runs: usize, members: usize) -> usize {
+        let count = (self.header[COUNT] as usize).saturating_add(runs);
+        let mut bytes: usize = 0;
+        let slots = slots_holding(count)
+            .unwrap_or(LAST_SLOT_CAPACITY)
+            .max(self.slots.len());
+        if slots > self.slots.len() {
+            bytes = bytes.saturating_add(slots.saturating_mul(size_of::<i32>()));
+        }
+        if count > self.list_start.len() {
+            let capacity = count
+                .max(self.list_start.len() * TERM_REGION_GROWTH_FACTOR)
+                .min(LAST_RUN_COUNT);
+            let per_run = RUN_POINTS * size_of::<u32>() + 2 * size_of::<u32>() + size_of::<u8>();
+            bytes = bytes.saturating_add(capacity.saturating_mul(per_run));
+        }
+        let used = self.allocator.end().saturating_add(members);
+        if used > self.members.len() {
+            let capacity = grown_capacity(self.members.len(), used, MAX_POOL_ENTRIES)
+                .unwrap_or(MAX_POOL_ENTRIES);
+            bytes = bytes.saturating_add(capacity.saturating_mul(size_of::<u32>()));
+        }
+        bytes
     }
 
     fn reserve_more(&mut self, runs: usize, members: usize) -> Result<()> {
@@ -271,6 +308,18 @@ impl SpellingTable {
 
     fn match_capacity(&mut self) {
         grow_to(&mut self.code_points, self.entries.capacity());
+    }
+
+    pub(crate) fn growth_bytes(&self, entries: usize, units: usize, runs: usize) -> usize {
+        let capacity = self.entries.strings.capacity_after(entries);
+        let code_points = match capacity > self.code_points.len() {
+            true => capacity.saturating_mul(size_of::<u32>()),
+            false => 0,
+        };
+        self.entries
+            .growth_bytes(entries, units)
+            .saturating_add(code_points)
+            .saturating_add(self.runs.growth_bytes(runs, runs))
     }
 
     pub(crate) fn reserve_more(&mut self, entries: usize, units: usize, runs: usize) -> Result<()> {

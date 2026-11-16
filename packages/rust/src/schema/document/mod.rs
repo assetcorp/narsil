@@ -18,21 +18,12 @@ fn failed(message: impl Into<String>) -> NarsilError {
     NarsilError::new(ErrorCode::DOC_VALIDATION_FAILED, message.into())
 }
 
-fn kind_of(value: &Value) -> &'static str {
-    match value {
-        Value::Null => "object",
-        Value::Bool(_) => "boolean",
-        Value::Number(_) => "number",
-        Value::String(_) => "string",
-        Value::Array(_) => "array",
-        Value::Bytes(_) | Value::Timestamp(_) | Value::Object(_) => "object",
-    }
-}
+pub(super) use crate::value::javascript_typeof as typeof_of;
 
-fn typeof_of(value: &Value) -> &'static str {
+pub(super) fn kind_of(value: &Value) -> &'static str {
     match value {
-        Value::Array(_) => "object",
-        other => kind_of(other),
+        Value::Array(_) => "array",
+        other => typeof_of(other),
     }
 }
 
@@ -79,7 +70,8 @@ pub(crate) fn validate_document_strict(document: &Map, schema: &CompiledSchema) 
     Err(failed(format!(
         "Document contains fields not defined in schema: {}",
         extras.join(", ")
-    )))
+    ))
+    .with_details([("extraFields", Value::from(extras))]))
 }
 
 fn nested_value<'a>(document: &'a Map, path: &str) -> Option<&'a Value> {
@@ -99,7 +91,8 @@ pub(crate) fn validate_required_fields(document: &Map, required: &[String]) -> R
             return Err(NarsilError::new(
                 ErrorCode::DOC_MISSING_REQUIRED_FIELD,
                 format!("Document is missing required field \"{field}\""),
-            ));
+            )
+            .with_details([("field", Value::from(field.as_str()))]));
         }
     }
     Ok(())

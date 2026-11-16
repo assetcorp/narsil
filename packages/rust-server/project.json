@@ -1,0 +1,42 @@
+{
+  "name": "narsil-rust-server",
+  "targets": {
+    "lint": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "commands": [
+          "cargo fmt --all --check",
+          "cargo clippy --all-targets --locked -- -D warnings"
+        ],
+        "parallel": false,
+        "cwd": "packages/rust-server"
+      }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "command": "cargo check --all-targets --locked",
+        "cwd": "packages/rust-server"
+      }
+    },
+    "build": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "command": "cargo build --release --locked",
+        "cwd": "packages/rust-server"
+      }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "dependsOn": ["narsil-ts:build:code"],
+      "options": {
+        "command": "cargo test --locked",
+        "cwd": "packages/rust-server"
+      }
+    }
+  }
+}

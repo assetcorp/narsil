@@ -9,3 +9,4 @@ pub(crate) const MERGE_READ_CACHE_BYTES: usize = 33_554_432;
 pub(crate) const MAX_CACHED_FIELD_COLUMNS: usize = 32;
 pub(crate) const MAX_CACHED_DERIVED_COLUMNS: usize = 32;
 pub(crate) const PUBLISHED_TOTALS_LIMIT: usize = 1;
+pub(crate) const CLONED_TREE_ENTRY_BYTES: usize = 192;

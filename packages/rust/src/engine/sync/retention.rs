@@ -14,6 +14,7 @@ use crate::engine::events::NarsilEvent;
 use crate::engine::index::IndexState;
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::format::metadata::IndexMetadata;
+use crate::value::Value;
 
 fn sync_changed(index_name: &str) -> NarsilError {
     NarsilError::new(
@@ -25,8 +26,13 @@ fn sync_changed(index_name: &str) -> NarsilError {
 }
 
 /// Publishes a snapshot of a synced index from a new checkpoint, whose files stay pinned until the published
-/// snapshot lists them. Where the epoch changes or sync goes off meanwhile, the engine releases what it published.
-fn publish(index: &IndexState, store: &DurabilityStore) -> Result<PublishedSnapshot> {
+/// snapshot lists them, while no other publication of the index runs. Where the epoch changes or sync goes off
+/// meanwhile, the engine releases what it published.
+pub(super) fn publish(index: &IndexState, store: &DurabilityStore) -> Result<PublishedSnapshot> {
+    store.in_publish_turn(&index.name, || publish_in_turn(index, store))
+}
+
+fn publish_in_turn(index: &IndexState, store: &DurabilityStore) -> Result<PublishedSnapshot> {
     for _ in 0..MAX_SNAPSHOT_ANALYSIS_ATTEMPTS {
         let checkpoint = archive_checkpoint(index)?;
         let metadata = current_metadata(index);
@@ -62,7 +68,8 @@ fn publish(index: &IndexState, store: &DurabilityStore) -> Result<PublishedSnaps
             "The analysis of index \"{}\" changed while the engine published its snapshot",
             index.name
         ),
-    ))
+    )
+    .with_details([("indexName", Value::from(index.name.as_str()))]))
 }
 
 fn sync_limits(

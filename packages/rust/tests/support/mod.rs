@@ -41,6 +41,12 @@ pub fn rewrite_saved_file(file: &Path, arguments: &[&str]) {
     );
 }
 
+pub fn details_json(error: &narsil::NarsilError) -> Option<String> {
+    error
+        .details()
+        .map(|details| narsil::write_json(&narsil::Value::Object(details.clone())))
+}
+
 pub fn conformance_root() -> PathBuf {
     repository_root().join("packages/conformance")
 }

@@ -45,6 +45,7 @@ fn cap_exceeded(cap: i64) -> NarsilError {
             "The engine stopped this search before it checked every candidate, because the work on its pattern tests and phrases passed the cap of {cap} units. Narrow the tests or the phrases, or raise the patternWorkCap engine setting"
         ),
     )
+    .with_details([("cap", crate::value::Value::from(cap))])
 }
 
 impl WorkMeter {

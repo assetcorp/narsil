@@ -9,6 +9,7 @@ use narsil::{
     NarsilConfig, QueryParams, RerankConfig, Value,
 };
 use support::adapters::RerankWith;
+use support::details_json;
 
 const INDEX: &str = "notes";
 const SLOW_ADAPTER_SLEEP: Duration = Duration::from_secs(3);
@@ -270,6 +271,10 @@ fn the_rerank_window_and_timeout_settings_bound_every_reranked_query() {
         too_wide.message(),
         "rerank.window must be a whole number from 1 to 3"
     );
+    assert_eq!(
+        details_json(&too_wide).as_deref(),
+        Some(r#"{"window":4,"maxRerankWindow":3}"#)
+    );
     engine
         .query(INDEX, &reranked(None, "counting"))
         .expect("the default window answers");
@@ -315,6 +320,15 @@ fn a_full_engine_refuses_inserts_and_updates_and_keeps_removes_and_searches() {
             "{}",
             error.message()
         );
+        let details = error.details().expect("the refusal carries details");
+        assert_eq!(details.get("reason"), Some(&Value::from("memory_full")));
+        assert_eq!(details.get("indexName"), Some(&Value::from(INDEX)));
+        let process_bytes = details.get("processBytes").and_then(Value::as_f64);
+        let limit_bytes = details.get("processLimitBytes").and_then(Value::as_f64);
+        assert!(
+            matches!((process_bytes, limit_bytes), (Some(used), Some(limit)) if used > 0.0 && limit >= used),
+            "{details:?}"
+        );
     };
     blocked(engine.insert(INDEX, note("boiler"), Some("a")).map(|_| ()));
     blocked(engine.insert_batch(INDEX, vec![note("boiler")]).map(|_| ()));
@@ -328,9 +342,14 @@ fn a_full_engine_refuses_inserts_and_updates_and_keeps_removes_and_searches() {
         .insert("missing", note("boiler"), None)
         .expect_err("a missing index wins over the block");
     assert_eq!(missing.code(), ErrorCode::INDEX_NOT_FOUND);
+    assert_eq!(
+        details_json(&missing).as_deref(),
+        Some(r#"{"indexName":"missing"}"#)
+    );
     assert_eq!(engine.count_documents(INDEX).expect("counted"), 0);
     let removed = engine.remove(INDEX, "a").expect_err("nothing to remove");
     assert_eq!(removed.code(), ErrorCode::DOC_NOT_FOUND);
+    assert_eq!(details_json(&removed).as_deref(), Some(r#"{"docId":"a"}"#));
     let found = engine
         .query(
             INDEX,

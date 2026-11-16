@@ -26,7 +26,7 @@ curl -X POST localhost:7700/indexes \
 
 The [HTTP server guide](../../docs/http-server.md) describes every route that the node serves.
 
-The image serves one node, and cluster mode works only on the TypeScript server. The [cluster guide](../../docs/cluster.md) shows how you build the nodes of a cluster in code.
+The image serves one node. To build the nodes of a cluster in code on the TypeScript server, follow the [cluster guide](../../docs/cluster.md).
 
 ## Choose a tag
 
@@ -37,6 +37,9 @@ The image serves one node, and cluster mode works only on the TypeScript server.
 | `<version>` | One release, which never changes once it is published. |
 | `next` | The newest prerelease, which the publish workflow builds from each push to `main`. |
 | `sha-<commit>` | The image that the publish workflow built from that commit. |
+| `latest-rust`, `<version>-rust`, and each tag above with `-rust` added | The same release served by the Rust server, which reads the same variables. |
+
+You can switch a node between the TypeScript server and the Rust server by changing the tag alone. Only the TypeScript server runs cluster mode, so a node that joins a cluster has to use a tag without `-rust`. The Rust image also leaves out the `transformers` kind of embedder and reranker, so its startup program exits with status 1 when a variable sets that kind.
 
 Pin a version in production, so that a new release reaches your nodes only when you change the tag:
 
@@ -66,9 +69,9 @@ The startup program checks every variable before it binds the port. When a value
 
 With `filesystem` storage, the node keeps four folders inside `/data`. It keeps the indexes and their write-ahead log in `indexes/`, the task records in `tasks/`, the undelivered webhook events in `webhooks/`, and the files of each `transformers` model in `models/`. A node that restarts on the same volume keeps its documents and its task history, and it can embed text without network access once it has downloaded a model.
 
-The image sets `NODE_OPTIONS=--max-old-space-size-percentage=75`, so the engine's heap can grow to three quarters of the memory that you give the container. Node ends the process once an index outgrows that limit, so size the container memory for the indexes that you expect. The image also loads jemalloc through `LD_PRELOAD`, because jemalloc returns the memory that the server's threads free to the system, while glibc's allocator can hold on to it.
+The image sets `NODE_OPTIONS=--max-old-space-size-percentage=75`, so the engine's heap can grow to three quarters of the memory that you give the container. Node ends the process once an index outgrows that limit, so size the container memory for the indexes that you expect. The image also loads jemalloc through `LD_PRELOAD`, because jemalloc returns the memory that the server's threads free to the system, while glibc's allocator can hold on to it. The Rust image loads jemalloc in the same way.
 
-The server process works as the `node` user, with user ID 1000, so a volume that you mount at `/data` has to be writable by that user.
+The server process works as the `node` user, with user ID 1000, so a volume that you mount at `/data` has to be writable by that user. The Rust server works as the `narsil` user under the same user ID, so you can mount one volume in both images.
 
 ## Events
 
@@ -80,6 +83,12 @@ Build from the root of this repository, because the image compiles the engine, t
 
 ```bash skip
 docker build -f packages/container/Dockerfile -t narsil:local .
+```
+
+Build the Rust image from the root of the repository too, through its separate Dockerfile:
+
+```bash skip
+docker build -f packages/rust-container/Dockerfile -t narsil:local-rust .
 ```
 
 Pass `--build-arg NARSIL_BUILD_VERSION=<version>` and `--build-arg NARSIL_BUILD_GIT_SHA=<commit>` to set what `GET /version` reports.

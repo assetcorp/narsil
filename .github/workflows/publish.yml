@@ -458,6 +458,31 @@ jobs:
       moving-tags: next
       npm-dist-tag: next
 
+  prerelease-rust-container:
+    name: Test the Rust container before the prerelease
+    needs: plan
+    if: needs.plan.outputs.publish == 'true'
+    uses: ./.github/workflows/rust-container.yml
+
+  prerelease-rust-image:
+    name: Publish the prerelease Rust container image
+    needs: [plan, prerelease, prerelease-rust-container]
+    if: needs.prerelease.outputs.published == 'true'
+    permissions:
+      contents: read
+      packages: write
+    concurrency:
+      group: publish-prerelease-rust-container-image
+      cancel-in-progress: false
+    uses: ./.github/workflows/container-image.yml
+    with:
+      push: true
+      server: rust
+      version: ${{ needs.plan.outputs.version }}
+      tags: ${{ needs.plan.outputs.version }}
+      moving-tags: next
+      npm-dist-tag: next
+
   publish:
     name: Publish to npm
     needs: [release-proof, release-checks, release-embeddings, native, react-native-checks, typescript-tests, typescript-suites-on-etcd]
@@ -606,6 +631,31 @@ jobs:
     uses: ./.github/workflows/container-image.yml
     with:
       push: true
+      ref: ${{ needs.publish.outputs.narsil-ref }}
+      version: ${{ needs.publish.outputs.narsil-version }}
+      tags: ${{ needs.publish.outputs.narsil-version }}
+      moving-tags: ${{ needs.publish.outputs.narsil-minor }} latest
+      npm-dist-tag: latest
+
+  release-rust-container:
+    name: Test the Rust container before the release
+    if: ${{ github.event_name == 'workflow_dispatch' && !inputs.dry-run && (inputs.package == 'all' || inputs.package == '@delali/narsil') }}
+    uses: ./.github/workflows/rust-container.yml
+
+  release-rust-image:
+    name: Publish the release Rust container image
+    needs: [publish, release-rust-container]
+    if: ${{ !cancelled() && needs.release-rust-container.result == 'success' && github.event_name == 'workflow_dispatch' && !inputs.dry-run && (inputs.package == 'all' || inputs.package == '@delali/narsil') && needs.publish.outputs.narsil-version != '' }}
+    permissions:
+      contents: read
+      packages: write
+    concurrency:
+      group: publish-release-rust-container-image
+      cancel-in-progress: false
+    uses: ./.github/workflows/container-image.yml
+    with:
+      push: true
+      server: rust
       ref: ${{ needs.publish.outputs.narsil-ref }}
       version: ${{ needs.publish.outputs.narsil-version }}
       tags: ${{ needs.publish.outputs.narsil-version }}

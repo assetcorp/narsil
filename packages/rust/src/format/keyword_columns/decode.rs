@@ -121,7 +121,10 @@ pub(crate) fn decode_enum_columns(
         let values = column.strings_as("values", &format!("{label}.values"))?;
         let distinct: HashSet<&str> = values.iter().map(String::as_str).collect();
         if distinct.len() != values.len() {
-            return Err(column.error(format!("{label}.values names a value twice")));
+            return Err(column.field_error(
+                format!("{label}.values names a value twice"),
+                [("field", Value::from(label.as_str()))],
+            ));
         }
         let offsets = u32_column(&column, "offsets", &label)?;
         let documents = ordinal_column(&column, "documents", &label, document_count)?;

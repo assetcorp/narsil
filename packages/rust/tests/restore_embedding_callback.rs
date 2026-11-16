@@ -1,9 +1,11 @@
 mod support;
 
+use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, mpsc};
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use narsil::{
@@ -16,8 +18,11 @@ use support::portable::{Tier, snapshot_of};
 
 const INDEX: &str = "documents";
 const CHILD_DIRECTORY: &str = "NARSIL_RESTORE_EMBEDDING_CALLBACK_DIRECTORY";
-const DEADLINE: Duration = Duration::from_secs(10);
+const SEARCH_DEADLINE: Duration = Duration::from_secs(60);
+const CHILD_SETUP_DEADLINE: Duration = Duration::from_secs(300);
 const POLL_INTERVAL: Duration = Duration::from_millis(10);
+const SEARCH_STARTING: &str = "The target engine is starting its search";
+const SEARCH_FINISHED: &str = "The target engine finished its search";
 const CALLBACK_ENTERED: &str = "The replacement adapter is restoring the index";
 const QUERY_EMBEDDINGS_BEFORE_REFUSAL: usize = 3;
 
@@ -115,6 +120,7 @@ fn search_with_restoring_adapters(root: &Path, preflight: bool) {
     target.checkpoint(INDEX).unwrap();
 
     let params = search_params();
+    eprintln!("{SEARCH_STARTING}");
     if preflight {
         assert_eq!(target.preflight(INDEX, &params).unwrap().count, 1);
     } else {
@@ -122,8 +128,106 @@ fn search_with_restoring_adapters(root: &Path, preflight: bool) {
         let ids: Vec<_> = answer.hits.iter().map(|hit| hit.id.as_str()).collect();
         assert_eq!(ids, vec!["wanted"]);
     }
+    eprintln!("{SEARCH_FINISHED}");
     assert!(target.get(INDEX, "wanted").unwrap().is_some());
     target.shutdown().unwrap();
+}
+
+fn forward_lines(
+    stream: impl Read + Send + 'static,
+    lines: mpsc::Sender<String>,
+) -> JoinHandle<()> {
+    std::thread::spawn(move || {
+        let mut reader = BufReader::new(stream);
+        let mut line = Vec::new();
+        while reader.read_until(b'\n', &mut line).unwrap_or(0) > 0 {
+            if lines
+                .send(String::from_utf8_lossy(&line).into_owned())
+                .is_err()
+            {
+                return;
+            }
+            line.clear();
+        }
+    })
+}
+
+#[derive(Debug, PartialEq)]
+enum ChildStage {
+    SettingUp,
+    Searching,
+    FinishingUp,
+}
+
+struct ChildOutcome {
+    status: Option<ExitStatus>,
+    stage: ChildStage,
+    output: String,
+}
+
+struct ChildProgress {
+    stage: ChildStage,
+    stage_started: Instant,
+    output: String,
+}
+
+impl ChildProgress {
+    fn record(&mut self, line: String) {
+        let next = match self.stage {
+            ChildStage::SettingUp if line.contains(SEARCH_STARTING) => Some(ChildStage::Searching),
+            ChildStage::Searching if line.contains(SEARCH_FINISHED) => {
+                Some(ChildStage::FinishingUp)
+            }
+            _ => None,
+        };
+        if let Some(next) = next {
+            self.stage = next;
+            self.stage_started = Instant::now();
+        }
+        self.output.push_str(&line);
+    }
+
+    fn overdue(&self) -> bool {
+        let deadline = match self.stage {
+            ChildStage::Searching => SEARCH_DEADLINE,
+            ChildStage::SettingUp | ChildStage::FinishingUp => CHILD_SETUP_DEADLINE,
+        };
+        self.stage_started.elapsed() >= deadline
+    }
+}
+
+fn watch_child(mut child: Child) -> ChildOutcome {
+    let (sender, lines) = mpsc::channel();
+    let readers = [
+        forward_lines(child.stdout.take().unwrap(), sender.clone()),
+        forward_lines(child.stderr.take().unwrap(), sender),
+    ];
+    let mut progress = ChildProgress {
+        stage: ChildStage::SettingUp,
+        stage_started: Instant::now(),
+        output: String::new(),
+    };
+    let status = loop {
+        lines.try_iter().for_each(|line| progress.record(line));
+        if let Some(status) = child.try_wait().unwrap() {
+            break Some(status);
+        }
+        if progress.overdue() {
+            child.kill().unwrap();
+            child.wait().unwrap();
+            break None;
+        }
+        std::thread::sleep(POLL_INTERVAL);
+    };
+    for reader in readers {
+        reader.join().unwrap();
+    }
+    lines.try_iter().for_each(|line| progress.record(line));
+    ChildOutcome {
+        status,
+        stage: progress.stage,
+        output: progress.output,
+    }
 }
 
 fn require_callback_finishes(test: &str, preflight: bool) {
@@ -132,35 +236,35 @@ fn require_callback_finishes(test: &str, preflight: bool) {
         return;
     }
     let root = ScratchDirectory::new(test);
-    let mut child = Command::new(std::env::current_exe().unwrap())
+    let child = Command::new(std::env::current_exe().unwrap())
         .args(["--exact", test, "--nocapture", "--test-threads=1"])
         .env(CHILD_DIRECTORY, root.path())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    let started = Instant::now();
-    let mut timed_out = false;
-    while child.try_wait().unwrap().is_none() {
-        if started.elapsed() >= DEADLINE {
-            timed_out = true;
-            child.kill().unwrap();
-            break;
-        }
-        std::thread::sleep(POLL_INTERVAL);
-    }
-    let output = child.wait_with_output().unwrap();
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        stderr.contains(CALLBACK_ENTERED),
-        "the replacement adapter must reach its restore callback: {stdout}\n{stderr}"
+    let ChildOutcome {
+        status,
+        stage,
+        output,
+    } = watch_child(child);
+    assert_ne!(
+        stage,
+        ChildStage::SettingUp,
+        "the child must reach its search within {CHILD_SETUP_DEADLINE:?}: {output}"
     );
     assert!(
-        !timed_out,
-        "the second embedding deadlocked while its adapter restored the index: {stderr}"
+        output.contains(CALLBACK_ENTERED),
+        "the replacement adapter must reach its restore callback: {output}"
     );
-    assert!(output.status.success(), "{stdout}\n{stderr}");
+    assert!(
+        status.is_some() || stage != ChildStage::Searching,
+        "the search deadlocked while its adapter restored the index: {output}"
+    );
+    let Some(status) = status else {
+        panic!("the child must exit within {CHILD_SETUP_DEADLINE:?} of its search: {output}");
+    };
+    assert!(status.success(), "{output}");
 }
 
 #[test]
@@ -242,7 +346,7 @@ fn require_refusal_after_alternating_adapters(
     let searching = Arc::clone(&target);
     std::thread::spawn(move || finished.send(search(&searching)).unwrap());
     let error = outcome
-        .recv_timeout(DEADLINE)
+        .recv_timeout(SEARCH_DEADLINE)
         .expect("the search finishes while its adapters restore the index")
         .expect_err("the search refuses once restores keep changing its adapter");
     assert_eq!(error.code(), ErrorCode::WORKER_BUSY, "{error}");

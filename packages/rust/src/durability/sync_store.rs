@@ -3,6 +3,7 @@ use std::collections::BTreeSet;
 use crate::error::Result;
 
 use super::checkpoint_files::{manifest_keys, read_current_manifest};
+use super::index_state::{FilePins, IndexState, index_poisoned};
 use super::store::DurabilityStore;
 use super::sync_files::{
     PublishedSnapshot, list_history, read_published, release_published, remove_history,
@@ -10,7 +11,58 @@ use super::sync_files::{
 };
 use super::sync_retention::{HistoryLimits, enforce_history_limits};
 
+/// A published snapshot whose listed files stay on the store until the pins drop, so that a download reads the
+/// same bytes while later checkpoints and publications commit.
+pub(crate) struct PinnedPublished {
+    pub(crate) published: PublishedSnapshot,
+    pub(crate) pins: FilePins,
+    pub(crate) replacements_at_pin: u64,
+}
+
+impl PinnedPublished {
+    /// Refuses a read once a restore or a drop has replaced or removed the pinned files, because their keys can
+    /// then name other files.
+    pub(crate) fn unreplaced(&self) -> bool {
+        self.pins.replacements() == self.replacements_at_pin
+    }
+}
+
 impl DurabilityStore {
+    /// Runs `publish` while no other publication of the index's snapshot runs, so that two publications never
+    /// remove the files that the other one lists.
+    pub(crate) fn in_publish_turn<T>(
+        &self,
+        index_name: &str,
+        publish: impl FnOnce() -> Result<T>,
+    ) -> Result<T> {
+        let state = self.inner.index_state(index_name)?;
+        let _turn = state.publish_turn.lock().map_err(|_| index_poisoned())?;
+        publish()
+    }
+
+    /// Returns the sum of the lengths of the files of the newest checkpoint of an index, each counted with
+    /// `entry_bytes` more for its archive headers, which estimates the archive that a device would download.
+    pub(crate) fn estimated_archive_bytes(
+        &self,
+        index_name: &str,
+        entry_bytes: u64,
+    ) -> Result<u64> {
+        Ok(
+            read_current_manifest(&self.inner.directory, index_name)?.map_or(0, |manifest| {
+                manifest
+                    .file_refs()
+                    .into_iter()
+                    .map(|file| file.bytes.saturating_add(entry_bytes))
+                    .fold(0, u64::saturating_add)
+            }),
+        )
+    }
+
+    /// Returns `length` bytes of the stored file `key` from `offset`.
+    pub(crate) fn read_file_range(&self, key: &str, offset: u64, length: u64) -> Result<Vec<u8>> {
+        self.inner.directory.read_range(key, offset, length)
+    }
+
     fn in_checkpoint_turn<T>(
         &self,
         index_name: &str,
@@ -27,6 +79,31 @@ impl DurabilityStore {
                 .map(|manifest| manifest_keys(&manifest))
                 .unwrap_or_default();
             action(&keeps, &current)
+        })();
+        state.checkpoint_turn.give_back();
+        inner.guard(outcome)
+    }
+
+    /// Returns the published snapshot of an index with every file that it lists pinned, or `None` where it has
+    /// none, reading and pinning in the index's checkpoint turn, so that no later publication removes a listed file
+    /// between the read and the pin.
+    pub(crate) fn pin_published(&self, index_name: &str) -> Result<Option<PinnedPublished>> {
+        let inner = &self.inner;
+        inner.verify()?;
+        let state = inner.index_state(index_name)?;
+        state.checkpoint_turn.take()?;
+        let outcome = (|| {
+            let replacements_at_pin = state.replacements();
+            let Some(published) = read_published(&inner.directory, index_name)? else {
+                return Ok(None);
+            };
+            let keys: Vec<String> = published.keys.iter().cloned().collect();
+            let pins = IndexState::pin(&state, &keys)?;
+            Ok(Some(PinnedPublished {
+                published,
+                pins,
+                replacements_at_pin,
+            }))
         })();
         state.checkpoint_turn.give_back();
         inner.guard(outcome)

@@ -2,6 +2,7 @@ use crate::config::Metric;
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::pattern::SearchStop;
 use crate::pins::Pin;
+use crate::value::Value;
 
 use super::build::schedule_build;
 use super::cold::{ColdQuery, search_cold};
@@ -56,14 +57,16 @@ impl VectorSearchOptions {
         {
             return Err(invalid(format!(
                 "vector.oversample must be a finite number of at least {MIN_OVERSAMPLE}"
-            )));
+            ))
+            .with_details([("oversample", Value::from(oversample))]));
         }
         if let Some(ef_search) = self.ef_search
             && !(MIN_EF_SEARCH..=MAX_EF_SEARCH).contains(&ef_search)
         {
             return Err(invalid(format!(
                 "vector.efSearch must be a whole number from {MIN_EF_SEARCH} to {MAX_EF_SEARCH}"
-            )));
+            ))
+            .with_details([("efSearch", Value::from(ef_search))]));
         }
         if let Some(window) = self.rescore_window
             && !(MIN_RESCORE_WINDOW..=MAX_RESCORE_WINDOW).contains(&window)
@@ -81,16 +84,24 @@ impl VectorSearchOptions {
     }
 }
 
-fn not_a_number(at: usize) -> NarsilError {
+fn not_a_number(at: usize, value: f32) -> NarsilError {
     NarsilError::new(
         ErrorCode::DOC_VALIDATION_FAILED,
         format!("The query vector element at index {at} is not a valid number"),
     )
+    .with_details([
+        ("index", Value::from(at)),
+        ("value", Value::Number(f64::from(value))),
+    ])
 }
 
 fn require_usable_query(query: &[f32]) -> Result<()> {
-    match query.iter().position(|value| !value.is_finite()) {
-        Some(at) => Err(not_a_number(at)),
+    match query
+        .iter()
+        .enumerate()
+        .find(|(_, value)| !value.is_finite())
+    {
+        Some((at, value)) => Err(not_a_number(at, *value)),
         None => Ok(()),
     }
 }
@@ -209,7 +220,7 @@ impl VectorField {
         stop: &SearchStop,
     ) -> Result<VectorSearchOutcome> {
         options.validate(k)?;
-        require_dimension_of(&self.shared, query.len())?;
+        require_dimension_of(&self.shared, query.len(), None)?;
         require_usable_query(query)?;
         let pin = pin.value();
         if let Some(hold) = self.shared.cold_hold() {

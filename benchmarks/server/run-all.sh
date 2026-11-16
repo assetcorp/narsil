@@ -88,6 +88,34 @@ if [ -n "$NARSIL_VERSION" ] &&
 fi
 export NARSIL_GIT_SHA NARSIL_GIT_DIRTY NARSIL_VERSION
 
+RUST_SERVER_SOURCE_PATHS=(
+  packages/rust/src
+  packages/rust/build.rs
+  packages/rust/Cargo.toml
+  packages/rust/Cargo.lock
+  packages/rust/layout
+  packages/native/include
+  packages/native/src
+  packages/rust-server/src
+  packages/rust-server/Cargo.toml
+  packages/rust-server/Cargo.lock
+  packages/rust-container/src
+  packages/rust-container/Cargo.toml
+  packages/rust-container/Cargo.lock
+  packages/rust-container/Dockerfile
+)
+NARSIL_RUST_GIT_DIRTY="true"
+if [ -n "$NARSIL_VERSION" ] &&
+  git -C ../.. rev-parse --verify --quiet "${NARSIL_RELEASE_TAG}^{commit}" >/dev/null 2>&1 &&
+  rust_server_changes="$(git -C ../.. diff --name-only "$NARSIL_RELEASE_TAG" -- "${RUST_SERVER_SOURCE_PATHS[@]}" 2>/dev/null)" &&
+  [ -z "$rust_server_changes" ]; then
+  NARSIL_RUST_GIT_DIRTY="false"
+fi
+
+engine_git_dirty() {
+  if [ "$1" = narsil-rust ]; then echo "$NARSIL_RUST_GIT_DIRTY"; else echo "$NARSIL_GIT_DIRTY"; fi
+}
+
 # Resolve the immutable image artifact a running engine was started from. A pulled
 # image reports its registry digest; a locally built one (narsil, harness) has no
 # registry digest, so its local image id is used instead. Recorded with every result
@@ -164,12 +192,12 @@ echo "datasets: ${BENCH_DATASETS:-default (small BEIR sets)}; dataset engines: $
 if [ "$#" -gt 0 ]; then
   ENGINES=("$@")
 else
-  ENGINES=(narsil elasticsearch opensearch qdrant weaviate typesense meilisearch)
+  ENGINES=(narsil narsil-rust elasticsearch opensearch qdrant weaviate typesense meilisearch)
 fi
 
 is_vector_engine() {
   case "$1" in
-    narsil|elasticsearch|opensearch|qdrant|weaviate) return 0 ;;
+    narsil|narsil-rust|elasticsearch|opensearch|qdrant|weaviate) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -203,6 +231,7 @@ for engine in "${ENGINES[@]}"; do
   if docker compose run --rm \
       -e ENGINE="$engine" \
       -e ENGINE_IMAGE_DIGEST="$image_digest" \
+      -e NARSIL_GIT_DIRTY="$(engine_git_dirty "$engine")" \
       "${HARNESS_ENGINE_ARGS[@]}" \
       harness; then
     echo "[${engine}] done (equal precision)"
@@ -215,6 +244,7 @@ for engine in "${ENGINES[@]}"; do
     if docker compose run --rm \
         -e ENGINE="$engine" \
         -e ENGINE_IMAGE_DIGEST="$image_digest" \
+        -e NARSIL_GIT_DIRTY="$(engine_git_dirty "$engine")" \
         "${HARNESS_ENGINE_ARGS[@]}" \
         -e BENCH_VECTOR_PROFILE="best-config" \
         harness; then

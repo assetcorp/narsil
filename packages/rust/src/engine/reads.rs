@@ -27,7 +27,11 @@ pub struct IndexInfo {
 }
 
 pub(crate) fn list_indexes(engine: &EngineInner) -> Vec<IndexInfo> {
-    engine.read_held_indexes(listed_indexes)
+    engine.read_held_indexes(|open, closed| {
+        let mut listed = listed_indexes(open, closed);
+        engine.listing.arrange(&mut listed, |info| &info.name);
+        listed
+    })
 }
 
 fn listed_indexes(open: &[&IndexState], closed: Vec<ClosedListing>) -> Vec<IndexInfo> {
@@ -52,7 +56,6 @@ fn listed_indexes(open: &[&IndexState], closed: Vec<ClosedListing>) -> Vec<Index
         state: listing.state,
         reopen_count: listing.reopen_count,
     }));
-    listed.sort_by(|left, right| left.name.cmp(&right.name));
     listed
 }
 

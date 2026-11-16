@@ -46,19 +46,19 @@ impl KeyCase {
     }
 }
 
-enum Bound {
+pub(super) enum Bound {
     Fixed(u64),
     MaxLength,
 }
 
-struct Range {
-    key: &'static str,
+pub(super) struct Range {
+    pub(super) key: &'static str,
     wire: &'static str,
     get: fn(&QuerySuggestionsSetting) -> Option<u64>,
-    set: fn(&mut QuerySuggestionsSetting, u64) -> Option<()>,
-    fallback: u64,
-    min: u64,
-    max: Bound,
+    pub(super) set: fn(&mut QuerySuggestionsSetting, u64) -> Option<()>,
+    pub(super) fallback: u64,
+    pub(super) min: u64,
+    pub(super) max: Bound,
 }
 
 impl Range {
@@ -80,7 +80,7 @@ macro_rules! numeric_limits {
     (@max max_length) => { Bound::MaxLength };
     (@max $max:ident) => { Bound::Fixed(limits::$max as u64) };
     ($($field:ident $key:literal: $fallback:ident, $min:tt..=$max:ident;)+) => {
-        const RANGES: &[Range] = &[$(Range {
+        pub(super) const RANGES: &[Range] = &[$(Range {
             key: $key,
             wire: stringify!($field),
             get: |setting| setting.$field.map(u64::from),
@@ -139,7 +139,7 @@ impl ResolvedSetting {
     }
 }
 
-fn require_products(resolved: &ResolvedSetting) -> Result<()> {
+pub(super) fn require_products(resolved: &ResolvedSetting) -> Result<()> {
     let products = [
         (
             "maxPeoplePerDay times maxPhrasesPerPerson",

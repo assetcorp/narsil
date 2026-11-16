@@ -1,0 +1,2 @@
+pub const POOL_IDLE_TIMEOUT_MS: u64 = 30_000;
+pub const MAX_IDLE_CONNECTIONS_PER_HOST: usize = 8;

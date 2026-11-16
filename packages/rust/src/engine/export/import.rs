@@ -123,7 +123,11 @@ fn prepare_index(engine: &Narsil, index: &str, config: IndexConfig) -> Result<()
             format!(
                 "Index \"{index}\" gives field \"{field}\" another type than the export does, so the import cannot write into it"
             ),
-        ));
+        )
+        .with_details([
+            ("indexName", Value::from(index)),
+            ("field", Value::from(field.as_str())),
+        ]));
     }
     Ok(())
 }

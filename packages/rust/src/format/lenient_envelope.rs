@@ -1,9 +1,10 @@
-use crate::error::{ErrorCode, Result, fail, load_failed};
+use crate::error::{ErrorCode, Result, fail, fail_with, load_failed};
 use crate::format::envelope::{
     Compression, HEADER_BYTES, Header, MAX_FILE_BYTES, gunzip_within, gzip, read_header,
     write_header,
 };
 use crate::util::hash::crc32;
+use crate::value::Value;
 
 /// Opens an envelope of version 1 at most, with an optional checksum, as the reference reads metadata files.
 pub(crate) fn open_lenient_envelope(data: &[u8], max_version: u8) -> Result<(Header, Vec<u8>)> {
@@ -43,11 +44,18 @@ pub(crate) fn open_lenient_envelope(data: &[u8], max_version: u8) -> Result<(Hea
         ));
     }
     let payload = &data[HEADER_BYTES..HEADER_BYTES + header.payload_length as usize];
-    if header.checksum_present && crc32(payload) != header.checksum {
-        return fail(
-            ErrorCode::PERSISTENCE_CRC_MISMATCH,
-            "CRC32 checksum mismatch: data may be corrupted",
-        );
+    if header.checksum_present {
+        let computed = crc32(payload);
+        if computed != header.checksum {
+            return fail_with(
+                ErrorCode::PERSISTENCE_CRC_MISMATCH,
+                "CRC32 checksum mismatch: data may be corrupted",
+                [
+                    ("expected", Value::from(header.checksum)),
+                    ("computed", Value::from(computed)),
+                ],
+            );
+        }
     }
     if header.compressed && header.algorithm == Compression::Gzip {
         return Ok((header, gunzip_within(payload, MAX_FILE_BYTES, "envelope")?));

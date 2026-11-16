@@ -1,9 +1,13 @@
+mod constants;
 mod json;
 mod map;
 mod msgpack;
 mod number_text;
 
-pub use json::{parse_json, write_json};
+pub use json::{
+    json_nests_too_deep, parse_json, parse_plain_json, write_json, write_plain_json,
+    write_plain_json_into,
+};
 pub(crate) use json::{
     parse_json_raw, untag_value, write_exact_json_into, write_json_into, write_json_string,
 };
@@ -14,7 +18,8 @@ pub(crate) use msgpack::{
     write_array_header, write_binary, write_map_header, write_nil, write_number, write_string,
     write_uint,
 };
-pub(crate) use number_text::{javascript_text, number_to_text};
+pub use msgpack::{decode_msgpack, encode_msgpack};
+pub(crate) use number_text::{javascript_text, javascript_typeof, number_to_text};
 
 pub(crate) const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 

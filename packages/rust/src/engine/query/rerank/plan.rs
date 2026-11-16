@@ -5,6 +5,7 @@ use super::super::params::{QueryParams, RerankConfig};
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::schema::CompiledSchema;
 use crate::util::text::javascript_trim;
+use crate::value::Value;
 
 /// The rerank step of a query once the engine has checked it.
 pub(crate) struct RerankPlan {
@@ -57,15 +58,18 @@ fn require_text_fields(fields: &[String], schema: &CompiledSchema) -> Result<Vec
         let text_valued = schema
             .field_type(field)
             .is_some_and(|field_type| field_type.base.is_string_valued());
+        let named = [("field", Value::from(field.as_str()))];
         if !text_valued {
             return Err(invalid(format!(
                 "rerank.fields gives \"{field}\", which the schema does not declare as a text field"
-            )));
+            ))
+            .with_details(named));
         }
         if !seen.insert(field.as_str()) {
-            return Err(invalid(format!(
-                "rerank.fields gives \"{field}\" more than once"
-            )));
+            return Err(
+                invalid(format!("rerank.fields gives \"{field}\" more than once"))
+                    .with_details(named),
+            );
         }
     }
     Ok(fields.to_vec())
@@ -84,12 +88,20 @@ fn require_window(
     if !(MIN_RERANK_WINDOW..=max_window).contains(&window) {
         return Err(invalid(format!(
             "rerank.window must be a whole number from {MIN_RERANK_WINDOW} to {max_window}"
-        )));
+        ))
+        .with_details([
+            ("window", Value::from(window)),
+            ("maxRerankWindow", Value::from(max_window)),
+        ]));
     }
     match hybrid_depth {
         Some(depth) if window > depth => Err(invalid(format!(
             "rerank.window is {window}, above the hybrid.depth of {depth} that a hybrid query reranks from"
-        ))),
+        ))
+        .with_details([
+            ("window", Value::from(window)),
+            ("depth", Value::from(depth)),
+        ])),
         _ => Ok(window),
     }
 }
