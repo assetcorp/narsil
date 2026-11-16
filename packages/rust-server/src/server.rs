@@ -18,6 +18,7 @@ use crate::errors::config_invalid_error;
 use crate::feeds::Feeds;
 use crate::http::budget::{BodyBudget, RequestGate};
 use crate::http::cors::ResolvedCors;
+use crate::http::in_flight::RequestsInFlight;
 use crate::http::pipeline::serve;
 use crate::http::stall_guard::WriteStallGuard;
 use crate::ids::random_uuid;
@@ -99,6 +100,7 @@ impl NarsilServer {
             identify: options.query_suggestions_identify.clone(),
             gate: RequestGate::new(max_requests),
             body_budget: BodyBudget::new(limits.max_body_bytes_in_flight),
+            requests: RequestsInFlight::new(),
             feeds,
             limits,
         };
@@ -241,6 +243,7 @@ async fn accept_loop(
     let deadline = Duration::from_millis(SERVER_CLOSE_DRAIN_DEADLINE_MS);
     let drained = tokio::time::timeout(deadline, async {
         while connections.join_next().await.is_some() {}
+        state.requests.settled().await;
     })
     .await;
     if drained.is_err() {

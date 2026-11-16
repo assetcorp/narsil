@@ -291,12 +291,12 @@ async fn route(
         spooled,
         hook_context,
     };
-    let outcome = AssertUnwindSafe(dispatch(Arc::clone(state), route, context))
-        .catch_unwind()
-        .await;
-    match outcome {
-        Ok(Ok(response)) => held_until_sent(response, (pass, hold)),
-        Ok(Err(failure)) => error(&failure),
-        Err(_) => error(&ServerError::internal()),
+    let in_flight = state.requests.enter();
+    let handled = AssertUnwindSafe(dispatch(Arc::clone(state), route, context)).catch_unwind();
+    let running = tokio::spawn(async move { (handled.await, (pass, hold, in_flight)) });
+    match running.await {
+        Ok((Ok(Ok(response)), held)) => held_until_sent(response, held),
+        Ok((Ok(Err(failure)), _)) => error(&failure),
+        Ok((Err(_), _)) | Err(_) => error(&ServerError::internal()),
     }
 }
