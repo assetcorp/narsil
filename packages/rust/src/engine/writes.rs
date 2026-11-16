@@ -219,7 +219,7 @@ pub(crate) fn insert(
     let appended = {
         let _writer = index.lock_writes()?;
         memory.refuse_while_full(&index.name)?;
-        let _reserved = reserve_for_document(memory, index, held_document(held.prepared())?)?;
+        let _reserved = reserve_for_document(memory, index, held_document(held.prepared())?, None)?;
         let document = held.take().ok_or_else(|| index.not_found(&id))?;
         let mut log = PendingLog::begin(index.log())?;
         let partitions = index.partitions();
@@ -318,7 +318,8 @@ pub(crate) fn update(
     let appended = {
         let _writer = index.lock_writes()?;
         memory.refuse_while_full(&index.name)?;
-        let _reserved = reserve_for_document(memory, index, held_document(held.prepared())?)?;
+        let prepared = held_document(held.prepared())?;
+        let _reserved = reserve_for_document(memory, index, prepared, Some(doc_id))?;
         let document = held.take().ok_or_else(|| index.not_found(doc_id))?;
         let mut log = PendingLog::begin(index.log())?;
         let partitions = index.partitions();
