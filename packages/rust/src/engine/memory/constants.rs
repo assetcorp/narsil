@@ -1,5 +1,6 @@
 pub(crate) const DEFAULT_BLOCK_WRITES_ABOVE: f64 = 0.9;
 pub(crate) const DEFAULT_RESUME_WRITES_BELOW: f64 = 0.8;
+pub(crate) const READ_PARSE_BLOCK_FRACTION: f64 = 0.95;
 pub(crate) const MEMORY_FIGURES_MAX_AGE_MS: u64 = 10;
 pub(crate) const RECENT_MEMORY_FIGURES_MAX_ADMITTED_FRACTION: f64 = 0.01;
 pub(crate) const FREE_PAGE_RELEASE_INTERVAL_MS: u64 = 5_000;

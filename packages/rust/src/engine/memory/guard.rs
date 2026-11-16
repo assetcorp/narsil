@@ -266,6 +266,16 @@ impl MemoryGuard {
         reading.latest
     }
 
+    pub(crate) fn admit(&self, bytes: u64) {
+        self.admitted_bytes.fetch_add(bytes, Ordering::AcqRel);
+    }
+
+    pub(crate) fn measure_now(&self) -> Option<ProcessMemory> {
+        let mut reading = self.reading();
+        self.measure(&mut reading);
+        reading.latest
+    }
+
     pub(crate) fn releases(&self) -> u64 {
         self.reading().releases
     }

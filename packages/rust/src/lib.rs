@@ -39,10 +39,11 @@ pub use engine::{
     FacetResult, FacetSpec, FeedChange, GroupConfig, GroupReduce, GroupReducer, GroupResult,
     HighlightConfig, HighlightMatch, HighlightPosition, Hit, HybridConfig, HybridStrategy,
     ImportRefusal, IndexInfo, IndexStats, ListParams, ListResult, ListedDocument, ListenerId,
-    MemoryStats, Narsil, NarsilConfig, NarsilEvent, NarsilEventKind, PartitionStats, Pin, Plugin,
-    PreflightResult, QueryCoverage, QueryParams, QueryResult, RerankConfig, ScoreComponents,
-    SearchMode, SortDirection, SortField, SortMode, SuggestParams, SuggestResult, SuggestedTerm,
-    SyncSetting, SyncStatus, TermMatch, VectorMaintenanceStatus, VectorQuery, WorkStatus,
+    MemoryStats, Narsil, NarsilConfig, NarsilEvent, NarsilEventKind, ParseKind, ParseShortfall,
+    PartitionStats, Pin, Plugin, PreflightResult, QueryCoverage, QueryParams, QueryResult,
+    RerankConfig, ScoreComponents, SearchMode, SortDirection, SortField, SortMode, SuggestParams,
+    SuggestResult, SuggestedTerm, SyncSetting, SyncStatus, TermMatch, VectorMaintenanceStatus,
+    VectorQuery, WorkStatus,
 };
 pub use engine::{
     AnalysisConfig, AnalysisRebuildMode, IdGenerator, IndexLifecycleConfig, IndexResidencyState,

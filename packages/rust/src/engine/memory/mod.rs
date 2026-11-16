@@ -6,12 +6,14 @@ mod guard;
 mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
+mod parse;
 mod projection;
 #[cfg(windows)]
 mod windows;
 
 pub(crate) use budget::{require_analysis_rebuild_memory, require_restore_memory};
 pub(crate) use guard::MemoryGuard;
+pub use parse::{ParseKind, ParseShortfall};
 pub(crate) use projection::{WriteProjection, refused_after, reserve_for_document};
 
 #[cfg(target_os = "linux")]
