@@ -13,7 +13,7 @@ REPO="$HOME/narsil"
 status=0
 
 cd "$REPO" || { echo "repo not found at $REPO" >&2; exit 1; }
-export PATH="$HOME/.local/bin:$PATH"
+export PATH="$HOME/.local/bin:$HOME/.local/go/bin:$HOME/.cargo/bin:$PATH"
 corepack enable >/dev/null 2>&1 || true
 
 stamp() { printf '\n[%s] %s\n' "$(date -u +%H:%M:%S)" "$*"; }
@@ -39,9 +39,9 @@ if [ "$SUITES" = "languages" ]; then
   pnpm exec nx run-many -t build \
     --projects=narsil-ts,narsil-embeddings-transformers,@delali/narsil-native-build || status=1
 else
-  stamp "build workspace libraries (the example apps are not part of either suite)"
+  stamp "build workspace libraries, leaving out the example apps and the Rust servers that the server suite builds in Docker"
   pnpm exec nx run-many -t build \
-    --exclude=@delali/narsil-example-browser,@delali/narsil-example-server-app || status=1
+    --exclude=@delali/narsil-example-browser,@delali/narsil-example-server-app,narsil-rust-server,narsil-rust-container || status=1
 fi
 
 if [ "$SUITES" = "both" ] || [ "$SUITES" = "inprocess" ]; then
@@ -53,8 +53,7 @@ fi
 
 if [ "$SUITES" = "languages" ]; then
   stamp "engine-languages suite (TypeScript, Rust, and Go on the C core)"
-  ( export PATH="$HOME/.local/go/bin:$HOME/.cargo/bin:$PATH" BENCH_MACHINE_LABEL="$LABEL" \
-      && pnpm --filter engine-languages-benchmark bench ) || status=1
+  ( export BENCH_MACHINE_LABEL="$LABEL" && pnpm --filter engine-languages-benchmark bench ) || status=1
 fi
 
 if [ "$SUITES" = "both" ] || [ "$SUITES" = "server" ]; then
