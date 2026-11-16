@@ -106,6 +106,20 @@ impl SegmentEntry {
         }
     }
 
+    pub(crate) fn removal_copy_bytes(&self, snapshot_shared: bool) -> usize {
+        match (&self.data, &self.state) {
+            (SegmentData::Tail(tail), _) if snapshot_shared || Arc::strong_count(tail) > 1 => {
+                tail.copy_bytes()
+            }
+            (SegmentData::Frozen(_), Some(state))
+                if snapshot_shared || Arc::strong_count(state) > 1 =>
+            {
+                state.bytes()
+            }
+            _ => 0,
+        }
+    }
+
     pub(crate) fn remove(&mut self, ordinal: u32, words: &IndexedDocument) -> Result<bool> {
         if ordinal >= self.capacity() || self.is_removed(ordinal) {
             return Ok(false);

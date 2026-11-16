@@ -1,4 +1,4 @@
-use super::checks::{FieldContext, invalid};
+use super::checks::{FieldContext, invalid_operand};
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::pattern::constants::{MAX_PATTERN_POSITIONS, MAX_PATTERN_TEXT_CODE_POINTS};
 use crate::pattern::expression::{ExpressionOperator, check_expression};
@@ -25,10 +25,14 @@ fn require_pattern_field(field: &FieldContext<'_>, operator: &str) -> Result<()>
     if field.field_type.pattern {
         return Ok(());
     }
-    invalid(format!(
-        "\"{operator}\" applies only to a pattern field, because only a pattern field has a pattern index. A pattern field is a \"verbatim\" field, or a text field whose type includes \"pattern\". Field \"{}\" has type \"{}\"",
-        field.path, field.declared
-    ))
+    invalid_operand(
+        format!(
+            "\"{operator}\" applies only to a pattern field, because only a pattern field has a pattern index. A pattern field is a \"verbatim\" field, or a text field whose type includes \"pattern\". Field \"{}\" has type \"{}\"",
+            field.path, field.declared
+        ),
+        field.path,
+        operator,
+    )
 }
 
 fn case_fold_of(field: &FieldContext<'_>) -> bool {
@@ -39,17 +43,25 @@ fn require_text_length(path: &str, operator: &str, text: &str) -> Result<()> {
     if text.chars().nth(MAX_PATTERN_TEXT_CODE_POINTS).is_none() {
         return Ok(());
     }
-    invalid(format!(
-        "The text of \"{operator}\" on pattern field \"{path}\" holds more than {MAX_PATTERN_TEXT_CODE_POINTS} code points"
-    ))
+    invalid_operand(
+        format!(
+            "The text of \"{operator}\" on pattern field \"{path}\" holds more than {MAX_PATTERN_TEXT_CODE_POINTS} code points"
+        ),
+        path,
+        operator,
+    )
 }
 
 fn require_pattern_text(path: &str, operator: &str, text: &str, case_fold: bool) -> Result<()> {
     require_text_length(path, operator, text)?;
     if case_fold && case_fold_exceeds(text, MAX_PATTERN_POSITIONS as usize)? {
-        return invalid(format!(
-            "The text of \"{operator}\" on pattern field \"{path}\" has a case fold of more than {MAX_PATTERN_POSITIONS} code points, while a pattern holds at most {MAX_PATTERN_POSITIONS} positions"
-        ));
+        return invalid_operand(
+            format!(
+                "The text of \"{operator}\" on pattern field \"{path}\" has a case fold of more than {MAX_PATTERN_POSITIONS} code points, while a pattern holds at most {MAX_PATTERN_POSITIONS} positions"
+            ),
+            path,
+            operator,
+        );
     }
     Ok(())
 }
@@ -68,14 +80,20 @@ fn require_tolerance(field: &FieldContext<'_>) -> Result<()> {
         return Ok(());
     };
     if !is_pattern_tolerance(tolerance) {
-        return invalid(format!(
-            "\"tolerance\" on field \"{path}\" must be 0, 1, 2, or \"auto\""
-        ));
+        return invalid_operand(
+            format!("\"tolerance\" on field \"{path}\" must be 0, 1, 2, or \"auto\""),
+            path,
+            "tolerance",
+        );
     }
     let Some(Value::String(eq)) = field.get("eq") else {
-        return invalid(format!(
-            "\"tolerance\" applies only to an \"eq\" test, while the filter on field \"{path}\" sets no \"eq\" with text"
-        ));
+        return invalid_operand(
+            format!(
+                "\"tolerance\" applies only to an \"eq\" test, while the filter on field \"{path}\" sets no \"eq\" with text"
+            ),
+            path,
+            "tolerance",
+        );
     };
     let Value::Number(count) = tolerance else {
         return Ok(());
@@ -95,7 +113,13 @@ fn require_tolerance(field: &FieldContext<'_>) -> Result<()> {
             "A tolerance of {} on \"eq\" of pattern field \"{path}\" needs {required} distinct runs of three code points in the case fold of the text, while the text holds {distinct}. Lengthen the text, lower the tolerance, or set it to \"auto\"",
             number_to_text(*count)
         ),
-    ))
+    )
+    .with_details([
+        ("fieldPath", Value::from(path)),
+        ("operator", Value::from("tolerance")),
+        ("requiredRuns", Value::from(required)),
+        ("distinctRuns", Value::from(distinct)),
+    ]))
 }
 
 fn check_pattern_operands(field: &FieldContext<'_>) -> Result<()> {
@@ -138,15 +162,21 @@ pub(crate) fn require_pattern_operands(field: &FieldContext<'_>) -> Result<()> {
     let path = field.path;
     if let Some(contains) = field.get("contains") {
         if !matches!(contains, Value::String(_)) {
-            return invalid(format!("\"contains\" on field \"{path}\" must be a string"));
+            return invalid_operand(
+                format!("\"contains\" on field \"{path}\" must be a string"),
+                path,
+                "contains",
+            );
         }
         require_pattern_field(field, "contains")?;
     }
     if let Some(case_fold) = field.get("caseFold") {
         if !matches!(case_fold, Value::Bool(_)) {
-            return invalid(format!(
-                "\"caseFold\" on field \"{path}\" must be true or false"
-            ));
+            return invalid_operand(
+                format!("\"caseFold\" on field \"{path}\" must be true or false"),
+                path,
+                "caseFold",
+            );
         }
         require_pattern_field(field, "caseFold")?;
     }
@@ -155,7 +185,11 @@ pub(crate) fn require_pattern_operands(field: &FieldContext<'_>) -> Result<()> {
             continue;
         };
         if !matches!(pattern, Value::String(_)) {
-            return invalid(format!("\"{name}\" on field \"{path}\" must be a string"));
+            return invalid_operand(
+                format!("\"{name}\" on field \"{path}\" must be a string"),
+                path,
+                name,
+            );
         }
         require_pattern_field(field, name)?;
     }

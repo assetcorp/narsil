@@ -69,6 +69,7 @@ impl Narsil {
         chunks: Vec<C>,
         mut write: impl FnMut(&IndexState, &mut C, &mut BatchResult) -> Result<writes::ChunkWrite>,
         refuse: impl Fn(C, &NarsilError, &mut BatchResult),
+        refuse_after: impl Fn(C, &str, &str, &mut BatchResult),
     ) -> Result<BatchResult> {
         let mut result = BatchResult::default();
         let mut pending = chunks.into_iter();
@@ -103,6 +104,13 @@ impl Narsil {
                     attempt = 1;
                     continue;
                 }
+                Ok(writes::ChunkWrite::Stopped { refused_doc_id }) => {
+                    for later in pending {
+                        refuse_after(later, &state.name, &refused_doc_id, &mut result);
+                    }
+                    self.wrote(&state);
+                    return Ok(result);
+                }
                 Ok(writes::ChunkWrite::Refused { error, failed }) => (error, failed),
                 Err(error) => {
                     self.wrote(&state);
@@ -130,7 +138,8 @@ impl Narsil {
     /// it has another adapter, and the insert fails with `WORKER_BUSY` once the adapter has changed after each of
     /// three embeddings.
     ///
-    /// Fails with `MEMORY_WRITE_BLOCKED` while process memory stays above the engine's block fraction.
+    /// Fails with `MEMORY_WRITE_BLOCKED` while process memory stays above the engine's block fraction, and where the
+    /// memory that indexing the document can take would carry the process past that fraction.
     pub fn insert(&self, index: &str, document: Map, doc_id: Option<&str>) -> Result<String> {
         self.inner.refuse_while_memory_full(index)?;
         let next_id = || self.inner.next_document_id();
@@ -158,7 +167,10 @@ impl Narsil {
     /// The engine writes the documents in chunks of 1,000, and each chunk goes whole into one index, embedded as
     /// [`Narsil::insert`] embeds one document.
     ///
-    /// Fails with `MEMORY_WRITE_BLOCKED` while process memory stays above the engine's block fraction.
+    /// Fails with `MEMORY_WRITE_BLOCKED` while process memory stays above the engine's block fraction. Where the
+    /// memory that indexing a document can take would carry the process past that fraction, the engine refuses that
+    /// document and every later one with `MEMORY_WRITE_BLOCKED`, and it keeps the documents that it has already
+    /// written.
     pub fn insert_batch(&self, index: &str, documents: Vec<Map>) -> Result<BatchResult> {
         self.inner.refuse_while_memory_full(index)?;
         let next_id = || self.inner.next_document_id();
@@ -168,12 +180,24 @@ impl Narsil {
         };
         if plugins.is_empty() {
             let chunks = writes::insert_chunks(documents, Vec::new());
-            return self.write_chunks(index, chunks, write, InsertChunk::refuse);
+            return self.write_chunks(
+                index,
+                chunks,
+                write,
+                InsertChunk::refuse,
+                InsertChunk::refuse_after,
+            );
         }
         let state = self.inner.open_index(index)?;
         let hooked = hooked::before_insert_batch(plugins, &state.name, documents, &next_id);
         let chunks = writes::insert_chunks(hooked.documents, hooked.ids);
-        let mut result = self.write_chunks(index, chunks, write, InsertChunk::refuse)?;
+        let mut result = self.write_chunks(
+            index,
+            chunks,
+            write,
+            InsertChunk::refuse,
+            InsertChunk::refuse_after,
+        )?;
         hooked::after_insert_batch(
             plugins,
             &state.name,
@@ -188,7 +212,8 @@ impl Narsil {
     ///
     /// The engine embeds the new document as [`Narsil::insert`] embeds one.
     ///
-    /// Fails with `MEMORY_WRITE_BLOCKED` while process memory stays above the engine's block fraction.
+    /// Fails with `MEMORY_WRITE_BLOCKED` while process memory stays above the engine's block fraction, and where the
+    /// memory that indexing the new document can take would carry the process past that fraction.
     pub fn update(&self, index: &str, doc_id: &str, document: Map) -> Result<()> {
         self.inner.refuse_while_memory_full(index)?;
         let plugins = &self.inner.plugins;
@@ -212,7 +237,9 @@ impl Narsil {
 
     /// Replaces many documents, each given with its ID, refusing each bad update alone.
     ///
-    /// The engine writes the updates in chunks as [`Narsil::insert_batch`] writes documents.
+    /// The engine writes the updates in chunks as [`Narsil::insert_batch`] writes documents, and it refuses an update
+    /// that would carry the process past the block fraction, together with every later one, as that method refuses a
+    /// document.
     ///
     /// Fails with `MEMORY_WRITE_BLOCKED` while process memory stays above the engine's block fraction.
     pub fn update_batch(&self, index: &str, updates: Vec<(String, Map)>) -> Result<BatchResult> {
@@ -223,7 +250,13 @@ impl Narsil {
         let plugins = &self.inner.plugins;
         if plugins.is_empty() {
             let chunks = writes::update_chunks(updates);
-            return self.write_chunks(index, chunks, write, UpdateChunk::refuse);
+            return self.write_chunks(
+                index,
+                chunks,
+                write,
+                UpdateChunk::refuse,
+                UpdateChunk::refuse_after,
+            );
         }
         let state = self.inner.open_index(index)?;
         let mut admitted = Vec::with_capacity(updates.len());
@@ -239,7 +272,13 @@ impl Narsil {
             }
         }
         let chunks = writes::update_chunks(admitted);
-        let mut result = self.write_chunks(index, chunks, write, UpdateChunk::refuse)?;
+        let mut result = self.write_chunks(
+            index,
+            chunks,
+            write,
+            UpdateChunk::refuse,
+            UpdateChunk::refuse_after,
+        )?;
         let mut written = result.succeeded.iter().peekable();
         for (doc_id, old, new) in kept {
             if written.next_if(|id| **id == doc_id).is_some() {

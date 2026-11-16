@@ -49,6 +49,16 @@ impl DerivedColumn for CoreStoredValues {
     fn len(&self) -> usize {
         self.shapes.len()
     }
+
+    fn bytes(&self) -> usize {
+        self.shapes.len()
+            + self.kinds.len()
+            + self.bytes.len()
+            + self.numbers.len() * size_of::<f64>()
+            + (self.starts.len() + self.text_start.len() + self.text_length.len())
+                * size_of::<u32>()
+            + self.units.len() * size_of::<u16>()
+    }
 }
 
 fn layout_exceeded() -> NarsilError {

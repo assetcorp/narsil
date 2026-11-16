@@ -127,6 +127,20 @@ impl PostingPool {
         self.allocator.free_entries()
     }
 
+    pub(crate) fn growth_bytes(&self, added: usize) -> usize {
+        let needed = self.end().saturating_add(added);
+        if needed <= self.doc_ids.len() {
+            return 0;
+        }
+        let capacity = grown_capacity(self.doc_ids.len(), needed, MAX_POOL_ENTRIES)
+            .unwrap_or(MAX_POOL_ENTRIES);
+        let starts = self
+            .position_starts
+            .as_ref()
+            .map_or(0, |_| size_of::<u32>());
+        capacity.saturating_mul(size_of::<u32>() + 2 * size_of::<u16>() + starts)
+    }
+
     pub(crate) fn reserve(&mut self, needed: usize) -> Result<()> {
         if needed <= self.doc_ids.len() {
             return Ok(());
@@ -226,6 +240,16 @@ impl PositionPool {
         let capacity = grown_capacity(self.values.len(), needed, MAX_POOL_ENTRIES)?;
         grow_to(&mut self.values, capacity);
         Ok(())
+    }
+
+    pub(crate) fn growth_bytes(&self, added: usize) -> usize {
+        let needed = self.end().saturating_add(added);
+        if needed <= self.values.len() {
+            return 0;
+        }
+        grown_capacity(self.values.len(), needed, MAX_POOL_ENTRIES)
+            .unwrap_or(MAX_POOL_ENTRIES)
+            .saturating_mul(size_of::<u32>())
     }
 
     pub(crate) fn grow(&mut self) -> Result<()> {

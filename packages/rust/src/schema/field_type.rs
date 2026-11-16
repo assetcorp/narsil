@@ -1,4 +1,5 @@
 use crate::error::{ErrorCode, NarsilError, Result};
+use crate::value::Value;
 
 const MAX_STORED_VECTOR_DIMENSION: u32 = 65_535;
 pub(crate) const MAX_VECTOR_DIMENSION: u32 = 4_096;
@@ -104,8 +105,11 @@ pub struct FieldType {
     pub dimension: u32,
 }
 
-fn invalid_type(message: String) -> NarsilError {
-    NarsilError::new(ErrorCode::SCHEMA_INVALID_TYPE, message)
+fn invalid_type(path: &str, type_name: &str, message: String) -> NarsilError {
+    NarsilError::new(ErrorCode::SCHEMA_INVALID_TYPE, message).with_details([
+        ("field", Value::from(path)),
+        ("type", Value::from(type_name)),
+    ])
 }
 
 fn vector_dimension_text(name: &str) -> Option<&str> {
@@ -117,13 +121,18 @@ fn vector_dimension(name: &str) -> Option<&str> {
     (!digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit())).then_some(digits)
 }
 
-fn invalid_dimension(path: &str, shown: &str) -> NarsilError {
+fn invalid_dimension(path: &str, shown: &str, dimension: f64) -> NarsilError {
     NarsilError::new(
         ErrorCode::SCHEMA_INVALID_VECTOR_DIMENSION,
         format!(
             "Vector field \"{path}\" has {shown} dimensions, but a vector field holds a whole number from 1 to {MAX_STORED_VECTOR_DIMENSION}"
         ),
     )
+    .with_details([
+        ("field", Value::from(path)),
+        ("dimension", Value::Number(dimension)),
+        ("maximum", Value::from(MAX_STORED_VECTOR_DIMENSION)),
+    ])
 }
 
 fn describe_allowed(base_name: &str, allowed: &[&str]) -> String {
@@ -154,12 +163,14 @@ pub fn parse_field_type(type_name: &str, path: &str) -> Result<FieldType> {
         Some(base) => (base, 0),
         None => {
             let Some(inner) = vector_dimension_text(base_name) else {
-                return Err(invalid_type(format!(
-                    "Field \"{path}\" has an unsupported type: \"{type_name}\""
-                )));
+                return Err(invalid_type(
+                    path,
+                    type_name,
+                    format!("Field \"{path}\" has an unsupported type: \"{type_name}\""),
+                ));
             };
             let Some(digits) = vector_dimension(base_name) else {
-                return Err(invalid_dimension(path, &format!("\"{inner}\"")));
+                return Err(invalid_dimension(path, &format!("\"{inner}\""), f64::NAN));
             };
             let significant = digits.trim_start_matches('0');
             let too_long = significant.len() > 19;
@@ -170,7 +181,8 @@ pub fn parse_field_type(type_name: &str, path: &str) -> Result<FieldType> {
                 } else {
                     dimension.to_string()
                 };
-                return Err(invalid_dimension(path, &shown));
+                let parsed = digits.parse::<f64>().unwrap_or(f64::NAN);
+                return Err(invalid_dimension(path, &shown, parsed));
             }
             (BaseType::Vector, dimension as u32)
         }
@@ -180,15 +192,23 @@ pub fn parse_field_type(type_name: &str, path: &str) -> Result<FieldType> {
     if let Some(options_text) = options_text {
         for option in options_text.split(TYPE_SEPARATOR) {
             if !allowed.contains(&option) {
-                return Err(invalid_type(format!(
-                    "Field \"{path}\" has type \"{type_name}\" with the option \"{option}\", but {}",
-                    describe_allowed(base_name, allowed)
-                )));
+                return Err(invalid_type(
+                    path,
+                    type_name,
+                    format!(
+                        "Field \"{path}\" has type \"{type_name}\" with the option \"{option}\", but {}",
+                        describe_allowed(base_name, allowed)
+                    ),
+                ));
             }
             if chosen.contains(&option) {
-                return Err(invalid_type(format!(
-                    "Field \"{path}\" has the \"{option}\" option twice in type \"{type_name}\""
-                )));
+                return Err(invalid_type(
+                    path,
+                    type_name,
+                    format!(
+                        "Field \"{path}\" has the \"{option}\" option twice in type \"{type_name}\""
+                    ),
+                ));
             }
             chosen.push(option);
         }

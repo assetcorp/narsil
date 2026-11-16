@@ -1,3 +1,5 @@
+mod support;
+
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
@@ -7,6 +9,7 @@ use narsil::{
     NarsilEventKind, PartitionConfig, Plugin, QueryParams, QueryResult, StopWords,
     StopWordsSetting, Value,
 };
+use support::details_json;
 
 const INDEX: &str = "orders";
 const LIMIT: Duration = Duration::from_secs(20);
@@ -431,10 +434,15 @@ fn plugins_enrich_refuse_and_observe_every_write_and_search() {
         ErrorCode::DOC_VALIDATION_FAILED,
         Some("the recorder refuses it"),
     );
-    require_code(
-        narsil.insert(INDEX, titled("panic"), Some("panicked")),
-        ErrorCode::DOC_VALIDATION_FAILED,
-        None,
+    let panicked = narsil
+        .insert(INDEX, titled("panic"), Some("panicked"))
+        .expect_err("the hook refuses the call");
+    assert_eq!(
+        (panicked.code(), details_json(&panicked).as_deref()),
+        (
+            ErrorCode::DOC_VALIDATION_FAILED,
+            Some(r#"{"plugin":"recorder","hook":"beforeInsert"}"#)
+        )
     );
     for id in ["refused", "panicked"] {
         assert_eq!(

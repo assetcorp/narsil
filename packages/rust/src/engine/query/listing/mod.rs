@@ -2,25 +2,31 @@ mod constants;
 mod filtered;
 mod projection;
 mod seek;
+mod sorted;
 
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use super::constants::DEFAULT_PAGE_SIZE;
 use super::cursor::{
-    PageCursor, decode_page_cursor, encode_page_cursor, list_binding, require_matching_cursor,
+    PageCursor, decode_matching_cursor, encode_page_cursor, list_binding, sort_signature_of,
 };
-use super::params::DocumentProjection;
+use super::params::{DocumentProjection, SortField};
 use super::projection::resolve_projection;
 use super::require_within_result_window;
+use super::validate::require_sortable_fields;
 use crate::engine::Narsil;
 use crate::engine::index::IndexState;
 use crate::error::Result;
+use crate::index::partition::PartitionSnapshot;
+use crate::ordering::OwnedSortValue;
 use crate::pattern::SearchLimits;
 use crate::value::{Map, Value};
 use constants::MIN_LIST_PAGE_SIZE;
 use filtered::{require_listing_filter, segment_matcher};
 use projection::listed_document;
-use seek::partition_candidates;
+use seek::{PartitionPage, SegmentMatcher, partition_candidates};
+use sorted::{ListingPage, SortedRequest, sorted_listing};
 
 /// Everything that [`Narsil::list_documents`] accepts. Leave `cursor` out for the first page, then pass back the
 /// cursor of each result until it comes back `None`.
@@ -48,7 +54,8 @@ pub struct ListedDocument {
 /// One page of [`Narsil::list_documents`].
 #[derive(Debug, Clone, PartialEq)]
 pub struct ListResult {
-    /// The documents of the page, in ascending code point order of their IDs.
+    /// The documents of the page, in ascending code point order of their IDs, or in the order of the sort that
+    /// [`Narsil::list_documents_sorted`] takes.
     pub documents: Vec<ListedDocument>,
     /// The cursor that reaches the next page, or `None` once the listing has reached its last document.
     pub cursor: Option<String>,
@@ -64,32 +71,18 @@ fn list_page_size(limit: Option<usize>) -> Result<usize> {
     Ok(size)
 }
 
-fn listed_page(
-    index: &IndexState,
-    params: &ListParams,
-    limits: &SearchLimits,
-) -> Result<ListResult> {
-    let started = Instant::now();
-    let limit = list_page_size(params.limit)?;
-    let matcher = segment_matcher(index, params.filters.as_ref(), limits)?;
-    let projection = resolve_projection(params.document.as_ref());
-    let binding = list_binding(params.filters.as_ref());
-    let anchor = match &params.cursor {
-        None => None,
-        Some(text) => {
-            let cursor = decode_page_cursor(text)?;
-            require_matching_cursor(&cursor, None, false, &binding)?;
-            Some(cursor.anchor)
-        }
-    };
-    require_listing_filter(params.filters.as_ref())?;
-    let partitions = index.partitions();
+fn id_order_page(
+    snapshots: &[Arc<PartitionSnapshot>],
+    anchor: Option<&str>,
+    matcher: Option<&SegmentMatcher<'_>>,
+    limit: usize,
+    binding: &str,
+) -> Result<ListingPage> {
     let wanted = limit + 1;
     let mut ids = Vec::new();
     let mut total = 0u64;
-    for partition in partitions.iter() {
-        let snapshot = partition.snapshot();
-        let page = partition_candidates(&snapshot, anchor.as_deref(), matcher.as_deref(), wanted)?;
+    for snapshot in snapshots {
+        let page = partition_candidates(snapshot, anchor, matcher, wanted)?;
         total += page.total;
         ids.extend(page.ids);
     }
@@ -104,10 +97,74 @@ fn listed_page(
             sort_key: None,
             sort_signature: None,
             depth: 0,
-            binding,
+            binding: binding.to_string(),
         })),
         _ => None,
     };
+    Ok(ListingPage {
+        page: PartitionPage { ids, total },
+        cursor,
+    })
+}
+
+fn listed_page(
+    index: &IndexState,
+    params: &ListParams,
+    sort: &[SortField],
+    limits: &SearchLimits,
+) -> Result<ListResult> {
+    let started = Instant::now();
+    let limit = list_page_size(params.limit)?;
+    let signature = sort_signature_of(Some(sort))?;
+    require_sortable_fields(index, Some(sort))?;
+    let matcher = segment_matcher(index, params.filters.as_ref(), limits)?;
+    let projection = resolve_projection(params.document.as_ref());
+    let binding = list_binding(params.filters.as_ref());
+    let cursor = match &params.cursor {
+        None => None,
+        Some(text) => Some(decode_matching_cursor(
+            text,
+            signature.as_deref(),
+            false,
+            &binding,
+        )?),
+    };
+    require_listing_filter(params.filters.as_ref())?;
+    let snapshots: Vec<Arc<PartitionSnapshot>> = index
+        .partitions()
+        .iter()
+        .map(|partition| partition.snapshot())
+        .collect();
+    let listing = match &signature {
+        None => id_order_page(
+            &snapshots,
+            cursor.as_ref().map(|cursor| cursor.anchor.as_str()),
+            matcher.as_deref(),
+            limit,
+            &binding,
+        )?,
+        Some(signature) => sorted_listing(
+            &snapshots,
+            matcher.as_deref(),
+            &SortedRequest {
+                sort,
+                signature,
+                binding: &binding,
+                anchor: cursor.map(|cursor| {
+                    let key = cursor.sort_key.unwrap_or_default();
+                    (
+                        cursor.anchor,
+                        key.iter().map(OwnedSortValue::of_cursor).collect(),
+                    )
+                }),
+                limit,
+            },
+        )?,
+    };
+    let ListingPage {
+        page: PartitionPage { ids, total },
+        cursor,
+    } = listing;
     let mut documents = Vec::with_capacity(ids.len());
     for id in ids {
         if let Some(document) = listed_document(index, &id, &projection)? {
@@ -140,7 +197,30 @@ impl Narsil {
     /// filter's pattern tests.
     pub fn list_documents(&self, index: &str, params: &ListParams) -> Result<ListResult> {
         self.inner.read_index(index, |current| {
-            listed_page(current, params, &self.inner.search_limits)
+            listed_page(current, params, &[], &self.inner.search_limits)
+        })
+    }
+
+    /// Returns one page of the index's stored documents in the order of `sort`, without searching, breaking each
+    /// tie on document ID in ascending code point order. An empty `sort` lists in ID order, as
+    /// [`Narsil::list_documents`] does.
+    ///
+    /// The engine reads the sort value of every document that the listing covers to build each page, so a sorted
+    /// listing costs more than the ID order on a large index. The cursor carries the sort key and the sort of the
+    /// page, and it matches the cursor that every other Narsil engine hands out for the same page.
+    ///
+    /// Fails as [`Narsil::list_documents`] does, and with `SEARCH_INVALID_FIELD` for a sort of more than 8 fields,
+    /// for a field name longer than the cursor allows, and for a field that the engine cannot sort by, which is a
+    /// text field whose type leaves out `sortable`, a geopoint, or a vector. Fails with `SEARCH_INVALID_CURSOR` for a
+    /// cursor that a listing with another sort produced.
+    pub fn list_documents_sorted(
+        &self,
+        index: &str,
+        params: &ListParams,
+        sort: &[SortField],
+    ) -> Result<ListResult> {
+        self.inner.read_index(index, |current| {
+            listed_page(current, params, sort, &self.inner.search_limits)
         })
     }
 }

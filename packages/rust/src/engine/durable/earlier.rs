@@ -27,7 +27,7 @@ fn read_earlier_bytes(store: &Backing, key: &str, missing: String) -> Result<Vec
     store
         .files()
         .read_within(key, MAX_FILE_BYTES)?
-        .ok_or_else(|| load_failed(missing))
+        .ok_or_else(|| load_failed(missing).with_details([("key", Value::from(key))]))
 }
 
 /// Reads an earlier vector file or graph file, whose format requires a checksum, and returns the reference that
@@ -59,7 +59,10 @@ fn read_earlier_vector_file(
 fn earlier_segment(store: &Backing, key: &str) -> Result<(Vec<u8>, Vec<String>)> {
     let bytes = read_earlier_bytes(store, key, format!("Segment file \"{key}\" is missing"))?;
     let (_, payload) = open_lenient_envelope(&bytes, EARLIER_FILE_MAX_ENVELOPE_VERSION)?;
-    let missing_payload = || load_failed("Segment file is missing its partition payload".into());
+    let missing_payload = || {
+        load_failed("Segment file is missing its partition payload".into())
+            .with_details([("key", Value::from(key))])
+    };
     let Value::Object(container) = decode_value(&payload)? else {
         return Err(missing_payload());
     };
@@ -93,7 +96,12 @@ fn add_segment_schema(agreed: &mut Map, schema: &Map) -> Result<()> {
                 "Segment schemas disagree on field \"{field}\": \"{}\" vs \"{}\"",
                 existing.as_str().unwrap_or_default(),
                 found.as_str().unwrap_or_default()
-            )));
+            ))
+            .with_details([
+                ("field", Value::from(field.as_str())),
+                ("existing", existing.clone()),
+                ("found", found.clone()),
+            ]));
         }
         agreed.insert(field.clone(), found.clone());
     }
@@ -168,7 +176,8 @@ fn load_vector_field(
                 file.key,
                 decoded.doc_ids.len(),
                 file.count
-            )));
+            ))
+            .with_details([("key", Value::from(file.key.as_str()))]));
         }
         let location = vectors_location(store, &file.key, payload.len(), decoded.vectors.len())?;
         restore.add_file(LoadedVectorFile {

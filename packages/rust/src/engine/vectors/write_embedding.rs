@@ -23,10 +23,14 @@ fn require_supplied_vectors(binding: &EmbeddingBinding, document: &Map) -> Resul
                 "The index embeds \"{target}\" automatically but no embedding adapter is bound. Bind an adapter or supply the vector on the document."
             ),
         };
-        return Err(NarsilError::new(
-            ErrorCode::EMBEDDING_CONFIG_INVALID,
-            message,
-        ));
+        let name = binding.adapter_name();
+        return Err(
+            NarsilError::new(ErrorCode::EMBEDDING_CONFIG_INVALID, message).with_details(
+                [("field", Value::from(target.as_str()))]
+                    .into_iter()
+                    .chain(name.map(|name| ("adapter", Value::from(name)))),
+            ),
+        );
     }
     Ok(())
 }
@@ -45,6 +49,10 @@ fn adapter_changes_refusal(index_name: &str, embeddings: u32) -> NarsilError {
             "Changes to index \"{index_name}\" replaced its embedding adapter after each of {embeddings} embeddings of this write"
         ),
     )
+    .with_details([
+        ("indexName", crate::value::Value::from(index_name)),
+        ("embeddings", crate::value::Value::from(embeddings)),
+    ])
 }
 
 struct Embedded<T> {

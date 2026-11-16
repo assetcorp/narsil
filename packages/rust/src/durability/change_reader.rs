@@ -7,9 +7,12 @@ use crate::format::wal::{
     check_segment_header, decode_entry,
 };
 use crate::util::hash::crc32;
+use crate::value::Value;
 
-use super::files::{DurableDirectory, read_failed};
-use super::log_reader::list_segments;
+use super::checkpoint_files::read_current_manifest;
+use super::file_errors::read_failed;
+use super::files::DurableDirectory;
+use super::log_reader::{list_segments, read_marker};
 use super::store::DurabilityStore;
 use super::sync_files::list_history;
 
@@ -53,9 +56,16 @@ impl LogCursor {
 
 /// What one bounded read of a partition returned: the entries above the cursor in sequence order, or the news that
 /// history no longer holds the next entry.
-pub(crate) enum LogRead {
-    Entries(Vec<LogEntry>),
+pub(crate) enum LogRead<T> {
+    Entries(Vec<T>),
     HistoryGone,
+}
+
+/// One record of a log segment: the decoded entry with the payload of its frame, which a device feed sends as it
+/// stands.
+pub(crate) struct LogRecord {
+    pub(crate) entry: LogEntry,
+    pub(crate) payload: Vec<u8>,
 }
 
 fn all_segments(
@@ -82,6 +92,7 @@ fn damaged(key: &str, reason: &str) -> NarsilError {
         ErrorCode::PERSISTENCE_WAL_CORRUPT,
         format!("The log segment \"{key}\" {reason}"),
     )
+    .with_details([("key", Value::from(key))])
 }
 
 fn open_segment(
@@ -164,10 +175,13 @@ fn read_frame(segment: &mut OpenSegment) -> Result<Option<Vec<u8>>> {
     Ok(Some(payload))
 }
 
-fn next_record(segment: &mut OpenSegment) -> Result<Option<(LogEntry, u64)>> {
+fn next_record(segment: &mut OpenSegment) -> Result<Option<(LogRecord, u64)>> {
     let start = segment.offset;
     match read_frame(segment)? {
-        Some(payload) => Ok(Some((decode_entry(&payload)?, start))),
+        Some(payload) => {
+            let entry = decode_entry(&payload)?;
+            Ok(Some((LogRecord { entry, payload }, start)))
+        }
         None => {
             rewind(segment)?;
             Ok(None)
@@ -202,12 +216,49 @@ impl DurabilityStore {
         partition_id: u32,
     ) -> Result<LogPositions> {
         let (head, highest) = self.partition_log_bounds(index_name, partition_id)?;
+        Ok(LogPositions {
+            highest,
+            ..self.stored_log_positions(index_name, partition_id, head)?
+        })
+    }
+
+    /// Returns the head of each partition's log of a closed index from its files: the higher of the sequence
+    /// number that the partition's commit marker records as durable and the one that the newest checkpoint covers.
+    pub(crate) fn stored_log_heads(&self, index_name: &str, partitions: usize) -> Result<Vec<u64>> {
+        let directory = &self.inner.directory;
+        let manifest = read_current_manifest(directory, index_name)?;
+        (0..partitions as u32)
+            .map(|partition_id| {
+                let marked = read_marker(directory, index_name, partition_id)?
+                    .map_or(0, |marker| marker.highest_durable_seq_no);
+                let covered = manifest
+                    .as_ref()
+                    .and_then(|manifest| {
+                        manifest
+                            .checkpoint
+                            .iter()
+                            .find(|entry| entry.partition_id == partition_id)
+                    })
+                    .map_or(0, |entry| entry.last_seq_no);
+                Ok(marked.max(covered))
+            })
+            .collect()
+    }
+
+    /// Returns the positions of one partition of a closed index whose log stands at `head`, which is also its
+    /// highest sequence number, because a closed index holds no write beyond its durable log.
+    pub(crate) fn stored_log_positions(
+        &self,
+        index_name: &str,
+        partition_id: u32,
+        head: u64,
+    ) -> Result<LogPositions> {
         let oldest = all_segments(&self.inner.directory, index_name, partition_id)?
             .first()
             .map_or(head.saturating_add(1), |(start, _)| *start);
         Ok(LogPositions {
             head,
-            highest,
+            highest: head,
             oldest,
         })
     }
@@ -232,8 +283,8 @@ impl DurabilityStore {
                 continue;
             };
             if at == first {
-                while let Some((entry, frame_start)) = next_record(&mut segment)? {
-                    if entry.seq_no as u64 > after {
+                while let Some((record, frame_start)) = next_record(&mut segment)? {
+                    if record.entry.seq_no as u64 > after {
                         segment.offset = frame_start;
                         break;
                     }
@@ -244,17 +295,20 @@ impl DurabilityStore {
         Ok(bytes)
     }
 
-    /// Reads the entries of one partition above `cursor` and at or below `up_to`, in sequence order, until they hold
-    /// `budget_bytes` of documents. The reader holds one record in memory beyond the entries that it returns, and it
-    /// looks for a segment in history where a checkpoint moved it during the read.
-    pub(crate) fn read_log_entries(
+    /// Reads the records of one partition above `cursor` and at or below `up_to`, in sequence order, while the
+    /// values that `keep` makes of them stay within `budget_bytes` by the count that `keep` returns beside each
+    /// value. The first due record is always taken, so a read of one record can pass the budget. The reader holds
+    /// one record in memory beyond the values that it returns, and it looks for a segment in history where a
+    /// checkpoint moved it during the read.
+    pub(crate) fn read_log_entries<T>(
         &self,
         index_name: &str,
         partition_id: u32,
         cursor: &mut LogCursor,
         up_to: u64,
         budget_bytes: usize,
-    ) -> Result<LogRead> {
+        keep: &dyn Fn(LogRecord) -> (T, usize),
+    ) -> Result<LogRead<T>> {
         let directory = &self.inner.directory;
         let mut entries = Vec::new();
         let mut held = 0usize;
@@ -284,7 +338,7 @@ impl DurabilityStore {
             let Some(segment) = cursor.segment.as_mut() else {
                 return Ok(LogRead::HistoryGone);
             };
-            let Some((entry, frame_start)) = next_record(segment)? else {
+            let Some((record, frame_start)) = next_record(segment)? else {
                 let finished = segment.start;
                 let later: Vec<u64> = all_segments(directory, index_name, partition_id)?
                     .into_iter()
@@ -305,7 +359,7 @@ impl DurabilityStore {
                 rewind(segment)?;
                 continue;
             };
-            let seq_no = entry.seq_no as u64;
+            let seq_no = record.entry.seq_no as u64;
             if seq_no <= cursor.after {
                 continue;
             }
@@ -317,15 +371,16 @@ impl DurabilityStore {
             if seq_no != cursor.after + 1 {
                 return Ok(LogRead::HistoryGone);
             }
-            held += entry_bytes(&entry);
+            let (kept, bytes) = keep(record);
+            if !entries.is_empty() && held.saturating_add(bytes) > budget_bytes {
+                segment.offset = frame_start;
+                rewind(segment)?;
+                break;
+            }
+            held = held.saturating_add(bytes);
             cursor.after = seq_no;
-            entries.push(entry);
+            entries.push(kept);
         }
         Ok(LogRead::Entries(entries))
     }
-}
-
-fn entry_bytes(entry: &LogEntry) -> usize {
-    let previous = entry.previous_document.as_ref().and_then(Option::as_ref);
-    entry.document.as_ref().map_or(0, Vec::len) + previous.map_or(0, Vec::len) + 1
 }

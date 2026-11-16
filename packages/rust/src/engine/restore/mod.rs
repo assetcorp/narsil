@@ -10,6 +10,7 @@ use std::io::{self, Read};
 use super::index_lifecycle::enforce_limits;
 use super::query_suggestions::restore_hooks::after_install;
 use super::query_suggestions::restored_history::RestoredHistory;
+use super::sync::notify::announcing_epoch;
 use super::{EngineInner, Narsil};
 use crate::config::validate_index_name;
 use crate::error::{ErrorCode, NarsilError, Result};
@@ -93,11 +94,13 @@ impl Narsil {
         let engine = &*self.inner;
         engine.guard_shutdown()?;
         validate_index_name(index)?;
-        let restored = engine
-            .names
-            .take(index)
-            .and_then(|_name| restore_index(engine, index, data))
-            .or_else(|error| engine.guard_shutdown().and(Err(error)));
+        let restored = announcing_epoch(engine, index, || {
+            engine
+                .names
+                .take(index)
+                .and_then(|_name| restore_index(engine, index, data))
+                .or_else(|error| engine.guard_shutdown().and(Err(error)))
+        });
         if restored.is_ok() {
             enforce_limits(engine, Some(index));
         }

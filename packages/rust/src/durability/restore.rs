@@ -6,6 +6,7 @@ use crate::error::{ErrorCode, NarsilError, Result};
 use crate::format::layout::manifest_key;
 use crate::format::manifest::{PartitionCheckpoint, SegmentManifest};
 use crate::format::metadata::IndexMetadata;
+use crate::value::Value;
 
 use super::checkpoint_files::{metadata_key, pack_commit};
 use super::checkpoint_store::{CheckpointStore, FileLength, FileSink};
@@ -56,7 +57,8 @@ impl<'d> RestoreStaging<'d> {
                     "A restore of \"{}\" cannot stage \"{key}\"",
                     self.index_name
                 ),
-            )),
+            )
+            .with_details([("key", Value::from(key))])),
         }
     }
 

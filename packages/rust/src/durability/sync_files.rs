@@ -6,6 +6,7 @@ use crate::format::manifest::{
     DecodedManifest, SegmentManifest, decode_manifest_payload, open_manifest_payload,
 };
 use crate::format::metadata::{IndexMetadata, pack_lenient_envelope};
+use crate::util::hash::sha256_hex;
 use crate::value::{Map, Value, decode_value, write_binary, write_map_header, write_string};
 
 use super::checkpoint_files::published_snapshot_key;
@@ -23,6 +24,7 @@ pub(crate) struct PublishedSnapshot {
     pub(crate) manifest_bytes: Vec<u8>,
     pub(crate) manifest: SegmentManifest,
     pub(crate) keys: BTreeSet<String>,
+    pub(crate) entity_tag: String,
 }
 
 impl PublishedSnapshot {
@@ -153,6 +155,7 @@ pub(crate) fn read_published(
         allows_compression: false,
     };
     let (_, payload) = open_checksummed(&bytes, &expectation)?;
+    let entity_tag = sha256_hex(payload.bytes());
     let Value::Object(map) = decode_value(payload.bytes())? else {
         return Err(unreadable_published(
             index_name,
@@ -184,6 +187,7 @@ pub(crate) fn read_published(
         manifest_bytes,
         manifest,
         keys,
+        entity_tag,
     }))
 }
 

@@ -8,13 +8,14 @@ use crate::engine::index::IndexState;
 use crate::engine::index_lifecycle::PreparedRead;
 use crate::engine::vectors::embedding::{call_adapter, require_usable_embedding};
 use crate::error::{ErrorCode, NarsilError, Result};
+use crate::value::Value;
 
 fn query_adapter_missing(index: &IndexState) -> NarsilError {
-    let message = match index
+    let name = index
         .vectors
         .embedding()
-        .and_then(|binding| binding.adapter_name())
-    {
+        .and_then(|binding| binding.adapter_name());
+    let message = match name {
         Some(name) => format!(
             "Vector query with 'text' needs embedding adapter \"{name}\", which is not registered on this engine. Register it with registerEmbeddingAdapter or supply a raw vector."
         ),
@@ -23,6 +24,7 @@ fn query_adapter_missing(index: &IndexState) -> NarsilError {
         }
     };
     NarsilError::new(ErrorCode::EMBEDDING_CONFIG_INVALID, message)
+        .with_details(name.map(|name| ("adapter", Value::from(name))))
 }
 
 pub(crate) struct EmbeddedQuery<'a> {
@@ -75,7 +77,11 @@ pub(crate) fn resolve_vector_text<'a>(
                 "The embedding adapter of index \"{}\" changed after each of {embeddings} query embeddings",
                 index.name
             ),
-        ));
+        )
+        .with_details([
+            ("indexName", Value::from(index.name.as_str())),
+            ("embeddings", Value::from(embeddings)),
+        ]));
     }
     let unchanged = EmbeddedQuery {
         adapter: None,
@@ -106,11 +112,12 @@ pub(crate) fn resolve_vector_text<'a>(
     }
     let vector =
         call_adapter(|| adapter.embed(text, EmbeddingPurpose::Query)).map_err(|failure| {
-            failure.into_error(|message| {
-                format!("The embedding adapter cannot embed the query: {message}")
-            })
+            failure.into_error(
+                |message| format!("The embedding adapter cannot embed the query: {message}"),
+                None,
+            )
         })?;
-    require_usable_embedding(&vector, adapter.dimensions(), "query")?;
+    require_usable_embedding(&vector, adapter.dimensions(), None)?;
     let mut resolved = params.clone();
     resolved.vector = Some(VectorQuery {
         value: Some(vector),

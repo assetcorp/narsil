@@ -6,6 +6,7 @@ pub(crate) struct Fields<'a> {
     map: &'a Map,
     code: ErrorCode,
     prefix: &'a str,
+    names_fields: bool,
 }
 
 const MAX_UINT32: f64 = 4_294_967_295.0;
@@ -41,11 +42,36 @@ pub(crate) fn string_list(value: Option<&Value>) -> Option<Vec<String>> {
 
 impl<'a> Fields<'a> {
     pub(crate) fn new(map: &'a Map, code: ErrorCode, prefix: &'a str) -> Fields<'a> {
-        Fields { map, code, prefix }
+        Fields {
+            map,
+            code,
+            prefix,
+            names_fields: false,
+        }
+    }
+
+    pub(crate) fn naming_fields(self) -> Fields<'a> {
+        Fields {
+            names_fields: true,
+            ..self
+        }
     }
 
     pub(crate) fn error(&self, message: impl AsRef<str>) -> NarsilError {
         NarsilError::new(self.code, format!("{}{}", self.prefix, message.as_ref()))
+    }
+
+    pub(crate) fn field_error<K: Into<String>>(
+        &self,
+        message: impl AsRef<str>,
+        details: impl IntoIterator<Item = (K, Value)>,
+    ) -> NarsilError {
+        let error = self.error(message);
+        if self.names_fields {
+            error.with_details(details)
+        } else {
+            error
+        }
     }
 
     pub(crate) fn raw(&self, key: &str) -> Option<&'a Value> {
@@ -63,10 +89,13 @@ impl<'a> Fields<'a> {
     pub(crate) fn bytes_as(&self, key: &str, name: &str, width: usize) -> Result<&'a [u8]> {
         match self.map.get(key) {
             Some(Value::Bytes(bytes)) if bytes.len() % width == 0 => Ok(bytes),
-            Some(Value::Bytes(bytes)) => Err(self.error(format!(
-                "{name} holds {} bytes, which is not a whole number of {width}-byte values",
-                bytes.len()
-            ))),
+            Some(Value::Bytes(bytes)) => Err(self.field_error(
+                format!(
+                    "{name} holds {} bytes, which is not a whole number of {width}-byte values",
+                    bytes.len()
+                ),
+                [("field", Value::from(name))],
+            )),
             _ => Err(self.error(format!("{name} must be bytes"))),
         }
     }
@@ -93,7 +122,12 @@ impl<'a> Fields<'a> {
 
     pub(crate) fn nested(&self, value: &'a Value, name: &str) -> Result<Fields<'a>> {
         match value {
-            Value::Object(map) => Ok(Fields::new(map, self.code, self.prefix)),
+            Value::Object(map) => Ok(Fields {
+                map,
+                code: self.code,
+                prefix: self.prefix,
+                names_fields: self.names_fields,
+            }),
             _ => Err(self.error(format!("{name} must be a map"))),
         }
     }
@@ -138,8 +172,13 @@ impl<'a> Fields<'a> {
         if found == expected {
             return Ok(());
         }
-        Err(self.error(format!(
-            "{name} holds {found} values where the segment needs {expected}"
-        )))
+        Err(self.field_error(
+            format!("{name} holds {found} values where the segment needs {expected}"),
+            [
+                ("field", Value::from(name)),
+                ("found", Value::from(found)),
+                ("expected", Value::from(expected)),
+            ],
+        ))
     }
 }

@@ -40,7 +40,11 @@ pub(crate) fn before_install(engine: &EngineInner, index: &IndexState) -> Result
         return Err(config_invalid(format!(
             "Index \"{}\" has device sync on, and the archive turns popular query suggestions on, which a synced index cannot hold",
             index.name
-        )));
+        ))
+        .with_details([(
+            "indexName",
+            crate::value::Value::from(index.name.as_str()),
+        )]));
     }
     if !previous_state.banned.is_empty() {
         let banned = union_of_bans(&previous_state.banned, &restored.banned)?;

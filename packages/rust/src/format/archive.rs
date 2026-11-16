@@ -11,6 +11,7 @@ use crate::format::manifest::{
     source_index_name,
 };
 use crate::format::manifest_refs::FileRef;
+use crate::value::Value;
 
 pub(crate) const ARCHIVE_CONFIG_ENTRY: &str = "config";
 pub(crate) const ARCHIVE_MANIFEST_ENTRY: &str = "manifest";
@@ -245,11 +246,10 @@ pub(crate) fn read_snapshot_archive(
             )));
         };
         if header.name != *expected {
-            return Err(invalid_archive(listed_problem(
-                &header.name,
-                &listed,
-                &seen,
-            )));
+            return Err(
+                invalid_archive(listed_problem(&header.name, &listed, &seen))
+                    .with_details([("entry", Value::from(header.name.as_str()))]),
+            );
         }
         if header.size != file.bytes {
             return Err(invalid_archive(format!(
@@ -264,7 +264,8 @@ pub(crate) fn read_snapshot_archive(
         if header_checksum_of(&start) != Some(file.checksum) {
             return Err(invalid_archive(format!(
                 "the entry \"{expected}\" carries a checksum other than the manifest lists"
-            )));
+            ))
+            .with_details([("entry", Value::from(expected.as_str()))]));
         }
         seen.push(expected.clone());
         let rest = header.size - start.len() as u64;
@@ -288,13 +289,15 @@ fn read_history_entries(reader: &mut dyn Read, sink: &mut dyn ArchiveSink) -> Re
             return Err(invalid_archive(format!(
                 "the archive holds the entry \"{}\" that the manifest does not list",
                 header.name
-            )));
+            ))
+            .with_details([("entry", Value::from(header.name.as_str()))]));
         }
         if header.size > MAX_HISTORY_FILE_BYTES {
             return Err(invalid_archive(format!(
                 "the entry \"{}\" passes the history file limit of {MAX_HISTORY_FILE_BYTES} bytes",
                 header.name
-            )));
+            ))
+            .with_details([("entry", Value::from(header.name.as_str()))]));
         }
         hand_over_body(reader, header.size, |body| sink.history(position, body))?;
     }

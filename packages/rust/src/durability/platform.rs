@@ -300,32 +300,63 @@ pub(crate) fn random_token() -> io::Result<String> {
 }
 
 #[cfg(windows)]
-fn retried_while_access_is_denied(mut operation: impl FnMut() -> io::Result<()>) -> io::Result<()> {
-    use super::constants::{WINDOWS_RENAME_ATTEMPTS, WINDOWS_RENAME_RETRY_MS};
-    let mut attempt = 0;
+fn held_by_another_handle(error: &io::Error, retries_missing: bool) -> bool {
+    const ERROR_FILE_NOT_FOUND: i32 = 2;
+    const ERROR_ACCESS_DENIED: i32 = 5;
+    const ERROR_SHARING_VIOLATION: i32 = 32;
+    match error.raw_os_error() {
+        Some(ERROR_ACCESS_DENIED | ERROR_SHARING_VIOLATION) => true,
+        Some(ERROR_FILE_NOT_FOUND) => retries_missing,
+        _ => false,
+    }
+}
+
+#[cfg(windows)]
+fn retried_while_held(
+    mut operation: impl FnMut() -> io::Result<()>,
+    retries_missing: bool,
+) -> io::Result<()> {
+    use super::constants::{
+        HELD_FILE_RETRY_FIRST_PAUSE_MS, HELD_FILE_RETRY_LONGEST_PAUSE_MS, HELD_FILE_RETRY_WINDOW_MS,
+    };
+    use std::time::{Duration, Instant};
+    let mut deadline = None;
+    let mut pause = Duration::from_millis(HELD_FILE_RETRY_FIRST_PAUSE_MS);
     loop {
-        match operation() {
-            Err(error)
-                if error.kind() == io::ErrorKind::PermissionDenied
-                    && attempt + 1 < WINDOWS_RENAME_ATTEMPTS =>
-            {
-                attempt += 1;
-                std::thread::sleep(std::time::Duration::from_millis(WINDOWS_RENAME_RETRY_MS));
-            }
-            other => return other,
+        let error = match operation() {
+            Ok(()) => return Ok(()),
+            Err(error) => error,
+        };
+        if !held_by_another_handle(&error, retries_missing) {
+            return Err(error);
         }
+        let now = Instant::now();
+        let deadline =
+            *deadline.get_or_insert_with(|| now + Duration::from_millis(HELD_FILE_RETRY_WINDOW_MS));
+        if now + pause >= deadline {
+            return Err(error);
+        }
+        std::thread::sleep(pause);
+        pause = (pause * 2).min(Duration::from_millis(HELD_FILE_RETRY_LONGEST_PAUSE_MS));
     }
 }
 
 #[cfg(not(windows))]
-fn retried_while_access_is_denied(mut operation: impl FnMut() -> io::Result<()>) -> io::Result<()> {
+fn retried_while_held(
+    mut operation: impl FnMut() -> io::Result<()>,
+    _retries_missing: bool,
+) -> io::Result<()> {
     operation()
 }
 
-pub(crate) fn rename_replacing(from: &Path, to: &Path) -> io::Result<()> {
-    retried_while_access_is_denied(|| std::fs::rename(from, to))
+pub fn rename_replacing(from: &Path, to: &Path) -> io::Result<()> {
+    retried_while_held(|| std::fs::rename(from, to), true)
+}
+
+pub(crate) fn rename_unless_missing(from: &Path, to: &Path) -> io::Result<()> {
+    retried_while_held(|| std::fs::rename(from, to), false)
 }
 
 pub(crate) fn remove_file(path: &Path) -> io::Result<()> {
-    retried_while_access_is_denied(|| std::fs::remove_file(path))
+    retried_while_held(|| std::fs::remove_file(path), false)
 }

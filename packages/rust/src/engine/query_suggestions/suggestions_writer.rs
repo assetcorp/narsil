@@ -114,7 +114,8 @@ pub(crate) fn ensure_suggestions_index(
     if !marked {
         return Err(config_invalid(format!(
             "Index \"{name}\" exists without the marker of a suggestions index for \"{index_name}\", so the build leaves it alone"
-        )));
+        ))
+        .with_details([("indexName", crate::value::Value::from(name.as_str()))]));
     }
     if existing.analyser().language().name() != language {
         narsil.change_analysis(

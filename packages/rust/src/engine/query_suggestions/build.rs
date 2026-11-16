@@ -15,6 +15,7 @@ use super::types::{QuerySuggestionsBuildStatus, QuerySuggestionsWarningReason};
 use crate::engine::Narsil;
 use crate::engine::query::params::{QueryParams, TermMatch};
 use crate::error::{ErrorCode, NarsilError, Result};
+use crate::value::Value;
 
 pub(crate) struct MergedHistory {
     pub(crate) result: MergeResult,
@@ -70,6 +71,7 @@ pub(crate) fn merge_history(
                 error.message()
             ),
         )
+        .with_details([("cause", Value::from(error.message()))])
     })?;
     let mut sources = Vec::new();
     let mut oldest_day: Option<String> = None;

@@ -5,71 +5,15 @@ use std::path::{Path, PathBuf};
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::format::envelope::MAX_FILE_BYTES;
 
+use super::file_errors::{
+    delete_failed, directory_fsync_failed, range_outside, read_failed, require_valid_key,
+    write_failed,
+};
 use super::log_bytes::LogBytes;
-use super::platform::{remove_file, rename_replacing, sync_directory};
+use super::platform::{remove_file, rename_replacing, rename_unless_missing, sync_directory};
 use super::staged_file::StagedFile;
 
 pub(crate) const TEMPORARY_MARK: &str = ".tmp-";
-
-pub(crate) fn fsync_failed(key: &str, error: &io::Error) -> NarsilError {
-    NarsilError::new(
-        ErrorCode::PERSISTENCE_FSYNC_FAILED,
-        format!(
-            "fsync failed for \"{key}\"; the write is not acknowledged and the node must recover from the durable log: {error}"
-        ),
-    )
-}
-
-pub(crate) fn write_failed(key: &str, error: &io::Error) -> NarsilError {
-    NarsilError::new(
-        ErrorCode::PERSISTENCE_SAVE_FAILED,
-        format!("Write to \"{key}\" failed; the write is not acknowledged: {error}"),
-    )
-}
-
-pub(crate) fn read_failed(key: &str, error: &io::Error) -> NarsilError {
-    NarsilError::new(
-        ErrorCode::PERSISTENCE_LOAD_FAILED,
-        format!("Failed to read \"{key}\": {error}"),
-    )
-}
-
-pub(crate) fn range_outside(key: &str) -> NarsilError {
-    NarsilError::new(
-        ErrorCode::PERSISTENCE_LOAD_FAILED,
-        format!("\"{key}\" ends before the bytes a read asked for"),
-    )
-}
-
-fn delete_failed(key: &str, error: &io::Error) -> NarsilError {
-    NarsilError::new(
-        ErrorCode::PERSISTENCE_DELETE_FAILED,
-        format!("Failed to delete \"{key}\": {error}"),
-    )
-}
-
-fn invalid_key(key: &str, reason: &str) -> NarsilError {
-    NarsilError::new(
-        ErrorCode::PERSISTENCE_SAVE_FAILED,
-        format!("Invalid key \"{}\": {reason}", key.escape_debug()),
-    )
-}
-
-pub(crate) fn require_valid_key(key: &str) -> Result<()> {
-    if key.is_empty() {
-        return Err(invalid_key(key, "empty"));
-    }
-    if key.contains('\0') {
-        return Err(invalid_key(key, "null byte detected"));
-    }
-    let traverses = key.split('/').any(|part| {
-        part.is_empty() || part == "." || part == ".." || part.contains('\\') || part.contains(':')
-    });
-    if traverses {
-        return Err(invalid_key(key, "path traversal detected"));
-    }
-    Ok(())
-}
 
 fn is_missing(error: &io::Error) -> bool {
     error.kind() == io::ErrorKind::NotFound
@@ -195,12 +139,11 @@ impl DurableDirectory {
 
     pub(crate) fn sync_directory_of(&self, key: &str) -> Result<()> {
         let (_, parent) = self.parent_of(key)?;
-        sync_directory(&parent).map_err(|error| fsync_failed(&parent.to_string_lossy(), &error))
+        sync_directory(&parent).map_err(|error| directory_fsync_failed(&parent, &error))
     }
 
     pub(crate) fn sync_path(&self, directory: &Path) -> Result<()> {
-        sync_directory(directory)
-            .map_err(|error| fsync_failed(&directory.to_string_lossy(), &error))
+        sync_directory(directory).map_err(|error| directory_fsync_failed(directory, &error))
     }
 
     pub(crate) fn create_staged(&self, key: &str) -> Result<StagedFile> {
@@ -218,7 +161,7 @@ impl DurableDirectory {
             .checked_add(length)
             .is_some_and(|end| end <= found && length <= MAX_FILE_BYTES);
         if !inside {
-            return Err(range_outside(key));
+            return Err(range_outside(key, offset, length));
         }
         let mut bytes = vec![0u8; length as usize];
         file.seek(SeekFrom::Start(offset))
@@ -264,9 +207,22 @@ impl DurableDirectory {
     }
 
     pub(crate) fn rename(&self, from: &str, to: &str) -> Result<bool> {
+        self.moved(from, to, rename_replacing)
+    }
+
+    pub(crate) fn rename_tree(&self, from: &str, to: &str) -> Result<bool> {
+        self.moved(from, to, rename_unless_missing)
+    }
+
+    fn moved(
+        &self,
+        from: &str,
+        to: &str,
+        rename: fn(&Path, &Path) -> io::Result<()>,
+    ) -> Result<bool> {
         let (source, source_parent) = self.parent_of(from)?;
         let (target, target_parent) = self.ensure_parent(to)?;
-        match rename_replacing(&source, &target) {
+        match rename(&source, &target) {
             Ok(()) => self.log_bytes.moved(from, to, || {
                 std::fs::metadata(&target)
                     .ok()

@@ -32,6 +32,7 @@ engine's release source on 2026-11-15.
 | Engine | Image (pinned) | Version | Source |
 | ------ | -------------- | ------- | ------ |
 | Narsil | built from this repo (`node:24-trixie-slim` base) | working tree | local source |
+| Narsil Rust server (`narsil-rust`) | built from this repo (`debian:trixie-slim` base) | working tree | local source |
 | Elasticsearch | `docker.elastic.co/elasticsearch/elasticsearch:9.5.6` | 9.5.6 | [release notes](https://www.elastic.co/docs/release-notes/elasticsearch), [GitHub releases](https://github.com/elastic/elasticsearch/releases) |
 | OpenSearch | `opensearchproject/opensearch:3.9.0` | 3.9.0 | [opensearch.org/releases](https://opensearch.org/releases/), [GitHub releases](https://github.com/opensearch-project/OpenSearch/releases) |
 | Qdrant | `qdrant/qdrant:v1.20.1` | 1.20.1 | [GitHub releases](https://github.com/qdrant/qdrant/releases), [Docker Hub](https://hub.docker.com/r/qdrant/qdrant/tags) |
@@ -569,6 +570,15 @@ pytest
 - The harness records whether the checkout differs from the release that its
   version names. `run-all.sh` works that out from the host's git history, because
   the image holds the commit but no git history.
+- The `narsil-rust` engine is the Rust server in `packages/rust-server`. Since
+  that server serves the same routes as the TypeScript server, the harness drives
+  both servers through one driver. Docker Compose builds the Rust server from
+  [the Rust image's Dockerfile](../../packages/rust-container/Dockerfile), which
+  is the Dockerfile that the publish workflow uses for the `-rust` tags, so the
+  Rust image takes its settings from the same variables as the TypeScript image.
+  Both images preload jemalloc so that the harness measures both servers on the
+  same allocator. For each server, `run-all.sh` also works out whether its source
+  differs from the release.
 - Typesense and Meilisearch run with a throwaway local API key (`BENCH_API_KEY`,
   default `localdev`) on the internal compose network, which the harness does not
   publish to the host. Qdrant and Weaviate run with anonymous access on that same

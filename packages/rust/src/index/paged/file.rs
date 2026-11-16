@@ -12,6 +12,7 @@ use crate::format::envelope::HEADER_BYTES;
 use crate::format::paged_segment::head::PagedSection;
 use crate::native::status::core_refused;
 use crate::native::workspace::with_workspace;
+use crate::value::Value;
 
 static NEXT_FILE_NUMBER: AtomicU64 = AtomicU64::new(1);
 
@@ -130,7 +131,12 @@ impl PagedFile {
     }
 
     pub(crate) fn read_into(&self, offset: u64, target: &mut [u8]) -> Result<()> {
-        read_at(&self.file, offset, target).map_err(|_| unreadable(&self.path, offset))
+        read_at(&self.file, offset, target).map_err(|_| {
+            unreadable(&self.path, offset).with_details([
+                ("offset", Value::from(offset)),
+                ("length", Value::from(target.len())),
+            ])
+        })
     }
 
     pub(crate) fn section(&self, section: &PagedSection) -> ffi::narsil_page_section {
@@ -157,7 +163,7 @@ impl PagedFile {
             .map_or("", |section| section.name.as_str());
         let path = self.path.display();
         let page = fault.page;
-        match status {
+        let error = match status {
             ffi::NARSIL_PAGE_CORRUPT => NarsilError::new(
                 ErrorCode::PERSISTENCE_CRC_MISMATCH,
                 format!(
@@ -174,8 +180,9 @@ impl PagedFile {
                     "Page {page} of section \"{name}\" of the file \"{path}\" holds a value that breaks its rules"
                 ),
             ),
-            status => core_refused("a paged read", status),
-        }
+            status => return core_refused("a paged read", status),
+        };
+        error.with_details([("section", Value::from(name)), ("page", Value::from(page))])
     }
 
     pub(crate) fn call(
@@ -252,7 +259,13 @@ impl PagedFile {
                     section.name,
                     self.path.display()
                 ),
-            ));
+            )
+            .with_details([
+                ("section", Value::from(section.name.as_str())),
+                ("position", Value::from(position)),
+                ("size", Value::from(length)),
+                ("length", Value::from(section.length)),
+            ]));
         }
         let mut out = Vec::with_capacity(length as usize);
         let mut at = position;
