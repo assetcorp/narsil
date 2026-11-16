@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use narsil::{Map, Value};
+use narsil::{Map, QueryParams, Value};
 
 use super::common::{engine_call, json_object_body};
 use crate::errors::{Outcome, ServerError};
@@ -12,6 +12,7 @@ use crate::search::{
     query_params, refused_regex, respond_answer, shaped_query, suggest_params, suggest_value,
     validate_list, validate_query, validate_suggest, with_server_query_limits,
 };
+use crate::settings::{UnknownBm25Key, unknown_bm25_key};
 use crate::state::ServerState;
 
 async fn checked_after_lookup<T>(
@@ -43,6 +44,13 @@ fn regex_check(state: &ServerState, params: &Map) -> Outcome<()> {
     }
 }
 
+fn unknown_key_of(params: &Map, query: &QueryParams) -> Option<UnknownBm25Key> {
+    match (params.get("bm25"), &query.bm25) {
+        (Some(Value::Object(raw)), Some(bm25)) => unknown_bm25_key(raw, bm25),
+        _ => None,
+    }
+}
+
 async fn search(
     state: Arc<ServerState>,
     context: RouteContext,
@@ -60,6 +68,23 @@ async fn search(
     let max_rerank_window = state.engine.max_rerank_window();
     let query =
         checked_after_lookup(&state, &index, query_params(&params, max_rerank_window)).await?;
+    if let Some(unknown) = unknown_key_of(&params, &query) {
+        let refusal = engine_call(&state, move |engine| {
+            Ok(unknown.refusal(engine, |engine, bm25| {
+                let sentinel = QueryParams {
+                    bm25: Some(bm25),
+                    ..query
+                };
+                if preflight {
+                    engine.preflight(&index, &sentinel).map(drop)
+                } else {
+                    engine.query(&index, &sentinel).map(drop)
+                }
+            }))
+        })
+        .await?;
+        return Err(refusal);
+    }
     if preflight {
         let result = engine_call(&state, move |engine| engine.preflight(&index, &query)).await?;
         return Ok(json(200, &preflight_value(result)));
