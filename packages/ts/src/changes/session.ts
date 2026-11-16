@@ -1,4 +1,4 @@
-import { decode, ErrorCodes, NarsilError } from '#platform/storage-host'
+import { decodeBoundedMessage, ErrorCodes, NarsilError } from '#platform/storage-host'
 import { ENTRIES_MESSAGE_LIMIT_BYTES, FEED_HEAD_RETRY_MS, TIMER_DELAY_LIMIT_MS } from '../sync/feed/constants'
 import type { ByteBudget, Semaphore } from '../sync/feed/limits'
 import type { FeedSocket } from '../sync/feed/session'
@@ -85,7 +85,7 @@ export class ChangesSession {
     }
     let message: SubscriberMessage | null
     try {
-      message = subscriberMessageOf(decode(bytes))
+      message = subscriberMessageOf(decodeBoundedMessage(bytes))
     } catch {
       message = null
     }
