@@ -152,6 +152,33 @@ func (f *Field) releaseLocations(ctx context.Context, paths []string, located []
 	return nil
 }
 
+func (f *Field) releaseFreeableReplacedFiles() error {
+	if f.cold != nil {
+		return nil
+	}
+	freed := f.store.releaseFreeableReplaced(f.slots.oldestPin(), f.graphsHoldNode)
+	for _, ordinal := range freed {
+		f.clearCodes(ordinal)
+	}
+	if len(freed) == 0 || !f.readsFromDisk() {
+		return nil
+	}
+	previous := f.store.tables
+	next, dropped := f.store.releaseColdBlocks()
+	if next == nil {
+		return nil
+	}
+	f.store.tables = next
+	if err := f.publish(f.store, f.graph); err != nil {
+		f.store.tables = previous
+		return err
+	}
+	for _, resource := range dropped {
+		resource.drop()
+	}
+	return nil
+}
+
 func (f *Field) VectorFilesInUse() []string {
 	f.writeMu.Lock()
 	defer f.writeMu.Unlock()
