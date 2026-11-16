@@ -42,12 +42,41 @@ fn window_fits(refs: &[Listed<'_>], paged: bool) -> bool {
     documents <= COMPACTION_LARGEST_MERGED_DOCUMENT_COUNT && bytes <= MAX_FILE_BYTES
 }
 
-fn smallest_fitting_window(
+#[derive(Clone, Copy)]
+struct WindowBalance {
+    skew: f64,
+    bytes: u64,
+}
+
+impl WindowBalance {
+    fn of(refs: &[Listed<'_>]) -> WindowBalance {
+        let (largest, bytes) = refs.iter().fold((0u64, 0u64), |(largest, bytes), listed| {
+            let file = listed.reference.file.bytes;
+            (largest.max(file), bytes.saturating_add(file))
+        });
+        if bytes == 0 {
+            return WindowBalance { skew: 1.0, bytes };
+        }
+        WindowBalance {
+            skew: largest as f64 / bytes as f64,
+            bytes,
+        }
+    }
+
+    fn before(&self, other: &WindowBalance) -> bool {
+        if self.skew != other.skew {
+            return self.skew < other.skew;
+        }
+        self.bytes < other.bytes
+    }
+}
+
+fn most_balanced_fitting_window(
     listed: &[Listed<'_>],
     length: usize,
     paged: bool,
 ) -> Option<Range<usize>> {
-    let mut best: Option<(Range<usize>, u64)> = None;
+    let mut best: Option<(Range<usize>, WindowBalance)> = None;
     for start in 0..=listed.len().saturating_sub(length) {
         let window = start..start + length;
         let Some(refs) = listed.get(window.clone()) else {
@@ -56,12 +85,12 @@ fn smallest_fitting_window(
         if !window_fits(refs, paged) {
             continue;
         }
-        let bytes = refs
-            .iter()
-            .map(|listed| listed.reference.file.bytes)
-            .fold(0, u64::saturating_add);
-        if best.as_ref().is_none_or(|(_, least)| bytes < *least) {
-            best = Some((window, bytes));
+        let balance = WindowBalance::of(refs);
+        if best
+            .as_ref()
+            .is_none_or(|(_, chosen)| balance.before(chosen))
+        {
+            best = Some((window, balance));
         }
     }
     best.map(|(window, _)| window)
@@ -69,7 +98,8 @@ fn smallest_fitting_window(
 
 /// Chooses the run of adjacent segments that a checkpoint merges once a partition lists more than `threshold`:
 /// the longest run, up to the excess plus one, whose merged file stays within the size limits, and among runs
-/// of that length the one with the fewest bytes.
+/// of that length the one whose largest segment holds the smallest share of the run's bytes, then the one with
+/// the fewest bytes.
 pub(super) fn choose_window(
     listed: &[Listed<'_>],
     threshold: usize,
@@ -81,7 +111,7 @@ pub(super) fn choose_window(
     let wanted = (listed.len() - threshold + 1).min(listed.len());
     (2..=wanted)
         .rev()
-        .find_map(|length| smallest_fitting_window(listed, length, paged))
+        .find_map(|length| most_balanced_fitting_window(listed, length, paged))
 }
 
 /// Returns the IDs that the files of `earlier` hold and that the index no longer holds anywhere, which a later

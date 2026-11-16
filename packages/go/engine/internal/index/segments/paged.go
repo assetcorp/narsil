@@ -34,7 +34,7 @@ func valuesOf(column keyword.Uint32s) []uint32 {
 	return values
 }
 
-func OpenPaged(w *core.Workspace, path string, removalPages *core.PageCache) (*Paged, error) {
+func OpenPaged(w *core.Workspace, path string, removalPages *core.PageCache, reads *paged.ReadCache) (*Paged, error) {
 	opened := &Paged{}
 	opened.path.Store(&path)
 	opened.holds.Store(1)
@@ -45,16 +45,16 @@ func OpenPaged(w *core.Workspace, path string, removalPages *core.PageCache) (*P
 	if opened.source, err = paged.OpenNativeFile(file, path); err != nil {
 		return nil, err
 	}
-	if err := opened.open(w, removalPages); err != nil {
+	if err := opened.open(w, removalPages, reads); err != nil {
 		opened.Close()
 		return nil, err
 	}
 	return opened, nil
 }
 
-func (p *Paged) open(w *core.Workspace, removalPages *core.PageCache) error {
+func (p *Paged) open(w *core.Workspace, removalPages *core.PageCache, reads *paged.ReadCache) error {
 	var err error
-	if p.reader, err = paged.Open(p.source, p.source.Size()); err != nil {
+	if p.reader, err = paged.OpenCached(p.source, p.source.Size(), p.Path(), reads); err != nil {
 		return err
 	}
 	sections := map[string]core.PageSection{}
