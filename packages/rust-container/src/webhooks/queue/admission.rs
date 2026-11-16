@@ -101,6 +101,14 @@ impl Queue {
         if let Waiting::Due(at) | Waiting::SaveRetry(at) = entry.waiting {
             self.timers.remove(&(at, entry.admission));
         }
+        if entry.waiting == Waiting::Ready
+            && let Some(at) = self
+                .ready
+                .iter()
+                .position(|(_, admission)| *admission == entry.admission)
+        {
+            self.ready.remove(at);
+        }
         self.order.remove(&entry.admission);
         self.remove_from_store(id);
         Some(entry)
