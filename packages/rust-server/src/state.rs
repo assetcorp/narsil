@@ -15,6 +15,7 @@ use crate::errors::config_invalid_error;
 use crate::feeds::Feeds;
 use crate::http::budget::{BodyBudget, RequestGate};
 use crate::http::cors::ResolvedCors;
+use crate::http::in_flight::RequestsInFlight;
 use crate::options::{QueryIdentify, RequestHook, ServerLimits, ServerOptions};
 use crate::tasks::TaskRegistry;
 
@@ -54,6 +55,7 @@ pub(crate) struct ServerState {
     pub(crate) identify: Option<Arc<dyn QueryIdentify>>,
     pub(crate) gate: Arc<RequestGate>,
     pub(crate) body_budget: Arc<BodyBudget>,
+    pub(crate) requests: RequestsInFlight,
     pub(crate) feeds: Feeds,
 }
 
