@@ -1,3 +1,4 @@
+pub(crate) mod closed;
 pub(crate) mod constants;
 pub(crate) mod feed;
 pub(crate) mod notify;

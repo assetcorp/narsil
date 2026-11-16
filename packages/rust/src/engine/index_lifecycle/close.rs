@@ -4,6 +4,8 @@ use super::{ClosedEntry, ClosedIndex, index_not_found};
 use crate::engine::EngineInner;
 use crate::engine::durable::Durable;
 use crate::engine::index::IndexState;
+use crate::engine::sync::closed::{ClosedSync, ClosedSyncState};
+use crate::engine::sync::feed::open_feed_state;
 use crate::engine::sync::sync_is_on;
 use crate::error::{ErrorCode, NarsilError, Result};
 
@@ -26,6 +28,23 @@ pub(crate) fn closed_facts(index: &IndexState) -> ClosedIndex {
         sync_on: index
             .log()
             .is_some_and(|log| sync_is_on(&log.metadata(index))),
+        sync: ClosedSync::new(match open_feed_state(index) {
+            Ok(Some(state)) => ClosedSyncState::On(state),
+            Ok(None) => ClosedSyncState::Off,
+            Err(_) => ClosedSyncState::Unread,
+        }),
+    }
+}
+
+fn record_log_heads(index: &IndexState, closed: &ClosedIndex) {
+    let Some(store) = index.log().and_then(|log| log.log_store()) else {
+        return;
+    };
+    let heads: Result<Vec<u64>> = (0..closed.partition_count as u32)
+        .map(|partition_id| store.log_head(&index.name, partition_id))
+        .collect();
+    if let Ok(heads) = heads {
+        let _ = closed.sync.log_heads.set(heads);
     }
 }
 
@@ -60,6 +79,7 @@ fn close_held(
         return Err(error);
     }
     closed.saved_bytes = index.log().map(|log| log.saved_size().bytes);
+    record_log_heads(index, &closed);
     let released = durable.release_logs(&index.name);
     engine.lifecycle.record_closed(
         &index.name,

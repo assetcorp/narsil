@@ -11,6 +11,7 @@ use crate::engine::EngineInner;
 use crate::engine::index::IndexState;
 use crate::engine::index_lifecycle::{ClosedEntry, ClosedIndex};
 use crate::engine::query_suggestions::stored_state::SuggestionState;
+use crate::engine::sync::closed::{ClosedSync, stored_sync_state};
 use crate::engine::sync::sync_is_on;
 use crate::error::Result;
 use crate::format::envelope::MAX_FILE_BYTES;
@@ -71,6 +72,7 @@ impl Durable {
                         .map_err(|error| recovery_failure(&metadata, error))?,
                 ),
                 sync_on: sync_is_on(&metadata),
+                sync: ClosedSync::new(stored_sync_state(&metadata)),
             };
             engine
                 .lifecycle
