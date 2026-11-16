@@ -14,13 +14,16 @@ import { encodePathSegments, readEncodedPath } from '../../../serialization/msgp
 import type { AnyDocument } from '../../../types/schema'
 import type { ProjectedPathRead, ResolvedProjection } from '../../projection'
 
+export type RollbackCopy = () => AnyDocument
+
 export interface FrozenDocumentSource {
   readonly count: number
   readonly byteLength: number
   docAt(ordinal: number): AnyDocument
-  readAt(ordinal: number): AnyDocument
+  readAt(ordinal: number, fields?: ResolvedProjection): AnyDocument
   fieldReader(fieldPath: string): (ordinal: number) => unknown
   projectedAt(ordinal: number, projection?: ResolvedProjection): AnyDocument
+  copyForRollbackAt?(ordinal: number): RollbackCopy
 }
 
 const encodedProjectionPaths = new WeakMap<readonly string[], Uint8Array[] | null>()
@@ -149,24 +152,39 @@ export function createEncodedDocumentSource(
   discardedFields: readonly string[] | undefined,
 ): FrozenDocumentSource {
   const discarded = (discardedFields ?? []).map(fieldPath => fieldPath.split('.'))
-  const touchesDiscarded = (path: readonly string[]): boolean =>
-    discarded.some(discardedPath => sharesPrefix(discardedPath, path))
+  const touchesDiscarded = (path: readonly string[]): boolean => {
+    for (const discardedPath of discarded) {
+      if (sharesPrefix(discardedPath, path)) return true
+    }
+    return false
+  }
   const docAt = (ordinal: number): AnyDocument =>
     documentWithOwnBuffers(decodeStoredDocument(bytesAt(ordinal), discardedFields))
 
-  function projectedPathAt(ordinal: number, path: string[]): ProjectedPathRead {
+  function projectedPathAt(ordinal: number, path: string[], result: ProjectedPathRead): ProjectedPathRead {
     const segments = encodedProjectionPathOf(path)
     if (segments === null) return { found: false, value: undefined }
-    const read = touchesDiscarded(path) ? null : readEncodedPath(bytesAt(ordinal), segments, 'missing')
+    const read = touchesDiscarded(path) ? null : readEncodedPath(bytesAt(ordinal), segments, 'missing', result)
     if (read === null) return readProjectedPath(docAt(ordinal) as Record<string, unknown>, path)
-    return read.found ? { found: true, value: valueWithOwnBuffers(read.value) } : read
+    if (!read.found) return read
+    read.value = valueWithOwnBuffers(read.value)
+    return read
+  }
+
+  function projectedAt(ordinal: number, projection?: ResolvedProjection): AnyDocument {
+    if (projection === undefined || projection.kind === 'full') return docAt(ordinal)
+    if (projection.kind === 'none') return {}
+    if (projection.include === null) return cloneProjected(docAt(ordinal) as Record<string, unknown>, projection)
+    const result: ProjectedPathRead = { found: true, value: undefined }
+    return projectIncludedPaths(projection.include, projection.exclude, path => projectedPathAt(ordinal, path, result))
   }
 
   return {
     count,
     byteLength,
     docAt,
-    readAt(ordinal: number): AnyDocument {
+    readAt(ordinal: number, fields?: ResolvedProjection): AnyDocument {
+      if (fields !== undefined) return projectedAt(ordinal, fields)
       return decodeStoredDocument(bytesAt(ordinal), discardedFields)
     },
     fieldReader(fieldPath: string): (ordinal: number) => unknown {
@@ -175,16 +193,17 @@ export function createEncodedDocumentSource(
       if (segments === null) return () => undefined
       const decodesDocument = touchesDiscarded(path)
       return ordinal => {
-        const read = decodesDocument ? null : readEncodedPath(bytesAt(ordinal), segments, 'decode-document')
+        const read = decodesDocument
+          ? null
+          : readEncodedPath(bytesAt(ordinal), segments, 'decode-document', { found: true, value: undefined })
         if (read !== null) return valueWithOwnBuffers(read.value)
         return getNestedValue(docAt(ordinal) as Record<string, unknown>, fieldPath)
       }
     },
-    projectedAt(ordinal: number, projection?: ResolvedProjection): AnyDocument {
-      if (projection === undefined || projection.kind === 'full') return docAt(ordinal)
-      if (projection.kind === 'none') return {}
-      if (projection.include === null) return cloneProjected(docAt(ordinal) as Record<string, unknown>, projection)
-      return projectIncludedPaths(projection.include, projection.exclude, path => projectedPathAt(ordinal, path))
+    projectedAt,
+    copyForRollbackAt(ordinal: number): RollbackCopy {
+      const bytes = bytesAt(ordinal).slice()
+      return () => documentWithOwnBuffers(decodeStoredDocument(bytes, discardedFields))
     },
   }
 }

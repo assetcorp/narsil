@@ -7,7 +7,9 @@ import { computeBM25WithIDF, computeIDF } from '../scorer'
 import { fieldRun, orderRunByFieldName } from './field-order'
 import { type FieldScoring, fieldLengthOf } from './field-scoring'
 import { postingColumns } from './posting-columns'
-import { EMPTY_COMPONENTS, type GroupContribution, type GroupMatch } from './scoring'
+import { addScore, beginScoring, createScoreBuffer, hasScore, type ScoreBuffer } from './score-buffer'
+import type { GroupContribution, GroupMatch } from './scoring'
+import type { TermCoverage } from './term-coverage'
 
 export interface GroupScoringContext {
   index: Pick<InvertedIndexReader, 'lookup' | 'documentFrequency'>
@@ -97,86 +99,129 @@ export function groupPostingCount(matches: readonly GroupMatch[]): number {
   return total
 }
 
+type MatchPostingVisit = (
+  internalId: number,
+  fieldIndex: number,
+  termFrequency: number,
+  fieldLength: number,
+  termScore: number,
+) => void
+
+function scoreMatchPostings(context: GroupScoringContext, match: GroupMatch, visit: MatchPostingVisit): void {
+  const { fields, filterBitset, partialMarks } = context
+  const scoresAreZero = context.totalDocs === 0
+  const onePair = fields.boundPairs.length === 2
+  const { docIds, termFrequencies, fieldNameIndices, deletedDocs, hasDeleted, count } = postingColumns(
+    match.postingList,
+  )
+
+  let runStart = 0
+  let runEnd = 0
+  for (let at = 0; at < count; at++) {
+    const internalId = docIds[at]
+    if (hasDeleted && deletedDocs.has(internalId)) continue
+    if (filterBitset && !bitsetHas(filterBitset, internalId)) continue
+    let pi = at
+    if (at < runEnd) {
+      pi = fieldRun.entries[at - runStart]
+    } else if (at + 2 < count && docIds[at + 2] === internalId) {
+      pi = orderRunByFieldName(docIds, fieldNameIndices, fields.nameRanks, at, count)[0]
+      runStart = at
+      runEnd = at + fieldRun.length
+    }
+    const fieldIndex = fieldNameIndices[pi]
+    if (fields.searchable[fieldIndex] === 0) continue
+    const factor = partialMarks[fieldIndex] === 1 ? match.partialFactor : match.factor
+    if (factor === 0) continue
+
+    const termFrequency = termFrequencies[pi]
+    const fieldBoost = fields.boosts[fieldIndex]
+    const avgLen = fields.averageLengths[fieldIndex]
+    const actualFieldLength = fieldLengthOf(fields.lengthColumns, fieldIndex, internalId, avgLen)
+
+    const termScore =
+      (scoresAreZero
+        ? 0
+        : computeBM25WithIDF(
+            termFrequency,
+            match.idf,
+            actualFieldLength,
+            avgLen,
+            onePair ? fields.boundPairs[0] : fields.k1s[fieldIndex],
+            onePair ? fields.boundPairs[1] : fields.bs[fieldIndex],
+          )) *
+      fieldBoost *
+      factor
+    visit(internalId, fieldIndex, termFrequency, actualFieldLength, termScore)
+  }
+}
+
+let termScores: ScoreBuffer | null = null
+let bestScores: ScoreBuffer | null = null
+
+export function addGroupScores(
+  context: GroupScoringContext,
+  matches: readonly GroupMatch[],
+  target: ScoreBuffer,
+  only: Uint32Array | null,
+  coverage: TermCoverage | null,
+): void {
+  const best = bestGroupScores(context, matches, target.scores.length)
+  for (let index = 0; index < best.touchedCount; index++) {
+    const internalId = best.touched[index]
+    if (only !== null && !bitsetHas(only, internalId)) continue
+    coverage?.mark(internalId)
+    addScore(target, internalId, best.scores[internalId])
+  }
+}
+
+function bestGroupScores(context: GroupScoringContext, matches: readonly GroupMatch[], capacity: number): ScoreBuffer {
+  termScores ??= createScoreBuffer(capacity)
+  bestScores ??= createScoreBuffer(capacity)
+  const perTerm = termScores
+  const best = bestScores
+  const addTermScore: MatchPostingVisit = (internalId, _fieldIndex, _termFrequency, _fieldLength, termScore) =>
+    addScore(perTerm, internalId, termScore)
+  beginScoring(best, capacity)
+  for (const match of matches) {
+    beginScoring(perTerm, capacity)
+    scoreMatchPostings(context, match, addTermScore)
+    for (let index = 0; index < perTerm.touchedCount; index++) {
+      const internalId = perTerm.touched[index]
+      const score = perTerm.scores[internalId]
+      if (!hasScore(best, internalId)) addScore(best, internalId, score)
+      else if (compareScores(score, best.scores[internalId]) < 0) best.scores[internalId] = score
+    }
+  }
+  return best
+}
+
 export function computeGroupContributions(
   context: GroupScoringContext,
   matches: readonly GroupMatch[],
-  collect: boolean,
 ): Map<number, GroupContribution> {
-  const { fields, fieldNames, filterBitset, partialMarks } = context
-  const scoresAreZero = context.totalDocs === 0
-  const onePair = fields.boundPairs.length === 2
+  const { fieldNames } = context
   const best = new Map<number, GroupContribution>()
 
   for (const match of matches) {
     const perTerm = new Map<number, GroupContribution>()
-    const { docIds, termFrequencies, fieldNameIndices, deletedDocs, hasDeleted, count } = postingColumns(
-      match.postingList,
-    )
-
-    let runStart = 0
-    let runEnd = 0
-    for (let at = 0; at < count; at++) {
-      const internalId = docIds[at]
-      if (hasDeleted && deletedDocs.has(internalId)) continue
-      if (filterBitset && !bitsetHas(filterBitset, internalId)) continue
-      let pi = at
-      if (at < runEnd) {
-        pi = fieldRun.entries[at - runStart]
-      } else if (at + 2 < count && docIds[at + 2] === internalId) {
-        pi = orderRunByFieldName(docIds, fieldNameIndices, fields.nameRanks, at, count)[0]
-        runStart = at
-        runEnd = at + fieldRun.length
-      }
-      const fieldIndex = fieldNameIndices[pi]
-      if (fields.searchable[fieldIndex] === 0) continue
-      const factor = partialMarks[fieldIndex] === 1 ? match.partialFactor : match.factor
-      if (factor === 0) continue
+    scoreMatchPostings(context, match, (internalId, fieldIndex, termFrequency, actualFieldLength, termScore) => {
       const fieldName = fieldNames[fieldIndex]
-
-      const termFrequency = termFrequencies[pi]
-      const fieldBoost = fields.boosts[fieldIndex]
-      const avgLen = fields.averageLengths[fieldIndex]
-      const actualFieldLength = fieldLengthOf(fields.lengthColumns, fieldIndex, internalId, avgLen)
-
-      const termScore =
-        (scoresAreZero
-          ? 0
-          : computeBM25WithIDF(
-              termFrequency,
-              match.idf,
-              actualFieldLength,
-              avgLen,
-              onePair ? fields.boundPairs[0] : fields.k1s[fieldIndex],
-              onePair ? fields.boundPairs[1] : fields.bs[fieldIndex],
-            )) *
-        fieldBoost *
-        factor
-
       const existing = perTerm.get(internalId)
       if (existing) {
         existing.score += termScore
-        if (collect) {
-          existing.termFrequencies[`${fieldName}:${match.token}`] = termFrequency
-          existing.fieldLengths[fieldName] = actualFieldLength
-        }
-      } else if (collect) {
-        perTerm.set(internalId, {
-          score: termScore,
-          token: match.token,
-          idf: match.idf,
-          termFrequencies: { [`${fieldName}:${match.token}`]: termFrequency },
-          fieldLengths: { [fieldName]: actualFieldLength },
-        })
-      } else {
-        perTerm.set(internalId, {
-          score: termScore,
-          token: match.token,
-          idf: match.idf,
-          termFrequencies: EMPTY_COMPONENTS,
-          fieldLengths: EMPTY_COMPONENTS,
-        })
+        existing.termFrequencies[`${fieldName}:${match.token}`] = termFrequency
+        existing.fieldLengths[fieldName] = actualFieldLength
+        return
       }
-    }
+      perTerm.set(internalId, {
+        score: termScore,
+        token: match.token,
+        idf: match.idf,
+        termFrequencies: { [`${fieldName}:${match.token}`]: termFrequency },
+        fieldLengths: { [fieldName]: actualFieldLength },
+      })
+    })
 
     for (const [internalId, contribution] of perTerm) {
       const current = best.get(internalId)

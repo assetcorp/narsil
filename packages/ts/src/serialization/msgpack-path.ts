@@ -1,5 +1,5 @@
 import { Decoder, PROTOTYPE_POLLUTION_KEYS } from '#platform/segment-codec-host'
-import { endOfValue, headerAt } from './msgpack-without-fields'
+import { endOfValue, headerAt, type ValueHeader } from './msgpack-without-fields'
 
 export interface EncodedPathRead {
   found: boolean
@@ -11,6 +11,8 @@ export type EncodedArrayStep = 'decode-document' | 'missing'
 const encoder = new TextEncoder()
 const PROTO_KEY_BYTES = encoder.encode('__proto__')
 const MISSING: EncodedPathRead = { found: false, value: undefined }
+const mapHeader: ValueHeader = { headerBytes: 0, bodyBytes: 0, children: 0 }
+const keyHeader: ValueHeader = { headerBytes: 0, bodyBytes: 0, children: 0 }
 let pathDecoder: Decoder | null = null
 
 export function encodePathSegments(segments: readonly string[]): Uint8Array[] | null {
@@ -44,18 +46,17 @@ function sameBytes(bytes: Uint8Array, start: number, end: number, target: Uint8A
   return true
 }
 
-function keyRangeAt(view: DataView, offset: number): { start: number; end: number } | null {
-  if (!isStringTag(view.getUint8(offset))) return null
-  const header = headerAt(view, offset)
-  if (header === null) return null
-  const start = offset + header.headerBytes
-  return { start, end: start + header.bodyBytes }
+function keyEndAt(view: DataView, offset: number): number {
+  if (!isStringTag(view.getUint8(offset))) return -1
+  if (headerAt(view, offset, keyHeader) === null) return -1
+  return offset + keyHeader.headerBytes + keyHeader.bodyBytes
 }
 
 export function readEncodedPath(
   bytes: Uint8Array,
   segments: readonly Uint8Array[],
   arrays: EncodedArrayStep,
+  foundRead: EncodedPathRead,
 ): EncodedPathRead | null {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
   let start = 0
@@ -68,20 +69,21 @@ export function readEncodedPath(
       if (isArrayTag(tag)) return arrays === 'missing' ? MISSING : null
       return isScalarTag(tag) ? MISSING : null
     }
-    const header = headerAt(view, start)
-    if (header === null) return null
-    let offset = start + header.headerBytes
+    if (headerAt(view, start, mapHeader) === null) return null
+    const pairs = mapHeader.children / 2
+    let offset = start + mapHeader.headerBytes
     let valueStart = -1
     let valueEnd = -1
-    for (let pair = 0; pair < header.children / 2; pair++) {
+    for (let pair = 0; pair < pairs; pair++) {
       if (offset >= end) return null
-      const key = keyRangeAt(view, offset)
-      if (key === null || key.end > end) return null
-      if (sameBytes(bytes, key.start, key.end, PROTO_KEY_BYTES)) return null
-      const next = endOfValue(view, key.end)
+      const keyEnd = keyEndAt(view, offset)
+      if (keyEnd < 0 || keyEnd > end) return null
+      const keyStart = offset + keyHeader.headerBytes
+      if (sameBytes(bytes, keyStart, keyEnd, PROTO_KEY_BYTES)) return null
+      const next = endOfValue(view, keyEnd)
       if (next === null || next > end) return null
-      if (sameBytes(bytes, key.start, key.end, segments[depth])) {
-        valueStart = key.end
+      if (sameBytes(bytes, keyStart, keyEnd, segments[depth])) {
+        valueStart = keyEnd
         valueEnd = next
       }
       offset = next
@@ -93,7 +95,8 @@ export function readEncodedPath(
   }
   try {
     pathDecoder ??= new Decoder()
-    return { found: true, value: pathDecoder.decode(bytes.subarray(start, end)) }
+    foundRead.value = pathDecoder.decode(bytes.subarray(start, end))
+    return foundRead
   } catch {
     return null
   }
