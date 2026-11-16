@@ -24,6 +24,7 @@ export interface PendingAdmission {
 export interface AdmittedReplica {
   primaryTerm: number
   generation: number
+  inSyncVersion: number
 }
 
 export interface AdmissionToWithdraw {
@@ -47,6 +48,7 @@ export interface CatchUpState {
   lastAdmissionGeneration: number
   startedTerms: Map<string, number>
   outOfStepRemovals: Map<string, OutOfStepRemoval>
+  settlingAdmissions: Set<string>
   inFlightBytes: number
   timer: ReturnType<typeof setInterval> | null
   activeTick: Promise<void> | null
@@ -86,6 +88,7 @@ export function createCatchUpState(): CatchUpState {
     lastAdmissionGeneration: 0,
     startedTerms: new Map(),
     outOfStepRemovals: new Map(),
+    settlingAdmissions: new Set(),
     inFlightBytes: 0,
     timer: null,
     activeTick: null,

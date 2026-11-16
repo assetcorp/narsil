@@ -1,3 +1,4 @@
+import { inSyncVersionOf } from '../../cluster/in-sync-version'
 import type { PartitionAssignment } from '../../coordinator/types'
 import {
   type AdmissionToWithdraw,
@@ -107,12 +108,11 @@ export function recordAdmittedReplica(
   indexName: string,
   partitionId: number,
   replicaNodeId: string,
-  primaryTerm: number,
-  generation: number,
+  record: AdmittedReplica,
 ): void {
   const key = partitionKey(indexName, partitionId)
   const admitted = state.admittedReplicas.get(key) ?? new Map<string, AdmittedReplica>()
-  admitted.set(replicaNodeId, { primaryTerm, generation })
+  admitted.set(replicaNodeId, record)
   state.admittedReplicas.set(key, admitted)
 }
 
@@ -142,6 +142,31 @@ export function recordRemovalUnlessReadmitted(
   recordRemovedReplica(state, indexName, partitionId, replicaNodeId, primaryTerm)
 }
 
+export function settledAdmissions(
+  state: CatchUpState,
+  indexName: string,
+  partitionId: number,
+  assignment: PartitionAssignment,
+): Array<[string, AdmittedReplica]> {
+  const admitted = state.admittedReplicas.get(partitionKey(indexName, partitionId))
+  if (admitted === undefined) return []
+  return [...admitted].filter(
+    ([replicaNodeId, record]) =>
+      assignment.inSyncSet.includes(replicaNodeId) && record.primaryTerm === assignment.primaryTerm,
+  )
+}
+
+export function forgetSettledAdmission(
+  state: CatchUpState,
+  indexName: string,
+  partitionId: number,
+  replicaNodeId: string,
+  record: AdmittedReplica,
+): void {
+  if (state.admittedReplicas.get(partitionKey(indexName, partitionId))?.get(replicaNodeId) !== record) return
+  forgetAdmittedReplica(state, indexName, partitionId, replicaNodeId)
+}
+
 export function admittedBeyondTable(
   state: CatchUpState,
   indexName: string,
@@ -153,13 +178,18 @@ export function admittedBeyondTable(
   if (admitted === undefined) return []
   const beyond: string[] = []
   for (const [replicaNodeId, record] of [...admitted]) {
-    const settled = assignment.inSyncSet.includes(replicaNodeId) || !assignment.replicas.includes(replicaNodeId)
-    const superseded = generationAtLiveRead !== undefined && record.generation <= generationAtLiveRead
-    if (settled || superseded || record.primaryTerm !== assignment.primaryTerm) {
+    const inSync = assignment.inSyncSet.includes(replicaNodeId)
+    const readByPump = generationAtLiveRead !== undefined
+    const superseded =
+      generationAtLiveRead !== undefined
+        ? record.generation <= generationAtLiveRead
+        : inSyncVersionOf(assignment) > record.inSyncVersion
+    const left = !assignment.replicas.includes(replicaNodeId) || record.primaryTerm !== assignment.primaryTerm
+    if (left || (inSync && !readByPump) || (superseded && !inSync)) {
       forgetAdmittedReplica(state, indexName, partitionId, replicaNodeId)
       continue
     }
-    beyond.push(replicaNodeId)
+    if (!inSync) beyond.push(replicaNodeId)
   }
   return beyond
 }
