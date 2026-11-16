@@ -11,7 +11,7 @@ use narsil::{
 };
 
 const ANSWER_WAIT: Duration = Duration::from_secs(10);
-const DRAIN_WAIT: Duration = Duration::from_millis(100);
+const DRAIN_WAIT: Duration = Duration::from_secs(1);
 
 struct HeldTokenizer {
     armed: AtomicBool,

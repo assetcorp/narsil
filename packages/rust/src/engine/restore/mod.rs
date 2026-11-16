@@ -82,7 +82,8 @@ impl Narsil {
     /// new writes. The engine reads and checks every file of the snapshot before the index changes, and the old
     /// index keeps serving searches and writes until the restored one takes its place in one step. A durable
     /// engine moves the restored files into the index's place in that same step, so a crash leaves either the old
-    /// index or the restored one.
+    /// index or the restored one. That step waits for every search of the old index to finish, and a tokenizer or
+    /// another callback that reads the index from inside one of those searches reads the old index meanwhile.
     ///
     /// Fails with `INSTANCE_SHUT_DOWN` after a shutdown, with `CONFIG_INVALID` for a bad index name or a bad
     /// setting in the snapshot's configuration, with `DOC_VALIDATION_FAILED` for empty data or a malformed

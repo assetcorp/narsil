@@ -38,6 +38,7 @@ type Narsil struct {
 	plugins  *pluginRunner
 	workers  *queryPool
 	heap     *heapWatch
+	memory   *memoryGuard
 	manager  *persist.Manager
 	tier     model.DurabilityTier
 	rerank   rerankSettings
@@ -92,6 +93,7 @@ func New(ctx context.Context, config Config) (*Narsil, error) {
 	}
 	engine.workers = pool
 	engine.heap = newHeapWatch(config.Memory, engine.events)
+	engine.memory = newMemoryGuard(config.Memory)
 	engine.stopping, engine.stop = context.WithCancel(context.Background())
 	if err := engine.openDurability(ctx); err != nil {
 		engine.syncRetention.stop()

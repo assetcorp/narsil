@@ -69,7 +69,7 @@ fn close_held(
     index.retire();
     engine.lifecycle.changed.notify_all();
     drop(writer);
-    residency.finish_close();
+    residency.wake_waiters();
     released.map(|()| true)
 }
 
