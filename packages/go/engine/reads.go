@@ -68,7 +68,7 @@ func (n *Narsil) GetMultiple(ctx context.Context, indexName string, docIDs []str
 	defer unpin()
 	found := make(map[string]*model.Document, len(docIDs))
 	for _, id := range docIDs {
-		if err := ctx.Err(); err != nil {
+		if err := pinned.Err(); err != nil {
 			return nil, err
 		}
 		document, held, err := entry.storedDocument(pinned, id)

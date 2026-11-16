@@ -58,11 +58,12 @@ func (ix *Index) Pin(ctx context.Context) (context.Context, func(), error) {
 	if _, pinned := ix.pinnedRead(ctx); pinned {
 		return ctx, func() {}, nil
 	}
+	shielded := withoutCallerCode(ctx)
 	read, err := ix.sides.Read()
 	if err != nil {
 		return nil, nil, err
 	}
-	return context.WithValue(vector.WithLease(ctx, read.Lease()), pinnedReadKey{}, read), read.Release, nil
+	return context.WithValue(vector.WithLease(shielded, read.Lease()), pinnedReadKey{}, read), read.Release, nil
 }
 
 func (ix *Index) RoutePartition(id string) int {
