@@ -25,7 +25,8 @@ const (
 	reachClusters           = 24
 	reachClusterSpread      = 0.02
 	reachWaveDocuments      = 3_000
-	reachMaxDocuments       = 36_000
+	reachFeedBatch          = reachPromotionThreshold
+	reachFeedLevel          = 8_192
 	reachCheckpoints        = 30
 	reachCentreSeed         = 90_000_000
 	reachStatusPoll         = time.Millisecond
@@ -80,13 +81,85 @@ func insertReachWave(ctx context.Context, narsil *engine.Narsil, first int, coun
 	return nil
 }
 
+func reachStatusOf(narsil *engine.Narsil) (engine.VectorMaintenanceResult, error) {
+	statuses, err := narsil.VectorMaintenanceStatus(reachIndexName)
+	if err != nil {
+		return engine.VectorMaintenanceResult{}, err
+	}
+	if len(statuses) != 1 {
+		return engine.VectorMaintenanceResult{}, fmt.Errorf("the index reports %d vector fields, where it holds one", len(statuses))
+	}
+	return statuses[0], nil
+}
+
 func reachStatus(t *testing.T, narsil *engine.Narsil) engine.VectorMaintenanceResult {
 	t.Helper()
-	statuses, err := narsil.VectorMaintenanceStatus(reachIndexName)
-	if err != nil || len(statuses) != 1 {
-		t.Fatalf("the index reports %d vector fields: %v", len(statuses), err)
+	status, err := reachStatusOf(narsil)
+	if err != nil {
+		t.Fatal(err)
 	}
-	return statuses[0]
+	return status
+}
+
+func feedReach(ctx context.Context, narsil *engine.Narsil, inserted *atomic.Int64, stop *atomic.Bool) error {
+	for !stop.Load() {
+		status, err := reachStatusOf(narsil)
+		if err != nil {
+			return err
+		}
+		if status.BufferSize >= reachFeedLevel {
+			time.Sleep(reachStatusPoll)
+			continue
+		}
+		if err := insertReachWave(ctx, narsil, int(inserted.Load()), reachFeedBatch); err != nil {
+			return err
+		}
+		inserted.Add(reachFeedBatch)
+	}
+	return nil
+}
+
+func untilReachBuilding(narsil *engine.Narsil) error {
+	deadline := time.Now().Add(reachSettleTimeout)
+	for time.Now().Before(deadline) {
+		status, err := reachStatusOf(narsil)
+		if err != nil || status.Building {
+			return err
+		}
+		time.Sleep(reachStatusPoll)
+	}
+	return errors.New("no pass started while vectors arrived")
+}
+
+type reachCheckpoint struct {
+	acknowledged int
+	mayHold      int
+	insidePasses bool
+	saved        savedGraphCounts
+}
+
+func checkpointWhileVectorsArrive(ctx context.Context, narsil *engine.Narsil, node string, directory string,
+	inserted *atomic.Int64) (reachCheckpoint, error) {
+	var stop atomic.Bool
+	fed := make(chan error, 1)
+	go func() { fed <- feedReach(ctx, narsil, inserted, &stop) }()
+	err := untilReachBuilding(narsil)
+	taken := reachCheckpoint{acknowledged: int(inserted.Load())}
+	if err == nil {
+		err = narsil.Checkpoint(ctx, reachIndexName)
+	}
+	var after engine.VectorMaintenanceResult
+	if err == nil {
+		after, err = reachStatusOf(narsil)
+	}
+	stop.Store(true)
+	if err := errors.Join(err, <-fed); err != nil {
+		return taken, err
+	}
+	taken.insidePasses = after.Building
+	taken.mayHold = int(inserted.Load())
+	taken.saved, err = savedGraphOf(node, directory, reachIndexName)
+	return taken, err
 }
 
 func waitForReachBuilds(t *testing.T, narsil *engine.Narsil) {
@@ -178,43 +251,20 @@ func TestCheckpointsTakenWhileVectorsArriveSaveGraphsThatReachEveryVector(t *tes
 	}
 	waitForReachBuilds(t, narsil)
 
-	var arriving atomic.Bool
 	var arrived atomic.Int64
-	arriving.Store(true)
 	arrived.Store(reachWaveDocuments)
-	waves := make(chan error, 1)
-	go func() {
-		for arriving.Load() && arrived.Load() < reachMaxDocuments {
-			if err := insertReachWave(ctx, narsil, int(arrived.Load()), reachWaveDocuments); err != nil {
-				waves <- err
-				return
-			}
-			arrived.Add(reachWaveDocuments)
-		}
-		waves <- nil
-	}()
 	savedInsideAPass := 0
-	wrong := ""
-	for checkpoint := 0; checkpoint < reachCheckpoints && wrong == ""; checkpoint++ {
-		acknowledged := int(arrived.Load())
-		building := reachStatus(t, narsil).Building
-		if err := narsil.Checkpoint(ctx, reachIndexName); err != nil {
+	for checkpoint := 0; checkpoint < reachCheckpoints; checkpoint++ {
+		taken, err := checkpointWhileVectorsArrive(ctx, narsil, node, directory, &arrived)
+		if err != nil {
 			t.Fatalf("checkpoint %d failed with %s: %v", checkpoint, codeOrMessage(err), err)
 		}
-		stillBuilding := reachStatus(t, narsil).Building
-		mayHold := int(arrived.Load()) + reachWaveDocuments
-		saved := readSavedGraph(t, node, directory, reachIndexName)
-		wrong = savedVectorsOutsideTheirBounds(checkpoint, saved, acknowledged, mayHold)
-		if building && stillBuilding && saved.LiveWithoutNode > 0 {
+		if wrong := savedVectorsOutsideTheirBounds(checkpoint, taken.saved, taken.acknowledged, taken.mayHold); wrong != "" {
+			t.Fatal(wrong)
+		}
+		if taken.insidePasses && taken.saved.LiveWithoutNode > 0 {
 			savedInsideAPass++
 		}
-	}
-	arriving.Store(false)
-	if err := <-waves; err != nil {
-		t.Fatalf("a wave failed with %s: %v", codeOrMessage(err), err)
-	}
-	if wrong != "" {
-		t.Fatal(wrong)
 	}
 	if savedInsideAPass == 0 {
 		t.Fatal("no checkpoint saved vectors waiting outside the graph while a pass placed them")
