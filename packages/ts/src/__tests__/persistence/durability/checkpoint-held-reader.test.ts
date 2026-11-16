@@ -4,6 +4,7 @@ import { mkdtemp, open, readdir, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { ErrorCodes, NarsilError } from '../../../errors'
 import { createNarsil } from '../../../narsil'
 import type { Narsil } from '../../../types/engine'
 
@@ -140,6 +141,40 @@ describe('a checkpoint beside an outside reader of the meta file', () => {
         for (let entry = 0; entry < ENTRIES; entry++) {
           expect(await reopened.get(INDEX, `entry-${entry}`)).toMatchObject({ title: ledgerTitle(entry) })
         }
+      } finally {
+        await reopened.shutdown()
+      }
+    },
+    TEST_TIMEOUT_MS,
+  )
+
+  it.skipIf(process.platform !== 'win32')(
+    'returns a typed failure once the reader outlasts the retries, and keeps every acknowledged write',
+    async () => {
+      const engine = await openEngine(directory)
+      await engine.createIndex(INDEX, { schema: { title: 'string' } })
+      await engine.insert(INDEX, { title: 'acknowledged ledger' }, 'retained')
+      const reader = await holdOpen(join(directory, INDEX, 'meta'))
+      const shutdowns: Promise<void>[] = []
+      const reported: Error[] = []
+      engine.on('durabilityError', ({ error }) => {
+        reported.push(error)
+        shutdowns.push(engine.shutdown())
+      })
+      try {
+        const failure: unknown = await engine.checkpoint(INDEX).catch((error: unknown) => error)
+        expect(failure).toBeInstanceOf(NarsilError)
+        expect(failure).toMatchObject({ code: ErrorCodes.PERSISTENCE_SAVE_FAILED })
+        expect(reported).toEqual([failure])
+        await Promise.all(shutdowns)
+        expect(await stagedMetaWaiting(join(directory, INDEX))).toBe(false)
+      } finally {
+        await reader.close()
+        await engine.shutdown()
+      }
+      const reopened = await openEngine(directory)
+      try {
+        expect(await reopened.get(INDEX, 'retained')).toEqual({ title: 'acknowledged ledger' })
       } finally {
         await reopened.shutdown()
       }
