@@ -339,6 +339,7 @@ describe('a new primary that starts its term on every in-sync copy', () => {
     const oldPrimary = settled.primary ?? ''
     const candidate = candidateOf(settled)
     const ahead = otherCopyOf(settled)
+    running.transport(oldPrimary).dropWhen(removalOf(candidate))
     const withheld = running
       .transport(oldPrimary)
       .holdWhen((target, message) => target === candidate && entryForDocument('stranded')(target, message))
