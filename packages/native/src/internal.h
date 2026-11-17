@@ -308,7 +308,10 @@ double estimate_distance(const walk_context *context, const uint8_t *record);
 double estimate_pair_distance(const walk_context *context, const uint8_t *first, const uint8_t *second);
 double pair_distance(const walk_context *context, int32_t first, int32_t second);
 
+#define DOT_BATCH 4U
+
 float kernel_dot(const float *lhs, const float *rhs, uint32_t dimension);
+void kernel_dot_batch(const float *query, const float *const *vectors, uint32_t dimension, float *dots);
 float kernel_squared_distance(const float *lhs, const float *rhs, uint32_t dimension);
 float kernel_magnitude(const float *values, uint32_t dimension);
 uint32_t kernel_products_8x8(const uint8_t *document, const uint8_t *query, uint32_t dimension);
@@ -331,6 +334,8 @@ int64_t oldest_held_pin(const narsil_store *store);
 int store_may_free(const walk_context *context, int32_t ordinal);
 uint8_t *stored_record(const narsil_store *store, int32_t ordinal);
 double float_distance(const walk_context *context, float_query query, int32_t ordinal);
+int walk_scores_in_batches(const walk_context *context);
+void float_distance_batch(const walk_context *context, const int32_t *ordinals, double *distances);
 double walk_distance(const walk_context *context, int32_t ordinal);
 void prefetch_for_walk(const walk_context *context, int32_t ordinal);
 
