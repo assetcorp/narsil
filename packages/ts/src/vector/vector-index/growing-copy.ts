@@ -28,7 +28,8 @@ function moveWhatTheCopyHoldsOutOfBuffer(state: VectorIndexState, copy: HNSWInde
 }
 
 async function publishCopy(state: VectorIndexState, graph: HNSWIndex, copy: HNSWIndex): Promise<boolean> {
-  if (state.sharedHandles.get(graph)?.searchable === true) await shareGraph(state, copy, true)
+  const threadsSearchAField = state.workerCopies.host !== undefined
+  if (threadsSearchAField || state.sharedHandles.get(graph)?.searchable === true) await shareGraph(state, copy, true)
   if (state.disposed || state.hnsw !== graph) return false
   lineages.set(copy, lineageOfGraph(graph))
   state.hnsw = copy
