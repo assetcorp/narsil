@@ -161,6 +161,17 @@ double pair_distance(const walk_context *context, int32_t first, int32_t second)
   return vector_pair_distance(context, first, second);
 }
 
+void prefetch_for_scoring(const walk_context *context, int32_t ordinal) {
+#if defined(__GNUC__) || defined(__clang__)
+  if (ordinal < 0 || (uint32_t)ordinal >= context->store_slots) { return; }
+  __builtin_prefetch(context->store->present + ordinal);
+  __builtin_prefetch(context->store->magnitudes + ordinal);
+#else
+  (void)context;
+  (void)ordinal;
+#endif
+}
+
 void prefetch_for_walk(const walk_context *context, int32_t ordinal) {
 #if defined(__GNUC__) || defined(__clang__)
   const uint8_t *bytes = NULL;

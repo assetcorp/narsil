@@ -153,9 +153,9 @@ typedef struct {
 struct narsil_workspace {
   distance_heap frontier;
   distance_heap found;
-  uint32_t *visited;
+  uint8_t *visited;
   uint32_t visited_capacity;
-  uint32_t stamp;
+  uint8_t stamp;
   int32_t *entry_points;
   uint32_t entry_point_count;
   uint32_t entry_point_capacity;
@@ -338,5 +338,6 @@ int walk_scores_in_batches(const walk_context *context);
 void float_distance_batch(const walk_context *context, const int32_t *ordinals, double *distances);
 double walk_distance(const walk_context *context, int32_t ordinal);
 void prefetch_for_walk(const walk_context *context, int32_t ordinal);
+void prefetch_for_scoring(const walk_context *context, int32_t ordinal);
 
 #endif
