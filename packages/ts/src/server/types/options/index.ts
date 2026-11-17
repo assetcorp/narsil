@@ -120,7 +120,7 @@ export interface ServerLimits {
    * from the first byte of a body until its request finishes. The server
    * answers 429 to a body that can take the total past this fraction before it
    * buffers any more of that body, unless no other body is in flight. The
-   * fraction is 0.05 by default, and 0 removes the bound. */
+   * fraction is 0.1 by default, and 0 removes the bound. */
   maxBodyBytesInFlightFraction?: number
   /** Ceiling for a search's `limit`, `offset`, and `group.maxPerGroup`, so one
    * request cannot ask for an unbounded result set. Excess → 400. Defaults to
