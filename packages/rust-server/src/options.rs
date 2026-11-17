@@ -126,7 +126,7 @@ pub struct ServerLimits {
     pub import_batch_size: Option<u64>,
     /// The number of requests that the server runs at once, where 0, the default, sets no limit.
     pub max_concurrent_requests: Option<u64>,
-    /// The share of the process memory limit that the bodies in flight may hold, 0.05 by default, where 0 sets
+    /// The share of the process memory limit that the bodies in flight may hold, 0.1 by default, where 0 sets
     /// no limit.
     pub max_body_bytes_in_flight_fraction: Option<f64>,
     /// The highest `offset + limit` of a search, 10,000 by default.

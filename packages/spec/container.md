@@ -107,7 +107,7 @@ Each variable sets the server limit of the same name, and its default is the ser
 | `NARSIL_LIMIT_MAX_LINE_BYTES` | 4,194,304 |
 | `NARSIL_LIMIT_IMPORT_BATCH_SIZE` | 1,000 |
 | `NARSIL_LIMIT_MAX_CONCURRENT_REQUESTS` | 0, which sets no bound |
-| `NARSIL_LIMIT_MAX_BODY_BYTES_IN_FLIGHT_FRACTION` | 0.05, a decimal from 0 to 1 |
+| `NARSIL_LIMIT_MAX_BODY_BYTES_IN_FLIGHT_FRACTION` | 0.1, a decimal from 0 to 1 |
 | `NARSIL_LIMIT_MAX_RESULT_WINDOW` | 10,000 |
 | `NARSIL_LIMIT_MAX_RERANK_WINDOW` | 100 |
 | `NARSIL_LIMIT_MAX_FETCH_DOCUMENTS` | 10,000 |
