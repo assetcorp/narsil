@@ -127,9 +127,8 @@ export async function buildExclusively(
   } finally {
     state.building = false
     state.pendingBuild = null
-    if (state.buffer.size > 0) {
-      scheduleBuild(state)
-    }
+    if (state.buffer.size > 0) scheduleBuild(state)
+    else scheduleWorkerCopyLoad(state)
   }
 }
 
