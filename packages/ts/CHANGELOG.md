@@ -1,3 +1,13 @@
+## 0.4.4 (2026-11-17)
+
+### 🩹 Fixes
+
+- **vector:** send request threads the graph that replaces the one they search ([e1bc29cc](https://github.com/assetcorp/narsil/commit/e1bc29cc))
+
+### ❤️ Thank You
+
+- assetcorp
+
 ## 0.4.3 (2026-11-17)
 
 ### 🚀 Features
