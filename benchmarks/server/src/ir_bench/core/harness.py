@@ -13,6 +13,7 @@ from .engine_memory import CgroupMemoryCounter
 from .keyword_relevance import load_keyword_index, score_keyword_queries
 from .latency import measure_latency, warmup_sample
 from .reporter import write_json
+from .scoring import PER_QUERY_NDCG_FIELD
 from .throughput import measure_throughput
 from .throughput_process import CpuCounter
 from .throughput_workload import Workload, request_caller
@@ -153,6 +154,7 @@ def run_keyword_track(
         "latency": latency,
         "throughput": throughput,
         "run_file": run_file,
+        PER_QUERY_NDCG_FIELD: scores.ndcg_by_query,
     }
 
 

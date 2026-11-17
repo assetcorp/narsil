@@ -8,7 +8,7 @@ from . import datasets as ds
 from .config import BenchmarkConfig
 from .config_datasets import DatasetSpec
 from .runfile import run_mapping, strict_ranking, write_run_file
-from .scoring import evaluate
+from .scoring import mean_scores, per_query_ndcg, per_query_scores
 from .synonym_sets import SynonymRule
 from .track_common import bulk_load_begin, bulk_load_end, index_name, verify_indexed
 
@@ -24,6 +24,7 @@ class LoadedIndex:
 class QueryScores:
     metrics: dict[str, float] | None
     run_file: str | None
+    ndcg_by_query: dict[str, float] | None = None
 
 
 def load_keyword_index(
@@ -72,4 +73,5 @@ def score_keyword_queries(
         run[query_id] = ranked
         run_for_scoring[query_id] = run_mapping(ranked)
     write_run_file(run_path, run, driver.run_tag)
-    return QueryScores(metrics=evaluate(qrels, run_for_scoring), run_file=str(run_path))
+    per_query = per_query_scores(qrels, run_for_scoring)
+    return QueryScores(metrics=mean_scores(per_query), run_file=str(run_path), ndcg_by_query=per_query_ndcg(per_query))

@@ -31,6 +31,10 @@ from render import dataset_name, decimal, integer, table
 from server_setup import setup_block
 from sources import Source
 
+NDCG_RANK_FIELD = "ndcg_rank"
+NDCG_RANK_HEADER = "nDCG@10 rank"
+NDCG_SIGNIFICANCE_FIELD = "ndcg_significance"
+
 
 def _measured_first(rows: list[dict], key) -> list[dict]:
     measured = sorted((row for row in rows if not is_unmeasured(row)), key=key, reverse=True)
@@ -64,12 +68,18 @@ def _qps_cell(row: dict) -> str:
     return cell
 
 
-def _quality_cells(row: dict, profile: str) -> list[str]:
+def _ranked(rows: list[dict]) -> bool:
+    return any(NDCG_RANK_FIELD in row for row in rows)
+
+
+def _quality_cells(row: dict, profile: str, ranked: bool) -> list[str]:
     if is_unmeasured(row):
-        return _unmeasured_cells(row, profile, 5)
+        return _unmeasured_cells(row, profile, 6 if ranked else 5)
+    rank = [integer(row.get(NDCG_RANK_FIELD))] if ranked else []
     return [
         row_label(row, profile),
         decimal(_metric(row, "ndcg_cut_10"), 4),
+        *rank,
         decimal(_metric(row, "recall_100"), 4),
         decimal(_metric(row, "map"), 4),
         decimal(_metric(row, "recip_rank"), 4),
@@ -85,10 +95,12 @@ def _quality_table(rows: list[dict], profile: str) -> str:
             for row in ordered
         ]
         return table(["Engine", "Peak QPS"], ["left", "right"], body)
+    ranked = _ranked(rows)
     ordered = _measured_first(rows, lambda row: _metric(row, "ndcg_cut_10") or -1.0)
-    body = [_quality_cells(row, profile) for row in ordered]
-    headers = ["Engine", "nDCG@10", "Recall@100", "MAP", "MRR", "Peak QPS"]
-    return table(headers, ["left", "right", "right", "right", "right", "right"], body)
+    body = [_quality_cells(row, profile, ranked) for row in ordered]
+    rank = [NDCG_RANK_HEADER] if ranked else []
+    headers = ["Engine", "nDCG@10", *rank, "Recall@100", "MAP", "MRR", "Peak QPS"]
+    return table(headers, ["left", "right", *(["right"] * len(rank)), "right", "right", "right", "right"], body)
 
 
 def _vector_table(rows: list[dict], profile: str) -> str:
@@ -157,6 +169,17 @@ def _recall_figure(chart_dir: str, dataset_id: str, comparisons: dict[str, dict 
     )
 
 
+def _untested_note(dataset: dict, name: str) -> str | None:
+    if name == "vector" or not _judged(dataset["rows"]):
+        return None
+    if not (dataset.get(NDCG_SIGNIFICANCE_FIELD) or {}).get("untested"):
+        return None
+    return (
+        "The per-query rankings that the harness saved for this table do not reproduce every recorded nDCG@10, "
+        "so the table carries no significance test, and a gap between two engines here can be chance."
+    )
+
+
 def _track_block(source: Source, profile: str, name: str, render_table, comparisons: dict[str, dict | None]) -> str:
     entry = track(comparisons[profile], name)
     if entry is None:
@@ -172,6 +195,9 @@ def _track_block(source: Source, profile: str, name: str, render_table, comparis
         if bars:
             chunks.append(bars)
         chunks.append(render_table(rows, profile))
+        untested = _untested_note(dataset, name)
+        if untested:
+            chunks.append(untested)
         sweep = _sweep_figure(chart_dir, profile, name, dataset_id, rows)
         if sweep:
             chunks.append(sweep)

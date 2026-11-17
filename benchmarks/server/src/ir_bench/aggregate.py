@@ -2,13 +2,17 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
+from .core import datasets as ds
 from .core.comparison import build_comparison
 from .core.comparison_markdown import render_comparison_markdown
+from .core.config import load_config
 from .core.reporter import write_json, write_text_atomic
 from .core.run_store import resolve_run_id_for_read, run_directory
+from .core.significance import attach_ndcg_ranks
 from .core.types import EQUAL_PRECISION, VECTOR_PROFILES
 
 
@@ -44,6 +48,7 @@ def _ordered_for_profile(reports: list[dict], profile: str, order: list[str] | N
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Aggregate per-engine results into a cross-engine comparison.")
+    parser.add_argument("--config", type=Path, default=Path("config/benchmark.toml"))
     parser.add_argument("--results-dir", type=Path, default=Path("results"))
     parser.add_argument(
         "--run-id",
@@ -60,6 +65,7 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit(str(exc)) from exc
     directory = run_directory(args.results_dir, run_id)
     reports = _load_reports(directory)
+    ds.configure(load_config(args.config).datasets, Path(os.environ.get("BENCH_EMBEDDINGS_DIR", "/data/embeddings")))
 
     wrote_any = False
     for profile in VECTOR_PROFILES:
@@ -68,6 +74,7 @@ def main(argv: list[str] | None = None) -> int:
             continue
         wrote_any = True
         comparison = build_comparison(profile_reports, profile)
+        attach_ndcg_ranks(comparison, profile_reports, directory, ds.load_qrels)
         suffix = "" if profile == EQUAL_PRECISION else f"-{profile}"
         write_json(directory / f"comparison{suffix}.json", comparison)
         markdown = render_comparison_markdown(comparison)

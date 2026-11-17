@@ -1322,7 +1322,8 @@
                 ],
                 "source_endpoint": "/stats/memory"
               },
-              "quantization": "OSQ 4-bit"
+              "quantization": "OSQ 4-bit",
+              "ndcg_rank": 1
             },
             {
               "engine": "elasticsearch",
@@ -2109,7 +2110,8 @@
               },
               "setup": "dense_vector BBQ (bbq_hnsw, binary quantization) with full-precision rescore (oversample tuned to the recall target), similarity cosine",
               "server_setup": null,
-              "quantization": "BBQ"
+              "quantization": "BBQ",
+              "ndcg_rank": 1
             },
             {
               "engine": "opensearch",
@@ -2911,7 +2913,8 @@
               },
               "setup": "knn_vector HNSW (faiss engine, 16-bit SQ / SQfp16 scalar quantization, inner product on L2-normalized vectors = cosine), over the shared precomputed vectors; 1-bit binary quantization cannot reach the recall target at this dimensionality",
               "server_setup": null,
-              "quantization": "SQfp16"
+              "quantization": "SQfp16",
+              "ndcg_rank": 1
             },
             {
               "engine": "qdrant",
@@ -3764,7 +3767,8 @@
               },
               "setup": "HNSW dense vectors with 4-bit TurboQuant held in RAM and full-precision rescore (oversampling 2.0x), distance Cosine, over the shared precomputed vectors",
               "server_setup": null,
-              "quantization": "TurboQuant 4-bit"
+              "quantization": "TurboQuant 4-bit",
+              "ndcg_rank": 1
             },
             {
               "engine": "weaviate",
@@ -4512,9 +4516,118 @@
               },
               "setup": "HNSW dense vectors with 8-bit Rotational Quantization and full-precision rescore, distance cosine, over the shared precomputed vectors",
               "server_setup": null,
-              "quantization": "8-bit RQ"
+              "quantization": "8-bit RQ",
+              "ndcg_rank": 1
             }
-          ]
+          ],
+          "ndcg_significance": {
+            "test": "two-sided paired randomization test on per-query nDCG@10 over every judged query, with Holm's correction across every pair of engines on the dataset",
+            "permutations": 10000,
+            "level": 0.05,
+            "judged_queries": 300,
+            "pairs": [
+              {
+                "engines": [
+                  "elasticsearch",
+                  "narsil"
+                ],
+                "mean_difference": 0.0,
+                "p_value": 1.0,
+                "holm_p_value": 1.0,
+                "significant": false
+              },
+              {
+                "engines": [
+                  "elasticsearch",
+                  "opensearch"
+                ],
+                "mean_difference": 0.0,
+                "p_value": 1.0,
+                "holm_p_value": 1.0,
+                "significant": false
+              },
+              {
+                "engines": [
+                  "elasticsearch",
+                  "qdrant"
+                ],
+                "mean_difference": 0.0,
+                "p_value": 1.0,
+                "holm_p_value": 1.0,
+                "significant": false
+              },
+              {
+                "engines": [
+                  "elasticsearch",
+                  "weaviate"
+                ],
+                "mean_difference": 0.0,
+                "p_value": 1.0,
+                "holm_p_value": 1.0,
+                "significant": false
+              },
+              {
+                "engines": [
+                  "narsil",
+                  "opensearch"
+                ],
+                "mean_difference": 0.0,
+                "p_value": 1.0,
+                "holm_p_value": 1.0,
+                "significant": false
+              },
+              {
+                "engines": [
+                  "narsil",
+                  "qdrant"
+                ],
+                "mean_difference": 0.0,
+                "p_value": 1.0,
+                "holm_p_value": 1.0,
+                "significant": false
+              },
+              {
+                "engines": [
+                  "narsil",
+                  "weaviate"
+                ],
+                "mean_difference": 0.0,
+                "p_value": 1.0,
+                "holm_p_value": 1.0,
+                "significant": false
+              },
+              {
+                "engines": [
+                  "opensearch",
+                  "qdrant"
+                ],
+                "mean_difference": 0.0,
+                "p_value": 1.0,
+                "holm_p_value": 1.0,
+                "significant": false
+              },
+              {
+                "engines": [
+                  "opensearch",
+                  "weaviate"
+                ],
+                "mean_difference": 0.0,
+                "p_value": 1.0,
+                "holm_p_value": 1.0,
+                "significant": false
+              },
+              {
+                "engines": [
+                  "qdrant",
+                  "weaviate"
+                ],
+                "mean_difference": 0.0,
+                "p_value": 1.0,
+                "holm_p_value": 1.0,
+                "significant": false
+              }
+            ]
+          }
         },
         {
           "dataset_id": "beir/nfcorpus/test",
@@ -8644,7 +8757,10 @@
               "server_setup": null,
               "quantization": "8-bit RQ"
             }
-          ]
+          ],
+          "ndcg_significance": {
+            "untested": "the per-query nDCG@10 of opensearch on vector beir/nfcorpus/test averages 0.314623, but its report records 0.314534"
+          }
         },
         {
           "dataset_id": "dbpedia-entities-openai-100k",
@@ -17738,7 +17854,8 @@
                 ],
                 "source_endpoint": "/stats/memory"
               },
-              "quantization": "OSQ 4-bit"
+              "quantization": "OSQ 4-bit",
+              "ndcg_rank": 1
             },
             {
               "engine": "elasticsearch",
@@ -18506,7 +18623,8 @@
               },
               "setup": "BM25 match fused with BBQ dense_vector kNN (full-precision rescore) via the RRF retriever; the RRF retriever is not part of Elastic's free licence, so this run uses Elasticsearch's self-generated trial licence",
               "server_setup": null,
-              "quantization": "BBQ"
+              "quantization": "BBQ",
+              "ndcg_rank": 1
             },
             {
               "engine": "opensearch",
@@ -19273,7 +19391,8 @@
               },
               "setup": "BM25 match fused with SQfp16-quantized knn via a hybrid query and an RRF search pipeline",
               "server_setup": null,
-              "quantization": "SQfp16"
+              "quantization": "SQfp16",
+              "ndcg_rank": 1
             },
             {
               "engine": "qdrant",
@@ -20099,7 +20218,8 @@
               },
               "setup": "TurboQuant 4-bit dense HNSW (full-precision rescore) fused with server-side BM25 sparse vectors (qdrant/bm25, k1=0.9 b=0.4, average document length estimated on the first import batch, server IDF) via RRF",
               "server_setup": null,
-              "quantization": "TurboQuant 4-bit"
+              "quantization": "TurboQuant 4-bit",
+              "ndcg_rank": 1
             },
             {
               "engine": "weaviate",
@@ -20812,9 +20932,118 @@
               },
               "setup": "BM25 over text fused with RQ-quantized dense vectors (full-precision rescore) via the hybrid operator (rankedFusion, alpha=0.5)",
               "server_setup": null,
-              "quantization": "8-bit RQ"
+              "quantization": "8-bit RQ",
+              "ndcg_rank": 4
             }
-          ]
+          ],
+          "ndcg_significance": {
+            "test": "two-sided paired randomization test on per-query nDCG@10 over every judged query, with Holm's correction across every pair of engines on the dataset",
+            "permutations": 10000,
+            "level": 0.05,
+            "judged_queries": 300,
+            "pairs": [
+              {
+                "engines": [
+                  "elasticsearch",
+                  "narsil"
+                ],
+                "mean_difference": 0.002752919376036389,
+                "p_value": 0.5629437056294371,
+                "holm_p_value": 1.0,
+                "significant": false
+              },
+              {
+                "engines": [
+                  "elasticsearch",
+                  "opensearch"
+                ],
+                "mean_difference": 0.0,
+                "p_value": 1.0,
+                "holm_p_value": 1.0,
+                "significant": false
+              },
+              {
+                "engines": [
+                  "elasticsearch",
+                  "qdrant"
+                ],
+                "mean_difference": -0.00872068932421255,
+                "p_value": 0.35596440355964404,
+                "holm_p_value": 1.0,
+                "significant": false
+              },
+              {
+                "engines": [
+                  "elasticsearch",
+                  "weaviate"
+                ],
+                "mean_difference": 0.025015888173557377,
+                "p_value": 0.0025997400259974,
+                "holm_p_value": 0.024997500249975005,
+                "significant": true
+              },
+              {
+                "engines": [
+                  "narsil",
+                  "opensearch"
+                ],
+                "mean_difference": -0.002752919376036389,
+                "p_value": 0.5660433956604339,
+                "holm_p_value": 1.0,
+                "significant": false
+              },
+              {
+                "engines": [
+                  "narsil",
+                  "qdrant"
+                ],
+                "mean_difference": -0.011473608700248938,
+                "p_value": 0.16008399160083991,
+                "holm_p_value": 0.9605039496050395,
+                "significant": false
+              },
+              {
+                "engines": [
+                  "narsil",
+                  "weaviate"
+                ],
+                "mean_difference": 0.022262968797520988,
+                "p_value": 0.008999100089991,
+                "holm_p_value": 0.062993700629937,
+                "significant": false
+              },
+              {
+                "engines": [
+                  "opensearch",
+                  "qdrant"
+                ],
+                "mean_difference": -0.00872068932421255,
+                "p_value": 0.3555644435556444,
+                "holm_p_value": 1.0,
+                "significant": false
+              },
+              {
+                "engines": [
+                  "opensearch",
+                  "weaviate"
+                ],
+                "mean_difference": 0.025015888173557377,
+                "p_value": 0.0031996800319968005,
+                "holm_p_value": 0.025597440255974404,
+                "significant": true
+              },
+              {
+                "engines": [
+                  "qdrant",
+                  "weaviate"
+                ],
+                "mean_difference": 0.033736577497769926,
+                "p_value": 0.0024997500249975004,
+                "holm_p_value": 0.024997500249975005,
+                "significant": true
+              }
+            ]
+          }
         },
         {
           "dataset_id": "beir/nfcorpus/test",
@@ -24673,7 +24902,10 @@
               "server_setup": null,
               "quantization": "8-bit RQ"
             }
-          ]
+          ],
+          "ndcg_significance": {
+            "untested": "the per-query nDCG@10 of elasticsearch on hybrid beir/nfcorpus/test averages 0.351924, but its report records 0.351909"
+          }
         },
         {
           "dataset_id": "dbpedia-entities-openai-100k",

@@ -12,7 +12,7 @@ from .embeddings import EmbeddingStore
 from .latency import Trip, measure_latency, timed_trip, warmup_sample
 from .recall_sweep import sweep_throughput
 from .runfile import run_mapping, strict_ranking, write_run_file
-from .scoring import evaluate
+from .scoring import PER_QUERY_NDCG_FIELD, mean_scores, per_query_ndcg, per_query_scores
 from .throughput import measure_throughput
 from .throughput_process import CpuCounter
 from .throughput_workload import Workload, request_caller
@@ -136,7 +136,7 @@ def _operational(
 
 def _score_run(driver, search, query_ids, config: BenchmarkConfig, qrels, run_path: Path, run_tag: str):
     if not qrels:
-        return None, None
+        return None, None, None
     run: dict[str, list[tuple[str, float]]] = {}
     run_for_scoring: dict[str, dict[str, float]] = {}
     for query_id in query_ids:
@@ -144,7 +144,8 @@ def _score_run(driver, search, query_ids, config: BenchmarkConfig, qrels, run_pa
         run[query_id] = ranked
         run_for_scoring[query_id] = run_mapping(ranked)
     write_run_file(run_path, run, run_tag)
-    return evaluate(qrels, run_for_scoring), str(run_path)
+    per_query = per_query_scores(qrels, run_for_scoring)
+    return mean_scores(per_query), str(run_path), per_query_ndcg(per_query)
 
 
 def _tune(driver, config: BenchmarkConfig, spec: DatasetSpec, profile: str, index: str, qset, query_vectors, truth, workload):
@@ -229,7 +230,7 @@ def run_vector_track(
 
     quality_ef = max(point.tuning.chosen_param, config.run_depth)
     position = {query_id: i for i, query_id in enumerate(qset.ids)}
-    metrics, run_file = _score_run(
+    metrics, run_file, ndcg_by_query = _score_run(
         driver,
         lambda query_id: driver.vector_search(index, query_vectors[position[query_id]], config.run_depth, quality_ef),
         qset.ids,
@@ -274,6 +275,7 @@ def run_vector_track(
         "latency": latency,
         "throughput": throughput,
         "run_file": run_file,
+        PER_QUERY_NDCG_FIELD: ndcg_by_query,
     }
 
 
@@ -313,7 +315,7 @@ def run_hybrid_track(
 
     operating_ef = vector_ef if vector_ef is not None else vec.ef_search_grid[-1]
     quality_ef = max(operating_ef, config.run_depth)
-    metrics, run_file = _score_run(
+    metrics, run_file, ndcg_by_query = _score_run(
         driver,
         lambda query_id: driver.hybrid_search(
             index, query_terms[query_id], query_vectors[query_id], config.run_depth, quality_ef
@@ -376,4 +378,5 @@ def run_hybrid_track(
         "latency": latency,
         "throughput": throughput,
         "run_file": run_file,
+        PER_QUERY_NDCG_FIELD: ndcg_by_query,
     }

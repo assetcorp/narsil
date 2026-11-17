@@ -21,6 +21,20 @@ def run_mapping(ranked: list[tuple[str, float]]) -> dict[str, float]:
     return {doc_id: score for doc_id, score in ranked}
 
 
+def read_run_file(path: Path) -> dict[str, dict[str, float]]:
+    run: dict[str, dict[str, float]] = {}
+    with path.open(encoding="utf-8") as handle:
+        for line in handle:
+            parts = line.split()
+            if not parts:
+                continue
+            if len(parts) != 6:
+                raise ValueError(f"{path} holds a line that is not a six-column TREC run line: {line.rstrip()!r}")
+            query_id, _, doc_id, _, score, _ = parts
+            run.setdefault(query_id, {})[doc_id] = float(score)
+    return run
+
+
 def write_run_file(path: Path, run: dict[str, list[tuple[str, float]]], tag: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as handle:

@@ -16,6 +16,9 @@ T = TypeVar("T")
 _IN_FLIGHT_PER_CLIENT = 2
 IMPORT_BATCH_ATTEMPTS = 5
 IMPORT_RETRY_FIRST_DELAY_SECONDS = 2.0
+IMPORT_BUSY_RETRY_INTERVAL_SECONDS = 1.0
+IMPORT_BUSY_RETRY_BUDGET_SECONDS = 600.0
+SERVER_BUSY_STATUS_CODE = 429
 RETRYABLE_STATUS_CODES = frozenset({429, 502, 503, 504})
 JSON_CONTENT_TYPE = {"content-type": "application/json"}
 NDJSON_CONTENT_TYPE = {"content-type": "application/x-ndjson"}
@@ -63,6 +66,10 @@ def retry_delays() -> Iterator[float]:
         delay *= 2
 
 
+def _server_busy(error: Exception) -> bool:
+    return isinstance(error, EngineError) and error.status_code == SERVER_BUSY_STATUS_CODE
+
+
 def _transient(error: Exception) -> bool:
     if isinstance(error, httpx.TransportError):
         return True
@@ -74,20 +81,40 @@ def _with_retries(
 ) -> Callable[[list[T]], BatchOutcome]:
     def attempt(batch: list[T]) -> BatchOutcome:
         deliver = send
-        for attempt_number, delay in enumerate(retry_delays(), start=1):
+        delays = retry_delays()
+        failures = 0
+        busy_since: float | None = None
+        while True:
             try:
                 return deliver(batch)
             except (httpx.TransportError, EngineError) as error:
                 if not _transient(error):
                     raise
-                print(
-                    f"import batch of {len(batch)} failed on attempt {attempt_number} of {IMPORT_BATCH_ATTEMPTS} "
-                    f"({error!r}); sending it again in {delay:g}s",
-                    flush=True,
-                )
+                if _server_busy(error):
+                    now = time.monotonic()
+                    if busy_since is None:
+                        busy_since = now
+                        print(
+                            f"import batch of {len(batch)} refused while the server is busy ({error!r}); sending it again "
+                            f"every {IMPORT_BUSY_RETRY_INTERVAL_SECONDS:g}s for up to {IMPORT_BUSY_RETRY_BUDGET_SECONDS:g}s",
+                            flush=True,
+                        )
+                    elif now - busy_since >= IMPORT_BUSY_RETRY_BUDGET_SECONDS:
+                        raise
+                    delay = IMPORT_BUSY_RETRY_INTERVAL_SECONDS
+                else:
+                    failures += 1
+                    next_delay = next(delays, None)
+                    if next_delay is None:
+                        raise
+                    delay = next_delay
+                    print(
+                        f"import batch of {len(batch)} failed on attempt {failures} of {IMPORT_BATCH_ATTEMPTS} "
+                        f"({error!r}); sending it again in {delay:g}s",
+                        flush=True,
+                    )
                 time.sleep(delay)
                 deliver = resend
-        return resend(batch)
 
     return attempt
 
