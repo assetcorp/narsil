@@ -41,10 +41,16 @@ def checkout(tmp_path):
     (root / "BENCHMARKS.md").write_text("\n".join(
         f"<!-- BENCH:{block} START -->\n<!-- BENCH:{block} END -->" for block in blocks
     ))
-    for target in ("README.md", "packages/ts/README.md"):
+    readme_blocks = {
+        "README.md": ("headline", "readme-servers", "readme-inprocess"),
+        "packages/ts/README.md": ("headline", "readme-quality"),
+    }
+    for target, target_blocks in readme_blocks.items():
         path = root / target
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("<!-- BENCH:headline START -->\n<!-- BENCH:headline END -->")
+        path.write_text("\n".join(
+            f"<!-- BENCH:{block} START -->\n<!-- BENCH:{block} END -->" for block in target_blocks
+        ))
     for suite in ("server", "in-process"):
         directory = root / "benchmarks" / suite / "results/runs" / RUN
         directory.mkdir(parents=True)

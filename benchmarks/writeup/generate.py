@@ -23,6 +23,7 @@ from headline_section import README_TARGETS, readme_blocks
 from inprocess_section import inprocess_blocks
 from languages_section import languages_blocks
 from narsil_servers import load_server_sources
+from readme_results import readme_result_blocks
 from server_section import server_blocks
 from sources import Source, load_inprocess_source, load_languages_source, repo_root
 
@@ -90,7 +91,8 @@ def generated_pages(
     pages[BENCHMARKS_PAGE] = (current, _inject(current, blocks, BENCHMARKS_PAGE))
     for target in README_TARGETS:
         current = (root / target.path).read_text(encoding="utf-8")
-        pages[target.path] = (current, _inject(current, readme_blocks(server, target, best), target.path))
+        blocks = {**readme_blocks(server, target, best), **readme_result_blocks(target.path, server, inprocess)}
+        pages[target.path] = (current, _inject(current, blocks, target.path))
     return pages
 
 
