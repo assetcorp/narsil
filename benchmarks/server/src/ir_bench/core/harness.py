@@ -17,7 +17,7 @@ from .scoring import PER_QUERY_NDCG_FIELD
 from .throughput import measure_throughput
 from .throughput_process import CpuCounter
 from .throughput_workload import Workload, request_caller
-from .track_common import best_effort, index_size_bytes, server_setup
+from .track_common import best_effort, index_name, index_size_bytes, server_setup
 from .types import BEST_CONFIG, EQUAL_PRECISION, EngineError, HYBRID, KEYWORD, SERVER_TIME_UNAVAILABLE, VECTOR
 from .vector_runner import LoadedVectorIndex, run_hybrid_track, run_vector_track
 
@@ -158,6 +158,16 @@ def run_keyword_track(
     }
 
 
+def _drop_index_of_failed_dataset(driver, spec: DatasetSpec) -> None:
+    index = index_name(spec.dataset_id)
+    try:
+        driver.drop_index(index)
+    except Exception as error:
+        print(f"could not drop {index} after its track failed ({error!r})", flush=True)
+        return
+    print(f"dropped {index} after its track failed, so its documents hold no engine memory in later tracks", flush=True)
+
+
 def run_engine(
     driver,
     engine_cfg: EngineConfig,
@@ -180,57 +190,61 @@ def run_engine(
         chosen_vector_oversample: float | None = None
         kept: list[LoadedVectorIndex] = []
         keep_index = kept.append if share_vector_index and HYBRID in engine_cfg.tracks else None
-        for track in engine_cfg.tracks:
-            if track == KEYWORD:
-                if vector_profile == BEST_CONFIG:
-                    continue
-                results.append(
-                    _checkpointed(
-                        checkpoint_dir, label, KEYWORD, spec,
-                        _with_memory(
-                            engine_memory,
-                            lambda: run_keyword_track(driver, engine_cfg, config, spec, runs_dir, engine_cpu),
-                        ),
+        try:
+            for track in engine_cfg.tracks:
+                if track == KEYWORD:
+                    if vector_profile == BEST_CONFIG:
+                        continue
+                    results.append(
+                        _checkpointed(
+                            checkpoint_dir, label, KEYWORD, spec,
+                            _with_memory(
+                                engine_memory,
+                                lambda: run_keyword_track(driver, engine_cfg, config, spec, runs_dir, engine_cpu),
+                            ),
+                        )
                     )
-                )
-            elif track == VECTOR:
-                if store is None or config.vector is None:
-                    raise EngineError("vector track requires an embedding store and a [vector] config section")
-                result = _checkpointed(
-                    checkpoint_dir, label, VECTOR, spec,
-                    _with_memory(
-                        engine_memory,
-                        lambda: run_vector_track(
-                            driver, engine_cfg, config, spec, runs_dir, store,
-                            f"{engine_cfg.name}_vector{suffix}", vector_profile, engine_cpu,
-                            keep_index=keep_index,
-                        ),
-                    ),
-                    ef_search_grid=config.vector.ef_search_grid,
-                )
-                point = result.get("operating_point")
-                if point and point.get("chosen_value") is not None:
-                    chosen_vector_ef = int(point["chosen_value"])
-                chosen_vector_oversample = result.get("vector_oversample")
-                results.append(result)
-            elif track == HYBRID:
-                if store is None or config.vector is None:
-                    raise EngineError("hybrid track requires an embedding store and a [vector] config section")
-                results.append(
-                    _checkpointed(
-                        checkpoint_dir, label, HYBRID, spec,
+                elif track == VECTOR:
+                    if store is None or config.vector is None:
+                        raise EngineError("vector track requires an embedding store and a [vector] config section")
+                    result = _checkpointed(
+                        checkpoint_dir, label, VECTOR, spec,
                         _with_memory(
                             engine_memory,
-                            lambda: run_hybrid_track(
+                            lambda: run_vector_track(
                                 driver, engine_cfg, config, spec, runs_dir, store,
-                                f"{engine_cfg.name}_hybrid{suffix}",
-                                chosen_vector_ef, vector_profile, chosen_vector_oversample, engine_cpu,
-                                loaded=kept.pop() if kept else None,
+                                f"{engine_cfg.name}_vector{suffix}", vector_profile, engine_cpu,
+                                keep_index=keep_index,
                             ),
                         ),
                         ef_search_grid=config.vector.ef_search_grid,
                     )
-                )
+                    point = result.get("operating_point")
+                    if point and point.get("chosen_value") is not None:
+                        chosen_vector_ef = int(point["chosen_value"])
+                    chosen_vector_oversample = result.get("vector_oversample")
+                    results.append(result)
+                elif track == HYBRID:
+                    if store is None or config.vector is None:
+                        raise EngineError("hybrid track requires an embedding store and a [vector] config section")
+                    results.append(
+                        _checkpointed(
+                            checkpoint_dir, label, HYBRID, spec,
+                            _with_memory(
+                                engine_memory,
+                                lambda: run_hybrid_track(
+                                    driver, engine_cfg, config, spec, runs_dir, store,
+                                    f"{engine_cfg.name}_hybrid{suffix}",
+                                    chosen_vector_ef, vector_profile, chosen_vector_oversample, engine_cpu,
+                                    loaded=kept.pop() if kept else None,
+                                ),
+                            ),
+                            ef_search_grid=config.vector.ef_search_grid,
+                        )
+                    )
+        except BaseException:
+            _drop_index_of_failed_dataset(driver, spec)
+            raise
         for leftover in kept:
             driver.drop_index(leftover.index)
     return results
