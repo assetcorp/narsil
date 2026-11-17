@@ -1,3 +1,17 @@
+## 0.4.3 (2026-11-17)
+
+### 🚀 Features
+
+- **benchmarks:** rank engines on nDCG@10 with a paired randomization test so statistical ties show ([bbced9f5](https://github.com/assetcorp/narsil/commit/bbced9f5))
+
+### 🩹 Fixes
+
+- **server:** hold request bodies up to a tenth of process memory by default so bulk vector imports fit ([2b33057e](https://github.com/assetcorp/narsil/commit/2b33057e))
+
+### ❤️ Thank You
+
+- assetcorp
+
 ## 0.4.2 (2026-11-16)
 
 ### 🚀 Features
