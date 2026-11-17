@@ -1,6 +1,7 @@
 import { fieldHandlesOf, holdAdmission } from '#platform/vector-host'
 import type { SharedVectorFieldHandles } from '../shared-field/types'
 import { untilColdLoaded } from './cold'
+import { threadsSearchOnly } from './searched-graph'
 import type { VectorIndexState } from './shared'
 
 export interface VectorPublication {
@@ -29,6 +30,7 @@ export function vectorPublicationSource(state: VectorIndexState): VectorPublicat
       const pin = holdAdmission(state.store.view)
       try {
         const handles = fieldHandlesOf(state, state.hnsw, true)
+        if (state.workerCopies.host !== undefined) threadsSearchOnly(state, state.hnsw)
         return {
           field: { handle, sequence: pin.admission.pin, handles },
           release: pin.release,
