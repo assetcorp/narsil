@@ -28,6 +28,7 @@ from chart_data import (
 from chart_paths import bars_chart, figure, recall_chart, server_chart_dir, sweep_chart, tail_chart
 from narsil_servers import DISPLAY_NAME_FIELD, NOT_MEASURED_TEXT, is_unmeasured, narsil_row
 from render import dataset_name, decimal, integer, table
+from reruns import rerun_row_notes
 from server_setup import setup_block
 from sources import Source
 
@@ -195,6 +196,7 @@ def _track_block(source: Source, profile: str, name: str, render_table, comparis
         if bars:
             chunks.append(bars)
         chunks.append(render_table(rows, profile))
+        chunks.extend(rerun_row_notes(rows))
         untested = _untested_note(dataset, name)
         if untested:
             chunks.append(untested)

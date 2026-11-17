@@ -11,7 +11,7 @@ from chart_recall import recall_figure
 from chart_style import apply_style
 from chart_sweep import sweep_figure
 from chart_tail import tail_figure
-from narsil_servers import load_server_sources
+from reruns import published_server_sources
 from sources import Source, load_inprocess_source, load_languages_source, repo_root
 
 
@@ -47,7 +47,7 @@ def render(root: Path, server: Source, best: Source | None, inprocess: Source, l
 
 def main() -> int:
     root = repo_root()
-    server, best = load_server_sources()
+    server, best = published_server_sources()
     written = render(root, server, best, load_inprocess_source(), load_languages_source())
     sys.stdout.write(f"Rendered {len(written)} charts.\n")
     return 0
