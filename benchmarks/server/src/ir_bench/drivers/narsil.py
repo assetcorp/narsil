@@ -8,7 +8,7 @@ from typing import Iterable
 import httpx
 
 from ..core.config import BM25Params, EngineConfig
-from ..core.http_client import build_client
+from ..core.http_client import IMPORT_TIMEOUT, build_client
 from ..core.ingest import NDJSON_CONTENT_TYPE, BatchOutcome, encode_json_lines, import_batches
 from ..core.synonym_sets import SynonymRule, narsil_rules
 from ..core.types import (
@@ -132,6 +132,7 @@ class NarsilDriver:
             f"/indexes/{index}/documents/_import",
             content=encode_json_lines(batch),
             headers=NDJSON_CONTENT_TYPE,
+            timeout=IMPORT_TIMEOUT,
         )
         _raise_for_envelope(response)
         payload = response.json()

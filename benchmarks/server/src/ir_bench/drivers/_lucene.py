@@ -6,7 +6,7 @@ from typing import Iterable
 import httpx
 
 from ..core.config import BM25Params, EngineConfig
-from ..core.http_client import build_client
+from ..core.http_client import IMPORT_TIMEOUT, build_client
 from ..core.ingest import (
     NDJSON_CONTENT_TYPE,
     RETRYABLE_STATUS_CODES,
@@ -146,6 +146,7 @@ class LuceneRestDriver:
             f"/{index}/_bulk",
             content=encode_json_lines(actions(), terminated=True),
             headers=NDJSON_CONTENT_TYPE,
+            timeout=IMPORT_TIMEOUT,
         )
         _raise(response)
         indexed = 0

@@ -8,7 +8,7 @@ from typing import Iterable
 import httpx
 
 from ..core.config import BM25Params, EngineConfig
-from ..core.http_client import build_client
+from ..core.http_client import IMPORT_TIMEOUT, build_client
 from ..core.ingest import BatchOutcome, import_batches
 from ..core.synonym_sets import SynonymRule, meilisearch_synonyms
 from ..core.types import (
@@ -103,6 +103,7 @@ class MeilisearchDriver:
             f"/indexes/{index}/documents",
             content=body.encode("utf-8"),
             headers={"content-type": "application/x-ndjson"},
+            timeout=IMPORT_TIMEOUT,
         )
         _raise(response)
         task = self._wait_task(int(response.json()["taskUid"]))
