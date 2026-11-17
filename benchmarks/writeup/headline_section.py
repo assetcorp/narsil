@@ -38,6 +38,7 @@ VECTOR_DATASETS_LARGEST_FIRST = (
 BENCHMARK_CONFIG = "benchmarks/server/config/benchmark.toml"
 REPOSITORY_FILE_URL = "https://github.com/assetcorp/narsil/blob/main"
 _QUALITY_METRIC = "ndcg_cut_10"
+NDCG_SIGNIFICANCE_FIELD = "ndcg_significance"
 
 
 @dataclass(frozen=True)
@@ -83,7 +84,7 @@ def _unranked_sentence(row: dict, subject: str) -> str:
     return f"{subject} {reason}, so the comparison leaves its speed unranked."
 
 
-def _quality_sentences(rows: list[dict], reference: float | None) -> list[str]:
+def _quality_sentences(rows: list[dict], reference: float | None, pairs: list[dict]) -> list[str]:
     narsil = _ndcg10(_row(rows, "narsil"))
     if narsil is None:
         return []
@@ -103,7 +104,47 @@ def _quality_sentences(rows: list[dict], reference: float | None) -> list[str]:
     ]
     if others:
         sentences.append(f"{and_join(others)} on the same queries.")
+        verdict = _significance_sentence(rows, pairs)
+        if verdict:
+            sentences.append(verdict)
     return sentences
+
+
+def _pair(pairs: list[dict], first: str, second: str) -> dict | None:
+    return next((pair for pair in pairs if set(pair.get("engines") or []) == {first, second}), None)
+
+
+def _narsil_advantage(pair: dict) -> float:
+    difference = float(pair.get("mean_difference") or 0.0)
+    return difference if (pair.get("engines") or [None])[0] == NARSIL_TYPESCRIPT else -difference
+
+
+def _significance_sentence(rows: list[dict], pairs: list[dict]) -> str | None:
+    rivals = [name for name in BM25_ENGINES if _ndcg10(_row(rows, name)) is not None]
+    tested = [_pair(pairs, NARSIL_TYPESCRIPT, name) for name in rivals]
+    if not rivals or any(pair is None for pair in tested):
+        return None
+    names = [engine_name(name) for name in rivals]
+    opening = "A paired significance test over those queries finds"
+    if not any(pair.get("significant") is True for pair in tested if pair is not None):
+        return f"{opening} no significant difference between {and_join(['Narsil', *names])}."
+    if not all(pair.get("significant") is True for pair in tested if pair is not None):
+        return None
+    if all(_narsil_advantage(pair) > 0 for pair in tested if pair is not None):
+        return f"{opening} Narsil's lead over {and_join(names)} significant."
+    if all(_narsil_advantage(pair) < 0 for pair in tested if pair is not None):
+        return f"{opening} the lead of {and_join(names)} over Narsil significant."
+    return None
+
+
+def _keyword_pairs(comparison: dict) -> list[dict]:
+    for entry in tracks(comparison):
+        if entry.get("track") != "keyword":
+            continue
+        for dataset in entry.get("datasets", []):
+            if dataset.get("dataset_id") == KEYWORD_DATASET:
+                return list((dataset.get(NDCG_SIGNIFICANCE_FIELD) or {}).get("pairs") or [])
+    return []
 
 
 def _rust_sentence(rust: dict | None, queries: str) -> str:
@@ -284,7 +325,7 @@ def headline_block(
     created = source.manifest.get("created_at")
     date = created[:10] if isinstance(created, str) and created else "an unrecorded date"
     sentences = [
-        *_quality_sentences(keyword_rows, reference),
+        *_quality_sentences(keyword_rows, reference, _keyword_pairs(comparison)),
         _speed_sentence(keyword_rows, f"On {dataset_name(KEYWORD_DATASET)}", "keyword queries"),
         _vector_sentence(comparison),
         _production_vector_sentence(comparison, production_comparison),

@@ -54,22 +54,27 @@ more than the slowest one or two requests.
 ### Keyword track
 
 Narsil's BM25 is calibrated to the Anserini reference, so it ranks with the
-Lucene engines on these graded judgements and finishes a little ahead of them on
-both datasets. Typesense and Meilisearch apply their own documented ranking
-models in place of BM25, which places them lower here.
+Lucene engines on these graded judgements. Typesense and Meilisearch apply their
+own documented ranking models in place of BM25, which places them lower here.
+
+The nDCG@10 rank in each table that lists nDCG@10 is one more than the number
+of engines that score significantly higher. A two-sided paired randomization
+test compares every pair of engines over the per-query nDCG@10 of every judged
+query, with 10,000 permutations, and Holm's correction holds the whole table to
+a 5% error rate, so engines that share a rank are statistically tied.
 
 <!-- BENCH:server-keyword START -->
 **SciFact.**
 
 <img src="benchmarks/server/results/runs/20260928T002255Z/charts/equal-precision-keyword-scifact-bars.svg" alt="Two bar panels for the keyword track on SciFact: nDCG@10 per engine, and peak queries per second per engine with a 95% confidence interval across passes." width="820">
 
-| Engine | nDCG@10 | Recall@100 | MAP | MRR | Peak QPS |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Narsil | 0.6814 | 0.9253 | 0.6417 | 0.6494 | 4,200 (4,169 to 4,212) (client-limited) |
-| Elasticsearch | 0.6789 | 0.9253 | 0.6401 | 0.6506 | 2,796 (2,750 to 2,798) |
-| OpenSearch | 0.6789 | 0.9253 | 0.6401 | 0.6506 | 3,027 (2,989 to 3,031) |
-| Typesense | 0.5407 | 0.7501 | 0.5081 | 0.5191 | 331 (331 to 333) |
-| Meilisearch | 0.5018 | 0.5982 | 0.4809 | 0.4889 | 1,559 (1,551 to 1,565) |
+| Engine | nDCG@10 | nDCG@10 rank | Recall@100 | MAP | MRR | Peak QPS |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Narsil | 0.6814 | 1 | 0.9253 | 0.6417 | 0.6494 | 4,200 (4,169 to 4,212) (client-limited) |
+| Elasticsearch | 0.6789 | 1 | 0.9253 | 0.6401 | 0.6506 | 2,796 (2,750 to 2,798) |
+| OpenSearch | 0.6789 | 1 | 0.9253 | 0.6401 | 0.6506 | 3,027 (2,989 to 3,031) |
+| Typesense | 0.5407 | 4 | 0.7501 | 0.5081 | 0.5191 | 331 (331 to 333) |
+| Meilisearch | 0.5018 | 4 | 0.5982 | 0.4809 | 0.4889 | 1,559 (1,551 to 1,565) |
 
 <img src="benchmarks/server/results/runs/20260928T002255Z/charts/equal-precision-keyword-scifact-sweep.svg" alt="Line panels for the keyword track on SciFact against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
 
@@ -77,13 +82,13 @@ models in place of BM25, which places them lower here.
 
 <img src="benchmarks/server/results/runs/20260928T002255Z/charts/equal-precision-keyword-nfcorpus-bars.svg" alt="Two bar panels for the keyword track on NFCorpus: nDCG@10 per engine, and peak queries per second per engine with a 95% confidence interval across passes." width="820">
 
-| Engine | nDCG@10 | Recall@100 | MAP | MRR | Peak QPS |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Narsil | 0.3278 | 0.2489 | 0.1532 | 0.5305 | 4,940 (4,719 to 4,950) |
-| Elasticsearch | 0.3206 | 0.2457 | 0.1503 | 0.5255 | 3,128 (3,128 to 3,137) |
-| OpenSearch | 0.3206 | 0.2457 | 0.1503 | 0.5255 | 3,252 (3,250 to 3,261) |
-| Meilisearch | 0.2671 | 0.1553 | 0.1221 | 0.4443 | 2,428 (2,419 to 2,463) |
-| Typesense | 0.2237 | 0.2075 | 0.1101 | 0.3868 | 2,376 (2,365 to 2,379) |
+| Engine | nDCG@10 | nDCG@10 rank | Recall@100 | MAP | MRR | Peak QPS |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Narsil | 0.3278 | 1 | 0.2489 | 0.1532 | 0.5305 | 4,940 (4,719 to 4,950) |
+| Elasticsearch | 0.3206 | 2 | 0.2457 | 0.1503 | 0.5255 | 3,128 (3,128 to 3,137) |
+| OpenSearch | 0.3206 | 2 | 0.2457 | 0.1503 | 0.5255 | 3,252 (3,250 to 3,261) |
+| Meilisearch | 0.2671 | 4 | 0.1553 | 0.1221 | 0.4443 | 2,428 (2,419 to 2,463) |
+| Typesense | 0.2237 | 5 | 0.2075 | 0.1101 | 0.3868 | 2,376 (2,365 to 2,379) |
 
 <img src="benchmarks/server/results/runs/20260928T002255Z/charts/equal-precision-keyword-nfcorpus-sweep.svg" alt="Line panels for the keyword track on NFCorpus against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
 
@@ -209,13 +214,13 @@ differs per engine, so ranking quality varies again.
 
 <img src="benchmarks/server/results/runs/20260928T002255Z/charts/equal-precision-hybrid-scifact-bars.svg" alt="Two bar panels for the hybrid track on SciFact: nDCG@10 per engine, and peak queries per second per engine with a 95% confidence interval across passes." width="820">
 
-| Engine | nDCG@10 | Recall@100 | MAP | MRR | Peak QPS |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Qdrant | 0.7141 | 0.9577 | 0.6722 | 0.6762 | 2,238 (2,237 to 2,248) |
-| Elasticsearch | 0.7053 | 0.9610 | 0.6587 | 0.6643 | 1,753 (1,749 to 1,754) |
-| OpenSearch | 0.7053 | 0.9610 | 0.6587 | 0.6643 | 1,775 (1,771 to 1,781) |
-| Narsil | 0.7026 | 0.9643 | 0.6543 | 0.6615 | 2,602 (2,588 to 2,604) (client-limited) |
-| Weaviate | 0.6803 | 0.9577 | 0.6316 | 0.6410 | 679 (670 to 680) |
+| Engine | nDCG@10 | nDCG@10 rank | Recall@100 | MAP | MRR | Peak QPS |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Qdrant | 0.7141 | 1 | 0.9577 | 0.6722 | 0.6762 | 2,238 (2,237 to 2,248) |
+| Elasticsearch | 0.7053 | 1 | 0.9610 | 0.6587 | 0.6643 | 1,753 (1,749 to 1,754) |
+| OpenSearch | 0.7053 | 1 | 0.9610 | 0.6587 | 0.6643 | 1,775 (1,771 to 1,781) |
+| Narsil | 0.7026 | 1 | 0.9643 | 0.6543 | 0.6615 | 2,602 (2,588 to 2,604) (client-limited) |
+| Weaviate | 0.6803 | 4 | 0.9577 | 0.6316 | 0.6410 | 679 (670 to 680) |
 
 <img src="benchmarks/server/results/runs/20260928T002255Z/charts/equal-precision-hybrid-scifact-sweep.svg" alt="Line panels for the hybrid track on SciFact against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
 
@@ -230,6 +235,8 @@ differs per engine, so ranking quality varies again.
 | Elasticsearch | 0.3521 | 0.3215 | 0.1867 | 0.5649 | 1,859 (1,858 to 1,873) |
 | Qdrant | 0.3499 | 0.3235 | 0.1826 | 0.5640 | 2,234 (2,230 to 2,234) |
 | Weaviate | 0.3425 | 0.3195 | 0.1808 | 0.5548 | 766 (765 to 767) |
+
+The per-query rankings that the harness saved for this table do not reproduce every recorded nDCG@10, so the table carries no significance test, and a gap between two engines here can be chance.
 
 <img src="benchmarks/server/results/runs/20260928T002255Z/charts/equal-precision-hybrid-nfcorpus-sweep.svg" alt="Line panels for the hybrid track on NFCorpus against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
 
@@ -339,13 +346,13 @@ remain the headline.
 
 <img src="benchmarks/server/results/runs/20260928T002255Z/charts/best-config-hybrid-scifact-bars.svg" alt="Two bar panels for the hybrid track on SciFact: nDCG@10 per engine, and peak queries per second per engine with a 95% confidence interval across passes." width="820">
 
-| Engine | nDCG@10 | Recall@100 | MAP | MRR | Peak QPS |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Qdrant (TurboQuant 4-bit) | 0.7141 | 0.9577 | 0.6722 | 0.6762 | 2,280 (2,265 to 2,289) |
-| Elasticsearch (BBQ) | 0.7053 | 0.9610 | 0.6587 | 0.6643 | 1,734 (1,729 to 1,740) |
-| OpenSearch (SQfp16) | 0.7053 | 0.9610 | 0.6587 | 0.6643 | 1,818 (1,797 to 1,822) |
-| Narsil (OSQ 4-bit) | 0.7026 | 0.9643 | 0.6543 | 0.6615 | 2,565 (2,546 to 2,581) (client-limited) |
-| Weaviate (8-bit RQ) | 0.6803 | 0.9577 | 0.6316 | 0.6410 | 625 (624 to 627) |
+| Engine | nDCG@10 | nDCG@10 rank | Recall@100 | MAP | MRR | Peak QPS |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Qdrant (TurboQuant 4-bit) | 0.7141 | 1 | 0.9577 | 0.6722 | 0.6762 | 2,280 (2,265 to 2,289) |
+| Elasticsearch (BBQ) | 0.7053 | 1 | 0.9610 | 0.6587 | 0.6643 | 1,734 (1,729 to 1,740) |
+| OpenSearch (SQfp16) | 0.7053 | 1 | 0.9610 | 0.6587 | 0.6643 | 1,818 (1,797 to 1,822) |
+| Narsil (OSQ 4-bit) | 0.7026 | 1 | 0.9643 | 0.6543 | 0.6615 | 2,565 (2,546 to 2,581) (client-limited) |
+| Weaviate (8-bit RQ) | 0.6803 | 4 | 0.9577 | 0.6316 | 0.6410 | 625 (624 to 627) |
 
 <img src="benchmarks/server/results/runs/20260928T002255Z/charts/best-config-hybrid-scifact-sweep.svg" alt="Line panels for the hybrid track on SciFact against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
 
@@ -360,6 +367,8 @@ remain the headline.
 | OpenSearch (SQfp16) | 0.3514 | 0.3216 | 0.1864 | 0.5618 | 1,999 (1,982 to 2,000) |
 | Qdrant (TurboQuant 4-bit) | 0.3502 | 0.3236 | 0.1826 | 0.5662 | 2,290 (2,286 to 2,294) |
 | Weaviate (8-bit RQ) | 0.3425 | 0.3193 | 0.1808 | 0.5534 | 709 (708 to 713) |
+
+The per-query rankings that the harness saved for this table do not reproduce every recorded nDCG@10, so the table carries no significance test, and a gap between two engines here can be chance.
 
 <img src="benchmarks/server/results/runs/20260928T002255Z/charts/best-config-hybrid-nfcorpus-sweep.svg" alt="Line panels for the hybrid track on NFCorpus against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
 

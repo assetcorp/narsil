@@ -52,6 +52,9 @@ def _numbers(entry: dict, keys) -> None:
 
 
 def _row(row: dict, target: object, requires_recall: bool) -> None:
+    rank = row.get("ndcg_rank")
+    if rank is not None and (isinstance(rank, bool) or not isinstance(rank, int) or rank < 1):
+        raise SystemExit("benchmark writeup: ndcg_rank must be a positive whole number")
     metrics = _object(row, "metrics")
     _numbers(metrics, ("ndcg_cut_10", "recall_100", "map", "recip_rank"))
     _object(row, "operational")
@@ -91,6 +94,9 @@ def validated_comparison(comparison: dict) -> dict:
         datasets = _objects(track, "datasets")
         _unique(datasets, "dataset_id")
         for dataset in datasets:
+            significance = dataset.get("ndcg_significance")
+            if significance is not None and not isinstance(significance, dict):
+                raise SystemExit("benchmark writeup: ndcg_significance must be an object")
             rows = _objects(dataset, "rows")
             _unique(rows, "engine")
             for row in rows:
