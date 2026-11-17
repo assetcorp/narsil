@@ -193,9 +193,10 @@ runs_created_on_vm() {
     listing="$(prov_ssh "find narsil/$remote -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null || true" \
       | tr -d '\r')" || return
   else
-    listing="$(prov_ssh "git -C narsil ls-files --others --directory --exclude-standard -- $remote 2>/dev/null || true" \
+    listing="$(prov_ssh "git -C narsil ls-files --others --exclude-standard -- $remote 2>/dev/null || true" \
       | tr -d '\r' \
-      | sed -n "s|^$remote/\([^/][^/]*\)/\$|\1|p")" || return
+      | sed -n "s|^$remote/\([^/][^/]*\)/.*|\1|p" \
+      | sort -u)" || return
   fi
   printf '%s\n' "$listing" | grep -E "$RUN_ID_PATTERN" || true
 }
