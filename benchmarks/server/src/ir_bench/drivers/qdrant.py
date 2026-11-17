@@ -7,7 +7,7 @@ from typing import Iterable
 import httpx
 
 from ..core.config import BM25Params, EngineConfig
-from ..core.http_client import build_client
+from ..core.http_client import IMPORT_TIMEOUT, build_client
 from ..core.ingest import JSON_CONTENT_TYPE, BatchOutcome, encode_json, import_batches
 from ..core.types import (
     BEST_CONFIG,
@@ -173,6 +173,7 @@ class QdrantDriver:
             params={"wait": "true"},
             content=encode_json({"points": points}),
             headers=JSON_CONTENT_TYPE,
+            timeout=IMPORT_TIMEOUT,
         )
         _raise(response)
         return BatchOutcome(submitted=len(batch), indexed=len(batch))

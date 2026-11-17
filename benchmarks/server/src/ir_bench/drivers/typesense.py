@@ -8,7 +8,7 @@ from typing import Iterable
 import httpx
 
 from ..core.config import BM25Params, EngineConfig
-from ..core.http_client import build_client
+from ..core.http_client import IMPORT_TIMEOUT, build_client
 from ..core.ingest import BatchOutcome, import_batches
 from ..core.synonym_sets import SynonymRule, typesense_synonym_items
 from ..core.types import (
@@ -99,6 +99,7 @@ class TypesenseDriver:
             params={"action": "create"},
             content=body.encode("utf-8"),
             headers={"content-type": "text/plain"},
+            timeout=IMPORT_TIMEOUT,
         )
         _raise(response)
         indexed = 0

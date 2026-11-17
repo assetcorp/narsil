@@ -14,8 +14,13 @@ response and make the harness, not the engine, the thing being timed. The
 throughput config rejects any concurrency above this ceiling."""
 
 
+REQUEST_TIMEOUT_SECONDS = 120.0
+IMPORT_READ_TIMEOUT_SECONDS = 600.0
+IMPORT_TIMEOUT = httpx.Timeout(REQUEST_TIMEOUT_SECONDS, read=IMPORT_READ_TIMEOUT_SECONDS)
+
+
 def build_client(
-    base_url: str, *, headers: dict[str, str] | None = None, timeout: float = 120.0
+    base_url: str, *, headers: dict[str, str] | None = None, timeout: float = REQUEST_TIMEOUT_SECONDS
 ) -> httpx.Client:
     """One shared HTTP client per driver, sized so concurrent load reuses pooled
     keep-alive connections. The same client is safe to call from many threads, so

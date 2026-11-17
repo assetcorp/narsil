@@ -7,7 +7,7 @@ from typing import Iterable
 import httpx
 
 from ..core.config import BM25Params, EngineConfig
-from ..core.http_client import build_client
+from ..core.http_client import IMPORT_TIMEOUT, build_client
 from ..core.ingest import JSON_CONTENT_TYPE, BatchOutcome, encode_json, import_batches
 from ..core.types import (
     BEST_CONFIG,
@@ -131,7 +131,10 @@ class WeaviateDriver:
             for doc in batch
         ]
         response = self._client.post(
-            "/v1/batch/objects", content=encode_json({"objects": objects}), headers=JSON_CONTENT_TYPE
+            "/v1/batch/objects",
+            content=encode_json({"objects": objects}),
+            headers=JSON_CONTENT_TYPE,
+            timeout=IMPORT_TIMEOUT,
         )
         _raise(response)
         indexed = 0
