@@ -125,6 +125,14 @@ int uses_hardware_avx2(void) {
   return state == AVX2_PRESENT;
 }
 
+__attribute__((target("avx2"))) static unrolled_dot unrolled_dot_of(__m256 first_half, __m256 second_half,
+                                                                    uint32_t offset) {
+  unrolled_dot dot = {{_mm256_castps256_ps128(first_half), _mm256_extractf128_ps(first_half, 1),
+                       _mm256_castps256_ps128(second_half), _mm256_extractf128_ps(second_half, 1)},
+                      offset};
+  return dot;
+}
+
 __attribute__((target("avx2"))) static float dot_in_wide_lanes(const float *lhs, const float *rhs, uint32_t dimension) {
   uint32_t unrolled_end = whole_steps(dimension, UNROLLED_WIDTH);
   __m256 first_half = _mm256_setzero_ps();
@@ -135,10 +143,41 @@ __attribute__((target("avx2"))) static float dot_in_wide_lanes(const float *lhs,
     second_half = _mm256_add_ps(second_half, _mm256_mul_ps(_mm256_loadu_ps(lhs + offset + WIDE_LANE_WIDTH),
                                                            _mm256_loadu_ps(rhs + offset + WIDE_LANE_WIDTH)));
   }
-  unrolled_dot dot = {{_mm256_castps256_ps128(first_half), _mm256_extractf128_ps(first_half, 1),
-                       _mm256_castps256_ps128(second_half), _mm256_extractf128_ps(second_half, 1)},
-                      offset};
-  return finish_dot(lhs, rhs, dimension, dot);
+  return finish_dot(lhs, rhs, dimension, unrolled_dot_of(first_half, second_half, offset));
+}
+
+__attribute__((target("avx2"))) static void dot_batch_in_wide_lanes(const float *query, const float *const *vectors,
+                                                                    uint32_t dimension, float *dots) {
+  uint32_t unrolled_end = whole_steps(dimension, UNROLLED_WIDTH);
+  __m256 first_half0 = _mm256_setzero_ps();
+  __m256 second_half0 = _mm256_setzero_ps();
+  __m256 first_half1 = _mm256_setzero_ps();
+  __m256 second_half1 = _mm256_setzero_ps();
+  __m256 first_half2 = _mm256_setzero_ps();
+  __m256 second_half2 = _mm256_setzero_ps();
+  __m256 first_half3 = _mm256_setzero_ps();
+  __m256 second_half3 = _mm256_setzero_ps();
+  uint32_t offset = 0;
+  for (; offset < unrolled_end; offset += UNROLLED_WIDTH) {
+    __m256 query_first = _mm256_loadu_ps(query + offset);
+    __m256 query_second = _mm256_loadu_ps(query + offset + WIDE_LANE_WIDTH);
+    first_half0 = _mm256_add_ps(first_half0, _mm256_mul_ps(query_first, _mm256_loadu_ps(vectors[0] + offset)));
+    second_half0 = _mm256_add_ps(second_half0,
+                                 _mm256_mul_ps(query_second, _mm256_loadu_ps(vectors[0] + offset + WIDE_LANE_WIDTH)));
+    first_half1 = _mm256_add_ps(first_half1, _mm256_mul_ps(query_first, _mm256_loadu_ps(vectors[1] + offset)));
+    second_half1 = _mm256_add_ps(second_half1,
+                                 _mm256_mul_ps(query_second, _mm256_loadu_ps(vectors[1] + offset + WIDE_LANE_WIDTH)));
+    first_half2 = _mm256_add_ps(first_half2, _mm256_mul_ps(query_first, _mm256_loadu_ps(vectors[2] + offset)));
+    second_half2 = _mm256_add_ps(second_half2,
+                                 _mm256_mul_ps(query_second, _mm256_loadu_ps(vectors[2] + offset + WIDE_LANE_WIDTH)));
+    first_half3 = _mm256_add_ps(first_half3, _mm256_mul_ps(query_first, _mm256_loadu_ps(vectors[3] + offset)));
+    second_half3 = _mm256_add_ps(second_half3,
+                                 _mm256_mul_ps(query_second, _mm256_loadu_ps(vectors[3] + offset + WIDE_LANE_WIDTH)));
+  }
+  dots[0] = finish_dot(query, vectors[0], dimension, unrolled_dot_of(first_half0, second_half0, offset));
+  dots[1] = finish_dot(query, vectors[1], dimension, unrolled_dot_of(first_half1, second_half1, offset));
+  dots[2] = finish_dot(query, vectors[2], dimension, unrolled_dot_of(first_half2, second_half2, offset));
+  dots[3] = finish_dot(query, vectors[3], dimension, unrolled_dot_of(first_half3, second_half3, offset));
 }
 #endif
 
@@ -164,6 +203,16 @@ float kernel_dot(const float *lhs, const float *rhs, uint32_t dimension) {
   if (uses_hardware_avx2()) { return dot_in_wide_lanes(lhs, rhs, dimension); }
 #endif
   return dot_in_narrow_lanes(lhs, rhs, dimension);
+}
+
+void kernel_dot_batch(const float *query, const float *const *vectors, uint32_t dimension, float *dots) {
+#ifdef NARSIL_AVX2
+  if (uses_hardware_avx2()) {
+    dot_batch_in_wide_lanes(query, vectors, dimension, dots);
+    return;
+  }
+#endif
+  for (uint32_t i = 0; i < DOT_BATCH; i++) { dots[i] = dot_in_narrow_lanes(query, vectors[i], dimension); }
 }
 
 float kernel_squared_distance(const float *lhs, const float *rhs, uint32_t dimension) {

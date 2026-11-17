@@ -100,21 +100,44 @@ uint8_t *stored_record(const narsil_store *store, int32_t ordinal) {
   return store->code_blocks[block] + (entry * narsil_record_bytes(store->dimension, store->bits));
 }
 
+static double distance_of_dot(const walk_context *context, float_query query, double dot, double magnitude) {
+  if (context->metric == NARSIL_METRIC_DOT_PRODUCT) { return -dot; }
+  if (query.magnitude == 0 || magnitude == 0) { return 1; }
+  return 1 - (dot / (query.magnitude * magnitude));
+}
+
 static double metric_distance(const walk_context *context, float_query query, const float *vector, double magnitude) {
   uint32_t dimension = context->store->dimension;
   if (context->metric == NARSIL_METRIC_EUCLIDEAN) {
     return sqrt((double)kernel_squared_distance(query.values, vector, dimension));
   }
-  double dot = (double)kernel_dot(query.values, vector, dimension);
-  if (context->metric == NARSIL_METRIC_DOT_PRODUCT) { return -dot; }
-  if (query.magnitude == 0 || magnitude == 0) { return 1; }
-  return 1 - (dot / (query.magnitude * magnitude));
+  return distance_of_dot(context, query, (double)kernel_dot(query.values, vector, dimension), magnitude);
 }
 
 double float_distance(const walk_context *context, float_query query, int32_t ordinal) {
   const float *vector = stored_vector(context->store, ordinal, context->workspace->stored_vector);
   if (vector == NULL) { return HUGE_VAL; }
   return metric_distance(context, query, vector, context->store->magnitudes[ordinal]);
+}
+
+int walk_scores_in_batches(const walk_context *context) {
+  return !context->uses_codes && context->metric != NARSIL_METRIC_EUCLIDEAN && context->store->file_count == 0;
+}
+
+void float_distance_batch(const walk_context *context, const int32_t *ordinals, double *distances) {
+  const float *vectors[DOT_BATCH];
+  for (uint32_t i = 0; i < DOT_BATCH; i++) {
+    vectors[i] = stored_vector(context->store, ordinals[i], context->workspace->stored_vector);
+    if (vectors[i] == NULL) {
+      for (uint32_t j = 0; j < DOT_BATCH; j++) { distances[j] = float_distance(context, context->query, ordinals[j]); }
+      return;
+    }
+  }
+  float dots[DOT_BATCH];
+  kernel_dot_batch(context->query.values, vectors, context->store->dimension, dots);
+  for (uint32_t i = 0; i < DOT_BATCH; i++) {
+    distances[i] = distance_of_dot(context, context->query, (double)dots[i], context->store->magnitudes[ordinals[i]]);
+  }
 }
 
 static double vector_pair_distance(const walk_context *context, int32_t first, int32_t second) {
