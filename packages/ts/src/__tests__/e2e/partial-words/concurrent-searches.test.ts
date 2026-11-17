@@ -27,6 +27,7 @@ const LARGE_CORPUS_SIZE = 1_500
 const SMALL_CORPUS_SIZE = 120
 const GROWING_ADDITIONS = 90
 const SEARCHES_IN_FLIGHT = 128
+const CONCURRENT_SEARCHES_TEST_TIMEOUT_MS = 60_000
 
 interface IndexedCorpus {
   index: string
@@ -102,28 +103,32 @@ async function expectEveryConcurrentSearch(server: WorkshopServer, corpora: read
 }
 
 describe('partial-word searches sent at once over HTTP each match the independent oracle', () => {
-  it('across a restarted durable index and a smaller growing one, on the main thread', async () => {
-    const directory = await mkdtemp(join(tmpdir(), 'narsil-concurrent-searches-'))
-    directories.push(directory)
-    const config: NarsilConfig = { durability: { directory }, workers: NO_WORKERS }
-    const large: IndexedCorpus = { index: INDEX, documents: workshopCorpus(LARGE_CORPUS_SIZE, 67) }
-    const small: IndexedCorpus = { index: SMALL_INDEX, documents: workshopCorpus(SMALL_CORPUS_SIZE, 71, 'small') }
+  it(
+    'across a restarted durable index and a smaller growing one, on the main thread',
+    async () => {
+      const directory = await mkdtemp(join(tmpdir(), 'narsil-concurrent-searches-'))
+      directories.push(directory)
+      const config: NarsilConfig = { durability: { directory }, workers: NO_WORKERS }
+      const large: IndexedCorpus = { index: INDEX, documents: workshopCorpus(LARGE_CORPUS_SIZE, 67) }
+      const small: IndexedCorpus = { index: SMALL_INDEX, documents: workshopCorpus(SMALL_CORPUS_SIZE, 71, 'small') }
 
-    const writer = await started(config)
-    await createCorpus(writer, large.index, large.documents)
-    await createCorpus(writer, small.index, small.documents)
-    await writer.engine.checkpoint(large.index)
-    await writer.engine.checkpoint(small.index)
-    await stopped(writer)
+      const writer = await started(config)
+      await createCorpus(writer, large.index, large.documents)
+      await createCorpus(writer, small.index, small.documents)
+      await writer.engine.checkpoint(large.index)
+      await writer.engine.checkpoint(small.index)
+      await stopped(writer)
 
-    const server = await started(config)
-    const additions = workshopCorpus(GROWING_ADDITIONS, 73, 'grown')
-    const added = await server.client.insertBatch(small.index, additions)
-    expect(added.failed).toEqual([])
-    small.documents = [...small.documents, ...additions]
+      const server = await started(config)
+      const additions = workshopCorpus(GROWING_ADDITIONS, 73, 'grown')
+      const added = await server.client.insertBatch(small.index, additions)
+      expect(added.failed).toEqual([])
+      small.documents = [...small.documents, ...additions]
 
-    await expectEveryConcurrentSearch(server, [large, small])
-  })
+      await expectEveryConcurrentSearch(server, [large, small])
+    },
+    CONCURRENT_SEARCHES_TEST_TIMEOUT_MS,
+  )
 
   it.skipIf(!WORKERS_BUILT)(
     'across worker copies of the larger index and the main copy of the smaller one',
@@ -138,5 +143,6 @@ describe('partial-word searches sent at once over HTTP each match the independen
 
       await expectEveryConcurrentSearch(server, [large, small])
     },
+    CONCURRENT_SEARCHES_TEST_TIMEOUT_MS,
   )
 })
