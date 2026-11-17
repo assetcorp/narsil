@@ -1,0 +1,41 @@
+{
+  "run_id": "20261117T172208Z",
+  "created_at": "2026-11-17T18:15:21.364476+00:00",
+  "harness_version": "0.1.0",
+  "environment": {
+    "captured_at": "2026-11-17T18:46:04.629615+00:00",
+    "harness_version": "0.1.0",
+    "containerized": true,
+    "machine_label": "GCP c3-standard-8, us-central1-a",
+    "engine_machine_label": "GCP c3-standard-8, us-central1-a",
+    "os": "Linux 7.0.0-1017-gcp",
+    "arch": "x86_64",
+    "cpu_model": "Intel(R) Xeon(R) Platinum 8481C CPU @ 2.70GHz",
+    "logical_cpus": 8,
+    "harness_cpus": 8,
+    "total_memory_bytes": 33645887488,
+    "python_version": "3.12.16",
+    "ir_datasets_version": "0.6.1",
+    "pytrec_eval_version": "0.5.10",
+    "engine_machine": {
+      "os": "Linux 7.0.0-1017-gcp",
+      "arch": "x86_64",
+      "cpu_model": "Intel(R) Xeon(R) Platinum 8481C CPU @ 2.70GHz",
+      "cpus": 8,
+      "total_memory_bytes": 33645891584
+    },
+    "network": {
+      "probe_host": "10.128.15.210",
+      "probe_port": 9877,
+      "method": "tcp_connect",
+      "samples": 200,
+      "round_trip_ms": {
+        "min": 0.06626400045206537,
+        "p50": 0.08606900064478396,
+        "p99": 0.14365799961524317,
+        "max": 0.1655369997024536
+      },
+      "note": "Each sample is the time from opening a TCP connection to the stats service on the engine's machine until the connection is established, which takes one network round trip. The stats service is a separate process from the engine, so the probe costs the engine nothing, and the harness takes the samples before the engine starts its tracks."
+    }
+  }
+}
