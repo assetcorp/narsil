@@ -225,11 +225,11 @@ fetch_suite() {
 }
 
 aggregate_server_runs() {
-  local id
+  local id writable_datasets_home=/tmp/ir_datasets
   for id in $FETCHED_IDS; do
     log "aggregate benchmarks/server/$(results_dir)/runs/$id from every engine file it holds"
-    ( cd "$REPO_ROOT/benchmarks/server" && BENCH_HOST_RESULTS_DIR="$(results_dir)" BENCH_RUN_ID="$id" docker compose run --rm --user "$(id -u):$(id -g)" --entrypoint python harness -m ir_bench.aggregate ) \
-      || log "aggregate for $id failed; rerun it with: cd benchmarks/server && BENCH_HOST_RESULTS_DIR=$(results_dir) BENCH_RUN_ID=$id docker compose run --rm --user \"\$(id -u):\$(id -g)\" --entrypoint python harness -m ir_bench.aggregate"
+    ( cd "$REPO_ROOT/benchmarks/server" && BENCH_HOST_RESULTS_DIR="$(results_dir)" BENCH_RUN_ID="$id" docker compose run --rm --user "$(id -u):$(id -g)" -e IR_DATASETS_HOME="$writable_datasets_home" --entrypoint python harness -m ir_bench.aggregate ) \
+      || log "aggregate for $id failed; rerun it with: cd benchmarks/server && BENCH_HOST_RESULTS_DIR=$(results_dir) BENCH_RUN_ID=$id docker compose run --rm --user \"\$(id -u):\$(id -g)\" -e IR_DATASETS_HOME=$writable_datasets_home --entrypoint python harness -m ir_bench.aggregate"
   done
 }
 
