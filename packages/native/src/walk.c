@@ -23,7 +23,7 @@ int graph_is_complete(const narsil_graph *graph) {
 
 static void begin_visit_round(narsil_workspace *workspace) {
   workspace->stamp += 1;
-  if (workspace->stamp == UINT32_MAX) {
+  if (workspace->stamp == 0) {
     memset(workspace->visited, 0, (size_t)workspace->visited_capacity * sizeof *workspace->visited);
     workspace->stamp = 1;
   }
@@ -99,8 +99,25 @@ static uint32_t score_pending(const walk_context *context, const int32_t *pendin
     float_distance_batch(context, pending, distances);
     return DOT_BATCH;
   }
+  if (in_batches && remaining > 1) {
+    int32_t padded[DOT_BATCH];
+    for (uint32_t i = 0; i < DOT_BATCH; i++) { padded[i] = pending[i < remaining ? i : remaining - 1]; }
+    float_distance_batch(context, padded, distances);
+    return remaining;
+  }
   distances[0] = walk_distance(context, pending[0]);
   return 1;
+}
+
+static void prefetch_claim(const walk_context *context, int32_t ordinal) {
+#if defined(__GNUC__) || defined(__clang__)
+  if (ordinal < 0 || (uint32_t)ordinal >= context->slots) { return; }
+  __builtin_prefetch(context->workspace->visited + ordinal);
+  __builtin_prefetch(context->graph->node_levels + ordinal);
+#else
+  (void)context;
+  (void)ordinal;
+#endif
 }
 
 static narsil_status expand_node(const walk_context *context, layer_search search, double *furthest) {
@@ -110,12 +127,17 @@ static narsil_status expand_node(const walk_context *context, layer_search searc
   uint32_t count = read_neighbours(context, position, workspace->neighbours);
   int in_batches = walk_scores_in_batches(context);
   uint32_t pending_count = 0;
+  for (uint32_t i = 0; i < count; i++) { prefetch_claim(context, workspace->neighbours[i]); }
   for (uint32_t i = 0; i < count; i++) {
     int32_t neighbour = workspace->neighbours[i];
     if (!claim_unvisited_node(context, neighbour)) { continue; }
     pending[pending_count] = neighbour;
     pending_count += 1;
-    if (!in_batches) { prefetch_for_walk(context, neighbour); }
+    if (in_batches) {
+      prefetch_for_scoring(context, neighbour);
+    } else {
+      prefetch_for_walk(context, neighbour);
+    }
     if (search.keeps_pinned_only) { prefetch_admission(context, neighbour); }
   }
   uint32_t scored = 0;
