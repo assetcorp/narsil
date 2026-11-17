@@ -19,8 +19,8 @@ from charts import render
 from generate import BENCHMARKS_PAGE, generated_pages
 from headline_section import README_TARGETS, readme_blocks
 from markdown_it import MarkdownIt
-from narsil_servers import load_server_sources
 from preview_html import preview_document, render_content
+from reruns import published_server_sources
 from sources import load_inprocess_source, load_languages_source, repo_root
 
 OUTPUT_SUFFIX = ".html"
@@ -57,7 +57,7 @@ def _write(output: Path, document: str) -> None:
 def main(argv: list[str]) -> int:
     output = _arguments(argv).resolve()
     root = repo_root()
-    server, best = load_server_sources(include_every_narsil_server=True)
+    server, best = published_server_sources(include_every_narsil_server=True)
     inprocess = load_inprocess_source()
     languages = load_languages_source()
     page = generated_pages(root, server, best, inprocess, languages)[BENCHMARKS_PAGE][1]

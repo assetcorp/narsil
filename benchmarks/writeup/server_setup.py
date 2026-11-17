@@ -12,6 +12,7 @@ from narsil_servers import (
     narsil_row,
 )
 from render import and_join, dataset_name, gibibytes, integer
+from reruns import rerun_bullets
 from run_conditions import (
     SINGLE_SERVER_LABEL,
     java_heap_sentence,
@@ -182,6 +183,8 @@ def setup_block(source: Source, best: Source | None = None) -> str:
         f"- **Run.** These figures come from run `{source.run_id}`, recorded on {_date(source)} from commit "
         f"`{commit}`{dirty}. The raw per-engine results and the full comparison are in "
         f"[the run report]({source.report_link}).",
+        *rerun_bullets(comparison),
+        *rerun_bullets(best.data if best is not None else None),
         f"- **Datasets.** The harness measured {and_join(_dataset_phrases(keyword))}.{_vectors_sentence(config)}"
         f"{_dataset_engines_sentence(config, engines)}",
         _engines_bullet(engines, best.data if best is not None else None),
