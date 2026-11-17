@@ -158,7 +158,9 @@ The [specification](https://github.com/assetcorp/narsil/tree/main/packages/spec)
 
 ## Search quality
 
-We measure ranking quality on the [BEIR](https://github.com/beir-cellar/beir) SciFact corpus, which holds 5,183 documents and 300 queries with human relevance judgements. We compare Narsil with Orama and MiniSearch in one process. All three use the same 33 Lucene English stop words and default BM25 parameters, although each one stems English differently. Narsil has the top nDCG@10 of the three.
+<!-- BENCH:readme-quality START -->
+We measure ranking quality on the [BEIR](https://github.com/beir-cellar/beir) SciFact corpus, which contains 5,183 documents and 300 queries with human relevance judgements. We compare Narsil with Orama and MiniSearch in one process. All three use the same 33 Lucene English stop words and default BM25 parameters, although each one stems English differently. Narsil has the highest nDCG@10 of the three, with scores of 0.6840 for Narsil, 0.4351 for Orama, and 0.2506 for MiniSearch.
+<!-- BENCH:readme-quality END -->
 
 **What these metrics mean:**
 

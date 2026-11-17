@@ -203,11 +203,15 @@ Because Narsil works both embedded and as a server, we benchmark it in two class
 
 ### Production search servers
 
-Over HTTP on the [BEIR](https://github.com/beir-cellar/beir) SciFact and NFCorpus datasets, Narsil has the top BM25 nDCG@10 on SciFact, ahead of the Lucene engines, and the top nDCG@10, Recall@100, MAP, and MRR on NFCorpus. On the hybrid track, it has the top nDCG@10 on NFCorpus. Its BM25 nDCG@10 is within 0.006 of the published Anserini baseline on both datasets. [BENCHMARKS.md](BENCHMARKS.md) holds the keyword, vector, and hybrid numbers for all seven engines.
+<!-- BENCH:readme-servers START -->
+Over HTTP, the harness scores the ranking of eight engines against the human relevance judgements of the [BEIR](https://github.com/beir-cellar/beir) SciFact and NFCorpus datasets. On the keyword track, Narsil has the highest nDCG@10 on SciFact and NFCorpus. Narsil's BM25 ranking also has the highest MAP on SciFact and the highest Recall@100, MAP, and MRR on NFCorpus. On the vector track, Narsil ties for the highest nDCG@10 on SciFact and NFCorpus. On the hybrid track, Narsil has the highest nDCG@10 on NFCorpus, while Qdrant has the highest nDCG@10 on SciFact, at 0.7165 against Narsil's 0.7054. Narsil's BM25 nDCG@10 is 0.681 on SciFact and 0.328 on NFCorpus, against the published Anserini references of 0.679 and 0.322. [BENCHMARKS.md](BENCHMARKS.md) lists the keyword, vector, and hybrid figures for all eight engines.
+<!-- BENCH:readme-servers END -->
 
 ### In-process libraries
 
-When we measure Narsil in one process against Orama and MiniSearch, with the same stop words and default BM25 parameters for all three, Narsil has the top nDCG@10 on BEIR SciFact, although each library stems English differently. It inserts text faster than both libraries at every scale that we measure. At 10,000 and 50,000 documents it also searches faster than both, although at 1,000 documents the three libraries stay within 0.004 ms of one another. Because MiniSearch has no vector search, we compare vector search against Orama alone. Narsil searches vectors faster than Orama at the same recall on SciFact and NFCorpus, although Orama inserts them faster. [BENCHMARKS.md](BENCHMARKS.md) holds the full quality, throughput, and latency tables. For the method and the steps to reproduce them, read [`benchmarks/in-process`](benchmarks/in-process).
+<!-- BENCH:readme-inprocess START -->
+We measure Narsil in one process against Orama and MiniSearch, giving all three the same stop words and default BM25 parameters, although each library stems English differently. On BEIR SciFact, Narsil has the highest nDCG@10 of the three. Narsil inserts text faster than both libraries at every scale that we measure. It also has the lowest median search latency of the three at every scale that we measure. Because MiniSearch has no vector search, we compare vector search against Orama alone. Narsil searches vectors faster than Orama at the same recall on SciFact and NFCorpus, although Orama inserts them faster. [BENCHMARKS.md](BENCHMARKS.md) contains the full quality, throughput, and latency tables. For the method and the steps to reproduce them, read [`benchmarks/in-process`](benchmarks/in-process).
+<!-- BENCH:readme-inprocess END -->
 
 ## Documentation
 
