@@ -25,6 +25,7 @@ const PUBLISHED_PACKAGES = [
   { name: '@delali/narsil-certutil', tagPrefix: 'narsil-certutil@v', paths: ['packages/certutil'] },
   { name: 'narsil-client', tagPrefix: 'narsil-python@v', paths: ['packages/python'] },
   { name: 'delali-narsil on crates.io', tagPrefix: 'narsil-rust@v', paths: ['packages/rust', ...NATIVE_CORE_SOURCES] },
+  { name: 'delali-narsil-server on crates.io', tagPrefix: 'narsil-rust-server@v', paths: ['packages/rust-server'] },
   {
     name: 'delali-narsil on PyPI',
     tagPrefix: 'narsil-python-engine@v',
