@@ -10,6 +10,7 @@ import type { VectorMetric } from '../brute-force'
 import type { GraphSearchOptions, HNSWIndex } from '../hnsw'
 import { acquireVectorSearchPool, releaseVectorSearchPool } from '../search-pool'
 import type { WorkerCopyCodes, WorkerCopySnapshot } from '../worker-copy'
+import { threadsSearchOnly } from './searched-graph'
 import type { SharedCopyHost, VectorIndexState, VectorScoredResult, WorkerCopyMode } from './shared'
 
 let handleCounter = 0
@@ -106,6 +107,7 @@ interface SharedFieldRecord {
 
 function recordSharedField(state: VectorIndexState, record: SharedFieldRecord): void {
   const { graph, handle, searchable, mode, revision, layoutRevision } = record
+  if (searchable) threadsSearchOnly(state, graph)
   state.sharedHandles.set(graph, { handle, searchable, mode })
   state.sharedLayoutRevision = layoutRevision
   if (!searchable) return
@@ -254,14 +256,11 @@ export function scheduleWorkerCopyLoad(state: VectorIndexState): void {
   if (host === undefined && liveSize(state) < WORKER_COPY_MIN_VECTORS) return
 
   state.workerCopyLoading = true
-  void shareGraph(state, graph, true).then(
-    () => {
-      state.workerCopyLoading = false
-    },
-    () => {
-      state.workerCopyLoading = false
-    },
-  )
+  const settle = (): void => {
+    state.workerCopyLoading = false
+    if (state.hnsw !== graph) scheduleWorkerCopyLoad(state)
+  }
+  void shareGraph(state, graph, true).then(settle, settle)
 }
 
 export async function searchViaWorkerCopies(
