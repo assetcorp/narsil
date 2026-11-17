@@ -1,0 +1,934 @@
+{
+  "format": 1,
+  "runId": "20261117T095810Z-916-a0d6062b-98ed-424e-8aaf-4f441d7bdb39",
+  "createdAt": "2026-11-17T09:58:10.916Z",
+  "git": {
+    "branch": "HEAD",
+    "commit": "d3efdcbcb2d2c9df442aa0f8a99ef83f20b6f833"
+  },
+  "machine": {
+    "os": "Linux 7.0.0-1017-gcp",
+    "arch": "x64",
+    "cpu": "Intel(R) Xeon(R) Platinum 8481C CPU @ 2.70GHz",
+    "logicalCpus": 8,
+    "totalMemory": "31 GiB",
+    "machineLabel": "GCP c3-standard-8, us-east1-b"
+  },
+  "engines": {
+    "typescript": {
+      "package": "@delali/narsil",
+      "version": "0.4.3",
+      "runtime": "Node.js v24.22.3",
+      "build": "C core narsil-core.node sha256 20b9ad575d02e5c75b6221e6577aee5dad7800828754d8d39b59fecdd6a8ef3a"
+    },
+    "rust": {
+      "package": "delali-narsil",
+      "version": "0.2.1",
+      "runtime": "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
+      "build": "cargo build --release"
+    },
+    "go": {
+      "package": "github.com/assetcorp/narsil/packages/go/engine",
+      "version": "0.2.2",
+      "runtime": "go version go1.26.11 linux/amd64",
+      "build": "go build -trimpath"
+    }
+  },
+  "cCompiler": "cc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0",
+  "workload": {
+    "keyword": {
+      "dataset": "fiqa",
+      "documents": 50000,
+      "queries": 1000
+    },
+    "vector": {
+      "dataset": "scifact",
+      "model": "Xenova/all-MiniLM-L6-v2",
+      "dimension": 384,
+      "documents": 5183,
+      "queries": 300
+    },
+    "settings": {
+      "language": "english",
+      "limit": 10,
+      "recallDepth": 100,
+      "hybridLegDepth": 11,
+      "efSearch": 50,
+      "hnswM": 16,
+      "hnswEfConstruction": 200,
+      "vectorThreshold": 1024,
+      "quantization": "none",
+      "metric": "cosine",
+      "rrfK": 60,
+      "insertBatch": 1000,
+      "workerPromotionThreshold": 1000,
+      "warmupPasses": 50,
+      "measuredPasses": {
+        "keyword": 500,
+        "vector": 1000,
+        "hybrid": 1000
+      }
+    },
+    "sha256": {
+      "keyword-documents.jsonl": "aff39a7cf6ae99f657c5627ecf76b5a3ec468cf469a520627ab50980077df4d8",
+      "keyword-queries.jsonl": "928402444ea924782752d880abaddeb57497ad9e722f983cbb615a95fa7a45ef",
+      "vector-documents.jsonl": "b3ec1c79556bea0ba8f2a0ee296a9740cfa6b015d10da7a4e3eb01199c685eb0",
+      "vector-documents.f32": "f031a2dc96ff9d7db62d039e5fe9095592379345850aa4fe170afefd3587b5c1",
+      "vector-queries.jsonl": "8a2f8d87d612b71c697ca7fe30c68d0afa4b9234dcf98b353ab15f571134d768",
+      "vector-queries.f32": "257609ce4f838e19684c0eb77840db746e66f5c6ee9c305b82a357c43f2c6a32"
+    }
+  },
+  "repetitions": 3,
+  "threadCounts": [
+    1,
+    8
+  ],
+  "engineOrder": [
+    [
+      "typescript",
+      "rust",
+      "go"
+    ],
+    [
+      "rust",
+      "go",
+      "typescript"
+    ],
+    [
+      "go",
+      "typescript",
+      "rust"
+    ]
+  ],
+  "measurements": [
+    {
+      "engine": "typescript",
+      "workload": "keyword",
+      "threads": 1,
+      "repetitions": 3,
+      "load": {
+        "documents": 50000,
+        "documentsPerSecond": {
+          "median": 19094.266646544824,
+          "min": 19019.37712742693,
+          "max": 19111.45430458462
+        },
+        "insertMs": 2618.585208,
+        "optimizeMs": 0.001752
+      },
+      "memory": {
+        "residentBytes": 589979648,
+        "peakResidentBytes": 634609664
+      },
+      "phases": {
+        "keyword": {
+          "queriesPerSecond": {
+            "median": 14617.646564091861,
+            "min": 14278.784866484193,
+            "max": 15021.251360877193
+          },
+          "p50Us": 58.793,
+          "p99Us": 208.298,
+          "latencySamples": 1500000,
+          "mismatches": 0
+        }
+      },
+      "quality": {
+        "recall10": null,
+        "recall100": null,
+        "hybridRecall10": null,
+        "maxVectorScoreError": null
+      }
+    },
+    {
+      "engine": "rust",
+      "workload": "keyword",
+      "threads": 1,
+      "repetitions": 3,
+      "load": {
+        "documents": 50000,
+        "documentsPerSecond": {
+          "median": 24426.075632809723,
+          "min": 24111.195847122734,
+          "max": 24550.546974353227
+        },
+        "insertMs": 2046.9926,
+        "optimizeMs": 0.000161
+      },
+      "memory": {
+        "residentBytes": 227446784,
+        "peakResidentBytes": 227446784
+      },
+      "phases": {
+        "keyword": {
+          "queriesPerSecond": {
+            "median": 17044.696167846672,
+            "min": 16857.834803859114,
+            "max": 17231.501051706953
+          },
+          "p50Us": 48.04,
+          "p99Us": 194.251,
+          "latencySamples": 1500000,
+          "mismatches": 0
+        }
+      },
+      "quality": {
+        "recall10": null,
+        "recall100": null,
+        "hybridRecall10": null,
+        "maxVectorScoreError": null
+      }
+    },
+    {
+      "engine": "go",
+      "workload": "keyword",
+      "threads": 1,
+      "repetitions": 3,
+      "load": {
+        "documents": 50000,
+        "documentsPerSecond": {
+          "median": 15163.440811735089,
+          "min": 15017.905858165434,
+          "max": 15275.407090607141
+        },
+        "insertMs": 3297.404561,
+        "optimizeMs": 0.000074
+      },
+      "memory": {
+        "residentBytes": 202006528,
+        "peakResidentBytes": 371343360
+      },
+      "phases": {
+        "keyword": {
+          "queriesPerSecond": {
+            "median": 14486.869389830297,
+            "min": 14189.050998359207,
+            "max": 14584.46459872048
+          },
+          "p50Us": 59.645,
+          "p99Us": 212.597,
+          "latencySamples": 1500000,
+          "mismatches": 0
+        }
+      },
+      "quality": {
+        "recall10": null,
+        "recall100": null,
+        "hybridRecall10": null,
+        "maxVectorScoreError": null
+      }
+    },
+    {
+      "engine": "typescript",
+      "workload": "vector",
+      "threads": 1,
+      "repetitions": 3,
+      "load": {
+        "documents": 5183,
+        "documentsPerSecond": {
+          "median": 2958.2037751519,
+          "min": 2957.611136013199,
+          "max": 2997.3746722180244
+        },
+        "insertMs": 706.936659,
+        "optimizeMs": 1043.310262
+      },
+      "memory": {
+        "residentBytes": 425287680,
+        "peakResidentBytes": 425316352
+      },
+      "phases": {
+        "vector": {
+          "queriesPerSecond": {
+            "median": 8057.012377400115,
+            "min": 7885.316582040355,
+            "max": 8112.493462912881
+          },
+          "p50Us": 121.618,
+          "p99Us": 212.503,
+          "latencySamples": 900000,
+          "mismatches": 0
+        },
+        "hybrid": {
+          "queriesPerSecond": {
+            "median": 4730.082281341581,
+            "min": 4660.022069844951,
+            "max": 4745.113345226349
+          },
+          "p50Us": 205.873,
+          "p99Us": 334.317,
+          "latencySamples": 900000,
+          "mismatches": 0
+        }
+      },
+      "quality": {
+        "recall10": 0.9856666666666666,
+        "recall100": 0.971511111111111,
+        "hybridRecall10": 0.9946666666666667,
+        "maxVectorScoreError": 1.975189266589794e-7
+      }
+    },
+    {
+      "engine": "rust",
+      "workload": "vector",
+      "threads": 1,
+      "repetitions": 3,
+      "load": {
+        "documents": 5183,
+        "documentsPerSecond": {
+          "median": 8657.0459132134,
+          "min": 8425.374042432384,
+          "max": 8776.894964051358
+        },
+        "insertMs": 561.519081,
+        "optimizeMs": 37.183993
+      },
+      "memory": {
+        "residentBytes": 131469312,
+        "peakResidentBytes": 156848128
+      },
+      "phases": {
+        "vector": {
+          "queriesPerSecond": {
+            "median": 7911.454245429435,
+            "min": 7740.660836741944,
+            "max": 7940.998906886481
+          },
+          "p50Us": 116.202,
+          "p99Us": 151.276,
+          "latencySamples": 900000,
+          "mismatches": 0
+        },
+        "hybrid": {
+          "queriesPerSecond": {
+            "median": 4807.77719809037,
+            "min": 4672.919257171725,
+            "max": 4836.546269288732
+          },
+          "p50Us": 194.205,
+          "p99Us": 309.497,
+          "latencySamples": 900000,
+          "mismatches": 0
+        }
+      },
+      "quality": {
+        "recall10": 0.9861111111111112,
+        "recall100": 0.9716444444444444,
+        "hybridRecall10": 0.996,
+        "maxVectorScoreError": 1.975189266589794e-7
+      }
+    },
+    {
+      "engine": "go",
+      "workload": "vector",
+      "threads": 1,
+      "repetitions": 3,
+      "load": {
+        "documents": 5183,
+        "documentsPerSecond": {
+          "median": 3870.971872308464,
+          "min": 3851.613117178477,
+          "max": 3963.4612127843675
+        },
+        "insertMs": 821.725607,
+        "optimizeMs": 523.944335
+      },
+      "memory": {
+        "residentBytes": 96518144,
+        "peakResidentBytes": 196337664
+      },
+      "phases": {
+        "vector": {
+          "queriesPerSecond": {
+            "median": 8180.6943379611785,
+            "min": 7964.775301642814,
+            "max": 8329.82665702169
+          },
+          "p50Us": 120.265,
+          "p99Us": 176.274,
+          "latencySamples": 900000,
+          "mismatches": 0
+        },
+        "hybrid": {
+          "queriesPerSecond": {
+            "median": 5590.870906424718,
+            "min": 5561.241526048353,
+            "max": 5691.85969903741
+          },
+          "p50Us": 164.656,
+          "p99Us": 326.908,
+          "latencySamples": 900000,
+          "mismatches": 0
+        }
+      },
+      "quality": {
+        "recall10": 0.9863333333333332,
+        "recall100": 0.9713666666666668,
+        "hybridRecall10": 0.9946666666666667,
+        "maxVectorScoreError": 1.975189266589794e-7
+      }
+    },
+    {
+      "engine": "typescript",
+      "workload": "keyword",
+      "threads": 8,
+      "repetitions": 3,
+      "load": {
+        "documents": 50000,
+        "documentsPerSecond": {
+          "median": 25254.283486352826,
+          "min": 24908.54264389802,
+          "max": 28458.38511704093
+        },
+        "insertMs": 1979.860302,
+        "optimizeMs": 0.001848
+      },
+      "memory": {
+        "residentBytes": 1045798912,
+        "peakResidentBytes": 1117401088
+      },
+      "phases": {
+        "keyword": {
+          "queriesPerSecond": {
+            "median": 19656.28677906493,
+            "min": 19301.477499547986,
+            "max": 19714.08145479521
+          },
+          "p50Us": 386.047,
+          "p99Us": 1012.195,
+          "latencySamples": 1500000,
+          "mismatches": 0
+        }
+      },
+      "quality": {
+        "recall10": null,
+        "recall100": null,
+        "hybridRecall10": null,
+        "maxVectorScoreError": null
+      }
+    },
+    {
+      "engine": "rust",
+      "workload": "keyword",
+      "threads": 8,
+      "repetitions": 3,
+      "load": {
+        "documents": 50000,
+        "documentsPerSecond": {
+          "median": 23086.75198809279,
+          "min": 22553.31256897959,
+          "max": 23627.42757399685
+        },
+        "insertMs": 2165.744009,
+        "optimizeMs": 0.000159
+      },
+      "memory": {
+        "residentBytes": 246431744,
+        "peakResidentBytes": 246431744
+      },
+      "phases": {
+        "keyword": {
+          "queriesPerSecond": {
+            "median": 78792.53866075043,
+            "min": 78540.70786723075,
+            "max": 79999.48933445977
+          },
+          "p50Us": 80.577,
+          "p99Us": 347.437,
+          "latencySamples": 1500000,
+          "mismatches": 0
+        }
+      },
+      "quality": {
+        "recall10": null,
+        "recall100": null,
+        "hybridRecall10": null,
+        "maxVectorScoreError": null
+      }
+    },
+    {
+      "engine": "go",
+      "workload": "keyword",
+      "threads": 8,
+      "repetitions": 3,
+      "load": {
+        "documents": 50000,
+        "documentsPerSecond": {
+          "median": 15126.15357901015,
+          "min": 15103.80105855165,
+          "max": 15325.126840090394
+        },
+        "insertMs": 3305.532925,
+        "optimizeMs": 0.000087
+      },
+      "memory": {
+        "residentBytes": 205389824,
+        "peakResidentBytes": 373026816
+      },
+      "phases": {
+        "keyword": {
+          "queriesPerSecond": {
+            "median": 54501.641894390545,
+            "min": 54442.814003149084,
+            "max": 55146.015254123246
+          },
+          "p50Us": 112.688,
+          "p99Us": 808.021,
+          "latencySamples": 1500000,
+          "mismatches": 0
+        }
+      },
+      "quality": {
+        "recall10": null,
+        "recall100": null,
+        "hybridRecall10": null,
+        "maxVectorScoreError": null
+      }
+    },
+    {
+      "engine": "typescript",
+      "workload": "vector",
+      "threads": 8,
+      "repetitions": 3,
+      "load": {
+        "documents": 5183,
+        "documentsPerSecond": {
+          "median": 4646.442091094588,
+          "min": 4564.835278914188,
+          "max": 4812.649837367813
+        },
+        "insertMs": 742.741379,
+        "optimizeMs": 369.717654
+      },
+      "memory": {
+        "residentBytes": 746889216,
+        "peakResidentBytes": 762413056
+      },
+      "phases": {
+        "vector": {
+          "queriesPerSecond": {
+            "median": 10210.842371352082,
+            "min": 10126.46188621475,
+            "max": 10544.519476434729
+          },
+          "p50Us": 637.023,
+          "p99Us": 3574.427,
+          "latencySamples": 900000,
+          "mismatches": 0
+        },
+        "hybrid": {
+          "queriesPerSecond": {
+            "median": 6065.030489075461,
+            "min": 6020.063800836027,
+            "max": 6078.491323588595
+          },
+          "p50Us": 1238.328,
+          "p99Us": 4341.537,
+          "latencySamples": 900000,
+          "mismatches": 0
+        }
+      },
+      "quality": {
+        "recall10": 0.9887777777777776,
+        "recall100": 0.9726555555555555,
+        "hybridRecall10": 0.9964444444444446,
+        "maxVectorScoreError": 1.975189266589794e-7
+      }
+    },
+    {
+      "engine": "rust",
+      "workload": "vector",
+      "threads": 8,
+      "repetitions": 3,
+      "load": {
+        "documents": 5183,
+        "documentsPerSecond": {
+          "median": 7972.86611687712,
+          "min": 7756.143101777011,
+          "max": 8142.719709072863
+        },
+        "insertMs": 604.010758,
+        "optimizeMs": 42.857761
+      },
+      "memory": {
+        "residentBytes": 169476096,
+        "peakResidentBytes": 169476096
+      },
+      "phases": {
+        "vector": {
+          "queriesPerSecond": {
+            "median": 39729.29268850452,
+            "min": 39284.54305587994,
+            "max": 39760.93516133303
+          },
+          "p50Us": 183.773,
+          "p99Us": 233.104,
+          "latencySamples": 900000,
+          "mismatches": 0
+        },
+        "hybrid": {
+          "queriesPerSecond": {
+            "median": 24752.131062198667,
+            "min": 24751.52800940692,
+            "max": 24998.0248706411
+          },
+          "p50Us": 296.506,
+          "p99Us": 499.016,
+          "latencySamples": 900000,
+          "mismatches": 0
+        }
+      },
+      "quality": {
+        "recall10": 0.9872222222222223,
+        "recall100": 0.9722222222222222,
+        "hybridRecall10": 0.9958888888888889,
+        "maxVectorScoreError": 1.975189266589794e-7
+      }
+    },
+    {
+      "engine": "go",
+      "workload": "vector",
+      "threads": 8,
+      "repetitions": 3,
+      "load": {
+        "documents": 5183,
+        "documentsPerSecond": {
+          "median": 3948.415688225504,
+          "min": 3925.712833954712,
+          "max": 3980.073602933654
+        },
+        "insertMs": 643.435998,
+        "optimizeMs": 669.242405
+      },
+      "memory": {
+        "residentBytes": 116740096,
+        "peakResidentBytes": 198529024
+      },
+      "phases": {
+        "vector": {
+          "queriesPerSecond": {
+            "median": 33241.99235704345,
+            "min": 32936.153683385826,
+            "max": 33636.78236293152
+          },
+          "p50Us": 197.35,
+          "p99Us": 1382.84,
+          "latencySamples": 900000,
+          "mismatches": 0
+        },
+        "hybrid": {
+          "queriesPerSecond": {
+            "median": 19987.059195975093,
+            "min": 19854.21958397611,
+            "max": 20025.15348983277
+          },
+          "p50Us": 326.152,
+          "p99Us": 2409.185,
+          "latencySamples": 900000,
+          "mismatches": 0
+        }
+      },
+      "quality": {
+        "recall10": 0.9876666666666666,
+        "recall100": 0.9725333333333334,
+        "hybridRecall10": 0.9963333333333333,
+        "maxVectorScoreError": 1.975189266589794e-7
+      }
+    }
+  ],
+  "crossEngine": [
+    {
+      "metric": "recall10",
+      "engines": [
+        "go",
+        "rust"
+      ],
+      "builds": [
+        3,
+        3
+      ],
+      "threads": 1,
+      "meanDifference": 0.0002222222222222255,
+      "standardError": 0.001517831037182415,
+      "bound": 0.00607132414872966,
+      "passed": true
+    },
+    {
+      "metric": "recall10",
+      "engines": [
+        "go",
+        "typescript"
+      ],
+      "builds": [
+        3,
+        3
+      ],
+      "threads": 1,
+      "meanDifference": 0.0006666666666666679,
+      "standardError": 0.0010668245888299042,
+      "bound": 0.004267298355319617,
+      "passed": true
+    },
+    {
+      "metric": "recall10",
+      "engines": [
+        "rust",
+        "typescript"
+      ],
+      "builds": [
+        3,
+        3
+      ],
+      "threads": 1,
+      "meanDifference": 0.0004444444444444425,
+      "standardError": 0.001188046218482647,
+      "bound": 0.004752184873930588,
+      "passed": true
+    },
+    {
+      "metric": "recall100",
+      "engines": [
+        "go",
+        "rust"
+      ],
+      "builds": [
+        3,
+        3
+      ],
+      "threads": 1,
+      "meanDifference": -0.0002777777777777775,
+      "standardError": 0.0006695327343245086,
+      "bound": 0.0026781309372980342,
+      "passed": true
+    },
+    {
+      "metric": "recall100",
+      "engines": [
+        "go",
+        "typescript"
+      ],
+      "builds": [
+        3,
+        3
+      ],
+      "threads": 1,
+      "meanDifference": -0.00014444444444445666,
+      "standardError": 0.0005874989732423712,
+      "bound": 0.002349995892969485,
+      "passed": true
+    },
+    {
+      "metric": "recall100",
+      "engines": [
+        "rust",
+        "typescript"
+      ],
+      "builds": [
+        3,
+        3
+      ],
+      "threads": 1,
+      "meanDifference": 0.00013333333333332087,
+      "standardError": 0.0006367808921601991,
+      "bound": 0.0025471235686407964,
+      "passed": true
+    },
+    {
+      "metric": "hybridRecall10",
+      "engines": [
+        "go",
+        "rust"
+      ],
+      "builds": [
+        3,
+        3
+      ],
+      "threads": 1,
+      "meanDifference": -0.001333333333333331,
+      "standardError": 0.0008870288975456969,
+      "bound": 0.0035481155901827877,
+      "passed": true
+    },
+    {
+      "metric": "hybridRecall10",
+      "engines": [
+        "go",
+        "typescript"
+      ],
+      "builds": [
+        3,
+        3
+      ],
+      "threads": 1,
+      "meanDifference": 1.4802973661668755e-18,
+      "standardError": 0.0008476108757590749,
+      "bound": 0.0033904435030362996,
+      "passed": true
+    },
+    {
+      "metric": "hybridRecall10",
+      "engines": [
+        "rust",
+        "typescript"
+      ],
+      "builds": [
+        3,
+        3
+      ],
+      "threads": 1,
+      "meanDifference": 0.0013333333333333322,
+      "standardError": 0.0004658537273442862,
+      "bound": 0.0018634149093771449,
+      "passed": true
+    },
+    {
+      "metric": "recall10",
+      "engines": [
+        "go",
+        "rust"
+      ],
+      "builds": [
+        3,
+        3
+      ],
+      "threads": 8,
+      "meanDifference": 0.00044444444444444436,
+      "standardError": 0.0009570658602743058,
+      "bound": 0.003828263441097223,
+      "passed": true
+    },
+    {
+      "metric": "recall10",
+      "engines": [
+        "go",
+        "typescript"
+      ],
+      "builds": [
+        3,
+        3
+      ],
+      "threads": 8,
+      "meanDifference": -0.0011111111111111094,
+      "standardError": 0.0012476494270671457,
+      "bound": 0.004990597708268583,
+      "passed": true
+    },
+    {
+      "metric": "recall10",
+      "engines": [
+        "rust",
+        "typescript"
+      ],
+      "builds": [
+        3,
+        3
+      ],
+      "threads": 8,
+      "meanDifference": -0.0015555555555555537,
+      "standardError": 0.0014483410837207323,
+      "bound": 0.005793364334882929,
+      "passed": true
+    },
+    {
+      "metric": "recall100",
+      "engines": [
+        "go",
+        "rust"
+      ],
+      "builds": [
+        3,
+        3
+      ],
+      "threads": 8,
+      "meanDifference": 0.0003111111111111172,
+      "standardError": 0.0005880205766143063,
+      "bound": 0.002352082306457225,
+      "passed": true
+    },
+    {
+      "metric": "recall100",
+      "engines": [
+        "go",
+        "typescript"
+      ],
+      "builds": [
+        3,
+        3
+      ],
+      "threads": 8,
+      "meanDifference": -0.00012222222222221912,
+      "standardError": 0.0006448105035518034,
+      "bound": 0.002579242014207214,
+      "passed": true
+    },
+    {
+      "metric": "recall100",
+      "engines": [
+        "rust",
+        "typescript"
+      ],
+      "builds": [
+        3,
+        3
+      ],
+      "threads": 8,
+      "meanDifference": -0.0004333333333333363,
+      "standardError": 0.0007414344268310091,
+      "bound": 0.0029657377073240366,
+      "passed": true
+    },
+    {
+      "metric": "hybridRecall10",
+      "engines": [
+        "go",
+        "rust"
+      ],
+      "builds": [
+        3,
+        3
+      ],
+      "threads": 8,
+      "meanDifference": 0.00044444444444444544,
+      "standardError": 0.0007034330941934166,
+      "bound": 0.0028137323767736663,
+      "passed": true
+    },
+    {
+      "metric": "hybridRecall10",
+      "engines": [
+        "go",
+        "typescript"
+      ],
+      "builds": [
+        3,
+        3
+      ],
+      "threads": 8,
+      "meanDifference": -0.00011111111111111257,
+      "standardError": 0.0007126180150407842,
+      "bound": 0.002850472060163137,
+      "passed": true
+    },
+    {
+      "metric": "hybridRecall10",
+      "engines": [
+        "rust",
+        "typescript"
+      ],
+      "builds": [
+        3,
+        3
+      ],
+      "threads": 8,
+      "meanDifference": -0.000555555555555558,
+      "standardError": 0.000950377021463918,
+      "bound": 0.003801508085855672,
+      "passed": true
+    }
+  ],
+  "oracle": {
+    "python": "3.12.3",
+    "snowballstemmer": "3.1.1",
+    "englishRevision": "4026533016c7f4b1"
+  }
+}

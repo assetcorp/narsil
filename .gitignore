@@ -12,6 +12,7 @@ packages/ts/benchmarks/results/*.json
 benchmarks/datasets/
 benchmarks/*/results/.smoke/
 benchmarks/server/artifacts/
+benchmarks/server/results/runs/*/engine-*.log
 benchmarks/engine-languages/.build/
 benchmarks/engine-languages/.staging/
 benchmarks/engine-languages/.workload/

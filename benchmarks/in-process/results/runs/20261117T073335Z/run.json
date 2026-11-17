@@ -1,0 +1,18 @@
+{
+  "runId": "20261117T073335Z",
+  "createdAt": "2026-11-17T07:33:35.089Z",
+  "git": {
+    "branch": "HEAD",
+    "commit": "d3efdcbcb2d2c9df442aa0f8a99ef83f20b6f833",
+    "dirty": false
+  },
+  "environment": {
+    "node": "v24.22.3",
+    "os": "Linux",
+    "arch": "x64",
+    "cpu": "Intel(R) Xeon(R) Platinum 8481C CPU @ 2.70GHz",
+    "totalMemory": "31GB",
+    "machineLabel": "GCP c3-standard-8, us-central1-a",
+    "narsilVectorSearch": "wasm"
+  }
+}
