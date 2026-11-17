@@ -164,7 +164,11 @@ cmd_logs() {
   case "$st" in
     0) log "run finished cleanly" ;;
     running) log "still running (you detached); re-attach with: PROVIDER=$PROVIDER run-cloud.sh logs" ;;
-    *) log "run reported failures (status $st); inspect with: PROVIDER=$PROVIDER run-cloud.sh ssh" ;;
+    *)
+      log "run reported failures (status $st) in these steps:"
+      prov_ssh 'sed "s/^/  - /" bench.failures 2>/dev/null' || true
+      log "inspect with: PROVIDER=$PROVIDER run-cloud.sh ssh"
+      ;;
   esac
 }
 

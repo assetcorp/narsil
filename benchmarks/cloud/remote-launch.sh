@@ -7,7 +7,7 @@
 set -euo pipefail
 
 cd "$HOME/narsil"
-rm -f "$HOME/bench.done" "$HOME/bench.status"
+rm -f "$HOME/bench.done" "$HOME/bench.status" "$HOME/bench.failures"
 : > "$HOME/bench.log"
 
 nohup env "$@" bash benchmarks/cloud/remote-run.sh >> "$HOME/bench.log" 2>&1 &
