@@ -14,6 +14,7 @@ export const DEVICE_TOKEN = 'alice-token'
 export const ADMIN_TOKEN = 'admin-token'
 export const SCHEMA = { schema: { title: 'string', body: 'string' } } as const
 const SUBPROTOCOL = 'narsil.sync.v1'
+const SETTLE_DEADLINE_MS = 15_000
 
 export type Note = { title: string; body: string }
 
@@ -211,10 +212,16 @@ export function sorted(documents: Map<string, Note>): Array<[string, Note]> {
   return [...documents.entries()].sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
 }
 
-export async function settledWithin(sync: DeviceSync, timeoutMs = 30_000): Promise<void> {
+export async function settledWithin(sync: DeviceSync, timeoutMs = SETTLE_DEADLINE_MS): Promise<void> {
   let timer: ReturnType<typeof setTimeout> | null = null
   const deadline = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`The device did not settle within ${timeoutMs} ms`)), timeoutMs)
+    timer = setTimeout(
+      () =>
+        reject(
+          new Error(`The device did not settle within ${timeoutMs} ms, with status ${JSON.stringify(sync.status())}`),
+        ),
+      timeoutMs,
+    )
   })
   try {
     await Promise.race([sync.settled(), deadline])
