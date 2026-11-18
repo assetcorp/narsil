@@ -192,7 +192,7 @@ def setup_block(source: Source, best: Source | None = None) -> str:
         f"{integer(config.get('run_depth'))}, and the same run-file ordering. The harness tests one engine at a "
         f"time, so each engine has the machine to itself.{java_heap_sentence(engines)}"
         f"{narsil_heap_sentence(narsil, label)}",
-        f"- **Load.** {load_sentence(config)}",
+        f"- **Load.** {load_sentence(config, environment)}",
         *([f"- **{label} threads.** {_threads_sentence(narsil, label)}"] if narsil and not is_unmeasured(narsil) else []),
         *narsil_vector_search_bullets(narsil, label),
         f"- **Machine.** {_machine_sentence(environment, engines)}",
