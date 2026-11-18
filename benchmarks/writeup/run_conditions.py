@@ -17,22 +17,38 @@ _SHARED_MACHINE_SENTENCES = (
 )
 
 
-def load_sentence(config: dict) -> str:
+def _placement_sentences(throughput: dict, environment: dict) -> str:
+    if not isinstance(environment.get("engine_machine"), dict):
+        return _SHARED_MACHINE_SENTENCES
+    processes = throughput.get("client_processes")
+    spread = (
+        f", and it spreads the clients across {integer(processes)} processes"
+        if isinstance(processes, int) and processes > 0
+        else ""
+    )
+    return (
+        "The load generator works on a separate machine from the engine under test, so its client processes take "
+        f"no CPU time from the engine{spread}. The harness measures every engine under that same arrangement."
+    )
+
+
+def load_sentence(config: dict, environment: dict) -> str:
     throughput = config.get("throughput") or {}
     levels = throughput.get("concurrency") or []
     passes = throughput.get("passes")
     if not levels:
         return "The harness recorded no concurrency sweep."
     level_text = and_join([integer(level) for level in levels])
+    placement = _placement_sentences(throughput, environment)
     if isinstance(passes, int) and passes > 1:
         return (
             f"The harness measures throughput at {level_text} concurrent clients, with one pass per level and "
             f"{integer(passes)} passes at each engine's peak level. The tables report the median peak pass "
-            f"with a 95% bootstrap interval. {_SHARED_MACHINE_SENTENCES}"
+            f"with a 95% bootstrap interval. {placement}"
         )
     return (
         f"The harness measures throughput at {level_text} concurrent clients, with one pass per level. "
-        f"{_SHARED_MACHINE_SENTENCES}"
+        f"{placement}"
     )
 
 

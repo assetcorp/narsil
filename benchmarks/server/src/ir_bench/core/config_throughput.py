@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from .cpu_sets import usable_cpus
 from .http_client import POOL_CONNECTIONS
 
+ENGINE_ADDRESS_ENV = "BENCH_ENGINE_ADDRESS"
 DEFAULT_CONCURRENCY_LEVELS = (1, 2, 4, 8, 16, 32, 64)
 DEFAULT_PASSES = 1
 DEFAULT_RECALL_SWEEP_CONCURRENCY = 16
@@ -26,7 +27,8 @@ class ThroughputConfig:
     processes. One process saturates near a single core, so a threads-only client
     caps every engine at one core divided by its per-request cost; raising this
     lifts the cap and costs the engine that much CPU when the two share a host.
-    Left unset it resolves to half of the cores that the harness process may use."""
+    Left unset it resolves to every core that the harness process may use when the
+    engine serves from another machine, and to half of them when the two share one."""
 
     enabled: bool
     concurrency: tuple[int, ...]
@@ -63,14 +65,17 @@ def _throughput_levels(section: dict) -> tuple[int, ...]:
 
 def _throughput_client_processes(section: dict) -> int:
     """How many processes drive the load. An explicit setting wins, the environment
-    overrides it for a one-off run, and the fallback leaves half of the harness's
-    usable cores to the engine on a run where the two share those cores."""
+    overrides it for a one-off run, and the fallback gives the load every usable core
+    when the engine serves from another machine, and leaves half of them to the
+    engine on a run where the two share those cores."""
 
     configured = section.get("client_processes")
     override = os.environ.get("BENCH_THROUGHPUT_CLIENT_PROCESSES")
     if override and override.strip():
         configured = override.strip()
     if configured is None:
+        if os.environ.get(ENGINE_ADDRESS_ENV, "").strip():
+            return usable_cpus()
         return max(1, usable_cpus() // 2)
     processes = int(configured)
     if processes < 1:
