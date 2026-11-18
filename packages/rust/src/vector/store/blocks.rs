@@ -5,7 +5,8 @@ use crate::ffi;
 
 use super::super::constants::{MAX_VECTOR_ORDINALS, MIN_ORDINAL_CAPACITY, VECTORS_PER_BLOCK};
 use super::super::files::MappedFile;
-use super::super::region::{byte_ptr, bytes, float_ptr, floats, load, store};
+use super::super::huge_pages::huge_page_floats;
+use super::super::region::{byte_ptr, bytes, float_ptr, load, store};
 use super::{CodeBlock, IN_A_BLOCK, StoreTables, VectorBlock};
 
 impl StoreTables {
@@ -41,7 +42,7 @@ impl StoreTables {
         }
         let made = owner.get_or_init(|| {
             Arc::new(VectorBlock {
-                floats: floats(VECTORS_PER_BLOCK as usize * self.stride),
+                floats: huge_page_floats(VECTORS_PER_BLOCK as usize * self.stride),
             })
         });
         self.vector_blocks[block].store(float_ptr(&made.floats), Ordering::Release);
