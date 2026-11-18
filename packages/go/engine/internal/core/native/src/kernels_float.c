@@ -3,8 +3,15 @@
 #include <math.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 #define LANE_WIDTH 4U
+
+static inline float component(const float *values, size_t index) {
+  float value = 0;
+  memcpy(&value, (const unsigned char *)values + (index * sizeof(float)), sizeof(value));
+  return value;
+}
 #define UNROLLED_LANES 4U
 #define UNROLLED_WIDTH (LANE_WIDTH * UNROLLED_LANES)
 
@@ -43,7 +50,9 @@ typedef struct {
   float lane[LANE_WIDTH];
 } lanes;
 static inline lanes lanes_zero(void) { return (lanes){{0, 0, 0, 0}}; }
-static inline lanes lanes_load(const float *source) { return (lanes){{source[0], source[1], source[2], source[3]}}; }
+static inline lanes lanes_load(const float *source) {
+  return (lanes){{component(source, 0), component(source, 1), component(source, 2), component(source, 3)}};
+}
 static inline lanes lanes_add(lanes lhs, lanes rhs) {
   return (lanes){
       {lhs.lane[0] + rhs.lane[0], lhs.lane[1] + rhs.lane[1], lhs.lane[2] + rhs.lane[2], lhs.lane[3] + rhs.lane[3]}};
@@ -80,7 +89,7 @@ static inline float finish_dot(const float *lhs, const float *rhs, uint32_t dime
     first = lanes_add(first, lane_product(lhs + offset, rhs + offset, 0));
   }
   float sum = lanes_sum_in_pairs(lanes_add(lanes_add(first, dot.sums[1]), lanes_add(dot.sums[2], dot.sums[3])));
-  for (; offset < dimension; offset++) { sum = sum + (lhs[offset] * rhs[offset]); }
+  for (; offset < dimension; offset++) { sum = sum + (component(lhs, offset) * component(rhs, offset)); }
   return sum;
 }
 
@@ -225,7 +234,7 @@ float kernel_squared_distance(const float *lhs, const float *rhs, uint32_t dimen
   }
   float sum = lanes_sum_in_pairs(running);
   for (; offset < dimension; offset++) {
-    float difference = lhs[offset] - rhs[offset];
+    float difference = component(lhs, offset) - component(rhs, offset);
     sum = sum + (difference * difference);
   }
   return sum;
