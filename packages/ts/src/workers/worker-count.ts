@@ -33,8 +33,10 @@ export function resolveWorkerCount(requested?: number): number {
 }
 
 export function resolveRequestThreadCount(requested?: number): number {
-  if (detectCpuCount() < MIN_CORES_FOR_SEVERAL_REQUEST_THREADS) return 1
-  return resolveWorkerCount(requested)
+  const cores = detectCpuCount()
+  if (cores < MIN_CORES_FOR_SEVERAL_REQUEST_THREADS) return 1
+  if (requested !== undefined && requested > 0) return resolveWorkerCount(requested)
+  return Math.max(MIN_WORKER_COUNT, Math.min(MAX_WORKER_COUNT, cores))
 }
 
 export function splitWorkerBudget(total: number): { keyword: number; vector: number } {
