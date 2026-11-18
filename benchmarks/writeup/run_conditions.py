@@ -5,7 +5,7 @@ that the results record. Where an older run lacks a value, its sentence stays ou
 
 from __future__ import annotations
 
-from render import and_join, engine_name, gibibytes, integer
+from render import and_join, dataset_name, engine_name, gibibytes, integer
 
 NATIVE_VECTOR_SEARCH = "native"
 WASM_VECTOR_SEARCH = "wasm"
@@ -50,6 +50,41 @@ def load_sentence(config: dict, environment: dict) -> str:
         f"The harness measures throughput at {level_text} concurrent clients, with one pass per level. "
         f"{placement}"
     )
+
+
+def _load_settles(comparison: dict) -> list[tuple[dict, str, dict]]:
+    found = []
+    for track in comparison.get("tracks") or []:
+        for dataset in track.get("datasets") or []:
+            for row in dataset.get("rows") or []:
+                settle = (row.get("operational") or {}).get("load_settle")
+                if isinstance(settle, dict) and isinstance(settle.get("waited_seconds"), (int, float)):
+                    found.append((row, dataset.get("dataset_id") or "", settle))
+    return found
+
+
+def settle_sentence(comparison: dict) -> str:
+    settles = _load_settles(comparison)
+    if not settles:
+        return ""
+    rule = settles[0][2]
+    row, dataset_id, longest = max(settles, key=lambda entry: entry[2]["waited_seconds"])
+    busy = sorted(
+        {f"{engine_name(entry[0].get('engine') or '')} on {dataset_name(entry[1])}" for entry in settles if not entry[2].get("settled")}
+    )
+    sentence = (
+        f" After it loads each large dataset, the harness waits until the engine uses less than "
+        f"{rule.get('quiet_engine_cores')} cores for {integer(rule.get('quiet_seconds'))} seconds in a row, so that the "
+        "merges, graph builds, and index copies that an engine starts after a load finish before any measurement. "
+        f"The longest wait was {integer(longest['waited_seconds'])} seconds, for {engine_name(row.get('engine') or '')} "
+        f"on {dataset_name(dataset_id)}."
+    )
+    if busy:
+        sentence += (
+            f" The harness stopped waiting after {integer(rule.get('timeout_seconds'))} seconds for "
+            f"{and_join(busy)}, which stayed busy until then."
+        )
+    return sentence
 
 
 def java_heap_sentence(engines: list[dict]) -> str:
