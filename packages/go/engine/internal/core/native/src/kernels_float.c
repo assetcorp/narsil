@@ -98,11 +98,17 @@ static inline float finish_dot(const float *lhs, const float *rhs, uint32_t dime
 #define CPUID_EXTENDED_FEATURES_LEAF 7U
 #define XCR0_SSE_AND_AVX_STATE 6U
 #define WIDE_LANE_WIDTH 8U
+#define XCR0_SSE_AVX_AND_AVX512_STATE 0xE6U
+#define WIDEST_LANE_WIDTH 16U
 #define AVX2_UNKNOWN 0
 #define AVX2_ABSENT 1
 #define AVX2_PRESENT 2
+#define AVX512_UNKNOWN 0
+#define AVX512_ABSENT 1
+#define AVX512_PRESENT 2
 
 static atomic_int avx2_state = AVX2_UNKNOWN;
+static atomic_int avx512_state = AVX512_UNKNOWN;
 
 static uint32_t enabled_register_state(void) {
   uint32_t low = 0;
@@ -132,6 +138,65 @@ int uses_hardware_avx2(void) {
     atomic_store_explicit(&avx2_state, state, memory_order_relaxed);
   }
   return state == AVX2_PRESENT;
+}
+
+static int processor_runs_avx512(void) {
+  unsigned int eax = 0;
+  unsigned int ebx = 0;
+  unsigned int ecx = 0;
+  unsigned int edx = 0;
+  if (!processor_runs_avx2()) { return 0; }
+  if ((enabled_register_state() & XCR0_SSE_AVX_AND_AVX512_STATE) != XCR0_SSE_AVX_AND_AVX512_STATE) { return 0; }
+  __cpuid_count(CPUID_EXTENDED_FEATURES_LEAF, 0, eax, ebx, ecx, edx);
+  return (ebx & bit_AVX512F) != 0;
+}
+
+static int uses_hardware_avx512(void) {
+  int state = atomic_load_explicit(&avx512_state, memory_order_relaxed);
+  if (state == AVX512_UNKNOWN) {
+    state = processor_runs_avx512() ? AVX512_PRESENT : AVX512_ABSENT;
+    atomic_store_explicit(&avx512_state, state, memory_order_relaxed);
+  }
+  return state == AVX512_PRESENT;
+}
+
+__attribute__((target("avx512f"))) static unrolled_dot unrolled_dot_of_widest(__m512 sums, uint32_t offset) {
+  unrolled_dot dot = {{_mm512_extractf32x4_ps(sums, 0), _mm512_extractf32x4_ps(sums, 1),
+                       _mm512_extractf32x4_ps(sums, 2), _mm512_extractf32x4_ps(sums, 3)},
+                      offset};
+  return dot;
+}
+
+__attribute__((target("avx512f"))) static float dot_in_widest_lanes(const float *lhs, const float *rhs,
+                                                                    uint32_t dimension) {
+  uint32_t unrolled_end = whole_steps(dimension, WIDEST_LANE_WIDTH);
+  __m512 sums = _mm512_setzero_ps();
+  uint32_t offset = 0;
+  for (; offset < unrolled_end; offset += WIDEST_LANE_WIDTH) {
+    sums = _mm512_add_ps(sums, _mm512_mul_ps(_mm512_loadu_ps(lhs + offset), _mm512_loadu_ps(rhs + offset)));
+  }
+  return finish_dot(lhs, rhs, dimension, unrolled_dot_of_widest(sums, offset));
+}
+
+__attribute__((target("avx512f"))) static void
+dot_batch_in_widest_lanes(const float *query, const float *const *vectors, uint32_t dimension, float *dots) {
+  uint32_t unrolled_end = whole_steps(dimension, WIDEST_LANE_WIDTH);
+  __m512 sums0 = _mm512_setzero_ps();
+  __m512 sums1 = _mm512_setzero_ps();
+  __m512 sums2 = _mm512_setzero_ps();
+  __m512 sums3 = _mm512_setzero_ps();
+  uint32_t offset = 0;
+  for (; offset < unrolled_end; offset += WIDEST_LANE_WIDTH) {
+    __m512 lanes_of_query = _mm512_loadu_ps(query + offset);
+    sums0 = _mm512_add_ps(sums0, _mm512_mul_ps(lanes_of_query, _mm512_loadu_ps(vectors[0] + offset)));
+    sums1 = _mm512_add_ps(sums1, _mm512_mul_ps(lanes_of_query, _mm512_loadu_ps(vectors[1] + offset)));
+    sums2 = _mm512_add_ps(sums2, _mm512_mul_ps(lanes_of_query, _mm512_loadu_ps(vectors[2] + offset)));
+    sums3 = _mm512_add_ps(sums3, _mm512_mul_ps(lanes_of_query, _mm512_loadu_ps(vectors[3] + offset)));
+  }
+  dots[0] = finish_dot(query, vectors[0], dimension, unrolled_dot_of_widest(sums0, offset));
+  dots[1] = finish_dot(query, vectors[1], dimension, unrolled_dot_of_widest(sums1, offset));
+  dots[2] = finish_dot(query, vectors[2], dimension, unrolled_dot_of_widest(sums2, offset));
+  dots[3] = finish_dot(query, vectors[3], dimension, unrolled_dot_of_widest(sums3, offset));
 }
 
 __attribute__((target("avx2"))) static unrolled_dot unrolled_dot_of(__m256 first_half, __m256 second_half,
@@ -209,6 +274,7 @@ static float dot_in_narrow_lanes(const float *lhs, const float *rhs, uint32_t di
 
 float kernel_dot(const float *lhs, const float *rhs, uint32_t dimension) {
 #ifdef NARSIL_AVX2
+  if (uses_hardware_avx512()) { return dot_in_widest_lanes(lhs, rhs, dimension); }
   if (uses_hardware_avx2()) { return dot_in_wide_lanes(lhs, rhs, dimension); }
 #endif
   return dot_in_narrow_lanes(lhs, rhs, dimension);
@@ -216,6 +282,10 @@ float kernel_dot(const float *lhs, const float *rhs, uint32_t dimension) {
 
 void kernel_dot_batch(const float *query, const float *const *vectors, uint32_t dimension, float *dots) {
 #ifdef NARSIL_AVX2
+  if (uses_hardware_avx512()) {
+    dot_batch_in_widest_lanes(query, vectors, dimension, dots);
+    return;
+  }
   if (uses_hardware_avx2()) {
     dot_batch_in_wide_lanes(query, vectors, dimension, dots);
     return;
