@@ -12,6 +12,7 @@ pub(crate) mod filter;
 mod graph;
 mod graph_search;
 mod growth;
+mod huge_pages;
 pub(crate) mod maintenance;
 mod numbered;
 pub(crate) mod ranking;
