@@ -40,16 +40,24 @@ function processLimitBytes() {
   return constrained > 0 && constrained < totalmem() ? constrained : null
 }
 
+function liveHeapBytes() {
+  if (typeof globalThis.gc !== 'function') throw new Error('the heap fill needs node --expose-gc')
+  globalThis.gc()
+  return getHeapStatistics().used_heap_size
+}
+
 let filler = []
 function fillMemory() {
   if (job.fill.kind === 'heap') {
     const target = job.fill.fraction * job.fill.limitBytes
-    let usedBytes = getHeapStatistics().used_heap_size
-    while (usedBytes < target) {
-      filler.push(Array.from({ length: HEAP_FILL_OBJECTS }, (_, at) => ({ at, label: `filler-${filler.length}` })))
-      usedBytes = getHeapStatistics().used_heap_size
+    let liveBytes = liveHeapBytes()
+    while (liveBytes < target) {
+      while (getHeapStatistics().used_heap_size < target) {
+        filler.push(Array.from({ length: HEAP_FILL_OBJECTS }, (_, at) => ({ at, label: `filler-${filler.length}` })))
+      }
+      liveBytes = liveHeapBytes()
     }
-    return usedBytes
+    return liveBytes
   }
   if (job.fill.kind === 'process') {
     const limit = processLimitBytes()
