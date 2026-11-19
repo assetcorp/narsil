@@ -1,3 +1,24 @@
+## 0.2.0 (2026-11-19)
+
+### 🚀 Features
+
+- **rust:** accept only the languages that NarsilConfig lists, as the TypeScript engine accepts only registered ones ([efce89b6](https://github.com/assetcorp/narsil/commit/efce89b6))
+
+### 🩹 Fixes
+
+- **python:** retry a snapshot save onto a file that another program holds open on Windows ([f7ba809b](https://github.com/assetcorp/narsil/commit/f7ba809b))
+- ⚠️  **rust:** list score components and highlights in the order that the TypeScript engine lists them ([efc81717](https://github.com/assetcorp/narsil/commit/efc81717))
+- **release:** rewrite every Cargo.lock that pins a released crate by path ([40b81f49](https://github.com/assetcorp/narsil/commit/40b81f49))
+- answer query suggestions, cluster health, grouping, and /version correctly ([7511228b](https://github.com/assetcorp/narsil/commit/7511228b))
+
+### ⚠️  Breaking Changes
+
+- **rust:** list score components and highlights in the order that the TypeScript engine lists them  ([efc81717](https://github.com/assetcorp/narsil/commit/efc81717))
+
+### ❤️ Thank You
+
+- assetcorp
+
 ## 0.1.0 (2026-11-13)
 
 ### 🚀 Features
