@@ -111,10 +111,12 @@ def run_keyword_track(
         index=index,
         top_k=config.latency.top_k,
     )
-    search_once = request_caller(driver, workload)
+    caller = request_caller(driver, workload)
 
     warmup = [] if metrics is not None else warmup_sample(config.latency, query_list)
-    latency = measure_latency(search_once, query_list, config.latency, server_time, warmup)
+    latency = measure_latency(
+        caller.send, caller.prepare_all(query_list), config.latency, server_time, caller.prepare_all(warmup)
+    )
     throughput = measure_throughput(workload, query_list, config.throughput, server_time, engine_cpu)
 
     stats = best_effort(lambda: driver.index_stats(index), "index stats")

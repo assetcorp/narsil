@@ -1,11 +1,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any, Callable, Sequence
 
 from .config import BM25Params, EngineConfig
+from .prepared_search import send_prepared
 from .registry import build_driver
 from .types import HYBRID, KEYWORD, VECTOR
+
+PREPARE_METHOD_BY_TRACK = {
+    KEYWORD: "prepare_search",
+    VECTOR: "prepare_vector_search",
+    HYBRID: "prepare_hybrid_search",
+}
 
 
 @dataclass(frozen=True)
@@ -54,39 +61,40 @@ def open_driver(workload: Workload):
     return driver
 
 
-def request_caller(driver, workload: Workload) -> Callable[[Any], Any]:
-    """The single-request call that both the latency and the throughput
-    measurement drive, so the two speed numbers come from the identical request
-    at the identical operating point.
+@dataclass(frozen=True)
+class RequestCaller:
+    prepare: Callable[[Any], Any]
+    send: Callable[[Any], Any]
 
-    The item it takes is the track's query payload: a term for keyword, a query
-    vector for vector, and the `(term, vector)` pair a hybrid query needs.
-    """
+    def prepare_all(self, items: Sequence[Any]) -> list[Any]:
+        return [self.prepare(item) for item in items]
 
+
+def _driver_search(driver, workload: Workload) -> RequestCaller:
     index = workload.index
     top_k = workload.top_k
     ef = workload.ef
 
     if workload.track == KEYWORD:
-
-        def keyword_once(term: str):
-            return driver.search(index, term, top_k)
-
-        return keyword_once
-
+        return RequestCaller(lambda term: term, lambda term: driver.search(index, term, top_k))
     if workload.track == VECTOR:
+        return RequestCaller(lambda vector: vector, lambda vector: driver.vector_search(index, vector, top_k, ef))
+    return RequestCaller(lambda pair: pair, lambda pair: driver.hybrid_search(index, pair[0], pair[1], top_k, ef))
 
-        def vector_once(vector: list[float]):
-            return driver.vector_search(index, vector, top_k, ef)
 
-        return vector_once
+def request_caller(driver, workload: Workload) -> RequestCaller:
+    index = workload.index
+    top_k = workload.top_k
+    ef = workload.ef
 
-    if workload.track == HYBRID:
-
-        def hybrid_once(pair: tuple[str, list[float]]):
-            term, vector = pair
-            return driver.hybrid_search(index, term, vector, top_k, ef)
-
-        return hybrid_once
-
-    raise ValueError(f"no request shape defined for track '{workload.track}'")
+    if workload.track not in (KEYWORD, VECTOR, HYBRID):
+        raise ValueError(f"no request shape defined for track '{workload.track}'")
+    prepare_method = PREPARE_METHOD_BY_TRACK[workload.track]
+    prepare = getattr(driver, prepare_method, None)
+    if prepare is None:
+        return _driver_search(driver, workload)
+    if workload.track == KEYWORD:
+        return RequestCaller(lambda term: prepare(index, term, top_k), send_prepared)
+    if workload.track == VECTOR:
+        return RequestCaller(lambda vector: prepare(index, vector, top_k, ef), send_prepared)
+    return RequestCaller(lambda pair: prepare(index, pair[0], pair[1], top_k, ef), send_prepared)

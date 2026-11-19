@@ -10,6 +10,7 @@ import httpx
 from ..core.config import BM25Params, EngineConfig
 from ..core.http_client import IMPORT_TIMEOUT, build_client
 from ..core.ingest import BatchOutcome, import_batches
+from ..core.prepared_search import PreparedSearch, prepare_request, raise_for_status, send_prepared
 from ..core.synonym_sets import SynonymRule, meilisearch_synonyms
 from ..core.types import (
     INTEGER_MS,
@@ -29,6 +30,17 @@ def _raise(response: httpx.Response) -> None:
     raise EngineError(
         f"HTTP {response.status_code} from {response.request.url}: {response.text[:500]}", response.status_code
     )
+
+
+def _read_search(status: int, content: bytes, url: str) -> SearchResponse:
+    raise_for_status(status, content, url)
+    payload = json.loads(content)
+    hits = [
+        Hit(doc_id=str(hit["id"]), score=float(hit.get("_rankingScore", 0.0)))
+        for hit in payload.get("hits", [])
+    ]
+    count = int(payload.get("estimatedTotalHits", len(hits)))
+    return SearchResponse(hits=hits, count=count, server_elapsed_ms=coerce_server_ms(payload.get("processingTimeMs")))
 
 
 class MeilisearchDriver:
@@ -124,7 +136,7 @@ class MeilisearchDriver:
         _raise(response)
         return int(response.json().get("numberOfDocuments", 0))
 
-    def search(self, index: str, term: str, limit: int) -> SearchResponse:
+    def prepare_search(self, index: str, term: str, limit: int) -> PreparedSearch:
         body = {
             "q": term,
             "limit": limit,
@@ -132,17 +144,10 @@ class MeilisearchDriver:
             "showRankingScore": True,
             "matchingStrategy": "frequency",
         }
-        response = self._client.post(f"/indexes/{index}/search", json=body)
-        _raise(response)
-        payload = response.json()
-        hits = [
-            Hit(doc_id=str(hit["id"]), score=float(hit.get("_rankingScore", 0.0)))
-            for hit in payload.get("hits", [])
-        ]
-        count = int(payload.get("estimatedTotalHits", len(hits)))
-        return SearchResponse(
-            hits=hits, count=count, server_elapsed_ms=coerce_server_ms(payload.get("processingTimeMs"))
-        )
+        return prepare_request(self._client, "POST", f"/indexes/{index}/search", _read_search, json=body)
+
+    def search(self, index: str, term: str, limit: int) -> SearchResponse:
+        return send_prepared(self.prepare_search(index, term, limit))
 
     def index_stats(self, index: str) -> dict | None:
         response = self._client.get(f"/indexes/{index}/stats")

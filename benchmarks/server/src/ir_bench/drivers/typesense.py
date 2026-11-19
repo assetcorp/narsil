@@ -10,6 +10,7 @@ import httpx
 from ..core.config import BM25Params, EngineConfig
 from ..core.http_client import IMPORT_TIMEOUT, build_client
 from ..core.ingest import BatchOutcome, import_batches
+from ..core.prepared_search import PreparedSearch, prepare_request, raise_for_status, send_prepared
 from ..core.synonym_sets import SynonymRule, typesense_synonym_items
 from ..core.types import (
     INTEGER_MS,
@@ -32,6 +33,20 @@ def _raise(response: httpx.Response) -> None:
         return
     raise EngineError(
         f"HTTP {response.status_code} from {response.request.url}: {response.text[:500]}", response.status_code
+    )
+
+
+def _read_page(status: int, content: bytes, url: str) -> SearchResponse:
+    raise_for_status(status, content, url)
+    payload = json.loads(content)
+    hits = [
+        Hit(doc_id=str(hit.get("document", {}).get("id")), score=float(hit.get("text_match", 0)))
+        for hit in payload.get("hits", [])
+    ]
+    return SearchResponse(
+        hits=hits,
+        count=int(payload.get("found", 0)),
+        server_elapsed_ms=coerce_server_ms(payload.get("search_time_ms")),
     )
 
 
@@ -121,6 +136,29 @@ class TypesenseDriver:
         _raise(response)
         return int(response.json().get("num_documents", 0))
 
+    def _prepare_page(self, index: str, term: str, limit: int, page: int) -> PreparedSearch:
+        return prepare_request(
+            self._client,
+            "GET",
+            f"/collections/{index}/documents/search",
+            _read_page,
+            params={
+                "q": term,
+                "query_by": "text",
+                "per_page": min(_PER_PAGE, limit),
+                "page": page,
+                "sort_by": "_text_match:desc",
+                "include_fields": "id",
+                "drop_tokens_threshold": limit,
+                "stopwords": _STOP_WORDS_SET,
+            },
+        )
+
+    def prepare_search(self, index: str, term: str, limit: int) -> PreparedSearch:
+        if limit > _PER_PAGE:
+            raise EngineError(f"a prepared Typesense search returns one page of at most {_PER_PAGE} hits")
+        return self._prepare_page(index, term, limit, 1)
+
     def search(self, index: str, term: str, limit: int) -> SearchResponse:
         hits: list[Hit] = []
         found = 0
@@ -129,31 +167,14 @@ class TypesenseDriver:
         max_pages = (limit + per_page - 1) // per_page
         server_ms: float | None = None
         while page <= max_pages and len(hits) < limit:
-            response = self._client.get(
-                f"/collections/{index}/documents/search",
-                params={
-                    "q": term,
-                    "query_by": "text",
-                    "per_page": per_page,
-                    "page": page,
-                    "sort_by": "_text_match:desc",
-                    "include_fields": "id",
-                    "drop_tokens_threshold": limit,
-                    "stopwords": _STOP_WORDS_SET,
-                },
-            )
-            _raise(response)
-            payload = response.json()
-            found = int(payload.get("found", 0))
-            page_ms = coerce_server_ms(payload.get("search_time_ms"))
+            page_result = send_prepared(self._prepare_page(index, term, limit, page))
+            found = page_result.count
+            page_ms = page_result.server_elapsed_ms
             if page_ms is not None:
                 server_ms = page_ms if server_ms is None else server_ms + page_ms
-            page_hits = payload.get("hits", [])
-            if not page_hits:
+            if not page_result.hits:
                 break
-            for hit in page_hits:
-                doc_id = str(hit.get("document", {}).get("id"))
-                hits.append(Hit(doc_id=doc_id, score=float(hit.get("text_match", 0))))
+            hits.extend(page_result.hits)
             page += 1
         return SearchResponse(hits=hits[:limit], count=found, server_elapsed_ms=server_ms)
 

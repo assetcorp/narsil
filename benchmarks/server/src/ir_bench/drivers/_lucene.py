@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 from typing import Iterable
 
@@ -7,6 +8,7 @@ import httpx
 
 from ..core.config import BM25Params, EngineConfig
 from ..core.http_client import IMPORT_TIMEOUT, build_client
+from ..core.prepared_search import PreparedSearch, prepare_request, raise_for_status, send_prepared
 from ..core.ingest import (
     NDJSON_CONTENT_TYPE,
     RETRYABLE_STATUS_CODES,
@@ -74,6 +76,20 @@ def _raise(response: httpx.Response) -> None:
     raise EngineError(
         f"HTTP {response.status_code} from {response.request.url}: {response.text[:500]}", response.status_code
     )
+
+
+def read_search_response(status: int, content: bytes, url: str) -> SearchResponse:
+    raise_for_status(status, content, url)
+    payload = json.loads(content)
+    hit_block = payload.get("hits", {})
+    hits = [
+        Hit(doc_id=str(hit["_id"]), score=float(hit["_score"]))
+        for hit in hit_block.get("hits", [])
+        if hit.get("_score") is not None
+    ]
+    total = hit_block.get("total", {})
+    count = int(total.get("value", len(hits))) if isinstance(total, dict) else int(total)
+    return SearchResponse(hits=hits, count=count, server_elapsed_ms=coerce_server_ms(payload.get("took")))
 
 
 class LuceneRestDriver:
@@ -239,22 +255,16 @@ class LuceneRestDriver:
         _raise(response)
         return int(response.json().get("count", 0))
 
-    def _post_search(self, index: str, body: dict, params: dict | None = None) -> SearchResponse:
-        response = self._client.post(f"/{index}/_search", json=body, params=params or {})
-        _raise(response)
-        payload = response.json()
-        hit_block = payload.get("hits", {})
-        hits = [
-            Hit(doc_id=str(hit["_id"]), score=float(hit["_score"]))
-            for hit in hit_block.get("hits", [])
-            if hit.get("_score") is not None
-        ]
-        total = hit_block.get("total", {})
-        count = int(total.get("value", len(hits))) if isinstance(total, dict) else int(total)
-        return SearchResponse(hits=hits, count=count, server_elapsed_ms=coerce_server_ms(payload.get("took")))
+    def _prepare_search(self, index: str, body: dict, params: dict | None = None) -> PreparedSearch:
+        return prepare_request(
+            self._client, "POST", f"/{index}/_search", read_search_response, json=body, params=params or {}
+        )
+
+    def prepare_search(self, index: str, term: str, limit: int) -> PreparedSearch:
+        return self._prepare_search(index, {"query": {"match": {"text": term}}, "size": limit, "_source": False})
 
     def search(self, index: str, term: str, limit: int) -> SearchResponse:
-        return self._post_search(index, {"query": {"match": {"text": term}}, "size": limit, "_source": False})
+        return send_prepared(self.prepare_search(index, term, limit))
 
     def index_stats(self, index: str) -> dict | None:
         response = self._client.get(f"/{index}/_stats/store")

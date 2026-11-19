@@ -181,7 +181,7 @@ def _tune(driver, config: BenchmarkConfig, spec: DatasetSpec, profile: str, inde
         def capture(i: int, response) -> None:
             approx[qset.ids[i]] = [hit.doc_id for hit in response.hits[: vec.recall_k]]
 
-        return timed_trip(search, query_vectors, capture), approx
+        return timed_trip(search.send, search.prepare_all(query_vectors), capture), approx
 
     if hasattr(driver, "set_rescore_oversample"):
         driver.set_rescore_oversample(None)
@@ -250,9 +250,9 @@ def run_vector_track(
     )
 
     print(f"{label} measuring latency and throughput at the operating point", flush=True)
-    vector_once = request_caller(driver, workload)
+    caller = request_caller(driver, workload)
     prior = [point.confirm_trip] if vec.recall_k <= config.latency.top_k else []
-    latency = measure_latency(vector_once, query_vectors, config.latency, server_time, (), prior)
+    latency = measure_latency(caller.send, caller.prepare_all(query_vectors), config.latency, server_time, (), prior)
     throughput = measure_throughput(workload, query_vectors, config.throughput, server_time, engine_cpu)
 
     stats = best_effort(lambda: driver.index_stats(index), "index stats")
@@ -353,9 +353,10 @@ def run_hybrid_track(
         vector_metric=vec.metric,
         rescore_oversample=vector_oversample,
     )
-    hybrid_once = request_caller(driver, workload)
+    caller = request_caller(driver, workload)
     warmup = [] if metrics is not None else warmup_sample(config.latency, pairs)
-    latency = measure_latency(hybrid_once, pairs, config.latency, server_time, warmup)
+    prepare = caller.prepare_all
+    latency = measure_latency(caller.send, prepare(pairs), config.latency, server_time, prepare(warmup))
     throughput = measure_throughput(workload, pairs, config.throughput, server_time, engine_cpu)
 
     stats = best_effort(lambda: driver.index_stats(index), "index stats")

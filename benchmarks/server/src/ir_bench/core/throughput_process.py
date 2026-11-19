@@ -11,6 +11,8 @@ from typing import Any, Callable, Protocol
 import numpy as np
 
 from .engine_cpu import cores_busy
+from .load_loop import PreparedLoad
+from .prepared_search import SHARED_SENDER, PreparedSearch
 from .throughput_workload import Workload, open_driver, request_caller
 from .types import EngineError
 
@@ -192,16 +194,26 @@ def _worker(
     barrier, which frees the parent to report it at once."""
 
     driver = None
+    load: PreparedLoad | None = None
     try:
-        items = unpack_items(packed)
         driver = open_driver(workload)
-        run_once = request_caller(driver, workload)
+        caller = request_caller(driver, workload)
+        items = caller.prepare_all(unpack_items(packed))
+        if items and all(isinstance(item, PreparedSearch) for item in items):
+            load = PreparedLoad(items, offset, threads)
+        prepared_load = load
+
+        def drive(seconds: float, collect: bool, capture: bool) -> list[Any]:
+            if prepared_load is not None:
+                return [prepared_load.run_window(seconds, collect, capture)]
+            return _drive_window(caller.send, items, offset, threads, seconds, collect, capture)
+
         if warmup_seconds > 0:
-            _drive_window(run_once, items, offset, threads, warmup_seconds, False, False)
+            drive(warmup_seconds, False, False)
         barrier.wait(timeout=SETUP_TIMEOUT_SECONDS)
         cpu_started = process_time()
         started = perf_counter()
-        window = _drive_window(run_once, items, offset, threads, duration_seconds, True, capture_server)
+        window = drive(duration_seconds, True, capture_server)
         elapsed = perf_counter() - started
         merged = ProcessResult(cpu_seconds=max(0.0, process_time() - cpu_started), elapsed_seconds=elapsed)
         for thread_result in window:
@@ -217,6 +229,9 @@ def _worker(
             pass
         outbox.put(None)
     finally:
+        if load is not None:
+            load.close()
+        SHARED_SENDER.close()
         if driver is not None:
             try:
                 driver.close()
