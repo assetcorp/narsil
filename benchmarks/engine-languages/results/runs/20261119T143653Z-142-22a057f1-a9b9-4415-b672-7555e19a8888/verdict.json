@@ -1,0 +1,697 @@
+{
+  "passed": true,
+  "failures": [],
+  "outputs": [
+    {
+      "source": "rep-1-typescript-keyword-1.json",
+      "engine": "typescript",
+      "workload": "keyword",
+      "threads": 1,
+      "failureCount": 0,
+      "recall10": null,
+      "recall100": null,
+      "hybridRecall10": null,
+      "maxVectorScoreError": null
+    },
+    {
+      "source": "rep-1-rust-keyword-1.json",
+      "engine": "rust",
+      "workload": "keyword",
+      "threads": 1,
+      "failureCount": 0,
+      "recall10": null,
+      "recall100": null,
+      "hybridRecall10": null,
+      "maxVectorScoreError": null
+    },
+    {
+      "source": "rep-1-go-keyword-1.json",
+      "engine": "go",
+      "workload": "keyword",
+      "threads": 1,
+      "failureCount": 0,
+      "recall10": null,
+      "recall100": null,
+      "hybridRecall10": null,
+      "maxVectorScoreError": null
+    },
+    {
+      "source": "rep-1-typescript-vector-1.json",
+      "engine": "typescript",
+      "workload": "vector",
+      "threads": 1,
+      "failureCount": 0,
+      "recall10": 0.9843333333333334,
+      "recall100": 0.9732,
+      "hybridRecall10": 0.9936666666666667,
+      "maxVectorScoreError": 1.975189266589794e-7
+    },
+    {
+      "source": "rep-1-rust-vector-1.json",
+      "engine": "rust",
+      "workload": "vector",
+      "threads": 1,
+      "failureCount": 0,
+      "recall10": 0.986,
+      "recall100": 0.9717333333333332,
+      "hybridRecall10": 0.995,
+      "maxVectorScoreError": 1.975189266589794e-7
+    },
+    {
+      "source": "rep-1-go-vector-1.json",
+      "engine": "go",
+      "workload": "vector",
+      "threads": 1,
+      "failureCount": 0,
+      "recall10": 0.9863333333333333,
+      "recall100": 0.9713666666666667,
+      "hybridRecall10": 0.9946666666666666,
+      "maxVectorScoreError": 1.975189266589794e-7
+    },
+    {
+      "source": "rep-1-typescript-keyword-8.json",
+      "engine": "typescript",
+      "workload": "keyword",
+      "threads": 8,
+      "failureCount": 0,
+      "recall10": null,
+      "recall100": null,
+      "hybridRecall10": null,
+      "maxVectorScoreError": null
+    },
+    {
+      "source": "rep-1-rust-keyword-8.json",
+      "engine": "rust",
+      "workload": "keyword",
+      "threads": 8,
+      "failureCount": 0,
+      "recall10": null,
+      "recall100": null,
+      "hybridRecall10": null,
+      "maxVectorScoreError": null
+    },
+    {
+      "source": "rep-1-go-keyword-8.json",
+      "engine": "go",
+      "workload": "keyword",
+      "threads": 8,
+      "failureCount": 0,
+      "recall10": null,
+      "recall100": null,
+      "hybridRecall10": null,
+      "maxVectorScoreError": null
+    },
+    {
+      "source": "rep-1-typescript-vector-8.json",
+      "engine": "typescript",
+      "workload": "vector",
+      "threads": 8,
+      "failureCount": 0,
+      "recall10": 0.9883333333333333,
+      "recall100": 0.9727333333333333,
+      "hybridRecall10": 0.995,
+      "maxVectorScoreError": 1.975189266589794e-7
+    },
+    {
+      "source": "rep-1-rust-vector-8.json",
+      "engine": "rust",
+      "workload": "vector",
+      "threads": 8,
+      "failureCount": 0,
+      "recall10": 0.9893333333333334,
+      "recall100": 0.9719,
+      "hybridRecall10": 0.996,
+      "maxVectorScoreError": 1.975189266589794e-7
+    },
+    {
+      "source": "rep-1-go-vector-8.json",
+      "engine": "go",
+      "workload": "vector",
+      "threads": 8,
+      "failureCount": 0,
+      "recall10": 0.9893333333333334,
+      "recall100": 0.9715666666666666,
+      "hybridRecall10": 0.9986666666666667,
+      "maxVectorScoreError": 1.975189266589794e-7
+    },
+    {
+      "source": "rep-2-rust-keyword-1.json",
+      "engine": "rust",
+      "workload": "keyword",
+      "threads": 1,
+      "failureCount": 0,
+      "recall10": null,
+      "recall100": null,
+      "hybridRecall10": null,
+      "maxVectorScoreError": null
+    },
+    {
+      "source": "rep-2-go-keyword-1.json",
+      "engine": "go",
+      "workload": "keyword",
+      "threads": 1,
+      "failureCount": 0,
+      "recall10": null,
+      "recall100": null,
+      "hybridRecall10": null,
+      "maxVectorScoreError": null
+    },
+    {
+      "source": "rep-2-typescript-keyword-1.json",
+      "engine": "typescript",
+      "workload": "keyword",
+      "threads": 1,
+      "failureCount": 0,
+      "recall10": null,
+      "recall100": null,
+      "hybridRecall10": null,
+      "maxVectorScoreError": null
+    },
+    {
+      "source": "rep-2-rust-vector-1.json",
+      "engine": "rust",
+      "workload": "vector",
+      "threads": 1,
+      "failureCount": 0,
+      "recall10": 0.9866666666666667,
+      "recall100": 0.9716666666666667,
+      "hybridRecall10": 0.995,
+      "maxVectorScoreError": 1.975189266589794e-7
+    },
+    {
+      "source": "rep-2-go-vector-1.json",
+      "engine": "go",
+      "workload": "vector",
+      "threads": 1,
+      "failureCount": 0,
+      "recall10": 0.9863333333333333,
+      "recall100": 0.9713666666666667,
+      "hybridRecall10": 0.9946666666666666,
+      "maxVectorScoreError": 1.975189266589794e-7
+    },
+    {
+      "source": "rep-2-typescript-vector-1.json",
+      "engine": "typescript",
+      "workload": "vector",
+      "threads": 1,
+      "failureCount": 0,
+      "recall10": 0.986,
+      "recall100": 0.9712999999999999,
+      "hybridRecall10": 0.995,
+      "maxVectorScoreError": 1.975189266589794e-7
+    },
+    {
+      "source": "rep-2-rust-keyword-8.json",
+      "engine": "rust",
+      "workload": "keyword",
+      "threads": 8,
+      "failureCount": 0,
+      "recall10": null,
+      "recall100": null,
+      "hybridRecall10": null,
+      "maxVectorScoreError": null
+    },
+    {
+      "source": "rep-2-go-keyword-8.json",
+      "engine": "go",
+      "workload": "keyword",
+      "threads": 8,
+      "failureCount": 0,
+      "recall10": null,
+      "recall100": null,
+      "hybridRecall10": null,
+      "maxVectorScoreError": null
+    },
+    {
+      "source": "rep-2-typescript-keyword-8.json",
+      "engine": "typescript",
+      "workload": "keyword",
+      "threads": 8,
+      "failureCount": 0,
+      "recall10": null,
+      "recall100": null,
+      "hybridRecall10": null,
+      "maxVectorScoreError": null
+    },
+    {
+      "source": "rep-2-rust-vector-8.json",
+      "engine": "rust",
+      "workload": "vector",
+      "threads": 8,
+      "failureCount": 0,
+      "recall10": 0.985,
+      "recall100": 0.9724666666666667,
+      "hybridRecall10": 0.995,
+      "maxVectorScoreError": 1.975189266589794e-7
+    },
+    {
+      "source": "rep-2-go-vector-8.json",
+      "engine": "go",
+      "workload": "vector",
+      "threads": 8,
+      "failureCount": 0,
+      "recall10": 0.9876666666666667,
+      "recall100": 0.9717333333333332,
+      "hybridRecall10": 0.995,
+      "maxVectorScoreError": 1.975189266589794e-7
+    },
+    {
+      "source": "rep-2-typescript-vector-8.json",
+      "engine": "typescript",
+      "workload": "vector",
+      "threads": 8,
+      "failureCount": 0,
+      "recall10": 0.9886666666666667,
+      "recall100": 0.9711,
+      "hybridRecall10": 0.9973333333333333,
+      "maxVectorScoreError": 1.975189266589794e-7
+    },
+    {
+      "source": "rep-3-go-keyword-1.json",
+      "engine": "go",
+      "workload": "keyword",
+      "threads": 1,
+      "failureCount": 0,
+      "recall10": null,
+      "recall100": null,
+      "hybridRecall10": null,
+      "maxVectorScoreError": null
+    },
+    {
+      "source": "rep-3-typescript-keyword-1.json",
+      "engine": "typescript",
+      "workload": "keyword",
+      "threads": 1,
+      "failureCount": 0,
+      "recall10": null,
+      "recall100": null,
+      "hybridRecall10": null,
+      "maxVectorScoreError": null
+    },
+    {
+      "source": "rep-3-rust-keyword-1.json",
+      "engine": "rust",
+      "workload": "keyword",
+      "threads": 1,
+      "failureCount": 0,
+      "recall10": null,
+      "recall100": null,
+      "hybridRecall10": null,
+      "maxVectorScoreError": null
+    },
+    {
+      "source": "rep-3-go-vector-1.json",
+      "engine": "go",
+      "workload": "vector",
+      "threads": 1,
+      "failureCount": 0,
+      "recall10": 0.9863333333333333,
+      "recall100": 0.9713666666666667,
+      "hybridRecall10": 0.9946666666666666,
+      "maxVectorScoreError": 1.975189266589794e-7
+    },
+    {
+      "source": "rep-3-typescript-vector-1.json",
+      "engine": "typescript",
+      "workload": "vector",
+      "threads": 1,
+      "failureCount": 0,
+      "recall10": 0.9856666666666666,
+      "recall100": 0.9715333333333332,
+      "hybridRecall10": 0.995,
+      "maxVectorScoreError": 1.975189266589794e-7
+    },
+    {
+      "source": "rep-3-rust-vector-1.json",
+      "engine": "rust",
+      "workload": "vector",
+      "threads": 1,
+      "failureCount": 0,
+      "recall10": 0.9856666666666666,
+      "recall100": 0.9719,
+      "hybridRecall10": 0.995,
+      "maxVectorScoreError": 1.975189266589794e-7
+    },
+    {
+      "source": "rep-3-go-keyword-8.json",
+      "engine": "go",
+      "workload": "keyword",
+      "threads": 8,
+      "failureCount": 0,
+      "recall10": null,
+      "recall100": null,
+      "hybridRecall10": null,
+      "maxVectorScoreError": null
+    },
+    {
+      "source": "rep-3-typescript-keyword-8.json",
+      "engine": "typescript",
+      "workload": "keyword",
+      "threads": 8,
+      "failureCount": 0,
+      "recall10": null,
+      "recall100": null,
+      "hybridRecall10": null,
+      "maxVectorScoreError": null
+    },
+    {
+      "source": "rep-3-rust-keyword-8.json",
+      "engine": "rust",
+      "workload": "keyword",
+      "threads": 8,
+      "failureCount": 0,
+      "recall10": null,
+      "recall100": null,
+      "hybridRecall10": null,
+      "maxVectorScoreError": null
+    },
+    {
+      "source": "rep-3-go-vector-8.json",
+      "engine": "go",
+      "workload": "vector",
+      "threads": 8,
+      "failureCount": 0,
+      "recall10": 0.9906666666666666,
+      "recall100": 0.9710666666666666,
+      "hybridRecall10": 0.9976666666666667,
+      "maxVectorScoreError": 1.975189266589794e-7
+    },
+    {
+      "source": "rep-3-typescript-vector-8.json",
+      "engine": "typescript",
+      "workload": "vector",
+      "threads": 8,
+      "failureCount": 0,
+      "recall10": 0.989,
+      "recall100": 0.9719,
+      "hybridRecall10": 0.9973333333333333,
+      "maxVectorScoreError": 1.975189266589794e-7
+    },
+    {
+      "source": "rep-3-rust-vector-8.json",
+      "engine": "rust",
+      "workload": "vector",
+      "threads": 8,
+      "failureCount": 0,
+      "recall10": 0.9866666666666667,
+      "recall100": 0.9721666666666666,
+      "hybridRecall10": 0.995,
+      "maxVectorScoreError": 1.975189266589794e-7
+    }
+  ],
+  "crossEngine": [
+    {
+      "metric": "recall10",
+      "engines": [
+        "go",
+        "rust"
+      ],
+      "builds": [
+        3,
+        3
+      ],
+      "threads": 1,
+      "meanDifference": 0.00022222222222222364,
+      "standardError": 0.0013261917001139358,
+      "bound": 0.005304766800455743,
+      "passed": true
+    },
+    {
+      "metric": "recall10",
+      "engines": [
+        "go",
+        "typescript"
+      ],
+      "builds": [
+        3,
+        3
+      ],
+      "threads": 1,
+      "meanDifference": 0.0010000000000000005,
+      "standardError": 0.0013481616920735919,
+      "bound": 0.005392646768294367,
+      "passed": true
+    },
+    {
+      "metric": "recall10",
+      "engines": [
+        "rust",
+        "typescript"
+      ],
+      "builds": [
+        3,
+        3
+      ],
+      "threads": 1,
+      "meanDifference": 0.0007777777777777769,
+      "standardError": 0.0012435223796404904,
+      "bound": 0.004974089518561962,
+      "passed": true
+    },
+    {
+      "metric": "recall100",
+      "engines": [
+        "go",
+        "rust"
+      ],
+      "builds": [
+        3,
+        3
+      ],
+      "threads": 1,
+      "meanDifference": -0.0004000000000000007,
+      "standardError": 0.0006903701364533212,
+      "bound": 0.002761480545813285,
+      "passed": true
+    },
+    {
+      "metric": "recall100",
+      "engines": [
+        "go",
+        "typescript"
+      ],
+      "builds": [
+        3,
+        3
+      ],
+      "threads": 1,
+      "meanDifference": -0.0006444444444444538,
+      "standardError": 0.0006810767652015775,
+      "bound": 0.00272430706080631,
+      "passed": true
+    },
+    {
+      "metric": "recall100",
+      "engines": [
+        "rust",
+        "typescript"
+      ],
+      "builds": [
+        3,
+        3
+      ],
+      "threads": 1,
+      "meanDifference": -0.00024444444444445305,
+      "standardError": 0.0005712448313421754,
+      "bound": 0.0022849793253687015,
+      "passed": true
+    },
+    {
+      "metric": "hybridRecall10",
+      "engines": [
+        "go",
+        "rust"
+      ],
+      "builds": [
+        3,
+        3
+      ],
+      "threads": 1,
+      "meanDifference": -0.00033333333333333213,
+      "standardError": 0.00081002329787128,
+      "bound": 0.00324009319148512,
+      "passed": true
+    },
+    {
+      "metric": "hybridRecall10",
+      "engines": [
+        "go",
+        "typescript"
+      ],
+      "builds": [
+        3,
+        3
+      ],
+      "threads": 1,
+      "meanDifference": 0.00011111111111111257,
+      "standardError": 0.0008692317375331093,
+      "bound": 0.003476926950132437,
+      "passed": true
+    },
+    {
+      "metric": "hybridRecall10",
+      "engines": [
+        "rust",
+        "typescript"
+      ],
+      "builds": [
+        3,
+        3
+      ],
+      "threads": 1,
+      "meanDifference": 0.00044444444444444474,
+      "standardError": 0.0005883659499852342,
+      "bound": 0.002353463799940937,
+      "passed": true
+    },
+    {
+      "metric": "recall10",
+      "engines": [
+        "go",
+        "rust"
+      ],
+      "builds": [
+        3,
+        3
+      ],
+      "threads": 8,
+      "meanDifference": 0.0022222222222222235,
+      "standardError": 0.0013011094307769683,
+      "bound": 0.005204437723107873,
+      "passed": true
+    },
+    {
+      "metric": "recall10",
+      "engines": [
+        "go",
+        "typescript"
+      ],
+      "builds": [
+        3,
+        3
+      ],
+      "threads": 8,
+      "meanDifference": 0.0005555555555555528,
+      "standardError": 0.001446501122765758,
+      "bound": 0.005786004491063032,
+      "passed": true
+    },
+    {
+      "metric": "recall10",
+      "engines": [
+        "rust",
+        "typescript"
+      ],
+      "builds": [
+        3,
+        3
+      ],
+      "threads": 8,
+      "meanDifference": -0.0016666666666666707,
+      "standardError": 0.0010573192252157813,
+      "bound": 0.004229276900863125,
+      "passed": true
+    },
+    {
+      "metric": "recall100",
+      "engines": [
+        "go",
+        "rust"
+      ],
+      "builds": [
+        3,
+        3
+      ],
+      "threads": 8,
+      "meanDifference": -0.0007222222222222256,
+      "standardError": 0.0007170584055196483,
+      "bound": 0.002868233622078593,
+      "passed": true
+    },
+    {
+      "metric": "recall100",
+      "engines": [
+        "go",
+        "typescript"
+      ],
+      "builds": [
+        3,
+        3
+      ],
+      "threads": 8,
+      "meanDifference": -0.0004555555555555568,
+      "standardError": 0.0008419948726815574,
+      "bound": 0.0033679794907262297,
+      "passed": true
+    },
+    {
+      "metric": "recall100",
+      "engines": [
+        "rust",
+        "typescript"
+      ],
+      "builds": [
+        3,
+        3
+      ],
+      "threads": 8,
+      "meanDifference": 0.00026666666666666874,
+      "standardError": 0.0006991421191093739,
+      "bound": 0.0027965684764374955,
+      "passed": true
+    },
+    {
+      "metric": "hybridRecall10",
+      "engines": [
+        "go",
+        "rust"
+      ],
+      "builds": [
+        3,
+        3
+      ],
+      "threads": 8,
+      "meanDifference": 0.0017777777777777792,
+      "standardError": 0.0007478170607386581,
+      "bound": 0.0029912682429546326,
+      "passed": true
+    },
+    {
+      "metric": "hybridRecall10",
+      "engines": [
+        "go",
+        "typescript"
+      ],
+      "builds": [
+        3,
+        3
+      ],
+      "threads": 8,
+      "meanDifference": 0.0005555555555555547,
+      "standardError": 0.0008096154054564837,
+      "bound": 0.0032384616218259347,
+      "passed": true
+    },
+    {
+      "metric": "hybridRecall10",
+      "engines": [
+        "rust",
+        "typescript"
+      ],
+      "builds": [
+        3,
+        3
+      ],
+      "threads": 8,
+      "meanDifference": -0.0012222222222222246,
+      "standardError": 0.0005951689011471343,
+      "bound": 0.0023806756045885373,
+      "passed": true
+    }
+  ],
+  "oracle": {
+    "python": "3.12.3",
+    "snowballstemmer": "3.1.1",
+    "englishRevision": "4026533016c7f4b1"
+  }
+}
