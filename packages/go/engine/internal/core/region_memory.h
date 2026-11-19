@@ -8,5 +8,6 @@ int narsil_go_region_commit(void *base, size_t bytes);
 void narsil_go_region_release(void *base, size_t bytes);
 size_t narsil_go_region_page_bytes(void);
 void narsil_go_region_zero(void *base, size_t from, size_t to);
+void narsil_go_region_prefer_huge_pages(void *base, size_t bytes);
 
 #endif
