@@ -45,6 +45,25 @@ def test_an_engine_that_missed_its_recall_target_neither_leads_a_sentence_nor_th
     assert "Narsil has the highest peak throughput in 1 of the 1 vector comparisons" in block
 
 
+def test_a_rival_ahead_of_the_typescript_server_but_behind_the_rust_server_does_not_lead():
+    vector = {
+        "track": "vector",
+        "datasets": [
+            {
+                "dataset_id": "beir/scifact/test",
+                "rows": [_row("narsil", 1659, True), _row("opensearch", 1719, True), _row("narsil-rust", 1971, True)],
+            }
+        ],
+    }
+
+    block = headline_block(_source([vector]), "BENCHMARKS.md", None)
+
+    assert "leads" not in block
+    assert "Narsil's TypeScript server answers 1,659 vector queries a second at its peak, and OpenSearch answers 1,719." in block
+    assert "Narsil's Rust server answers 1,971 vector queries a second at its peak." in block
+    assert "Narsil has the highest peak throughput in 1 of the 1 vector comparisons" in block
+
+
 def test_narsil_missing_its_recall_target_is_said_plainly():
     vector = {
         "track": "vector",

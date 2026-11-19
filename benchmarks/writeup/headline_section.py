@@ -158,6 +158,13 @@ def _rust_sentence(rust: dict | None, queries: str) -> str:
     return f" Narsil's Rust server answers {integer(rust_peak)} {queries} a second at its peak."
 
 
+def _rust_outpaces(rust: dict | None, rival_peak: float) -> bool:
+    if rust is None or is_unmeasured(rust) or not _met_its_recall_target(rust):
+        return False
+    rust_peak = peak_qps(rust)
+    return rust_peak is not None and rust_peak > rival_peak
+
+
 def _speed_sentence(rows: list[dict], opening: str, queries: str) -> str | None:
     """One sentence for Narsil's peak on a row, beside the fastest other engine that
     met the row's recall target, whether that engine leads Narsil or follows it."""
@@ -184,6 +191,8 @@ def _speed_sentence(rows: list[dict], opening: str, queries: str) -> str | None:
     fastest_peak = peak_qps(fastest) or 0.0
     name = engine_name(fastest.get("engine") or "")
     if fastest_peak > narsil_peak:
+        if _rust_outpaces(rust, fastest_peak):
+            return f"{sentence}, and {name} answers {integer(fastest_peak)}.{rust_sentence}"
         return f"{sentence}, while {name} leads with {integer(fastest_peak)}.{rust_sentence}"
     return f"{sentence}, and {name} follows with {integer(fastest_peak)}.{rust_sentence}"
 
