@@ -1,3 +1,13 @@
+## 0.4.0 (2026-11-19)
+
+### 🚀 Features
+
+- **container:** serve one Narsil node from environment variables in a published image ([5ae63bbb](https://github.com/assetcorp/narsil/commit/5ae63bbb))
+
+### ❤️ Thank You
+
+- assetcorp
+
 ## 0.3.0 (2026-11-14)
 
 This was a version bump only for narsil-embeddings-transformers to align it with other projects, there were no code changes.
