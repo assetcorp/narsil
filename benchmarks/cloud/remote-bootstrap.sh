@@ -12,7 +12,24 @@ GO_VERSION="1.26.11"
 GO_LINUX_AMD64_SHA256="9849f4e04ee35303714e34fbc3ac8ab44ea3e448a95aa182f91e3b9b79c710ec"
 GO_LINUX_ARM64_SHA256="6c2f29b458b5add0835f18b776f69c8881a6d88428f1484a6da55755e620757e"
 
+APT_TIMEOUT_SECONDS=20
+APT_RETRIES=5
+APT_SOURCES=/etc/apt/sources.list.d/ubuntu.sources
+UBUNTU_SECURITY_ARCHIVE="http://security.ubuntu.com/ubuntu"
+
 log() { printf '[bootstrap] %s\n' "$*"; }
+
+log "bound every apt download to ${APT_TIMEOUT_SECONDS} s and ${APT_RETRIES} retries"
+printf 'Acquire::http::Timeout "%s";\nAcquire::https::Timeout "%s";\nAcquire::Retries "%s";\n' \
+  "$APT_TIMEOUT_SECONDS" "$APT_TIMEOUT_SECONDS" "$APT_RETRIES" | sudo tee /etc/apt/apt.conf.d/99-narsil-bench >/dev/null
+
+if [ -f "$APT_SOURCES" ]; then
+  region_mirror="$(awk -v security="$UBUNTU_SECURITY_ARCHIVE" '$1 == "URIs:" && index($2, security) != 1 { print $2; exit }' "$APT_SOURCES")"
+  if [ -n "$region_mirror" ]; then
+    log "take security updates from $region_mirror, the archive mirror that this cloud region serves"
+    sudo sed -i "s#^URIs: ${UBUNTU_SECURITY_ARCHIVE}/\\{0,1\\}\$#URIs: ${region_mirror}#" "$APT_SOURCES"
+  fi
+fi
 
 log "apt packages"
 sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq
