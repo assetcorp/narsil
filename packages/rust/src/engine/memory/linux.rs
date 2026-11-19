@@ -1,3 +1,7 @@
+use std::ffi::{CStr, c_char, c_void};
+use std::ptr;
+use std::sync::OnceLock;
+
 use super::constants::KIBIBYTE_BYTES;
 
 const PROCESS_STATUS_PATH: &str = "/proc/self/status";
@@ -120,13 +124,56 @@ unsafe extern "C" {
     fn malloc_trim(pad: usize) -> i32;
 }
 
-/// Returns the allocator's free pages to the system, and reports whether any went back.
+unsafe extern "C" {
+    fn dlsym(handle: *mut c_void, symbol: *const c_char) -> *mut c_void;
+}
+
+type JemallocControl = unsafe extern "C" fn(
+    name: *const c_char,
+    old_value: *mut c_void,
+    old_length: *mut usize,
+    new_value: *mut c_void,
+    new_length: usize,
+) -> i32;
+
+const LOADED_LIBRARIES_SCOPE: *mut c_void = ptr::null_mut();
+const JEMALLOC_CONTROL_SYMBOL: &CStr = c"mallctl";
+const JEMALLOC_PURGE_EVERY_ARENA: &CStr = c"arena.4096.purge";
+
+fn jemalloc_control() -> Option<JemallocControl> {
+    static ADDRESS: OnceLock<usize> = OnceLock::new();
+    let address = *ADDRESS.get_or_init(|| {
+        unsafe { dlsym(LOADED_LIBRARIES_SCOPE, JEMALLOC_CONTROL_SYMBOL.as_ptr()) }.addr()
+    });
+    if address == 0 {
+        return None;
+    }
+    Some(unsafe { std::mem::transmute::<usize, JemallocControl>(address) })
+}
+
 #[cfg(target_env = "gnu")]
-pub(super) fn release_free_pages() -> bool {
+fn trim_system_allocator() -> bool {
     unsafe { malloc_trim(0) == 1 }
 }
 
 #[cfg(not(target_env = "gnu"))]
-pub(super) fn release_free_pages() -> bool {
+fn trim_system_allocator() -> bool {
     false
+}
+
+/// Returns the allocator's free pages to the system, purging every jemalloc arena where the process loaded
+/// jemalloc, and reports whether the release ran.
+pub(super) fn release_free_pages() -> bool {
+    match jemalloc_control() {
+        Some(control) => unsafe {
+            control(
+                JEMALLOC_PURGE_EVERY_ARENA.as_ptr(),
+                ptr::null_mut(),
+                ptr::null_mut(),
+                ptr::null_mut(),
+                0,
+            ) == 0
+        },
+        None => trim_system_allocator(),
+    }
 }
