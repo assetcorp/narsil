@@ -78,7 +78,7 @@ services:
 
   opensearch:
     profiles: ["opensearch"]
-    image: opensearchproject/opensearch:3.9.0
+    image: opensearchproject/opensearch:3.10.0
     mem_limit: "${BENCH_MEM_CAP:-8g}"
     cpuset: "${BENCH_ENGINE_CPUSET:-}"
     environment:

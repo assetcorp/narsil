@@ -27,14 +27,14 @@ reporting) lives in `src/ir_bench/core`, and each engine is a small driver in
 ## Engines and pinned versions
 
 Each engine runs from a pinned image. Every version was checked against the
-engine's release source on 2026-11-16.
+engine's release source on 2026-11-19.
 
 | Engine | Image (pinned) | Version | Source |
 | ------ | -------------- | ------- | ------ |
 | Narsil | built from this repo (`node:24-trixie-slim` base) | working tree | local source |
 | Narsil Rust server (`narsil-rust`) | built from this repo (`debian:trixie-slim` base) | working tree | local source |
 | Elasticsearch | `docker.elastic.co/elasticsearch/elasticsearch:9.5.6` | 9.5.6 | [release notes](https://www.elastic.co/docs/release-notes/elasticsearch), [GitHub releases](https://github.com/elastic/elasticsearch/releases) |
-| OpenSearch | `opensearchproject/opensearch:3.9.0` | 3.9.0 | [opensearch.org/releases](https://opensearch.org/releases/), [GitHub releases](https://github.com/opensearch-project/OpenSearch/releases) |
+| OpenSearch | `opensearchproject/opensearch:3.10.0` | 3.10.0 | [opensearch.org/releases](https://opensearch.org/releases/), [GitHub releases](https://github.com/opensearch-project/OpenSearch/releases) |
 | Qdrant | `qdrant/qdrant:v1.20.2` | 1.20.2 | [GitHub releases](https://github.com/qdrant/qdrant/releases), [Docker Hub](https://hub.docker.com/r/qdrant/qdrant/tags) |
 | Weaviate | `cr.weaviate.io/semitechnologies/weaviate:1.40.5` | 1.40.5 | [GitHub releases](https://github.com/weaviate/weaviate/releases) |
 | Typesense | `typesense/typesense:30.2` | 30.2 | [GitHub releases](https://github.com/typesense/typesense/releases) |
@@ -290,7 +290,7 @@ the engines you care about, set `BENCH_DATASETS`, or shorten the sweep with
   still separates engines on the small corpora where one query's server time falls
   below a millisecond. Both measures use the same matched-recall operating point.
   Throughput sweeps the levels in `throughput.concurrency`, which defaults to 1, 2,
-  4, 8, 16, 32, and 64 concurrent clients, once each, and then repeats the level
+  4, 8, 16, 32, 64, and 128 concurrent clients, once each, and then repeats the level
   with the highest queries per second until it holds `throughput.passes` passes.
   `run-all.sh` sets that count to three on the cloud profile and one on the smoke
   profile unless `BENCH_THROUGHPUT_PASSES` names another. The peak level reports
@@ -299,7 +299,12 @@ the engines you care about, set `BENCH_DATASETS`, or shorten the sweep with
   pass whole. The load generator spreads that concurrency across processes, because building a
   request and parsing its response is interpreter work and one Python process
   saturates near a single core: a threads-only client holds every engine to that
-  core divided by its per-request cost, whatever the engine could serve.
+  core divided by its per-request cost, whatever the engine could serve. Each process
+  encodes every request of the query set once, before its warmup, and then drives its
+  share of the connections from one event loop over keep-alive sockets, so the measured
+  window spends client time only on sending bytes and reading each response. Every
+  request asks for an uncompressed response, so no engine spends time compressing
+  what the harness would only decompress.
   `throughput.client_processes` sets how many processes drive the load
   (`BENCH_THROUGHPUT_CLIENT_PROCESSES` overrides it, and unset it takes half the
   cores that the harness container may use), and every level records the value used.
