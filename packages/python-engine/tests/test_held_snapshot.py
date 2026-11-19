@@ -44,7 +44,7 @@ def test_a_snapshot_to_a_path_saves_once_another_program_closes_the_file_that_it
     release_requested_at: list[float] = []
 
     def release() -> None:
-        release_requested_at.append(time.monotonic())
+        release_requested_at.append(time.perf_counter())
         holding.close()
 
     timer = threading.Timer(READER_HOLDS_AFTER_THE_SNAPSHOT_STARTS_SECONDS, release)
@@ -52,7 +52,7 @@ def test_a_snapshot_to_a_path_saves_once_another_program_closes_the_file_that_it
         assert reader.stdout.readline().strip() == "held", "the outside reader exited before it held the snapshot"
         timer.start()
         engine.snapshot(index_name, target)
-        saved_at = time.monotonic()
+        saved_at = time.perf_counter()
     finally:
         timer.cancel()
         if timer.is_alive():
