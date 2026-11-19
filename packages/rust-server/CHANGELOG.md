@@ -1,3 +1,7 @@
+## 0.1.3 (2026-11-19)
+
+This was a version bump only for narsil-rust-server to align it with other projects, there were no code changes.
+
 ## 0.1.2 (2026-11-17)
 
 This was a version bump only for narsil-rust-server to align it with other projects, there were no code changes.
