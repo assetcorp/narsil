@@ -15,10 +15,29 @@ LINE_END = b"\r\n"
 BODYLESS_STATUSES = frozenset({204, 304})
 CLOSE_TOKEN = b"close"
 CHUNKED_TOKEN = b"chunked"
+MAX_ERROR_CAUSES = 16
+ERROR_CAUSE_CHARACTERS = 200
+OTHER_ERROR_CAUSES = "other causes"
 
 
 class MalformedResponse(Exception):
     pass
+
+
+def error_cause(stage: str, exc: BaseException) -> str:
+    detail = " ".join(str(exc).split())
+    described = f"{type(exc).__name__}: {detail}" if detail else type(exc).__name__
+    return f"{stage}: {described}"[:ERROR_CAUSE_CHARACTERS]
+
+
+def count_error_cause(causes: dict[str, int], cause: str, count: int = 1) -> None:
+    key = cause if cause in causes or len(causes) < MAX_ERROR_CAUSES else OTHER_ERROR_CAUSES
+    causes[key] = causes.get(key, 0) + count
+
+
+def merge_error_causes(target: dict[str, int], source: dict[str, int]) -> None:
+    for cause, count in source.items():
+        count_error_cause(target, cause, count)
 
 
 @dataclass
@@ -27,6 +46,11 @@ class WindowResult:
     errors: int = 0
     client_ms: list[float] = field(default_factory=list)
     server_ms: list[float] = field(default_factory=list)
+    error_causes: dict[str, int] = field(default_factory=dict)
+
+    def fail(self, cause: str) -> None:
+        self.errors += 1
+        count_error_cause(self.error_causes, cause)
 
 
 @dataclass(frozen=True)
@@ -276,9 +300,9 @@ class PreparedLoad:
             try:
                 self._send_next(connection)
                 return
-            except OSError:
+            except OSError as exc:
                 self._drop(connection)
-                result.errors += 1
+                result.fail(error_cause("sending the request", exc))
                 self._advance(connection)
 
     def _service(
@@ -297,12 +321,12 @@ class PreparedLoad:
             if not mask & selectors.EVENT_READ:
                 return
             parsed = self._receive(connection)
-        except (OSError, MalformedResponse):
+        except (OSError, MalformedResponse) as exc:
             end = perf_counter()
             self._drop(connection)
             self._advance(connection)
             if end <= deadline:
-                result.errors += 1
+                result.fail(error_cause("receiving the response", exc))
                 self._start(connection, result, deadline)
             return
         if parsed is None:
@@ -315,8 +339,8 @@ class PreparedLoad:
             return
         try:
             response = self._prepared[item].read(parsed.status, parsed.body)
-        except Exception:
-            result.errors += 1
+        except Exception as exc:
+            result.fail(error_cause("reading the response", exc))
             self._start(connection, result, deadline)
             return
         result.completed += 1
@@ -333,7 +357,7 @@ class PreparedLoad:
             if connection.busy and now - connection.started > REQUEST_TIMEOUT_SECONDS:
                 self._drop(connection)
                 self._advance(connection)
-                result.errors += 1
+                result.fail(f"waiting for a response: none arrived within {REQUEST_TIMEOUT_SECONDS:g} seconds")
                 self._start(connection, result, deadline)
 
     def close(self) -> None:

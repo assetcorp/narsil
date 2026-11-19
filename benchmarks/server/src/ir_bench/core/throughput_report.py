@@ -89,6 +89,20 @@ def per_engine_lines(result: dict) -> list[str]:
                 bound="yes" if level.get("client_bound") else "no",
             )
         )
+    causes = _error_cause_lines(found)
+    if causes:
+        lines.extend(["", "Why each failed request failed:", "", *causes])
+    return lines
+
+
+def _error_cause_lines(found: list[dict]) -> list[str]:
+    lines: list[str] = []
+    for level in found:
+        causes = level.get("error_causes")
+        if not isinstance(causes, dict):
+            continue
+        for cause, count in sorted(causes.items(), key=lambda item: (-item[1], item[0])):
+            lines.append(f"- Concurrency {level.get('concurrency', 'n/a')}, {count} failed while {cause}")
     return lines
 
 

@@ -11,7 +11,7 @@ from typing import Any, Callable, Protocol
 import numpy as np
 
 from .engine_cpu import cores_busy
-from .load_loop import PreparedLoad
+from .load_loop import PreparedLoad, count_error_cause, error_cause, merge_error_causes
 from .prepared_search import SHARED_SENDER, PreparedSearch
 from .throughput_workload import Workload, open_driver, request_caller
 from .types import EngineError
@@ -27,13 +27,14 @@ class CpuCounter(Protocol):
 
 
 class _ThreadResult:
-    __slots__ = ("completed", "errors", "client_ms", "server_ms")
+    __slots__ = ("completed", "errors", "client_ms", "server_ms", "error_causes")
 
     def __init__(self) -> None:
         self.completed = 0
         self.errors = 0
         self.client_ms: list[float] = []
         self.server_ms: list[float] = []
+        self.error_causes: dict[str, int] = {}
 
 
 @dataclass
@@ -50,6 +51,7 @@ class ProcessResult:
     elapsed_seconds: float = 0.0
     client_ms: list[float] = field(default_factory=list)
     server_ms: list[float] = field(default_factory=list)
+    error_causes: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -126,17 +128,18 @@ def _drive(
         if index >= count:
             index = 0
         start = perf_counter()
+        failure: Exception | None = None
         try:
             response = run_once(item)
-            ok = True
-        except Exception:
+        except Exception as exc:
             response = None
-            ok = False
+            failure = exc
         end = perf_counter()
         if end > deadline:
             break
-        if not ok:
+        if failure is not None:
             result.errors += 1
+            count_error_cause(result.error_causes, error_cause("sending the search", failure))
             continue
         result.completed += 1
         if collect:
@@ -219,6 +222,7 @@ def _worker(
         for thread_result in window:
             merged.completed += thread_result.completed
             merged.errors += thread_result.errors
+            merge_error_causes(merged.error_causes, thread_result.error_causes)
             merged.client_ms.extend(thread_result.client_ms)
             merged.server_ms.extend(thread_result.server_ms)
         outbox.put(merged)
