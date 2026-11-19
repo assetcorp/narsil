@@ -136,6 +136,7 @@ cmd_setup() {
 
 cmd_run() {
   require_known_profile
+  require_known_engines
   log "launch the benchmark run (detached; survives an SSH drop)"
   local forward
   forward="$(printf '%q ' "SUITES=$SUITES" "BENCH_MACHINE_LABEL=${MACHINE_LABEL}" "BENCH_PROFILE=$PROFILE")"
@@ -177,6 +178,17 @@ require_known_profile() {
     cloud | smoke) ;;
     *) die "unknown BENCH_PROFILE '$PROFILE' (expected cloud or smoke)" ;;
   esac
+}
+
+require_known_engines() {
+  [ -n "${BENCH_SERVER_ENGINES:-}" ] || return 0
+  local known engine engines
+  known="$(sed -n 's/^  \([a-z][a-z-]*\):$/\1/p' "$REPO_ROOT/benchmarks/server/docker-compose.remote-engine.yml")"
+  read -r -a engines <<<"$BENCH_SERVER_ENGINES"
+  for engine in "${engines[@]}"; do
+    printf '%s\n' "$known" | grep -qxF -- "$engine" \
+      || die "BENCH_SERVER_ENGINES names the unknown engine '$engine'; separate engines with spaces and choose from: $(printf '%s\n' "$known" | paste -sd ' ' -)"
+  done
 }
 
 results_dir() {
@@ -270,6 +282,7 @@ cmd_status() {
 
 cmd_all() {
   require_known_profile
+  require_known_engines
   cmd_up
   cmd_sync
   cmd_setup

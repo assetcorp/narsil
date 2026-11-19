@@ -154,7 +154,8 @@ size_t narsil_workspace_bytes(const narsil_workspace *workspace) {
   if (workspace == NULL) { return 0; }
   size_t heap_entry = sizeof(int32_t) + sizeof(double);
   return sizeof *workspace + ((size_t)workspace->frontier.capacity * heap_entry) +
-         ((size_t)workspace->found.capacity * heap_entry) + ((size_t)workspace->visited_capacity * sizeof(uint32_t)) +
+         ((size_t)workspace->found.capacity * heap_entry) +
+         ((size_t)workspace->visited_capacity * sizeof *workspace->visited) +
          ((size_t)workspace->entry_point_capacity * sizeof(int32_t)) + workspace->dimension_scratch_bytes +
          link_bytes(workspace) + keyword_scratch_bytes(&workspace->keyword) + workspace->group_merge.bytes +
          workspace->groups.bytes + workspace->sort.bytes + workspace->sort_order.bytes + workspace->facets.bytes +
@@ -198,7 +199,7 @@ narsil_status workspace_reserve_visited(narsil_workspace *workspace, uint32_t sl
   if (slots <= workspace->visited_capacity) { return NARSIL_OK; }
   uint32_t held = workspace->visited_capacity == 0 ? INITIAL_VISITED_CAPACITY : workspace->visited_capacity;
   uint32_t capacity = grown_capacity(held, slots);
-  uint32_t *visited = core_allocate_zeroed(capacity, sizeof *visited);
+  uint8_t *visited = core_allocate_zeroed(capacity, sizeof *visited);
   if (visited == NULL) { return NARSIL_OUT_OF_MEMORY; }
   if (workspace->visited != NULL) {
     memcpy(visited, workspace->visited, (size_t)workspace->visited_capacity * sizeof *visited);

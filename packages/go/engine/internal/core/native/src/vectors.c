@@ -64,15 +64,27 @@ static int holds_a_live_vector(const narsil_store *store, int32_t ordinal) {
   return store->present[ordinal] == 1;
 }
 
-static const float *vector_in_a_file(const narsil_store *store, int32_t ordinal, float *scratch) {
+static const uint8_t *vector_bytes_in_a_file(const narsil_store *store, int32_t ordinal) {
   uint32_t position = (uint32_t)store->vector_file[ordinal];
   if (position >= store->file_count) { return NULL; }
   const narsil_vector_file *file = &store->files[position];
   uint64_t offset = store->vector_offset[ordinal];
   uint64_t bytes = (uint64_t)store->dimension * sizeof(float);
   if (file->bytes == NULL || offset + bytes > file->length) { return NULL; }
-  memcpy(scratch, file->bytes + offset, (size_t)bytes);
+  return file->bytes + offset;
+}
+
+static const float *vector_in_a_file(const narsil_store *store, int32_t ordinal, float *scratch) {
+  const uint8_t *start = vector_bytes_in_a_file(store, ordinal);
+  if (start == NULL) { return NULL; }
+  memcpy(scratch, start, (size_t)store->dimension * sizeof(float));
   return scratch;
+}
+
+static const float *scored_in_place(const uint8_t *start) {
+  const float *in_place = NULL;
+  memcpy((void *)&in_place, (const void *)&start, sizeof(in_place));
+  return in_place;
 }
 
 static const float *vector_in_a_block(const narsil_store *store, int32_t ordinal) {
@@ -91,6 +103,15 @@ const float *stored_vector(const narsil_store *store, int32_t ordinal, float *sc
   return vector_in_a_block(store, ordinal);
 }
 
+static const float *scoring_vector(const narsil_store *store, int32_t ordinal) {
+  if (!holds_a_live_vector(store, ordinal)) { return NULL; }
+  if (store->vector_file != NULL && store->vector_file[ordinal] >= 0) {
+    const uint8_t *start = vector_bytes_in_a_file(store, ordinal);
+    return start == NULL ? NULL : scored_in_place(start);
+  }
+  return vector_in_a_block(store, ordinal);
+}
+
 uint8_t *stored_record(const narsil_store *store, int32_t ordinal) {
   if (ordinal < 0 || store->records_per_block == 0 || store->bits == 0) { return NULL; }
   if ((uint32_t)ordinal >= (uint32_t)load_word(store->header, NARSIL_STORE_WORD_SLOTS)) { return NULL; }
@@ -100,21 +121,44 @@ uint8_t *stored_record(const narsil_store *store, int32_t ordinal) {
   return store->code_blocks[block] + (entry * narsil_record_bytes(store->dimension, store->bits));
 }
 
-static double metric_distance(const walk_context *context, float_query query, const float *vector, double magnitude) {
-  uint32_t dimension = context->store->dimension;
-  if (context->metric == NARSIL_METRIC_EUCLIDEAN) {
-    return sqrt((double)kernel_squared_distance(query.values, vector, dimension));
-  }
-  double dot = (double)kernel_dot(query.values, vector, dimension);
+static double distance_of_dot(const walk_context *context, float_query query, double dot, double magnitude) {
   if (context->metric == NARSIL_METRIC_DOT_PRODUCT) { return -dot; }
   if (query.magnitude == 0 || magnitude == 0) { return 1; }
   return 1 - (dot / (query.magnitude * magnitude));
 }
 
+static double metric_distance(const walk_context *context, float_query query, const float *vector, double magnitude) {
+  uint32_t dimension = context->store->dimension;
+  if (context->metric == NARSIL_METRIC_EUCLIDEAN) {
+    return sqrt((double)kernel_squared_distance(query.values, vector, dimension));
+  }
+  return distance_of_dot(context, query, (double)kernel_dot(query.values, vector, dimension), magnitude);
+}
+
 double float_distance(const walk_context *context, float_query query, int32_t ordinal) {
-  const float *vector = stored_vector(context->store, ordinal, context->workspace->stored_vector);
+  const float *vector = scoring_vector(context->store, ordinal);
   if (vector == NULL) { return HUGE_VAL; }
   return metric_distance(context, query, vector, context->store->magnitudes[ordinal]);
+}
+
+int walk_scores_in_batches(const walk_context *context) {
+  return !context->uses_codes && context->metric != NARSIL_METRIC_EUCLIDEAN;
+}
+
+void float_distance_batch(const walk_context *context, const int32_t *ordinals, double *distances) {
+  const float *vectors[DOT_BATCH];
+  for (uint32_t i = 0; i < DOT_BATCH; i++) {
+    vectors[i] = scoring_vector(context->store, ordinals[i]);
+    if (vectors[i] == NULL) {
+      for (uint32_t j = 0; j < DOT_BATCH; j++) { distances[j] = float_distance(context, context->query, ordinals[j]); }
+      return;
+    }
+  }
+  float dots[DOT_BATCH];
+  kernel_dot_batch(context->query.values, vectors, context->store->dimension, dots);
+  for (uint32_t i = 0; i < DOT_BATCH; i++) {
+    distances[i] = distance_of_dot(context, context->query, (double)dots[i], context->store->magnitudes[ordinals[i]]);
+  }
 }
 
 static double vector_pair_distance(const walk_context *context, int32_t first, int32_t second) {
@@ -136,6 +180,17 @@ double pair_distance(const walk_context *context, int32_t first, int32_t second)
     }
   }
   return vector_pair_distance(context, first, second);
+}
+
+void prefetch_for_scoring(const walk_context *context, int32_t ordinal) {
+#if defined(__GNUC__) || defined(__clang__)
+  if (ordinal < 0 || (uint32_t)ordinal >= context->store_slots) { return; }
+  __builtin_prefetch(context->store->present + ordinal);
+  __builtin_prefetch(context->store->magnitudes + ordinal);
+#else
+  (void)context;
+  (void)ordinal;
+#endif
 }
 
 void prefetch_for_walk(const walk_context *context, int32_t ordinal) {

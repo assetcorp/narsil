@@ -32,10 +32,11 @@ versions, and the datasets all come from the recorded run.
 
 <!-- BENCH:server-setup START -->
 - **Run.** These figures come from run `20261117T070716Z`, recorded on 2026-11-17 from commit `d3efdcbcb2d2`. The raw per-engine results and the full comparison are in [the run report](benchmarks/server/results/runs/20261117T070716Z/comparison.md).
+- **Rerun.** Narsil TypeScript's vector and hybrid figures on DBpedia entities 100K under recommended production settings come from run `20261117T172208Z`, in which the harness measured Narsil TypeScript 0.4.4 on GCP c3-standard-8, us-central1-a on 2026-11-17. The harness reran that pass because the request threads in Narsil TypeScript 0.4.3 kept searching a graph that the index had already replaced, so every search scanned all 100,000 vectors. Narsil TypeScript 0.4.4 includes [the fix](https://github.com/assetcorp/narsil/pull/264). [The rerun report](benchmarks/server/results/runs/20261117T172208Z/comparison-best-config.md) lists the raw results. As a control, Narsil Rust reached 1,608 queries a second at its peak on that machine, against 1,670 in run `20261117T070716Z`.
 - **Datasets.** The harness measured SciFact (5,183 documents), NFCorpus (3,633 documents), DBpedia entities 100K (100,000 documents), and DBpedia entities 1M (995,000 documents). SciFact is loaded and hash-verified through `ir_datasets`, with sentence-transformers/all-MiniLM-L6-v2 vectors at 384 dimensions; NFCorpus is loaded and hash-verified through `ir_datasets`, with sentence-transformers/all-MiniLM-L6-v2 vectors at 384 dimensions; DBpedia entities 100K is read from a published dataset artifact pinned by its SHA-256, with text-embedding-ada-002 vectors at 1,536 dimensions; DBpedia entities 1M is read from a published dataset artifact pinned by its SHA-256, with text-embedding-ada-002 vectors at 1,536 dimensions.
 - **Engines.** The comparison runs Narsil TypeScript 0.4.3 and Narsil Rust 0.4.3 against Elasticsearch 9.5.6, Meilisearch 1.57.0, OpenSearch 3.9.0, Qdrant 1.20.2, Typesense 30.2, and Weaviate 1.40.5, and every engine runs from a pinned image.
 - **Equal conditions.** Every engine receives the same 20 GiB memory cap, the same run depth of 1,000, and the same run-file ordering. The harness tests one engine at a time, so each engine has the machine to itself. Each Java engine divides that cap between its heap and the memory outside it. Elasticsearch reports a 10 GiB heap and OpenSearch reports a 6 GiB heap. The Narsil TypeScript server reports that its V8 heap can grow to 15 GiB inside that cap.
-- **Load.** The harness measures throughput at 1, 2, 4, 8, 16, 32, and 64 concurrent clients, with one pass per level and 3 passes at each engine's peak level. The tables report the median peak pass with a 95% bootstrap interval. The load generator shares the machine with the engine under test, so its client processes take CPU time that the engine could otherwise use. The harness measures every engine under that same arrangement.
+- **Load.** The harness measures throughput at 1, 2, 4, 8, 16, 32, and 64 concurrent clients, with one pass per level and 3 passes at each engine's peak level. The tables report the median peak pass with a 95% bootstrap interval. The load generator works on a separate machine from the engine under test, so its client processes take no CPU time from the engine, and it spreads the clients across 4 processes. The harness measures every engine under that same arrangement.
 - **Narsil TypeScript threads.** Narsil TypeScript started at the engine defaults, and the harness read 8 worker threads, 7 request threads receiving requests, and the benchmark index scaled out across them.
 - **Narsil TypeScript vector search.** The Narsil TypeScript server reports that it searches vector graphs through its native search core in C, which npm installs with the package on Node.js for macOS, Linux, and Windows.
 - **Machine.** The engines ran on 8 machines: Narsil TypeScript on GCP c3-standard-8, us-central1-a, which reports Intel(R) Xeon(R) Platinum 8481C CPU @ 2.70GHz and Linux 7.0.0-1017-gcp x86_64, Narsil Rust on GCP c3-standard-8, us-east1-b, which reports Intel(R) Xeon(R) Platinum 8481C CPU @ 2.70GHz and Linux 7.0.0-1017-gcp x86_64, Elasticsearch on GCP c3-standard-8, us-east4-a, which reports Intel(R) Xeon(R) Platinum 8481C CPU @ 2.70GHz and Linux 7.0.0-1017-gcp x86_64, Meilisearch on GCP c3-standard-8, us-south1-b, which reports Intel(R) Xeon(R) Platinum 8481C CPU @ 2.70GHz and Linux 7.0.0-1017-gcp x86_64, OpenSearch on GCP c3-standard-8, us-west1-a, which reports Intel(R) Xeon(R) Platinum 8481C CPU @ 2.70GHz and Linux 7.0.0-1017-gcp x86_64, Qdrant on GCP c3-standard-8, us-west4-a, which reports Intel(R) Xeon(R) Platinum 8481C CPU @ 2.70GHz and Linux 7.0.0-1017-gcp x86_64, Typesense on GCP c3-standard-8, us-west2-a, which reports Intel(R) Xeon(R) Platinum 8481C CPU @ 2.70GHz and Linux 7.0.0-1017-gcp x86_64, and Weaviate on GCP c3-standard-8, us-west3-b, which reports Intel(R) Xeon(R) Platinum 8481C CPU @ 2.70GHz and Linux 7.0.0-1017-gcp x86_64.
@@ -337,10 +338,12 @@ remain the headline.
 | --- | --- | ---: | ---: |
 | Qdrant (TurboQuant 4-bit) | hnsw_ef 128 | 0.9946 | 1,772 (1,733 to 1,773) (client-limited) |
 | Narsil Rust (OSQ 4-bit) | efSearch 128 | 0.9911 | 1,670 (1,666 to 1,673) (client-limited) |
+| Narsil TypeScript (OSQ 4-bit) | efSearch 128 | 0.9908 | 1,662 (1,654 to 1,665) (client-limited) |
 | OpenSearch (1-bit binary) | ef_search 160 | 0.9911 | 1,607 (1,601 to 1,608) (client-limited) |
 | Elasticsearch (BBQ) | num_candidates 1536 | 0.9917 | 1,532 (1,524 to 1,534) (client-limited) |
 | Weaviate (8-bit RQ) | ef 192 | 0.9929 | 602 (601 to 603) |
-| Narsil TypeScript (OSQ 4-bit) | efSearch 16 | 1.0000 | 8 (8 to 8) |
+
+The Rerun bullet under the setup explains why the Narsil TypeScript row comes from run `20261117T172208Z` on Narsil TypeScript 0.4.4.
 
 <img src="benchmarks/server/results/runs/20261117T070716Z/charts/best-config-vector-dbpedia-entities-openai-100k-sweep.svg" alt="Line panels for the vector track on DBpedia entities 100K against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
 
@@ -401,10 +404,12 @@ remain the headline.
 | --- | ---: |
 | Qdrant (TurboQuant 4-bit) | 1,710 (1,698 to 1,770) (client-limited) |
 | Narsil Rust (OSQ 4-bit) | 1,663 (1,661 to 1,663) (client-limited) |
+| Narsil TypeScript (OSQ 4-bit) | 1,649 (1,648 to 1,651) (client-limited) |
 | OpenSearch (1-bit binary) | 1,567 (1,546 to 1,567) (client-limited) |
 | Elasticsearch (BBQ) | 1,519 (1,519 to 1,528) (client-limited) |
 | Weaviate (8-bit RQ) | 466 (463 to 467) |
-| Narsil TypeScript (OSQ 4-bit) | 8 (8 to 8) |
+
+The Rerun bullet under the setup explains why the Narsil TypeScript row comes from run `20261117T172208Z` on Narsil TypeScript 0.4.4.
 
 <img src="benchmarks/server/results/runs/20261117T070716Z/charts/best-config-hybrid-dbpedia-entities-openai-100k-sweep.svg" alt="Line panels for the hybrid track on DBpedia entities 100K against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
 

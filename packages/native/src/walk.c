@@ -23,7 +23,7 @@ int graph_is_complete(const narsil_graph *graph) {
 
 static void begin_visit_round(narsil_workspace *workspace) {
   workspace->stamp += 1;
-  if (workspace->stamp == UINT32_MAX) {
+  if (workspace->stamp == 0) {
     memset(workspace->visited, 0, (size_t)workspace->visited_capacity * sizeof *workspace->visited);
     workspace->stamp = 1;
   }
@@ -84,28 +84,72 @@ static void prefetch_admission(const walk_context *context, int32_t ordinal) {
 #endif
 }
 
+static narsil_status offer_candidate(const walk_context *context, layer_search search, scored_node node,
+                                     double *furthest) {
+  if (node.distance == HUGE_VAL) { return NARSIL_OK; }
+  if (node.distance < *furthest || context->workspace->found.size < search.candidate_limit) {
+    return keep_candidate(context, search, node, furthest);
+  }
+  return NARSIL_OK;
+}
+
+static uint32_t score_pending(const walk_context *context, const int32_t *pending, uint32_t remaining, int in_batches,
+                              double *distances) {
+  if (in_batches && remaining >= DOT_BATCH) {
+    float_distance_batch(context, pending, distances);
+    return DOT_BATCH;
+  }
+  if (in_batches && remaining > 1) {
+    int32_t padded[DOT_BATCH];
+    for (uint32_t i = 0; i < DOT_BATCH; i++) { padded[i] = pending[i < remaining ? i : remaining - 1]; }
+    float_distance_batch(context, padded, distances);
+    return remaining;
+  }
+  distances[0] = walk_distance(context, pending[0]);
+  return 1;
+}
+
+static void prefetch_claim(const walk_context *context, int32_t ordinal) {
+#if defined(__GNUC__) || defined(__clang__)
+  if (ordinal < 0 || (uint32_t)ordinal >= context->slots) { return; }
+  __builtin_prefetch(context->workspace->visited + ordinal);
+  __builtin_prefetch(context->graph->node_levels + ordinal);
+#else
+  (void)context;
+  (void)ordinal;
+#endif
+}
+
 static narsil_status expand_node(const walk_context *context, layer_search search, double *furthest) {
   narsil_workspace *workspace = context->workspace;
   int32_t pending[MAX_NEIGHBOURS_PER_LIST];
   node_layer position = {workspace->frontier.top.ordinal, search.layer};
   uint32_t count = read_neighbours(context, position, workspace->neighbours);
+  int in_batches = walk_scores_in_batches(context);
   uint32_t pending_count = 0;
+  for (uint32_t i = 0; i < count; i++) { prefetch_claim(context, workspace->neighbours[i]); }
   for (uint32_t i = 0; i < count; i++) {
     int32_t neighbour = workspace->neighbours[i];
     if (!claim_unvisited_node(context, neighbour)) { continue; }
     pending[pending_count] = neighbour;
     pending_count += 1;
-    prefetch_for_walk(context, neighbour);
+    if (in_batches) {
+      prefetch_for_scoring(context, neighbour);
+    } else {
+      prefetch_for_walk(context, neighbour);
+    }
     if (search.keeps_pinned_only) { prefetch_admission(context, neighbour); }
   }
-  for (uint32_t i = 0; i < pending_count; i++) {
-    double distance = walk_distance(context, pending[i]);
-    if (distance == HUGE_VAL) { continue; }
-    if (distance < *furthest || workspace->found.size < search.candidate_limit) {
-      scored_node node = {pending[i], distance};
-      narsil_status status = keep_candidate(context, search, node, furthest);
+  uint32_t scored = 0;
+  while (scored < pending_count) {
+    double distances[DOT_BATCH];
+    uint32_t batch = score_pending(context, pending + scored, pending_count - scored, in_batches, distances);
+    for (uint32_t i = 0; i < batch; i++) {
+      scored_node node = {pending[scored + i], distances[i]};
+      narsil_status status = offer_candidate(context, search, node, furthest);
       if (status != NARSIL_OK) { return status; }
     }
+    scored += batch;
   }
   return NARSIL_OK;
 }

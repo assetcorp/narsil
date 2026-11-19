@@ -302,10 +302,12 @@ export interface WorkerConfig {
    * The keyword copies and the vector search pool share this many threads
    * between them, half each, in an embedded engine, so a budget of 4 gives 2
    * keyword copies and 2 vector search workers. The HTTP server holds a copy
-   * on every one of them and receives requests there. The engine takes the
-   * host's cores minus one by default, between 2 and 8. It caps a value that
-   * you set at 31, which is how many scratch slots the shared vector arena
-   * reserves.
+   * on every one of them and receives requests there. An embedded engine takes
+   * the host's cores minus one by default, which leaves a core for the
+   * caller's own thread, while the HTTP server takes one thread for each core,
+   * because its main thread answers no searches. Both defaults stay between 2
+   * and 8. The engine caps a value that you set at 31, which is how many
+   * scratch slots the shared vector arena reserves.
    */
   count?: number
   /** An index gains worker copies once it holds this many documents, 1,000 by default. */

@@ -7,7 +7,7 @@ from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
 from .config_datasets import DatasetSpec, load_datasets
-from .config_throughput import ThroughputConfig, load_throughput
+from .config_throughput import ENGINE_ADDRESS_ENV, ThroughputConfig, load_throughput
 from .http_client import POOL_CONNECTIONS
 from .types import KEYWORD, TRACKS
 
@@ -18,7 +18,6 @@ DEFAULT_LATENCY_MAX_REPEATS = 5
 DEFAULT_LATENCY_TOP_K = 10
 DEFAULT_TUNING_SAMPLE_QUERIES = 1000
 MAX_EF_SEARCH = 10_000
-ENGINE_ADDRESS_ENV = "BENCH_ENGINE_ADDRESS"
 
 
 def _url_on_engine_address(url: str, address: str) -> str | None:

@@ -10,6 +10,7 @@ from .config import BenchmarkConfig, EngineConfig
 from .config_datasets import DatasetSpec
 from .embeddings import EmbeddingStore
 from .engine_memory import CgroupMemoryCounter
+from .engine_settle import wait_for_quiet_engine
 from .keyword_relevance import load_keyword_index, score_keyword_queries
 from .latency import measure_latency, warmup_sample
 from .reporter import write_json
@@ -88,6 +89,7 @@ def run_keyword_track(
     qrels = ds.load_qrels(spec.dataset_id)
 
     loaded = load_keyword_index(driver, config, spec, label)
+    load_settle = wait_for_quiet_engine(engine_cpu, spec, f"[{label}]")
     index = loaded.name
     indexed = loaded.documents
     build_seconds = loaded.build_seconds
@@ -150,6 +152,7 @@ def run_keyword_track(
             "ingest_batch_size": config.import_batch,
             "index_size_bytes": index_size_bytes(stats),
             "raw_stats": stats,
+            "load_settle": load_settle,
         },
         "latency": latency,
         "throughput": throughput,

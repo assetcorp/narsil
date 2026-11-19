@@ -38,6 +38,7 @@ describe('removes from a frozen segment on a node whose heap is full', () => {
     const write = await runCommand(process.execPath, [REMOVAL_PROCESS_SCRIPT, jobPath, 'write'])
     expect(write.code, write.output).toBe(0)
     const run = await runCommand(process.execPath, [
+      '--expose-gc',
       `--max-old-space-size=${NODE_HEAP_MEGABYTES}`,
       REMOVAL_PROCESS_SCRIPT,
       jobPath,

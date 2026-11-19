@@ -49,7 +49,7 @@ class SearchEngine:
 
     def vector_search(self, index, vector, limit, ef):
         self.vector_efforts.append(ef)
-        threshold = 256 if vector[0] == 0 else 288
+        threshold = 280 if vector[0] == 0 else 288
         count = 10 if ef >= threshold else 9
         hits = [Hit(doc_id=f"d{i}", score=10.0 - i) for i in range(min(count, limit))]
         return SearchResponse(hits=hits, count=len(hits), server_elapsed_ms=None)

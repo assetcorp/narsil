@@ -73,6 +73,15 @@ func (r *Region) Resize(bytes uintptr) error {
 	return nil
 }
 
+func (r *Region) PreferHugePages() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.released {
+		return
+	}
+	C.narsil_go_region_prefer_huge_pages(r.base, C.size_t(r.reserved))
+}
+
 func (r *Region) Pointer() unsafe.Pointer {
 	return r.base
 }

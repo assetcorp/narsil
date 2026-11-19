@@ -24,6 +24,11 @@ const LARGE_TITLE_BYTES: usize = 64 * 1024;
 const STALL: Duration = Duration::from_secs(14);
 const CLOSE_DEADLINE: Duration = Duration::from_secs(30);
 const CHUNKED_END: &[u8] = b"\r\n0\r\n\r\n";
+const PEEKED_BYTES: usize = 4 * 1024 * 1024;
+const RECEIVE_BUFFER_STEADY: Duration = Duration::from_secs(1);
+const RECEIVE_BUFFER_POLL: Duration = Duration::from_millis(50);
+const GRAPH_BUILD_DEADLINE: Duration = Duration::from_secs(60);
+const GRAPH_BUILD_POLL: Duration = Duration::from_millis(100);
 
 fn same_fields(left: &Map, right: &Map) -> bool {
     left.len() == right.len()
@@ -90,6 +95,31 @@ async fn abandon(port: u16, path: &str) {
     drop(stream);
 }
 
+fn builds_a_graph(field_status: &Value) -> bool {
+    matches!(field_status, Value::Object(status) if status.get("building") != Some(&Value::Bool(false)))
+}
+
+async fn wait_until_no_graph_builds(port: u16) {
+    let status_path = format!("/indexes/{INDEX}/vector-maintenance");
+    let status = Call::new("GET", &status_path).authorized();
+    let deadline = tokio::time::Instant::now() + GRAPH_BUILD_DEADLINE;
+    loop {
+        let reply = send(port, &status).await;
+        assert_eq!(reply.status, 200);
+        let Some(Value::Array(fields)) = field(&reply.json(), "fields").cloned() else {
+            panic!("the vector maintenance status lists its fields");
+        };
+        if !fields.iter().any(builds_a_graph) {
+            return;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the vector graph finishes building within {GRAPH_BUILD_DEADLINE:?}"
+        );
+        tokio::time::sleep(GRAPH_BUILD_POLL).await;
+    }
+}
+
 async fn imported_count(reference: &ReferenceServer, index: &str) -> Value {
     let count = send(
         reference.port,
@@ -127,6 +157,7 @@ async fn exports_and_snapshots_stream_every_document_across_restarts() {
     let rust = RustServer::start(engine, feed_options(false, false)).await;
     let export = send(rust.port, &Call::new("GET", &export_path).authorized()).await;
     assert_holds_notes(&exported_documents(&export), FIRST_NOTES + LATER_NOTES);
+    wait_until_no_graph_builds(rust.port).await;
     let snapshot = send(rust.port, &Call::new("GET", &snapshot_path).authorized()).await;
     assert_eq!(snapshot.status, 200);
     assert_eq!(snapshot.header("content-type"), Some("application/x-tar"));
@@ -218,6 +249,25 @@ async fn connect_with_fixed_receive_buffer(port: u16) -> TcpStream {
         .expect("the server accepts a connection")
 }
 
+async fn wait_until_the_server_stops_sending(stream: &TcpStream) {
+    let mut queued = vec![0u8; PEEKED_BYTES];
+    let mut last_queued = 0;
+    let mut steady_since = tokio::time::Instant::now();
+    loop {
+        let now_queued = stream
+            .peek(&mut queued)
+            .await
+            .expect("the client reads what waits in its receive buffer");
+        if now_queued != last_queued {
+            last_queued = now_queued;
+            steady_since = tokio::time::Instant::now();
+        } else if steady_since.elapsed() >= RECEIVE_BUFFER_STEADY {
+            return;
+        }
+        tokio::time::sleep(RECEIVE_BUFFER_POLL).await;
+    }
+}
+
 async fn read_until_closed(stream: &mut TcpStream) -> Vec<u8> {
     let mut received = Vec::new();
     tokio::time::timeout(CLOSE_DEADLINE, stream.read_to_end(&mut received))
@@ -256,6 +306,9 @@ async fn a_stalled_download_is_cut_off_and_never_looks_complete() {
         let mut start = vec![0u8; ABANDONED_BYTES];
         assert!(stream.read(&mut start).await.expect("the answer starts") > 0);
         stalled.push((path, stream));
+    }
+    for (_, stream) in &stalled {
+        wait_until_the_server_stops_sending(stream).await;
     }
     tokio::time::sleep(STALL).await;
     let synonyms = send(

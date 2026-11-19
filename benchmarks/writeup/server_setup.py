@@ -12,12 +12,14 @@ from narsil_servers import (
     narsil_row,
 )
 from render import and_join, dataset_name, gibibytes, integer
+from reruns import rerun_bullets
 from run_conditions import (
     SINGLE_SERVER_LABEL,
     java_heap_sentence,
     load_sentence,
     narsil_heap_sentence,
     narsil_vector_search_bullets,
+    settle_sentence,
 )
 from sources import Source
 
@@ -182,6 +184,8 @@ def setup_block(source: Source, best: Source | None = None) -> str:
         f"- **Run.** These figures come from run `{source.run_id}`, recorded on {_date(source)} from commit "
         f"`{commit}`{dirty}. The raw per-engine results and the full comparison are in "
         f"[the run report]({source.report_link}).",
+        *rerun_bullets(comparison),
+        *rerun_bullets(best.data if best is not None else None),
         f"- **Datasets.** The harness measured {and_join(_dataset_phrases(keyword))}.{_vectors_sentence(config)}"
         f"{_dataset_engines_sentence(config, engines)}",
         _engines_bullet(engines, best.data if best is not None else None),
@@ -189,7 +193,7 @@ def setup_block(source: Source, best: Source | None = None) -> str:
         f"{integer(config.get('run_depth'))}, and the same run-file ordering. The harness tests one engine at a "
         f"time, so each engine has the machine to itself.{java_heap_sentence(engines)}"
         f"{narsil_heap_sentence(narsil, label)}",
-        f"- **Load.** {load_sentence(config)}",
+        f"- **Load.** {load_sentence(config, environment)}{settle_sentence(comparison)}",
         *([f"- **{label} threads.** {_threads_sentence(narsil, label)}"] if narsil and not is_unmeasured(narsil) else []),
         *narsil_vector_search_bullets(narsil, label),
         f"- **Machine.** {_machine_sentence(environment, engines)}",

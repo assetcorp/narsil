@@ -1,0 +1,10 @@
+{
+  "replaces_run": "20261117T070716Z",
+  "profile": "best-config",
+  "engine": "narsil",
+  "dataset_id": "dbpedia-entities-openai-100k",
+  "tracks": ["vector", "hybrid"],
+  "control_engine": "narsil-rust",
+  "reason": "the request threads in Narsil TypeScript 0.4.3 kept searching a graph that the index had already replaced, so every search scanned all 100,000 vectors",
+  "fix": "https://github.com/assetcorp/narsil/pull/264"
+}

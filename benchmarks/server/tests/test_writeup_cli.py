@@ -157,6 +157,65 @@ def test_charts_distinguish_missing_metrics_datasets_and_profiles(checkout):
     assert "Narsil Rust, not measured yet" in tail
 
 
+def write_rerun(root, run_id, declaration, best):
+    directory = root / "benchmarks/server/results/runs" / run_id
+    directory.mkdir(parents=True)
+    (directory / "run.json").write_text(json.dumps({"created_at": "2026-11-18T09:00:00+00:00"}))
+    (directory / "comparison-best-config.json").write_text(json.dumps(best))
+    (directory / "rerun.json").write_text(json.dumps(declaration))
+
+
+def vector_comparison(rows, version="0.4.3"):
+    data = comparison(rows)
+    data["tracks"][0]["track"] = "vector"
+    data["engines"] = [
+        {"name": entry["engine"], "build_identity": {"version": version}, "environment": {"machine_label": "GCP c3-standard-8"}}
+        for entry in rows
+    ]
+    return data
+
+
+RERUN_DECLARATION = {
+    "replaces_run": RUN,
+    "profile": "best-config",
+    "engine": "narsil",
+    "dataset_id": SCIFACT,
+    "tracks": ["vector"],
+    "control_engine": "narsil-rust",
+    "reason": "the engine searched a replaced graph",
+    "fix": "https://github.com/assetcorp/narsil/pull/264",
+}
+
+
+def test_a_rerun_replaces_only_its_declared_row_and_says_so(checkout):
+    base_best = vector_comparison([row("narsil", 8), row("narsil-rust", 1670), row("qdrant", 1200)])
+    write_comparison(checkout, vector_comparison([row("narsil", 1649), row("qdrant", 1100)]), base_best)
+    write_rerun(
+        checkout, "20261118T090000Z", RERUN_DECLARATION,
+        vector_comparison([row("narsil", 1702), row("narsil-rust", 1655), row("qdrant", 3)], version="0.4.4"),
+    )
+    page, _ = generate(checkout)
+    assert "1,702" in page and "| 8 |" not in page
+    assert "1,200" in page and "| 3 |" not in page
+    assert "1,649" in page.split("server-vector-best-config")[0]
+    assert "in which the harness measured Narsil TypeScript 0.4.4 on GCP c3-standard-8 on 2026-11-18" in page
+    assert "because the engine searched a replaced graph." in page
+    assert "reached 1,655 queries a second at its peak on that machine, against 1,670 in run `20261115T000000Z`" in page
+    assert "the Narsil TypeScript row comes from run `20261118T090000Z` on Narsil TypeScript 0.4.4" in page
+    assert f"These figures come from run `{RUN}`" in page
+
+
+def test_a_rerun_without_the_row_it_claims_to_replace_stops_the_page(checkout):
+    base_best = vector_comparison([row("narsil", 8), row("narsil-rust", 1670)])
+    write_comparison(checkout, vector_comparison([row("narsil", 1649)]), base_best)
+    write_rerun(checkout, "20261118T090000Z", RERUN_DECLARATION, vector_comparison([row("narsil-rust", 1655)]))
+    before = (checkout / "BENCHMARKS.md").read_bytes()
+    completed = command(checkout, "generate.py")
+    assert completed.returncode != 0
+    assert "holds no such row" in completed.stderr
+    assert (checkout / "BENCHMARKS.md").read_bytes() == before
+
+
 def test_unknown_recall_never_becomes_a_throughput_win(checkout):
     rust = row("narsil-rust", 1500)
     rust["operating_point"] = {"met_target": None, "achieved_recall": None}

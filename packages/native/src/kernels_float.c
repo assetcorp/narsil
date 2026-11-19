@@ -3,8 +3,15 @@
 #include <math.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 #define LANE_WIDTH 4U
+
+static inline float component(const float *values, size_t index) {
+  float value = 0;
+  memcpy(&value, (const unsigned char *)values + (index * sizeof(float)), sizeof(value));
+  return value;
+}
 #define UNROLLED_LANES 4U
 #define UNROLLED_WIDTH (LANE_WIDTH * UNROLLED_LANES)
 
@@ -43,7 +50,9 @@ typedef struct {
   float lane[LANE_WIDTH];
 } lanes;
 static inline lanes lanes_zero(void) { return (lanes){{0, 0, 0, 0}}; }
-static inline lanes lanes_load(const float *source) { return (lanes){{source[0], source[1], source[2], source[3]}}; }
+static inline lanes lanes_load(const float *source) {
+  return (lanes){{component(source, 0), component(source, 1), component(source, 2), component(source, 3)}};
+}
 static inline lanes lanes_add(lanes lhs, lanes rhs) {
   return (lanes){
       {lhs.lane[0] + rhs.lane[0], lhs.lane[1] + rhs.lane[1], lhs.lane[2] + rhs.lane[2], lhs.lane[3] + rhs.lane[3]}};
@@ -80,7 +89,7 @@ static inline float finish_dot(const float *lhs, const float *rhs, uint32_t dime
     first = lanes_add(first, lane_product(lhs + offset, rhs + offset, 0));
   }
   float sum = lanes_sum_in_pairs(lanes_add(lanes_add(first, dot.sums[1]), lanes_add(dot.sums[2], dot.sums[3])));
-  for (; offset < dimension; offset++) { sum = sum + (lhs[offset] * rhs[offset]); }
+  for (; offset < dimension; offset++) { sum = sum + (component(lhs, offset) * component(rhs, offset)); }
   return sum;
 }
 
@@ -125,6 +134,14 @@ int uses_hardware_avx2(void) {
   return state == AVX2_PRESENT;
 }
 
+__attribute__((target("avx2"))) static unrolled_dot unrolled_dot_of(__m256 first_half, __m256 second_half,
+                                                                    uint32_t offset) {
+  unrolled_dot dot = {{_mm256_castps256_ps128(first_half), _mm256_extractf128_ps(first_half, 1),
+                       _mm256_castps256_ps128(second_half), _mm256_extractf128_ps(second_half, 1)},
+                      offset};
+  return dot;
+}
+
 __attribute__((target("avx2"))) static float dot_in_wide_lanes(const float *lhs, const float *rhs, uint32_t dimension) {
   uint32_t unrolled_end = whole_steps(dimension, UNROLLED_WIDTH);
   __m256 first_half = _mm256_setzero_ps();
@@ -135,10 +152,41 @@ __attribute__((target("avx2"))) static float dot_in_wide_lanes(const float *lhs,
     second_half = _mm256_add_ps(second_half, _mm256_mul_ps(_mm256_loadu_ps(lhs + offset + WIDE_LANE_WIDTH),
                                                            _mm256_loadu_ps(rhs + offset + WIDE_LANE_WIDTH)));
   }
-  unrolled_dot dot = {{_mm256_castps256_ps128(first_half), _mm256_extractf128_ps(first_half, 1),
-                       _mm256_castps256_ps128(second_half), _mm256_extractf128_ps(second_half, 1)},
-                      offset};
-  return finish_dot(lhs, rhs, dimension, dot);
+  return finish_dot(lhs, rhs, dimension, unrolled_dot_of(first_half, second_half, offset));
+}
+
+__attribute__((target("avx2"))) static void dot_batch_in_wide_lanes(const float *query, const float *const *vectors,
+                                                                    uint32_t dimension, float *dots) {
+  uint32_t unrolled_end = whole_steps(dimension, UNROLLED_WIDTH);
+  __m256 first_half0 = _mm256_setzero_ps();
+  __m256 second_half0 = _mm256_setzero_ps();
+  __m256 first_half1 = _mm256_setzero_ps();
+  __m256 second_half1 = _mm256_setzero_ps();
+  __m256 first_half2 = _mm256_setzero_ps();
+  __m256 second_half2 = _mm256_setzero_ps();
+  __m256 first_half3 = _mm256_setzero_ps();
+  __m256 second_half3 = _mm256_setzero_ps();
+  uint32_t offset = 0;
+  for (; offset < unrolled_end; offset += UNROLLED_WIDTH) {
+    __m256 query_first = _mm256_loadu_ps(query + offset);
+    __m256 query_second = _mm256_loadu_ps(query + offset + WIDE_LANE_WIDTH);
+    first_half0 = _mm256_add_ps(first_half0, _mm256_mul_ps(query_first, _mm256_loadu_ps(vectors[0] + offset)));
+    second_half0 = _mm256_add_ps(second_half0,
+                                 _mm256_mul_ps(query_second, _mm256_loadu_ps(vectors[0] + offset + WIDE_LANE_WIDTH)));
+    first_half1 = _mm256_add_ps(first_half1, _mm256_mul_ps(query_first, _mm256_loadu_ps(vectors[1] + offset)));
+    second_half1 = _mm256_add_ps(second_half1,
+                                 _mm256_mul_ps(query_second, _mm256_loadu_ps(vectors[1] + offset + WIDE_LANE_WIDTH)));
+    first_half2 = _mm256_add_ps(first_half2, _mm256_mul_ps(query_first, _mm256_loadu_ps(vectors[2] + offset)));
+    second_half2 = _mm256_add_ps(second_half2,
+                                 _mm256_mul_ps(query_second, _mm256_loadu_ps(vectors[2] + offset + WIDE_LANE_WIDTH)));
+    first_half3 = _mm256_add_ps(first_half3, _mm256_mul_ps(query_first, _mm256_loadu_ps(vectors[3] + offset)));
+    second_half3 = _mm256_add_ps(second_half3,
+                                 _mm256_mul_ps(query_second, _mm256_loadu_ps(vectors[3] + offset + WIDE_LANE_WIDTH)));
+  }
+  dots[0] = finish_dot(query, vectors[0], dimension, unrolled_dot_of(first_half0, second_half0, offset));
+  dots[1] = finish_dot(query, vectors[1], dimension, unrolled_dot_of(first_half1, second_half1, offset));
+  dots[2] = finish_dot(query, vectors[2], dimension, unrolled_dot_of(first_half2, second_half2, offset));
+  dots[3] = finish_dot(query, vectors[3], dimension, unrolled_dot_of(first_half3, second_half3, offset));
 }
 #endif
 
@@ -166,6 +214,16 @@ float kernel_dot(const float *lhs, const float *rhs, uint32_t dimension) {
   return dot_in_narrow_lanes(lhs, rhs, dimension);
 }
 
+void kernel_dot_batch(const float *query, const float *const *vectors, uint32_t dimension, float *dots) {
+#ifdef NARSIL_AVX2
+  if (uses_hardware_avx2()) {
+    dot_batch_in_wide_lanes(query, vectors, dimension, dots);
+    return;
+  }
+#endif
+  for (uint32_t i = 0; i < DOT_BATCH; i++) { dots[i] = dot_in_narrow_lanes(query, vectors[i], dimension); }
+}
+
 float kernel_squared_distance(const float *lhs, const float *rhs, uint32_t dimension) {
   uint32_t lanes_end = whole_steps(dimension, LANE_WIDTH);
   lanes running = lanes_zero();
@@ -176,7 +234,7 @@ float kernel_squared_distance(const float *lhs, const float *rhs, uint32_t dimen
   }
   float sum = lanes_sum_in_pairs(running);
   for (; offset < dimension; offset++) {
-    float difference = lhs[offset] - rhs[offset];
+    float difference = component(lhs, offset) - component(rhs, offset);
     sum = sum + (difference * difference);
   }
   return sum;
