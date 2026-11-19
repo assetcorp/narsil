@@ -20,6 +20,11 @@ def recall_unrecorded(row: dict) -> bool:
     return "met_target" in point and point["met_target"] is None
 
 
+def met_recall_target(row: dict) -> bool:
+    point = row.get("operating_point")
+    return not recall_unrecorded(row) and (not isinstance(point, dict) or point.get("met_target") is not False)
+
+
 def levels(row: dict) -> list[dict]:
     block = row.get("throughput") or {}
     items = block.get("levels") or []

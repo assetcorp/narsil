@@ -74,9 +74,10 @@ def test_each_narsil_server_has_its_own_row_and_an_unmeasured_one_says_so():
     keyword = server_blocks(_source(with_every_narsil_server(_comparison())), None)["server-keyword"]
     scifact, nfcorpus = keyword.split("**NFCorpus.**")
 
-    assert "| Narsil TypeScript | 0.6810 | 0.9000 | 0.6000 | 0.6500 | 900 |" in scifact
-    assert "| Narsil Rust | 0.6810 | 0.9000 | 0.6000 | 0.6500 | 1,500 |" in scifact
-    assert "| Narsil TypeScript | 0.3250 | 0.9000 | 0.6000 | 0.6500 | 800 |" in nfcorpus
+    assert "| Narsil TypeScript | **0.6810**\\* | 0.9000 | 0.6000 | 0.6500 | 900 |" in scifact
+    assert "| Narsil Rust | **0.6810**\\* | 0.9000 | 0.6000 | 0.6500 | **1,500**\\* |" in scifact
+    assert "| Elasticsearch | 0.6790 | 0.9000 | 0.6000 | 0.6500 | 1,000 |" in scifact
+    assert "| Narsil TypeScript | **0.3250**\\* | 0.9000 | 0.6000 | 0.6500 | **800**\\* |" in nfcorpus
     assert (
         "| Narsil Rust | not measured yet | not measured yet | not measured yet | not measured yet | not measured yet |"
     ) in nfcorpus

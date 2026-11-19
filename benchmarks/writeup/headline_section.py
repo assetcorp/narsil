@@ -16,7 +16,7 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
-from chart_data import dataset_rows, peak_qps, recall_unrecorded, tracks
+from chart_data import dataset_rows, met_recall_target, peak_qps, recall_unrecorded, tracks
 from narsil_servers import (
     NARSIL_RUST,
     NARSIL_TYPESCRIPT,
@@ -72,11 +72,6 @@ def _row(rows: list[dict], engine: str) -> dict | None:
 def _ndcg10(row: dict | None) -> float | None:
     value = ((row or {}).get("metrics") or {}).get(_QUALITY_METRIC)
     return float(value) if is_number(value) else None
-
-
-def _met_its_recall_target(row: dict) -> bool:
-    point = row.get("operating_point")
-    return not recall_unrecorded(row) and (not isinstance(point, dict) or point.get("met_target") is not False)
 
 
 def _unranked_sentence(row: dict, subject: str) -> str:
@@ -153,13 +148,13 @@ def _rust_sentence(rust: dict | None, queries: str) -> str:
     rust_peak = peak_qps(rust)
     if rust_peak is None:
         return ""
-    if not _met_its_recall_target(rust):
+    if not met_recall_target(rust):
         return " " + _unranked_sentence(rust, "Narsil's Rust server")
     return f" Narsil's Rust server answers {integer(rust_peak)} {queries} a second at its peak."
 
 
 def _rust_outpaces(rust: dict | None, rival_peak: float) -> bool:
-    if rust is None or is_unmeasured(rust) or not _met_its_recall_target(rust):
+    if rust is None or is_unmeasured(rust) or not met_recall_target(rust):
         return False
     rust_peak = peak_qps(rust)
     return rust_peak is not None and rust_peak > rival_peak
@@ -177,12 +172,12 @@ def _speed_sentence(rows: list[dict], opening: str, queries: str) -> str | None:
         return f"{opening}, {sentence}" if sentence else None
     subject = "Narsil" if rust is None else "Narsil's TypeScript server"
     rust_sentence = _rust_sentence(rust, queries)
-    if not _met_its_recall_target(narsil):
+    if not met_recall_target(narsil):
         return f"{opening}, {_unranked_sentence(narsil, subject)}{rust_sentence}"
     others = [
         row
         for row in rows
-        if not is_narsil_server(row.get("engine")) and peak_qps(row) is not None and _met_its_recall_target(row)
+        if not is_narsil_server(row.get("engine")) and peak_qps(row) is not None and met_recall_target(row)
     ]
     sentence = f"{opening}, {subject} answers {integer(narsil_peak)} {queries} a second at its peak"
     fastest = max(others, key=lambda row: peak_qps(row) or 0.0, default=None)
@@ -216,7 +211,7 @@ def _vector_sentence(comparison: dict) -> str | None:
     if is_number(target):
         held = (
             f" with every engine held at {decimal(target, 2)} recall"
-            if all(_met_its_recall_target(row) for row in measured)
+            if all(met_recall_target(row) for row in measured)
             else f" at a recall target of {decimal(target, 2)}"
         )
     return _speed_sentence(rows, f"On {dataset_name(dataset_id)}{held}", "vector queries")
@@ -252,7 +247,7 @@ def _tally(comparison: dict) -> _Tally:
             compared += 1
             if entry.get("track") not in names:
                 names.append(entry.get("track"))
-            ranked = [row for row in rows if _met_its_recall_target(row)]
+            ranked = [row for row in rows if met_recall_target(row)]
             best = max(ranked, key=lambda row: peak_qps(row) or 0.0, default=None)
             if best is not None and any(
                 is_narsil_server(row.get("engine")) and peak_qps(row) == peak_qps(best) for row in ranked

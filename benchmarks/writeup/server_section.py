@@ -9,6 +9,7 @@ the charts drawn into the run's own directory.
 
 from __future__ import annotations
 
+from best_marks import best_text, marked
 from chart_data import (
     BEST_CONFIG,
     EQUAL_PRECISION,
@@ -17,6 +18,7 @@ from chart_data import (
     has_recall_curve,
     has_sweep,
     has_tail,
+    met_recall_target,
     number,
     peak_interval,
     peak_level,
@@ -35,6 +37,7 @@ from sources import Source
 NDCG_RANK_FIELD = "ndcg_rank"
 NDCG_RANK_HEADER = "nDCG@10 rank"
 NDCG_SIGNIFICANCE_FIELD = "ndcg_significance"
+QUALITY_METRICS = ("ndcg_cut_10", "recall_100", "map", "recip_rank")
 
 
 def _measured_first(rows: list[dict], key) -> list[dict]:
@@ -55,8 +58,24 @@ def _client_bound(row: dict) -> bool:
     return bool(peak and peak.get("client_bound"))
 
 
-def _qps_cell(row: dict) -> str:
-    cell = integer(peak_qps(row))
+def _ranks_on_speed(row: dict) -> bool:
+    return not is_unmeasured(row) and met_recall_target(row)
+
+
+def _best_qps(rows: list[dict]) -> str | None:
+    return best_text([(peak_qps(row), integer(peak_qps(row))) for row in rows if _ranks_on_speed(row)], True)
+
+
+def _best_metrics(rows: list[dict]) -> dict[str, str | None]:
+    measured = [row for row in rows if not is_unmeasured(row)]
+    return {
+        key: best_text([(_metric(row, key), decimal(_metric(row, key), 4)) for row in measured], True)
+        for key in QUALITY_METRICS
+    }
+
+
+def _qps_cell(row: dict, best: str | None) -> str:
+    cell = marked(integer(peak_qps(row)), best, _ranks_on_speed(row))
     interval = peak_interval(row)
     if interval is not None and interval[0] != interval[1]:
         cell += f" ({integer(interval[0])} to {integer(interval[1])})"
@@ -73,38 +92,38 @@ def _ranked(rows: list[dict]) -> bool:
     return any(NDCG_RANK_FIELD in row for row in rows)
 
 
-def _quality_cells(row: dict, profile: str, ranked: bool) -> list[str]:
+def _quality_cells(
+    row: dict, profile: str, ranked: bool, metric_bests: dict[str, str | None], qps_best: str | None
+) -> list[str]:
     if is_unmeasured(row):
         return _unmeasured_cells(row, profile, 6 if ranked else 5)
     rank = [integer(row.get(NDCG_RANK_FIELD))] if ranked else []
-    return [
-        row_label(row, profile),
-        decimal(_metric(row, "ndcg_cut_10"), 4),
-        *rank,
-        decimal(_metric(row, "recall_100"), 4),
-        decimal(_metric(row, "map"), 4),
-        decimal(_metric(row, "recip_rank"), 4),
-        _qps_cell(row),
-    ]
+    ndcg, *others = (marked(decimal(_metric(row, key), 4), metric_bests[key]) for key in QUALITY_METRICS)
+    return [row_label(row, profile), ndcg, *rank, *others, _qps_cell(row, qps_best)]
 
 
 def _quality_table(rows: list[dict], profile: str) -> str:
+    qps_best = _best_qps(rows)
     if not _judged(rows):
         ordered = _measured_first(rows, lambda row: peak_qps(row) or -1.0)
         body = [
-            _unmeasured_cells(row, profile, 1) if is_unmeasured(row) else [row_label(row, profile), _qps_cell(row)]
+            _unmeasured_cells(row, profile, 1)
+            if is_unmeasured(row)
+            else [row_label(row, profile), _qps_cell(row, qps_best)]
             for row in ordered
         ]
         return table(["Engine", "Peak QPS"], ["left", "right"], body)
     ranked = _ranked(rows)
+    metric_bests = _best_metrics(rows)
     ordered = _measured_first(rows, lambda row: _metric(row, "ndcg_cut_10") or -1.0)
-    body = [_quality_cells(row, profile, ranked) for row in ordered]
+    body = [_quality_cells(row, profile, ranked, metric_bests, qps_best) for row in ordered]
     rank = [NDCG_RANK_HEADER] if ranked else []
     headers = ["Engine", "nDCG@10", *rank, "Recall@100", "MAP", "MRR", "Peak QPS"]
     return table(headers, ["left", "right", *(["right"] * len(rank)), "right", "right", "right", "right"], body)
 
 
 def _vector_table(rows: list[dict], profile: str) -> str:
+    qps_best = _best_qps(rows)
     ordered = _measured_first(rows, lambda row: peak_qps(row) or -1.0)
     body = []
     for row in ordered:
@@ -115,7 +134,9 @@ def _vector_table(rows: list[dict], profile: str) -> str:
         knob = point.get("knob")
         value = point.get("chosen_value")
         knob_cell = f"{knob} {value}" if knob is not None and value is not None else "n/a"
-        body.append([row_label(row, profile), knob_cell, decimal(point.get("achieved_recall"), 4), _qps_cell(row)])
+        body.append(
+            [row_label(row, profile), knob_cell, decimal(point.get("achieved_recall"), 4), _qps_cell(row, qps_best)]
+        )
     headers = ["Engine", "Search effort", "ANN recall@10", "Peak QPS"]
     return table(headers, ["left", "left", "right", "right"], body)
 

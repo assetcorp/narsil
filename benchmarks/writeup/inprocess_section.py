@@ -8,6 +8,7 @@ for the embedded vector index.
 
 from __future__ import annotations
 
+from best_marks import best_text, marked
 from chart_paths import embedded_scale_chart, figure, inprocess_chart_dir
 from render import and_join, dataset_name, decimal, engine_name, integer, is_number, percent, table
 from sources import Source
@@ -102,14 +103,13 @@ def _quality_block(source: Source) -> str:
     name = dataset_name((results.get("relevanceDataset") or {}).get("name") or "")
 
     ordered = sorted(order, key=lambda engine: _quality(results, engine, "meanNdcg10") or -1.0, reverse=True)
+    metrics = ("meanNdcg10", "meanPrecision10", "meanMap", "meanMrr")
+    bests = {
+        key: best_text([(_quality(results, engine, key), decimal(_quality(results, engine, key), 4)) for engine in order], True)
+        for key in metrics
+    }
     body = [
-        [
-            engine_name(engine),
-            decimal(_quality(results, engine, "meanNdcg10"), 4),
-            decimal(_quality(results, engine, "meanPrecision10"), 4),
-            decimal(_quality(results, engine, "meanMap"), 4),
-            decimal(_quality(results, engine, "meanMrr"), 4),
-        ]
+        [engine_name(engine), *(marked(decimal(_quality(results, engine, key), 4), bests[key]) for key in metrics)]
         for engine in ordered
     ]
     headers = ["Engine", "nDCG@10", "P@10", "MAP", "MRR"]
@@ -119,24 +119,50 @@ def _quality_block(source: Source) -> str:
     ])
 
 
-def _scale_table(results: dict, order: list[str], config: dict, tier: str, path: tuple[str, ...], places: int) -> str:
+def _figure_text(value: float | None, places: int) -> str:
+    return integer(value) if places == 0 else decimal(value, places)
+
+
+def _scale_table(
+    results: dict,
+    order: list[str],
+    config: dict,
+    tier: str,
+    path: tuple[str, ...],
+    places: int,
+    higher_is_better: bool,
+) -> str:
     scale_keys = _scale_keys(config)
     headers = ["Engine", *[integer(int(scale)) for scale in scale_keys]]
-    body = []
-    for engine in order:
-        cells = [engine_name(engine)]
-        for scale in scale_keys:
-            value = _tier_value(results, tier, engine, scale, *path)
-            cells.append(integer(value) if places == 0 else decimal(value, places))
-        body.append(cells)
+    values = {
+        (engine, scale): _tier_value(results, tier, engine, scale, *path) for engine in order for scale in scale_keys
+    }
+    bests = {
+        scale: best_text(
+            [(values[(engine, scale)], _figure_text(values[(engine, scale)], places)) for engine in order],
+            higher_is_better,
+        )
+        for scale in scale_keys
+    }
+    body = [
+        [
+            engine_name(engine),
+            *(marked(_figure_text(values[(engine, scale)], places), bests[scale]) for scale in scale_keys),
+        ]
+        for engine in order
+    ]
     return table(headers, ["left", *["right"] * len(scale_keys)], body)
 
 
 def _filtered_table(results: dict, order: list[str], top_scale: str) -> str:
-    body = []
-    for engine in order:
-        value = _tier_value(results, "fullSchema", engine, top_scale, "filteredLatency", "p50Ms")
-        body.append([engine_name(engine), decimal(value, 3) if value is not None else "not supported"])
+    values = {
+        engine: _tier_value(results, "fullSchema", engine, top_scale, "filteredLatency", "p50Ms") for engine in order
+    }
+    best = best_text([(value, decimal(value, 3)) for value in values.values()], False)
+    body = [
+        [engine_name(engine), marked(decimal(value, 3), best) if value is not None else "not supported"]
+        for engine, value in values.items()
+    ]
     return table(["Engine", "Filtered search p50 ms"], ["left", "right"], body)
 
 
@@ -155,13 +181,13 @@ def _speed_block(source: Source) -> str:
             "latency on a logarithmic scale, and, where the suite recorded it, heap plus external memory.",
         ),
         "Insert throughput at each scale, documents per second:",
-        _scale_table(results, order, config, "textOnly", ("insertDocsPerSec",), 0),
+        _scale_table(results, order, config, "textOnly", ("insertDocsPerSec",), 0, True),
         "Search latency at each scale, p50 milliseconds:",
-        _scale_table(results, order, config, "textOnly", ("searchLatency", "p50Ms"), 3),
+        _scale_table(results, order, config, "textOnly", ("searchLatency", "p50Ms"), 3, False),
     ]
     if _records_memory(results, order, scale_keys):
         chunks.append("Heap plus external memory at each scale, megabytes:")
-        chunks.append(_scale_table(results, order, config, "textOnly", (_MEMORY_KEY,), 1))
+        chunks.append(_scale_table(results, order, config, "textOnly", (_MEMORY_KEY,), 1, False))
     else:
         chunks.append("The suite recorded no memory figure under the heap plus external definition in this run.")
     chunks.append(f"Filtered search latency at {top_label} documents, p50 milliseconds:")
@@ -187,18 +213,27 @@ def _vector_block(source: Source) -> str:
     for dataset in config.get("vectorDatasets") or []:
         records = {engine: (vector.get(engine) or {}).get(dataset) or {} for engine in order}
         with_memory = any(is_number(record.get(_MEMORY_KEY)) for record in records.values())
-        body = []
-        for engine in order:
-            record = records[engine]
-            cells = [
+        columns = [
+            (lambda record: _dig(record, "meanRecallAt10"), percent, True),
+            (lambda record: _dig(record, "insertDocsPerSec"), integer, True),
+            (lambda record: _dig(record, "searchLatency", "p50Ms"), lambda value: decimal(value, 3), False),
+        ]
+        if with_memory:
+            columns.append((lambda record: _dig(record, _MEMORY_KEY), lambda value: decimal(value, 1), False))
+        bests = [
+            best_text([(read(records[engine]), render(read(records[engine]))) for engine in order], higher_is_better)
+            for read, render, higher_is_better in columns
+        ]
+        body = [
+            [
                 engine_name(engine),
-                percent(record.get("meanRecallAt10")),
-                integer(record.get("insertDocsPerSec")),
-                decimal(_dig(record, "searchLatency", "p50Ms"), 3),
+                *(
+                    marked(render(read(records[engine])), best)
+                    for (read, render, _), best in zip(columns, bests)
+                ),
             ]
-            if with_memory:
-                cells.append(decimal(record.get(_MEMORY_KEY), 1))
-            body.append(cells)
+            for engine in order
+        ]
         headers = ["Engine", "Recall@10", "Insert docs/s", "Search p50 ms"]
         if with_memory:
             headers.append("Heap plus external MB")

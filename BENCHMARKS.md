@@ -13,6 +13,11 @@ continuous-integration check fails the build if the page or a figure ever differ
 from those recordings. Each section links to the run it came from so you can read
 the per-engine detail and reproduce the figures yourself.
 
+In the server and embedded tables, the script marks the best figure in each column
+in bold with a star. When two engines tie for the best figure, the script marks
+both. The script leaves a column unmarked when every engine has the same figure,
+and it marks only the speed figures of engines that reached the recall target.
+
 ## Search servers: keyword, vector, and hybrid retrieval
 
 The first comparison runs over HTTP against six production search engines on
@@ -70,10 +75,10 @@ a 5% error rate, so engines that share a rank are statistically tied.
 
 | Engine | nDCG@10 | nDCG@10 rank | Recall@100 | MAP | MRR | Peak QPS |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Narsil TypeScript | 0.6814 | 1 | 0.9253 | 0.6417 | 0.6494 | 34,198 (34,169 to 34,213) |
-| Narsil Rust | 0.6814 | 1 | 0.9253 | 0.6417 | 0.6494 | 56,315 (56,271 to 56,361) |
-| Elasticsearch | 0.6789 | 1 | 0.9253 | 0.6401 | 0.6506 | 7,208 (7,191 to 7,237) |
-| OpenSearch | 0.6789 | 1 | 0.9253 | 0.6401 | 0.6506 | 8,713 (8,667 to 8,734) |
+| Narsil TypeScript | **0.6814**\* | 1 | **0.9253**\* | **0.6417**\* | 0.6494 | 34,198 (34,169 to 34,213) |
+| Narsil Rust | **0.6814**\* | 1 | **0.9253**\* | **0.6417**\* | 0.6494 | **56,315**\* (56,271 to 56,361) |
+| Elasticsearch | 0.6789 | 1 | **0.9253**\* | 0.6401 | **0.6506**\* | 7,208 (7,191 to 7,237) |
+| OpenSearch | 0.6789 | 1 | **0.9253**\* | 0.6401 | **0.6506**\* | 8,713 (8,667 to 8,734) |
 | Typesense | 0.5503 | 5 | 0.7508 | 0.5164 | 0.5280 | 333 (330 to 334) |
 | Meilisearch | 0.5019 | 5 | 0.5982 | 0.4823 | 0.4903 | 2,124 (2,114 to 2,174) |
 
@@ -85,8 +90,8 @@ a 5% error rate, so engines that share a rank are statistically tied.
 
 | Engine | nDCG@10 | nDCG@10 rank | Recall@100 | MAP | MRR | Peak QPS |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Narsil TypeScript | 0.3283 | 1 | 0.2489 | 0.1535 | 0.5336 | 51,462 (51,319 to 51,564) |
-| Narsil Rust | 0.3283 | 1 | 0.2489 | 0.1535 | 0.5336 | 94,225 (93,724 to 94,639) (client-limited) |
+| Narsil TypeScript | **0.3283**\* | 1 | **0.2489**\* | **0.1535**\* | **0.5336**\* | 51,462 (51,319 to 51,564) |
+| Narsil Rust | **0.3283**\* | 1 | **0.2489**\* | **0.1535**\* | **0.5336**\* | **94,225**\* (93,724 to 94,639) (client-limited) |
 | Elasticsearch | 0.3217 | 1 | 0.2457 | 0.1503 | 0.5274 | 13,682 (13,677 to 13,711) |
 | OpenSearch | 0.3217 | 1 | 0.2457 | 0.1503 | 0.5274 | 13,527 (13,524 to 13,537) |
 | Meilisearch | 0.2654 | 5 | 0.1554 | 0.1214 | 0.4415 | 4,166 (4,156 to 4,196) |
@@ -100,7 +105,7 @@ a 5% error rate, so engines that share a rank are statistically tied.
 
 | Engine | Peak QPS |
 | --- | ---: |
-| Narsil Rust | 53,510 (53,422 to 53,637) |
+| Narsil Rust | **53,510**\* (53,422 to 53,637) |
 | Narsil TypeScript | 33,054 (32,983 to 33,102) |
 | OpenSearch | 13,435 (13,356 to 13,461) |
 | Elasticsearch | 12,613 (12,538 to 12,641) |
@@ -115,7 +120,7 @@ a 5% error rate, so engines that share a rank are statistically tied.
 
 | Engine | Peak QPS |
 | --- | ---: |
-| Narsil Rust | 11,792 (11,749 to 11,803) |
+| Narsil Rust | **11,792**\* (11,749 to 11,803) |
 | Narsil TypeScript | 8,459 (8,380 to 8,498) |
 | Elasticsearch | 7,789 (7,766 to 7,792) |
 | OpenSearch | 7,013 (6,997 to 7,073) |
@@ -154,7 +159,7 @@ On SciFact, every engine tunes its search effort to reach ann_recall@10 of at le
 
 | Engine | Search effort | ANN recall@10 | Peak QPS |
 | --- | --- | ---: | ---: |
-| Narsil Rust | efSearch 64 | 0.9960 | 27,162 (27,054 to 27,221) |
+| Narsil Rust | efSearch 64 | 0.9960 | **27,162**\* (27,054 to 27,221) |
 | Narsil TypeScript | efSearch 64 | 0.9960 | 16,931 (16,925 to 16,999) |
 | Qdrant | hnsw_ef 32 | 0.9923 | 12,585 (12,514 to 12,588) |
 | Elasticsearch | num_candidates 64 | 0.9943 | 8,493 (8,246 to 8,527) |
@@ -171,7 +176,7 @@ On SciFact, every engine tunes its search effort to reach ann_recall@10 of at le
 
 | Engine | Search effort | ANN recall@10 | Peak QPS |
 | --- | --- | ---: | ---: |
-| Narsil Rust | efSearch 128 | 0.9910 | 21,238 (21,167 to 21,265) |
+| Narsil Rust | efSearch 128 | 0.9910 | **21,238**\* (21,167 to 21,265) |
 | Narsil TypeScript | efSearch 128 | 0.9944 | 13,799 (13,794 to 14,027) |
 | Qdrant | hnsw_ef 64 | 0.9935 | 10,937 (10,928 to 10,957) |
 | OpenSearch | ef_search 128 | 0.9950 | 7,563 (7,551 to 7,567) |
@@ -188,7 +193,7 @@ On SciFact, every engine tunes its search effort to reach ann_recall@10 of at le
 
 | Engine | Search effort | ANN recall@10 | Peak QPS |
 | --- | --- | ---: | ---: |
-| Narsil Rust | efSearch 128 | 0.9914 | 4,794 (4,660 to 5,195) |
+| Narsil Rust | efSearch 128 | 0.9914 | **4,794**\* (4,660 to 5,195) |
 | Narsil TypeScript | efSearch 128 | 0.9915 | 3,589 (3,567 to 3,592) |
 | OpenSearch | ef_search 128 | 0.9916 | 3,219 (3,188 to 3,222) |
 | Elasticsearch | num_candidates 768 | 0.9917 | 1,955 (1,921 to 1,965) |
@@ -205,7 +210,7 @@ On SciFact, every engine tunes its search effort to reach ann_recall@10 of at le
 
 | Engine | Search effort | ANN recall@10 | Peak QPS |
 | --- | --- | ---: | ---: |
-| Narsil Rust | efSearch 264 | 0.9920 | 1,971 (1,849 to 2,005) |
+| Narsil Rust | efSearch 264 | 0.9920 | **1,971**\* (1,849 to 2,005) |
 | OpenSearch | ef_search 248 | 0.9913 | 1,719 (1,694 to 1,753) |
 | Narsil TypeScript | efSearch 280 | 0.9920 | 1,659 (1,631 to 1,663) |
 | Elasticsearch | num_candidates 1536 | 0.9911 | 1,118 (1,100 to 1,133) |
@@ -231,11 +236,11 @@ differs per engine, so ranking quality varies again.
 
 | Engine | nDCG@10 | nDCG@10 rank | Recall@100 | MAP | MRR | Peak QPS |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Qdrant | 0.7095 | 1 | 0.9577 | 0.6661 | 0.6700 | 8,575 (8,521 to 8,575) |
+| Qdrant | **0.7095**\* | 1 | 0.9577 | **0.6661**\* | **0.6700**\* | 8,575 (8,521 to 8,575) |
 | Elasticsearch | 0.7078 | 1 | 0.9610 | 0.6620 | 0.6676 | 3,678 (3,673 to 3,721) |
 | OpenSearch | 0.7077 | 1 | 0.9610 | 0.6619 | 0.6676 | 3,352 (3,347 to 3,371) |
-| Narsil TypeScript | 0.7054 | 1 | 0.9643 | 0.6581 | 0.6648 | 11,835 (11,798 to 11,838) |
-| Narsil Rust | 0.7054 | 1 | 0.9643 | 0.6581 | 0.6648 | 19,998 (19,936 to 20,005) |
+| Narsil TypeScript | 0.7054 | 1 | **0.9643**\* | 0.6581 | 0.6648 | 11,835 (11,798 to 11,838) |
+| Narsil Rust | 0.7054 | 1 | **0.9643**\* | 0.6581 | 0.6648 | **19,998**\* (19,936 to 20,005) |
 | Weaviate | 0.6840 | 1 | 0.9577 | 0.6366 | 0.6460 | 842 (840 to 843) |
 
 <img src="benchmarks/server/results/runs/20261119T135007Z/charts/equal-precision-hybrid-scifact-sweep.svg" alt="Line panels for the hybrid track on SciFact against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
@@ -246,8 +251,8 @@ differs per engine, so ranking quality varies again.
 
 | Engine | nDCG@10 | nDCG@10 rank | Recall@100 | MAP | MRR | Peak QPS |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Narsil TypeScript | 0.3562 | 1 | 0.3238 | 0.1877 | 0.5759 | 11,604 (11,578 to 11,613) |
-| Narsil Rust | 0.3562 | 1 | 0.3238 | 0.1877 | 0.5759 | 18,913 (18,884 to 18,916) |
+| Narsil TypeScript | **0.3562**\* | 1 | **0.3238**\* | **0.1877**\* | **0.5759**\* | 11,604 (11,578 to 11,613) |
+| Narsil Rust | **0.3562**\* | 1 | **0.3238**\* | **0.1877**\* | **0.5759**\* | **18,913**\* (18,884 to 18,916) |
 | Elasticsearch | 0.3522 | 3 | 0.3215 | 0.1867 | 0.5648 | 4,555 (4,523 to 4,585) |
 | OpenSearch | 0.3521 | 3 | 0.3213 | 0.1867 | 0.5633 | 4,356 (4,351 to 4,365) |
 | Qdrant | 0.3504 | 1 | 0.3236 | 0.1826 | 0.5703 | 7,866 (7,854 to 7,870) |
@@ -261,7 +266,7 @@ differs per engine, so ranking quality varies again.
 
 | Engine | Peak QPS |
 | --- | ---: |
-| Narsil Rust | 4,647 (4,423 to 4,736) |
+| Narsil Rust | **4,647**\* (4,423 to 4,736) |
 | Narsil TypeScript | 3,218 (3,172 to 3,228) |
 | OpenSearch | 2,449 (2,445 to 2,481) |
 | Elasticsearch | 1,562 (1,558 to 1,579) |
@@ -276,7 +281,7 @@ differs per engine, so ranking quality varies again.
 
 | Engine | Peak QPS |
 | --- | ---: |
-| Narsil Rust | 1,614 (1,596 to 1,650) |
+| Narsil Rust | **1,614**\* (1,596 to 1,650) |
 | OpenSearch | 1,396 (1,392 to 1,403) |
 | Narsil TypeScript | 1,304 (1,280 to 1,310) |
 | Elasticsearch | 904 (896 to 917) |
@@ -305,7 +310,7 @@ remain the headline.
 
 | Engine | Search effort | ANN recall@10 | Peak QPS |
 | --- | --- | ---: | ---: |
-| Narsil Rust (OSQ 4-bit) | efSearch 16 | 0.9950 | 30,671 (30,602 to 30,696) |
+| Narsil Rust (OSQ 4-bit) | efSearch 16 | 0.9950 | **30,671**\* (30,602 to 30,696) |
 | Narsil TypeScript (OSQ 4-bit) | efSearch 16 | 0.9927 | 15,809 (15,756 to 15,840) |
 | Qdrant (TurboQuant 4-bit) | hnsw_ef 32 | 0.9953 | 14,400 (14,381 to 14,497) |
 | OpenSearch (SQfp16) | ef_search 64 | 0.9957 | 8,117 (8,113 to 8,180) |
@@ -320,7 +325,7 @@ remain the headline.
 
 | Engine | Search effort | ANN recall@10 | Peak QPS |
 | --- | --- | ---: | ---: |
-| Narsil Rust (OSQ 4-bit) | efSearch 128 | 0.9932 | 23,795 (23,768 to 23,836) |
+| Narsil Rust (OSQ 4-bit) | efSearch 128 | 0.9932 | **23,795**\* (23,768 to 23,836) |
 | Narsil TypeScript (OSQ 4-bit) | efSearch 128 | 0.9929 | 13,309 (13,273 to 13,336) |
 | Qdrant (TurboQuant 4-bit) | hnsw_ef 64 | 0.9932 | 12,855 (12,847 to 12,877) |
 | OpenSearch (SQfp16) | ef_search 128 | 0.9926 | 7,743 (7,685 to 7,763) |
@@ -335,7 +340,7 @@ remain the headline.
 
 | Engine | Search effort | ANN recall@10 | Peak QPS |
 | --- | --- | ---: | ---: |
-| Narsil Rust (OSQ 4-bit) | efSearch 128 | 0.9909 | 9,341 (9,285 to 9,465) |
+| Narsil Rust (OSQ 4-bit) | efSearch 128 | 0.9909 | **9,341**\* (9,285 to 9,465) |
 | Narsil TypeScript (OSQ 4-bit) | efSearch 128 | 0.9918 | 5,522 (5,462 to 5,536) |
 | OpenSearch (1-bit binary) | ef_search 160 | 0.9915 | 5,168 (5,160 to 5,185) |
 | Qdrant (TurboQuant 4-bit) | hnsw_ef 128 | 0.9933 | 4,648 (4,600 to 4,666) |
@@ -350,7 +355,7 @@ remain the headline.
 
 | Engine | Search effort | ANN recall@10 | Peak QPS |
 | --- | --- | ---: | ---: |
-| Narsil Rust (OSQ 4-bit) | efSearch 296 | 0.9918 | 3,847 (3,716 to 3,879) |
+| Narsil Rust (OSQ 4-bit) | efSearch 296 | 0.9918 | **3,847**\* (3,716 to 3,879) |
 | Narsil TypeScript (OSQ 4-bit) | efSearch 256 | 0.9921 | 3,766 (3,586 to 3,931) |
 | OpenSearch (1-bit binary) | ef_search 768 | 0.9904 | 2,849 (2,673 to 3,018) |
 | Qdrant (TurboQuant 4-bit) | hnsw_ef 160 | 0.9918 | 2,596 (2,566 to 2,636) |
@@ -369,11 +374,11 @@ remain the headline.
 
 | Engine | nDCG@10 | nDCG@10 rank | Recall@100 | MAP | MRR | Peak QPS |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Qdrant (TurboQuant 4-bit) | 0.7157 | 1 | 0.9577 | 0.6744 | 0.6784 | 8,973 (8,956 to 8,974) |
+| Qdrant (TurboQuant 4-bit) | **0.7157**\* | 1 | 0.9577 | **0.6744**\* | **0.6784**\* | 8,973 (8,956 to 8,974) |
 | OpenSearch (SQfp16) | 0.7064 | 1 | 0.9610 | 0.6599 | 0.6665 | 3,353 (3,342 to 3,362) |
 | Elasticsearch (BBQ) | 0.7059 | 1 | 0.9610 | 0.6592 | 0.6660 | 3,610 (3,586 to 3,619) |
-| Narsil TypeScript (OSQ 4-bit) | 0.7054 | 1 | 0.9643 | 0.6581 | 0.6648 | 10,572 (10,571 to 10,709) |
-| Narsil Rust (OSQ 4-bit) | 0.7054 | 1 | 0.9643 | 0.6581 | 0.6648 | 21,782 (21,769 to 21,888) |
+| Narsil TypeScript (OSQ 4-bit) | 0.7054 | 1 | **0.9643**\* | 0.6581 | 0.6648 | 10,572 (10,571 to 10,709) |
+| Narsil Rust (OSQ 4-bit) | 0.7054 | 1 | **0.9643**\* | 0.6581 | 0.6648 | **21,782**\* (21,769 to 21,888) |
 | Weaviate (8-bit RQ) | 0.6840 | 1 | 0.9577 | 0.6366 | 0.6460 | 781 (779 to 792) |
 
 <img src="benchmarks/server/results/runs/20261119T135007Z/charts/best-config-hybrid-scifact-sweep.svg" alt="Line panels for the hybrid track on SciFact against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
@@ -384,8 +389,8 @@ remain the headline.
 
 | Engine | nDCG@10 | nDCG@10 rank | Recall@100 | MAP | MRR | Peak QPS |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Narsil TypeScript (OSQ 4-bit) | 0.3562 | 1 | 0.3238 | 0.1877 | 0.5759 | 10,784 (10,711 to 10,926) |
-| Narsil Rust (OSQ 4-bit) | 0.3562 | 1 | 0.3238 | 0.1877 | 0.5759 | 21,494 (21,487 to 21,504) |
+| Narsil TypeScript (OSQ 4-bit) | **0.3562**\* | 1 | **0.3238**\* | **0.1877**\* | **0.5759**\* | 10,784 (10,711 to 10,926) |
+| Narsil Rust (OSQ 4-bit) | **0.3562**\* | 1 | **0.3238**\* | **0.1877**\* | **0.5759**\* | **21,494**\* (21,487 to 21,504) |
 | Elasticsearch (BBQ) | 0.3525 | 1 | 0.3215 | 0.1868 | 0.5666 | 4,056 (4,051 to 4,057) |
 | OpenSearch (SQfp16) | 0.3521 | 3 | 0.3216 | 0.1865 | 0.5638 | 4,395 (4,347 to 4,435) |
 | Qdrant (TurboQuant 4-bit) | 0.3504 | 1 | 0.3236 | 0.1824 | 0.5662 | 8,783 (8,782 to 8,784) |
@@ -399,7 +404,7 @@ remain the headline.
 
 | Engine | Peak QPS |
 | --- | ---: |
-| Narsil Rust (OSQ 4-bit) | 8,433 (8,425 to 8,540) |
+| Narsil Rust (OSQ 4-bit) | **8,433**\* (8,425 to 8,540) |
 | Narsil TypeScript (OSQ 4-bit) | 4,789 (4,749 to 4,795) |
 | Qdrant (TurboQuant 4-bit) | 3,606 (3,512 to 3,616) |
 | OpenSearch (1-bit binary) | 3,515 (3,508 to 3,549) |
@@ -414,7 +419,7 @@ remain the headline.
 
 | Engine | Peak QPS |
 | --- | ---: |
-| Narsil Rust (OSQ 4-bit) | 2,756 (2,752 to 2,761) |
+| Narsil Rust (OSQ 4-bit) | **2,756**\* (2,752 to 2,761) |
 | Narsil TypeScript (OSQ 4-bit) | 2,492 (2,471 to 2,508) |
 | OpenSearch (1-bit binary) | 1,952 (1,945 to 2,019) |
 | Qdrant (TurboQuant 4-bit) | 1,598 (1,575 to 1,625) |
@@ -467,7 +472,7 @@ Ranking quality on BEIR SciFact, higher is better:
 
 | Engine | nDCG@10 | P@10 | MAP | MRR |
 | --- | ---: | ---: | ---: | ---: |
-| Narsil | 0.6840 | 0.0903 | 0.6355 | 0.6476 |
+| Narsil | **0.6840**\* | **0.0903**\* | **0.6355**\* | **0.6476**\* |
 | Orama | 0.4351 | 0.0657 | 0.3747 | 0.3845 |
 | MiniSearch | 0.2506 | 0.0373 | 0.2163 | 0.2198 |
 <!-- BENCH:inprocess-quality END -->
@@ -491,7 +496,7 @@ Insert throughput at each scale, documents per second:
 
 | Engine | 1,000 | 10,000 | 50,000 |
 | --- | ---: | ---: | ---: |
-| Narsil | 12,172 | 13,584 | 13,026 |
+| Narsil | **12,172**\* | **13,584**\* | **13,026**\* |
 | Orama | 4,290 | 4,001 | 3,720 |
 | MiniSearch | 8,042 | 6,840 | 6,101 |
 
@@ -499,7 +504,7 @@ Search latency at each scale, p50 milliseconds:
 
 | Engine | 1,000 | 10,000 | 50,000 |
 | --- | ---: | ---: | ---: |
-| Narsil | 0.049 | 0.055 | 0.129 |
+| Narsil | **0.049**\* | **0.055**\* | **0.129**\* |
 | Orama | 0.066 | 1.361 | 15.969 |
 | MiniSearch | 0.079 | 0.605 | 4.457 |
 
@@ -507,7 +512,7 @@ Heap plus external memory at each scale, megabytes:
 
 | Engine | 1,000 | 10,000 | 50,000 |
 | --- | ---: | ---: | ---: |
-| Narsil | 1.1 | 6.6 | 23.1 |
+| Narsil | **1.1**\* | **6.6**\* | **23.1**\* |
 | Orama | 11.4 | 87.3 | 398.2 |
 | MiniSearch | 6.7 | 41.6 | 175.0 |
 
@@ -515,7 +520,7 @@ Filtered search latency at 50,000 documents, p50 milliseconds:
 
 | Engine | Filtered search p50 ms |
 | --- | ---: |
-| Narsil | 0.150 |
+| Narsil | **0.150**\* |
 | Orama | 8.024 |
 | MiniSearch | not supported |
 <!-- BENCH:inprocess-speed END -->
@@ -530,15 +535,15 @@ Embedded vector search on BEIR SciFact:
 
 | Engine | Recall@10 | Insert docs/s | Search p50 ms | Heap plus external MB |
 | --- | ---: | ---: | ---: | ---: |
-| Narsil | 100.0% | 50,499 | 1.057 | 34.1 |
-| Orama | 100.0% | 189,085 | 3.735 | 10.5 |
+| Narsil | 100.0% | 50,499 | **1.057**\* | 34.1 |
+| Orama | 100.0% | **189,085**\* | 3.735 | **10.5**\* |
 
 Embedded vector search on BEIR NFCorpus:
 
 | Engine | Recall@10 | Insert docs/s | Search p50 ms | Heap plus external MB |
 | --- | ---: | ---: | ---: | ---: |
-| Narsil | 100.0% | 44,863 | 0.807 | 32.4 |
-| Orama | 100.0% | 191,692 | 2.584 | 7.2 |
+| Narsil | 100.0% | 44,863 | **0.807**\* | 32.4 |
+| Orama | 100.0% | **191,692**\* | 2.584 | **7.2**\* |
 <!-- BENCH:inprocess-vector END -->
 
 ## One engine in three languages: TypeScript, Rust, and Go
