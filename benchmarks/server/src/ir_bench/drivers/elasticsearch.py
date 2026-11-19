@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from ..core.config import BM25Params, EngineConfig
+from ..core.prepared_search import PreparedSearch, send_prepared
 from ..core.types import BEST_CONFIG, EQUAL_PRECISION, FULL_FLOAT, SearchResponse, VectorIndexParams
 from ._lucene import _VECTOR_FIELD, LuceneRestDriver, _raise
 
@@ -97,11 +98,19 @@ class ElasticsearchDriver(LuceneRestDriver):
             knn["rescore_vector"] = {"oversample": oversample}
         return knn
 
-    def vector_search(self, index: str, vector: list[float], limit: int, ef: int | None) -> SearchResponse:
+    def prepare_vector_search(self, index: str, vector: list[float], limit: int, ef: int | None) -> PreparedSearch:
         body = {"retriever": {"knn": self._knn(vector, limit, ef)}, "size": limit, "_source": False}
-        return self._post_search(index, body)
+        return self._prepare_search(index, body)
+
+    def vector_search(self, index: str, vector: list[float], limit: int, ef: int | None) -> SearchResponse:
+        return send_prepared(self.prepare_vector_search(index, vector, limit, ef))
 
     def hybrid_search(self, index: str, term: str, vector: list[float], limit: int, ef: int | None) -> SearchResponse:
+        return send_prepared(self.prepare_hybrid_search(index, term, vector, limit, ef))
+
+    def prepare_hybrid_search(
+        self, index: str, term: str, vector: list[float], limit: int, ef: int | None
+    ) -> PreparedSearch:
         body = {
             "retriever": {
                 "rrf": {
@@ -116,4 +125,4 @@ class ElasticsearchDriver(LuceneRestDriver):
             "size": limit,
             "_source": False,
         }
-        return self._post_search(index, body)
+        return self._prepare_search(index, body)

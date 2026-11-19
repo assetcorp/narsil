@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import time
+from functools import partial
 from typing import Iterable
 
 import httpx
@@ -9,6 +10,7 @@ import httpx
 from ..core.config import BM25Params, EngineConfig
 from ..core.http_client import IMPORT_TIMEOUT, build_client
 from ..core.ingest import JSON_CONTENT_TYPE, BatchOutcome, encode_json, import_batches
+from ..core.prepared_search import PreparedSearch, prepare_request, raise_for_status, send_prepared
 from ..core.types import (
     BEST_CONFIG,
     EQUAL_PRECISION,
@@ -23,6 +25,25 @@ from ..core.types import (
 )
 
 _HYBRID_ALPHA = 0.5
+_DISTANCE = "distance"
+_SCORE = "score"
+
+
+def _read_get_response(klass: str, score_key: str, status: int, content: bytes, url: str) -> SearchResponse:
+    raise_for_status(status, content, url)
+    payload = json.loads(content)
+    if payload.get("errors"):
+        raise EngineError(f"Weaviate GraphQL error: {payload['errors']}")
+    rows = (payload.get("data") or {}).get("Get", {}).get(klass, [])
+    hits: list[Hit] = []
+    for row in rows:
+        additional = row.get("_additional", {})
+        raw = additional.get(score_key)
+        score = float(raw) if raw is not None else 0.0
+        if score_key == _DISTANCE:
+            score = 1.0 - score
+        hits.append(Hit(doc_id=str(row.get("docId")), score=score))
+    return SearchResponse(hits=hits, count=len(hits), server_elapsed_ms=None)
 
 
 def _raise(response: httpx.Response) -> None:
@@ -184,28 +205,30 @@ class WeaviateDriver:
         _raise(response)
         self._ef_cache[klass] = ef
 
-    def _parse(self, rows: list[dict], score_key: str) -> SearchResponse:
-        hits: list[Hit] = []
-        for row in rows:
-            additional = row.get("_additional", {})
-            raw = additional.get(score_key)
-            score = float(raw) if raw is not None else 0.0
-            if score_key == "distance":
-                score = 1.0 - score
-            hits.append(Hit(doc_id=str(row.get("docId")), score=score))
-        return SearchResponse(hits=hits, count=len(hits), server_elapsed_ms=None)
+    def _prepare_get(self, klass: str, query: str, score_key: str) -> PreparedSearch:
+        return prepare_request(
+            self._client,
+            "POST",
+            "/v1/graphql",
+            partial(_read_get_response, klass, score_key),
+            json={"query": query},
+        )
 
-    def vector_search(self, index: str, vector: list[float], limit: int, ef: int | None) -> SearchResponse:
+    def prepare_vector_search(self, index: str, vector: list[float], limit: int, ef: int | None) -> PreparedSearch:
         klass = _class_name(index)
         self._ensure_ef(klass, ef)
         query = (
             f"{{ Get {{ {klass}(nearVector: {{vector: {json.dumps(vector)}}}, limit: {limit}) "
             f"{{ docId _additional {{ distance }} }} }} }}"
         )
-        rows = self._graphql(query).get("Get", {}).get(klass, [])
-        return self._parse(rows, "distance")
+        return self._prepare_get(klass, query, _DISTANCE)
 
-    def hybrid_search(self, index: str, term: str, vector: list[float], limit: int, ef: int | None) -> SearchResponse:
+    def vector_search(self, index: str, vector: list[float], limit: int, ef: int | None) -> SearchResponse:
+        return send_prepared(self.prepare_vector_search(index, vector, limit, ef))
+
+    def prepare_hybrid_search(
+        self, index: str, term: str, vector: list[float], limit: int, ef: int | None
+    ) -> PreparedSearch:
         klass = _class_name(index)
         self._ensure_ef(klass, ef)
         query = (
@@ -213,8 +236,10 @@ class WeaviateDriver:
             f"alpha: {_HYBRID_ALPHA}, fusionType: rankedFusion, properties: [\"text\"]}}, limit: {limit}) "
             f"{{ docId _additional {{ score }} }} }} }}"
         )
-        rows = self._graphql(query).get("Get", {}).get(klass, [])
-        return self._parse(rows, "score")
+        return self._prepare_get(klass, query, _SCORE)
+
+    def hybrid_search(self, index: str, term: str, vector: list[float], limit: int, ef: int | None) -> SearchResponse:
+        return send_prepared(self.prepare_hybrid_search(index, term, vector, limit, ef))
 
     def index_stats(self, index: str) -> dict | None:
         response = self._client.get(f"/v1/schema/{_class_name(index)}")

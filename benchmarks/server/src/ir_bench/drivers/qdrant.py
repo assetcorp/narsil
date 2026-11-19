@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 from itertools import chain, islice
 from typing import Iterable
@@ -9,6 +10,7 @@ import httpx
 from ..core.config import BM25Params, EngineConfig
 from ..core.http_client import IMPORT_TIMEOUT, build_client
 from ..core.ingest import JSON_CONTENT_TYPE, BatchOutcome, encode_json, import_batches
+from ..core.prepared_search import PreparedSearch, prepare_request, raise_for_status, send_prepared
 from ..core.types import (
     BEST_CONFIG,
     EQUAL_PRECISION,
@@ -42,6 +44,21 @@ def _raise(response: httpx.Response) -> None:
         return
     raise EngineError(
         f"HTTP {response.status_code} from {response.request.url}: {response.text[:500]}", response.status_code
+    )
+
+
+def _read_query_response(status: int, content: bytes, url: str) -> SearchResponse:
+    raise_for_status(status, content, url)
+    payload = json.loads(content)
+    points = payload.get("result", {}).get("points", [])
+    hits = [
+        Hit(doc_id=str(point.get("payload", {}).get("doc_id")), score=float(point.get("score", 0.0)))
+        for point in points
+    ]
+    return SearchResponse(
+        hits=hits,
+        count=len(hits),
+        server_elapsed_ms=coerce_server_ms(payload.get("time"), _SECONDS_TO_MS),
     )
 
 
@@ -209,21 +226,18 @@ class QdrantDriver:
         _raise(response)
         return int(response.json().get("result", {}).get("count", 0))
 
-    def _parse(self, response: httpx.Response) -> SearchResponse:
-        _raise(response)
-        payload = response.json()
-        points = payload.get("result", {}).get("points", [])
-        hits = [
-            Hit(doc_id=str(point.get("payload", {}).get("doc_id")), score=float(point.get("score", 0.0)))
-            for point in points
-        ]
-        return SearchResponse(
-            hits=hits,
-            count=len(hits),
-            server_elapsed_ms=coerce_server_ms(payload.get("time"), _SECONDS_TO_MS),
+    def _prepare_query(self, index: str, query: dict) -> PreparedSearch:
+        return prepare_request(
+            self._client, "POST", f"/collections/{index}/points/query", _read_query_response, json=query
         )
 
     def vector_search(self, index: str, vector: list[float], limit: int, ef: int | None) -> SearchResponse:
+        return send_prepared(self.prepare_vector_search(index, vector, limit, ef))
+
+    def hybrid_search(self, index: str, term: str, vector: list[float], limit: int, ef: int | None) -> SearchResponse:
+        return send_prepared(self.prepare_hybrid_search(index, term, vector, limit, ef))
+
+    def prepare_vector_search(self, index: str, vector: list[float], limit: int, ef: int | None) -> PreparedSearch:
         query: dict = {
             "query": vector,
             "using": _DENSE,
@@ -233,9 +247,11 @@ class QdrantDriver:
         params = self._search_params(ef)
         if params is not None:
             query["params"] = params
-        return self._parse(self._client.post(f"/collections/{index}/points/query", json=query))
+        return self._prepare_query(index, query)
 
-    def hybrid_search(self, index: str, term: str, vector: list[float], limit: int, ef: int | None) -> SearchResponse:
+    def prepare_hybrid_search(
+        self, index: str, term: str, vector: list[float], limit: int, ef: int | None
+    ) -> PreparedSearch:
         dense_prefetch: dict = {"query": vector, "using": _DENSE, "limit": limit}
         params = self._search_params(ef)
         if params is not None:
@@ -243,7 +259,7 @@ class QdrantDriver:
         sparse_prefetch = {"query": self._bm25_text(term), "using": _SPARSE, "limit": limit}
         prefetch = [dense_prefetch, sparse_prefetch]
         query = {"prefetch": prefetch, "query": {"fusion": "rrf"}, "limit": limit, "with_payload": ["doc_id"]}
-        return self._parse(self._client.post(f"/collections/{index}/points/query", json=query))
+        return self._prepare_query(index, query)
 
     def index_stats(self, index: str) -> dict | None:
         response = self._client.get(f"/collections/{index}")

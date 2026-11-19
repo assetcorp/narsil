@@ -10,6 +10,7 @@ import httpx
 from ..core.config import BM25Params, EngineConfig
 from ..core.http_client import IMPORT_TIMEOUT, build_client
 from ..core.ingest import NDJSON_CONTENT_TYPE, BatchOutcome, encode_json_lines, import_batches
+from ..core.prepared_search import PreparedSearch, prepare_request, send_prepared
 from ..core.synonym_sets import SynonymRule, narsil_rules
 from ..core.types import (
     BEST_CONFIG,
@@ -64,18 +65,34 @@ def quantization_label(mode: str) -> str:
     return f"OSQ {mode[len('osq'):]}-bit"
 
 
-def _raise_for_envelope(response: httpx.Response) -> None:
-    if response.is_success:
-        return
-    detail = response.text
+def _envelope_error(status: int, text: str, url: object) -> EngineError:
+    detail = text
     try:
-        payload = response.json()
-        error = payload.get("error")
+        payload = json.loads(text)
+        error = payload.get("error") if isinstance(payload, dict) else None
         if isinstance(error, dict):
             detail = f"{error.get('code')}: {error.get('message')}"
     except (json.JSONDecodeError, ValueError):
         pass
-    raise EngineError(f"HTTP {response.status_code} from {response.request.url}: {detail}", response.status_code)
+    return EngineError(f"HTTP {status} from {url}: {detail}", status)
+
+
+def _raise_for_envelope(response: httpx.Response) -> None:
+    if response.is_success:
+        return
+    raise _envelope_error(response.status_code, response.text, response.request.url)
+
+
+def _read_search(status: int, content: bytes, url: str) -> SearchResponse:
+    if not 200 <= status < 300:
+        raise _envelope_error(status, content.decode("utf-8", errors="replace"), url)
+    payload = json.loads(content)
+    hits = [Hit(doc_id=str(hit["id"]), score=float(hit["score"])) for hit in payload.get("hits", [])]
+    return SearchResponse(
+        hits=hits,
+        count=int(payload.get("count", len(hits))),
+        server_elapsed_ms=coerce_server_ms(payload.get("elapsed")),
+    )
 
 
 class NarsilDriver:
@@ -173,19 +190,16 @@ class NarsilDriver:
         _raise_for_envelope(response)
         return int(response.json().get("count", 0))
 
-    def _post_search(self, index: str, body: dict) -> SearchResponse:
-        response = self._client.post(f"/indexes/{index}/search", json={**body, "document": False})
-        _raise_for_envelope(response)
-        payload = response.json()
-        hits = [Hit(doc_id=str(hit["id"]), score=float(hit["score"])) for hit in payload.get("hits", [])]
-        return SearchResponse(
-            hits=hits,
-            count=int(payload.get("count", len(hits))),
-            server_elapsed_ms=coerce_server_ms(payload.get("elapsed")),
+    def _prepare_search(self, index: str, body: dict) -> PreparedSearch:
+        return prepare_request(
+            self._client, "POST", f"/indexes/{index}/search", _read_search, json={**body, "document": False}
         )
 
+    def prepare_search(self, index: str, term: str, limit: int) -> PreparedSearch:
+        return self._prepare_search(index, {"term": term, "fields": ["text"], "limit": limit})
+
     def search(self, index: str, term: str, limit: int) -> SearchResponse:
-        return self._post_search(index, {"term": term, "fields": ["text"], "limit": limit})
+        return send_prepared(self.prepare_search(index, term, limit))
 
     def set_vector_profile(self, profile: str) -> None:
         """Adopts a profile the driver did not itself create the index under, so a
@@ -292,11 +306,21 @@ class NarsilDriver:
             clause["oversample"] = self._rescore_oversample
         return clause
 
+    def prepare_vector_search(self, index: str, vector: list[float], limit: int, ef: int | None) -> PreparedSearch:
+        return self._prepare_search(
+            index, {"mode": "vector", "limit": limit, "vector": self._vector_clause(vector, ef)}
+        )
+
     def vector_search(self, index: str, vector: list[float], limit: int, ef: int | None) -> SearchResponse:
-        return self._post_search(index, {"mode": "vector", "limit": limit, "vector": self._vector_clause(vector, ef)})
+        return send_prepared(self.prepare_vector_search(index, vector, limit, ef))
 
     def hybrid_search(self, index: str, term: str, vector: list[float], limit: int, ef: int | None) -> SearchResponse:
-        return self._post_search(
+        return send_prepared(self.prepare_hybrid_search(index, term, vector, limit, ef))
+
+    def prepare_hybrid_search(
+        self, index: str, term: str, vector: list[float], limit: int, ef: int | None
+    ) -> PreparedSearch:
+        return self._prepare_search(
             index,
             {
                 "mode": "hybrid",
