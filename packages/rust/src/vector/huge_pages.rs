@@ -1,22 +1,12 @@
-use std::alloc::{Layout, alloc, dealloc, handle_alloc_error};
+use std::alloc::{Layout, handle_alloc_error};
 use std::ops::Deref;
 use std::ptr::{self, NonNull};
 use std::sync::atomic::AtomicU32;
 
-use super::constants::HUGE_PAGE_BYTES;
-
-#[cfg(target_os = "linux")]
-const MADV_HUGEPAGE: i32 = 14;
-
-#[cfg(target_os = "linux")]
-unsafe extern "C" {
-    fn madvise(start: *mut core::ffi::c_void, length: usize, advice: i32) -> i32;
-}
-
 pub(crate) struct HugePageFloats {
     start: NonNull<AtomicU32>,
     len: usize,
-    layout: Layout,
+    held_bytes: usize,
 }
 
 unsafe impl Send for HugePageFloats {}
@@ -32,35 +22,18 @@ impl Deref for HugePageFloats {
 
 impl Drop for HugePageFloats {
     fn drop(&mut self) {
-        if self.layout.size() > 0 {
-            unsafe { dealloc(self.start.as_ptr().cast::<u8>(), self.layout) };
+        if self.held_bytes > 0 {
+            unsafe { backing::release(self.start.cast::<u8>(), self.held_bytes) };
         }
     }
 }
 
 fn layout_for(len: usize) -> Layout {
-    let Ok(plain) = Layout::array::<AtomicU32>(len) else {
+    let Ok(layout) = Layout::array::<AtomicU32>(len) else {
         panic!("a region of {len} floats is larger than the address space");
     };
-    if plain.size() < HUGE_PAGE_BYTES {
-        return plain;
-    }
-    let Ok(aligned) = plain.align_to(HUGE_PAGE_BYTES) else {
-        panic!("a region of {len} floats cannot start on a huge page boundary");
-    };
-    aligned
+    layout
 }
-
-#[cfg(target_os = "linux")]
-fn advise_huge_pages(start: *mut u8, bytes: usize) {
-    let whole_pages = bytes - (bytes % HUGE_PAGE_BYTES);
-    if whole_pages > 0 {
-        let _ = unsafe { madvise(start.cast(), whole_pages, MADV_HUGEPAGE) };
-    }
-}
-
-#[cfg(not(target_os = "linux"))]
-fn advise_huge_pages(_start: *mut u8, _bytes: usize) {}
 
 pub(crate) fn huge_page_floats(len: usize) -> HugePageFloats {
     let layout = layout_for(len);
@@ -68,19 +41,109 @@ pub(crate) fn huge_page_floats(len: usize) -> HugePageFloats {
         return HugePageFloats {
             start: NonNull::dangling(),
             len,
-            layout,
+            held_bytes: 0,
         };
     }
-    let raw = unsafe { alloc(layout) };
-    if raw.is_null() {
-        handle_alloc_error(layout);
-    }
-    if layout.align() == HUGE_PAGE_BYTES {
-        advise_huge_pages(raw, layout.size());
-    }
-    unsafe { ptr::write_bytes(raw, 0, layout.size()) };
-    let Some(start) = NonNull::new(raw.cast::<AtomicU32>()) else {
+    let Some((start, held_bytes)) = backing::reserve_zeroed(layout) else {
         handle_alloc_error(layout);
     };
-    HugePageFloats { start, len, layout }
+    HugePageFloats {
+        start: start.cast::<AtomicU32>(),
+        len,
+        held_bytes,
+    }
+}
+
+#[cfg(target_os = "linux")]
+mod backing {
+    use std::alloc::Layout;
+    use std::ffi::{c_int, c_void};
+    use std::ptr::NonNull;
+
+    const HUGE_PAGE_BYTES: usize = 2 * 1_024 * 1_024;
+    const PROT_READ_AND_WRITE: c_int = 0x1 | 0x2;
+    const MAP_PRIVATE: c_int = 0x02;
+    const MAP_ANONYMOUS: c_int = 0x20;
+    const MADV_HUGEPAGE: c_int = 14;
+    const NO_FILE: c_int = -1;
+
+    unsafe extern "C" {
+        fn mmap(
+            start: *mut c_void,
+            length: usize,
+            protection: c_int,
+            flags: c_int,
+            file: c_int,
+            offset: i64,
+        ) -> *mut c_void;
+        fn munmap(start: *mut c_void, length: usize) -> c_int;
+        fn madvise(start: *mut c_void, length: usize, advice: c_int) -> c_int;
+        fn getpagesize() -> c_int;
+    }
+
+    fn page_bytes() -> usize {
+        usize::try_from(unsafe { getpagesize() })
+            .ok()
+            .filter(|bytes| bytes.is_power_of_two())
+            .unwrap_or(4_096)
+    }
+
+    pub(super) fn reserve_zeroed(layout: Layout) -> Option<(NonNull<u8>, usize)> {
+        let held_bytes = layout.size().checked_next_multiple_of(page_bytes())?;
+        let mapped_bytes = held_bytes.checked_add(HUGE_PAGE_BYTES)?;
+        let base = unsafe {
+            mmap(
+                std::ptr::null_mut(),
+                mapped_bytes,
+                PROT_READ_AND_WRITE,
+                MAP_PRIVATE | MAP_ANONYMOUS,
+                NO_FILE,
+                0,
+            )
+        };
+        if base.addr() == usize::MAX || base.is_null() {
+            return None;
+        }
+        let leading_bytes = base.addr().next_multiple_of(HUGE_PAGE_BYTES) - base.addr();
+        let start = base.wrapping_byte_add(leading_bytes);
+        let trailing_bytes = mapped_bytes - leading_bytes - held_bytes;
+        unsafe {
+            if leading_bytes > 0 {
+                munmap(base, leading_bytes);
+            }
+            if trailing_bytes > 0 {
+                munmap(start.wrapping_byte_add(held_bytes), trailing_bytes);
+            }
+        }
+        let whole_huge_pages = held_bytes - held_bytes % HUGE_PAGE_BYTES;
+        if whole_huge_pages > 0 {
+            unsafe { madvise(start, whole_huge_pages, MADV_HUGEPAGE) };
+        }
+        NonNull::new(start.cast::<u8>()).map(|start| (start, held_bytes))
+    }
+
+    pub(super) unsafe fn release(start: NonNull<u8>, held_bytes: usize) {
+        unsafe { munmap(start.as_ptr().cast::<c_void>(), held_bytes) };
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+mod backing {
+    use std::alloc::{Layout, alloc_zeroed, dealloc};
+    use std::ptr::NonNull;
+
+    use super::layout_for_bytes;
+
+    pub(super) fn reserve_zeroed(layout: Layout) -> Option<(NonNull<u8>, usize)> {
+        NonNull::new(unsafe { alloc_zeroed(layout) }).map(|start| (start, layout.size()))
+    }
+
+    pub(super) unsafe fn release(start: NonNull<u8>, held_bytes: usize) {
+        unsafe { dealloc(start.as_ptr(), layout_for_bytes(held_bytes)) };
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn layout_for_bytes(bytes: usize) -> Layout {
+    layout_for(bytes / size_of::<AtomicU32>())
 }

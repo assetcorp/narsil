@@ -10,7 +10,6 @@ pub(crate) const MAX_LAYER_CAP: u8 = 32;
 pub(crate) const UPPER_LISTS_PER_NODE_BOUND: u128 = 4;
 pub(crate) const UPPER_LIST_ALLOWANCE: u128 = 64;
 pub(crate) const VECTORS_PER_BLOCK: u32 = 1_024;
-pub(crate) const HUGE_PAGE_BYTES: usize = 2 * 1_024 * 1_024;
 pub(crate) const MIN_ORDINAL_CAPACITY: usize = 1_024;
 pub(crate) const MIN_UPPER_WORDS: usize = 4_096;
 pub(crate) const MIN_ID_TABLE_SLOTS: usize = 2_048;
