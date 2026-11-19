@@ -1,3 +1,13 @@
+## 0.4.5 (2026-11-19)
+
+### 🔥 Performance
+
+- **server:** serve requests on one thread per core, since the server's main thread answers no searches ([83b07763](https://github.com/assetcorp/narsil/commit/83b07763))
+
+### ❤️ Thank You
+
+- assetcorp
+
 ## 0.4.4 (2026-11-17)
 
 ### 🩹 Fixes
