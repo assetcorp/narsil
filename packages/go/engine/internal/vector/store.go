@@ -73,6 +73,7 @@ func newStoreBlock(geometry blockGeometry) (*storeBlock, error) {
 	if err != nil {
 		return nil, err
 	}
+	memory.region.PreferHugePages()
 	return &storeBlock{memory: memory, resource: newSharedResource(memory.release)}, nil
 }
 

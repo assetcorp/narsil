@@ -24,6 +24,7 @@ COMPARISON_FILENAME = "comparison.json"
 BEST_CONFIG_COMPARISON_FILENAME = "comparison-best-config.json"
 INPROCESS_RESULTS_FILENAME = "results.json"
 MANIFEST_FILENAME = "run.json"
+RERUN_FILENAME = "rerun.json"
 
 
 @dataclass(frozen=True)
@@ -39,13 +40,21 @@ def repo_root() -> Path:
 
 
 def _latest_run(runs_root: Path) -> str | None:
-    if not runs_root.is_dir():
-        return None
-    ids = [entry.name for entry in runs_root.iterdir() if entry.is_dir() and _RUN_ID.match(entry.name)]
+    ids = [entry.name for entry in run_directories(runs_root) if not (entry / RERUN_FILENAME).is_file()]
     return max(ids) if ids else None
 
 
-def _read_json(path: Path) -> dict:
+def run_directories(runs_root: Path) -> list[Path]:
+    if not runs_root.is_dir():
+        return []
+    return sorted(entry for entry in runs_root.iterdir() if entry.is_dir() and _RUN_ID.match(entry.name))
+
+
+def server_runs_root(root: Path) -> Path:
+    return root / SERVER_SUITE_DIR / "results" / "runs"
+
+
+def read_json(path: Path) -> dict:
     try:
         parsed = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError as exc:
@@ -69,8 +78,8 @@ def _load(root: Path, suite_dir: str, data_filename: str, suite_label: str, repo
     return Source(
         run_id=run_id,
         report_link=f"{suite_dir}/results/runs/{run_id}/{report_name}",
-        data=_read_json(directory / data_filename),
-        manifest=_read_json(directory / MANIFEST_FILENAME),
+        data=read_json(directory / data_filename),
+        manifest=read_json(directory / MANIFEST_FILENAME),
     )
 
 
@@ -79,7 +88,7 @@ def load_server_source(root: Path = _REPO_ROOT) -> Source:
 
 
 def load_server_best_config_source(root: Path = _REPO_ROOT) -> Source | None:
-    runs_root = root / SERVER_SUITE_DIR / "results" / "runs"
+    runs_root = server_runs_root(root)
     run_id = _latest_run(runs_root)
     if run_id is None or not (runs_root / run_id / BEST_CONFIG_COMPARISON_FILENAME).is_file():
         return None

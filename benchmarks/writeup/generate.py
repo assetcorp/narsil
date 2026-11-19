@@ -22,8 +22,8 @@ from pathlib import Path
 from headline_section import README_TARGETS, readme_blocks
 from inprocess_section import inprocess_blocks
 from languages_section import languages_blocks
-from narsil_servers import load_server_sources
 from readme_results import readme_result_blocks
+from reruns import published_server_sources
 from server_section import server_blocks
 from sources import Source, load_inprocess_source, load_languages_source, repo_root
 
@@ -99,7 +99,7 @@ def generated_pages(
 def main(argv: list[str]) -> int:
     check = "--check" in argv
     root = repo_root()
-    server, best = load_server_sources()
+    server, best = published_server_sources()
     inprocess = load_inprocess_source()
     languages = load_languages_source()
     pages = generated_pages(root, server, best, inprocess, languages)

@@ -9,6 +9,7 @@ from . import datasets as ds
 from .config import BenchmarkConfig, EngineConfig, VectorConfig
 from .config_datasets import DatasetSpec
 from .embeddings import EmbeddingStore
+from .engine_settle import wait_for_quiet_engine
 from .latency import Trip, measure_latency, timed_trip, warmup_sample
 from .recall_sweep import sweep_throughput
 from .runfile import run_mapping, strict_ranking, write_run_file
@@ -120,7 +121,13 @@ def _operating_point(driver, vec: VectorConfig, point: OperatingPoint, sweep: li
 
 
 def _operational(
-    indexed: int, build_seconds: float, ingest_rate: float, config: BenchmarkConfig, stats, shared: bool = False
+    indexed: int,
+    build_seconds: float,
+    ingest_rate: float,
+    config: BenchmarkConfig,
+    stats,
+    load_settle: dict | None,
+    shared: bool = False,
 ) -> dict:
     return {
         "documents_indexed": indexed,
@@ -131,6 +138,7 @@ def _operational(
         "ingest_batch_size": config.import_batch,
         "index_size_bytes": index_size_bytes(stats),
         "raw_stats": stats,
+        "load_settle": load_settle,
     }
 
 
@@ -205,6 +213,7 @@ def run_vector_track(
 
     print(f"{label} ingesting corpus", flush=True)
     index, indexed, build_seconds = _create_and_load(driver, config, spec, store, profile)
+    load_settle = wait_for_quiet_engine(engine_cpu, spec, label)
     ingest_rate = indexed / build_seconds if build_seconds > 0 else 0.0
     truth = store.truth(spec.dataset_id, vec.recall_k)
 
@@ -271,7 +280,7 @@ def run_vector_track(
         "calibration": None,
         "operating_point": _operating_point(driver, vec, point, sweep),
         "vector_oversample": point.oversample,
-        "operational": _operational(indexed, build_seconds, ingest_rate, config, stats),
+        "operational": _operational(indexed, build_seconds, ingest_rate, config, stats, load_settle),
         "latency": latency,
         "throughput": throughput,
         "run_file": run_file,
@@ -306,9 +315,11 @@ def run_hybrid_track(
     if loaded is None:
         print(f"{label} ingesting corpus", flush=True)
         index, indexed, build_seconds = _create_and_load(driver, config, spec, store, profile)
+        load_settle = wait_for_quiet_engine(engine_cpu, spec, label)
     else:
         print(f"{label} measuring the index that the vector track built", flush=True)
         index, indexed, build_seconds = _reuse_loaded(driver, spec, profile, loaded)
+        load_settle = None
     ingest_rate = indexed / build_seconds if build_seconds > 0 else 0.0
     if hasattr(driver, "set_rescore_oversample"):
         driver.set_rescore_oversample(vector_oversample)
@@ -374,7 +385,9 @@ def run_hybrid_track(
             "vector_ef_from_vector_track": vector_ef is not None,
             "rescore_oversample": vector_oversample,
         },
-        "operational": _operational(indexed, build_seconds, ingest_rate, config, stats, shared=loaded is not None),
+        "operational": _operational(
+            indexed, build_seconds, ingest_rate, config, stats, load_settle, shared=loaded is not None
+        ),
         "latency": latency,
         "throughput": throughput,
         "run_file": run_file,

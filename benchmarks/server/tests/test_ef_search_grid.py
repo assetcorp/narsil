@@ -12,6 +12,9 @@ BENCHMARK_CONFIG = Path(__file__).resolve().parents[1] / "config" / "benchmark.t
 FINE_SWEEP_LOW = 128
 FINE_SWEEP_HIGH = 512
 FINE_SWEEP_STEP = 32
+FINEST_SWEEP_LOW = 192
+FINEST_SWEEP_HIGH = 320
+FINEST_SWEEP_STEP = 8
 QUERY_COUNT = 100
 NEIGHBOURS_PER_QUERY = 10
 
@@ -29,7 +32,12 @@ class EngineThatReachesFullRecallAt:
         return {query_id: neighbours[:-1] + ["missed"] for query_id, neighbours in self.truth.items()}
 
 
-def test_every_engine_is_measured_at_the_smallest_step_of_32_that_reaches_the_recall_target():
+def smallest_reaching_effort(threshold: int) -> int:
+    step = FINEST_SWEEP_STEP if FINEST_SWEEP_LOW < threshold <= FINEST_SWEEP_HIGH else FINE_SWEEP_STEP
+    return math.ceil(threshold / step) * step
+
+
+def test_every_engine_is_measured_at_the_smallest_grid_step_that_reaches_the_recall_target():
     vec = load_config(BENCHMARK_CONFIG).vector
     assert vec is not None
     truth = {
@@ -53,7 +61,7 @@ def test_every_engine_is_measured_at_the_smallest_step_of_32_that_reaches_the_re
                 f"[{engine.name}:{profile}:{threshold}]",
             )
 
-            expected = math.ceil(threshold / FINE_SWEEP_STEP) * FINE_SWEEP_STEP
+            expected = smallest_reaching_effort(threshold)
             assert point.tuning.met_target, (profile, threshold)
             assert point.tuning.chosen_param == expected, (profile, threshold, point.tuning.chosen_param)
             assert point.confirmation_steps == 0, (profile, threshold)

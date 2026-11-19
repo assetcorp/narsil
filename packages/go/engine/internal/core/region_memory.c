@@ -2,6 +2,10 @@
 #define _DARWIN_C_SOURCE
 #endif
 
+#if defined(__linux__) && !defined(_DEFAULT_SOURCE)
+#define _DEFAULT_SOURCE
+#endif
+
 #include "region_memory.h"
 
 #include <stdint.h>
@@ -91,6 +95,11 @@ size_t narsil_go_region_page_bytes(void) {
   return (size_t)info.dwPageSize;
 }
 
+void narsil_go_region_prefer_huge_pages(void *base, size_t bytes) {
+  (void)base;
+  (void)bytes;
+}
+
 #else
 
 #include <sys/mman.h>
@@ -140,6 +149,15 @@ void narsil_go_region_release(void *base, size_t bytes) {
 size_t narsil_go_region_page_bytes(void) {
   long page = sysconf(_SC_PAGESIZE);
   return page > 0 ? (size_t)page : 4096U;
+}
+
+void narsil_go_region_prefer_huge_pages(void *base, size_t bytes) {
+#ifdef __linux__
+  if (base != NULL && bytes != 0) { (void)madvise(base, bytes, MADV_HUGEPAGE); }
+#else
+  (void)base;
+  (void)bytes;
+#endif
 }
 
 #endif

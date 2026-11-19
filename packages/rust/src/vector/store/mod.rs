@@ -13,6 +13,7 @@ use crate::pins::IndexSequence;
 
 use super::constants::VECTORS_PER_BLOCK;
 use super::files::{FileList, MappedFile};
+use super::huge_pages::HugePageFloats;
 use super::region::{
     byte_ptr, bytes, copied_bytes, copied_doubles, copied_floats, copied_sequences, copied_words,
     double_ptr, float_ptr, floats, load, load_byte, sequence_ptr, sequences, store, store_byte,
@@ -30,7 +31,7 @@ const IN_A_BLOCK: i32 = ffi::NARSIL_VECTOR_IN_A_BLOCK;
 const NO_EARLIER_ORDINAL: i32 = -1;
 
 struct VectorBlock {
-    floats: Box<[AtomicU32]>,
+    floats: HugePageFloats,
 }
 
 struct CodeBlock {

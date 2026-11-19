@@ -52,7 +52,8 @@ top_k = 10
 # engine to that one core divided by its per-request cost, whatever the engine could
 # serve. The extra CPU comes off the same host the engine runs on, so a higher count
 # buys headroom to measure with and costs the engine cores to be measured on. The
-# harness resolves an unset value to half the host's logical cores, and
+# harness resolves an unset value to every logical core of its machine when the
+# engine serves from a second machine, and to half of them when the two share one, and
 # BENCH_THROUGHPUT_CLIENT_PROCESSES overrides whatever is set here. Every level
 # records the value used.
 [throughput]
@@ -139,7 +140,7 @@ dims = 384
 metric = "cosine"
 hnsw_m = 16
 hnsw_ef_construction = 200
-ef_search_grid = [16, 32, 64, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448, 480, 512, 768, 1024, 1536, 2048, 4096, 8192]
+ef_search_grid = [16, 32, 64, 128, 160, 192, 200, 208, 216, 224, 232, 240, 248, 256, 264, 272, 280, 288, 296, 304, 312, 320, 352, 384, 416, 448, 480, 512, 768, 1024, 1536, 2048, 4096, 8192]
 recall_target = 0.99
 recall_target_secondary = 0.95
 recall_k = 10

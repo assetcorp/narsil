@@ -5,7 +5,7 @@ that the results record. Where an older run lacks a value, its sentence stays ou
 
 from __future__ import annotations
 
-from render import and_join, engine_name, gibibytes, integer
+from render import and_join, dataset_name, engine_name, gibibytes, integer
 
 NATIVE_VECTOR_SEARCH = "native"
 WASM_VECTOR_SEARCH = "wasm"
@@ -17,23 +17,74 @@ _SHARED_MACHINE_SENTENCES = (
 )
 
 
-def load_sentence(config: dict) -> str:
+def _placement_sentences(throughput: dict, environment: dict) -> str:
+    if not isinstance(environment.get("engine_machine"), dict):
+        return _SHARED_MACHINE_SENTENCES
+    processes = throughput.get("client_processes")
+    spread = (
+        f", and it spreads the clients across {integer(processes)} processes"
+        if isinstance(processes, int) and processes > 0
+        else ""
+    )
+    return (
+        "The load generator works on a separate machine from the engine under test, so its client processes take "
+        f"no CPU time from the engine{spread}. The harness measures every engine under that same arrangement."
+    )
+
+
+def load_sentence(config: dict, environment: dict) -> str:
     throughput = config.get("throughput") or {}
     levels = throughput.get("concurrency") or []
     passes = throughput.get("passes")
     if not levels:
         return "The harness recorded no concurrency sweep."
     level_text = and_join([integer(level) for level in levels])
+    placement = _placement_sentences(throughput, environment)
     if isinstance(passes, int) and passes > 1:
         return (
             f"The harness measures throughput at {level_text} concurrent clients, with one pass per level and "
             f"{integer(passes)} passes at each engine's peak level. The tables report the median peak pass "
-            f"with a 95% bootstrap interval. {_SHARED_MACHINE_SENTENCES}"
+            f"with a 95% bootstrap interval. {placement}"
         )
     return (
         f"The harness measures throughput at {level_text} concurrent clients, with one pass per level. "
-        f"{_SHARED_MACHINE_SENTENCES}"
+        f"{placement}"
     )
+
+
+def _load_settles(comparison: dict) -> list[tuple[dict, str, dict]]:
+    found = []
+    for track in comparison.get("tracks") or []:
+        for dataset in track.get("datasets") or []:
+            for row in dataset.get("rows") or []:
+                settle = (row.get("operational") or {}).get("load_settle")
+                if isinstance(settle, dict) and isinstance(settle.get("waited_seconds"), (int, float)):
+                    found.append((row, dataset.get("dataset_id") or "", settle))
+    return found
+
+
+def settle_sentence(comparison: dict) -> str:
+    settles = _load_settles(comparison)
+    if not settles:
+        return ""
+    rule = settles[0][2]
+    row, dataset_id, longest = max(settles, key=lambda entry: entry[2]["waited_seconds"])
+    busy = sorted(
+        {f"{engine_name(entry[0].get('engine') or '')} on {dataset_name(entry[1])}" for entry in settles if not entry[2].get("settled")}
+    )
+    sentence = (
+        f" After it loads each large dataset, the harness waits until the engine uses less than "
+        f"{rule.get('quiet_engine_cores')} cores for {integer(rule.get('quiet_seconds'))} seconds in a row, so that the "
+        "merges, graph builds, and index copies that an engine starts after a load finish before any measurement. "
+        f"The longest wait was {integer(longest['waited_seconds'])} seconds, for {engine_name(row.get('engine') or '')} "
+        f"on {dataset_name(dataset_id)}."
+    )
+    if busy:
+        sentence += (
+            f" The harness stopped waiting after {integer(rule.get('timeout_seconds'))} seconds for "
+            f"{and_join(busy)}, which stayed busy until then."
+        )
+    return sentence
 
 
 def java_heap_sentence(engines: list[dict]) -> str:
