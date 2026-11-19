@@ -29,6 +29,7 @@ case "$VM_MAX_HOURS" in
 esac
 
 . "$CLOUD_DIR/lib/engine-vm.sh"
+. "$CLOUD_DIR/lib/sync-clone.sh"
 
 # Single choke point for every side-effecting external command, so --dry-run can
 # show the plan without touching the cloud.
@@ -94,7 +95,13 @@ cmd_sync() {
     prov_ssh "unpack narsil.tgz into ~/narsil"
     return 0
   fi
-  local tarball filelist
+  local tarball filelist published
+  if published="$(published_checkout)"; then
+    log "clone commit ${published#* } from GitHub on each VM"
+    on_every_vm sync_clone $published
+    return
+  fi
+  log "the checkout has local changes or an unpublished commit, so its files and git history go up from here"
   tarball="$(mktemp "${TMPDIR:-/tmp}/narsil-sync.XXXXXX")"
   filelist="$(mktemp "${TMPDIR:-/tmp}/narsil-files.XXXXXX")"
   {
@@ -112,10 +119,7 @@ cmd_sync() {
   rm -f "$filelist"
   log "upload and unpack to ~/narsil"
   local rc=0
-  sync_unpack "$tarball" || rc=1
-  if two_vm; then
-    on_engine_vm sync_unpack "$tarball" || rc=1
-  fi
+  on_every_vm sync_unpack "$tarball" || rc=1
   rm -f "$tarball"
   return "$rc"
 }
@@ -127,9 +131,8 @@ sync_unpack() {
 
 cmd_setup() {
   log "install Docker, Node 24, pnpm, and kernel settings on the VM"
-  prov_ssh "bash narsil/benchmarks/cloud/remote-bootstrap.sh"
+  on_every_vm prov_ssh "bash narsil/benchmarks/cloud/remote-bootstrap.sh"
   if two_vm; then
-    on_engine_vm prov_ssh "bash narsil/benchmarks/cloud/remote-bootstrap.sh"
     link_engine_vm
   fi
 }

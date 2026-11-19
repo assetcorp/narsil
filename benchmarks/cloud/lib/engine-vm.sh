@@ -25,6 +25,19 @@ on_engine_vm() {
   )
 }
 
+on_every_vm() {
+  if ! two_vm; then
+    "$@"
+    return
+  fi
+  local engine_pid harness_status=0 engine_status=0
+  on_engine_vm "$@" </dev/null &
+  engine_pid=$!
+  "$@" </dev/null || harness_status=$?
+  wait "$engine_pid" || engine_status=$?
+  [ "$harness_status" = 0 ] && [ "$engine_status" = 0 ]
+}
+
 vm_create_if_missing() {
   if [ "$DRY_RUN" != "1" ] && prov_exists; then
     log "$VM_NAME already exists"
