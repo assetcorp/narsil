@@ -1,3 +1,15 @@
+## 0.2.2 (2026-11-19)
+
+### 🩹 Fixes
+
+- **certutil:** preserve TLS handling of critical CA extensions ([b478224c](https://github.com/assetcorp/narsil/commit/b478224c))
+- **certutil:** apply CA constraints to leaves with the CA subject ([9f96e345](https://github.com/assetcorp/narsil/commit/9f96e345))
+- **certutil:** enforce the CA's name constraints when verifying a chain ([414612bd](https://github.com/assetcorp/narsil/commit/414612bd))
+
+### ❤️ Thank You
+
+- assetcorp
+
 ## 0.2.1 (2026-11-14)
 
 This was a version bump only for narsil-certutil to align it with other projects, there were no code changes.
