@@ -6,6 +6,7 @@ from typing import Any, Callable
 
 from .config_throughput import ThroughputConfig
 from .cpu_sets import usable_cpus
+from .load_loop import merge_error_causes
 from .stats import bootstrap_median_interval, median, summarize_ms
 from .throughput_process import CpuCounter, PhaseOutcome, ProcessResult, pack_items, run_phase
 from .throughput_workload import Workload
@@ -45,9 +46,11 @@ def _pass_record(
     cpu_seconds = sum(r.cpu_seconds for r in results)
     client_ms: list[float] = []
     server_ms: list[float] = []
+    error_causes: dict[str, int] = {}
     for r in results:
         client_ms.extend(r.client_ms)
         server_ms.extend(r.server_ms)
+        merge_error_causes(error_causes, r.error_causes)
 
     qps = completed / elapsed if elapsed > 0 else 0.0
     attempted = completed + errors
@@ -85,6 +88,7 @@ def _pass_record(
         "completed": completed,
         "errors": errors,
         "error_rate": error_rate,
+        "error_causes": error_causes,
         "elapsed_seconds": elapsed,
         "client_latency_ms": client_summary,
         "server_latency_ms": summarize_ms(server_ms, under_load=True) if (capture_server and server_ms) else None,
@@ -131,6 +135,9 @@ def _level_record(passes: list[PassSamples], concurrency: int, cores_allowed: in
     machine_busy = [r["machine_busy_fraction"] for r in records if r["machine_busy_fraction"] is not None]
     bound_votes = sum(1 for r in records if r["client_bound"])
     reasons = sorted({reason for r in records for reason in r["client_bound_reasons"]})
+    error_causes: dict[str, int] = {}
+    for r in records:
+        merge_error_causes(error_causes, r.get("error_causes") or {})
     first = records[0]
     return {
         "concurrency": concurrency,
@@ -142,6 +149,7 @@ def _level_record(passes: list[PassSamples], concurrency: int, cores_allowed: in
         "completed": sum(int(r["completed"]) for r in records),
         "errors": sum(int(r["errors"]) for r in records),
         "error_rate": median([float(r["error_rate"]) for r in records]),
+        "error_causes": error_causes,
         "elapsed_seconds": sum(float(r["elapsed_seconds"]) for r in records),
         "client_latency_ms": summarize_ms(client_ms, under_load=True),
         "server_latency_ms": summarize_ms(server_ms, under_load=True) if (capture_server and server_ms) else None,
