@@ -63,8 +63,8 @@ def test_the_headline_never_names_narsils_rust_server_as_a_rival():
     block = headline_block(_source(_comparison()), "BENCHMARKS.md", None)
 
     assert (
-        "On SciFact, Narsil's TypeScript server answers 900 keyword queries a second at its peak, while "
-        "Elasticsearch leads with 1,000. Narsil's Rust server answers 1,500 keyword queries a second at its peak."
+        "On SciFact, Narsil's TypeScript server answers 900 keyword queries a second at its peak, and "
+        "Elasticsearch answers 1,000. Narsil's Rust server answers 1,500 keyword queries a second at its peak."
     ) in block
     assert "Narsil-rust" not in block
     assert "Narsil has the highest peak throughput in 2 of the 2 keyword comparisons" in block
