@@ -18,7 +18,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends libjemalloc2 &&
     && useradd --uid 1000 --gid narsil --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin narsil \
     && mkdir -p /data && chown narsil:narsil /data
 ENV LD_PRELOAD=/usr/local/lib/libjemalloc.so.2
-ENV MALLOC_CONF=thp:always
 ARG NARSIL_BUILD_VERSION=0.0.0-dev
 ARG NARSIL_BUILD_GIT_SHA=unknown
 ENV NARSIL_BUILD_VERSION=${NARSIL_BUILD_VERSION}
