@@ -1,3 +1,18 @@
+## 0.2.2 (2026-11-19)
+
+### 🩹 Fixes
+
+- **rust:** purge jemalloc's arenas when the memory guard frees pages, since malloc_trim reaches only glibc's heap ([b84fb3d6](https://github.com/assetcorp/narsil/commit/b84fb3d6))
+
+### 🔥 Performance
+
+- **rust:** map vector blocks from the kernel with huge pages, so a deleted index returns its memory at once ([22e65fa3](https://github.com/assetcorp/narsil/commit/22e65fa3))
+- **rust:** back vector blocks and the server's heap with huge pages, which cut CPU per search at 1M by 3 to 8 percent ([2f37c658](https://github.com/assetcorp/narsil/commit/2f37c658))
+
+### ❤️ Thank You
+
+- assetcorp
+
 ## 0.2.1 (2026-11-16)
 
 ### 🚀 Features
