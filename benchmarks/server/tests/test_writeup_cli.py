@@ -89,7 +89,8 @@ def test_missing_servers_are_explicit_even_without_engine_metadata(checkout):
         [{"dataset_id": NFCORPUS, "rows": [row("elasticsearch", 700)]}, {"dataset_id": "empty", "rows": []}],
     ))
     page, _ = generate(checkout)
-    assert "| Narsil Rust | 0.6810 | 0.9000 | 0.6000 | 0.6500 | 1,500 |" in page
+    assert "| Narsil Rust | 0.6810 | 0.9000 | 0.6000 | 0.6500 | **1,500**\\* |" in page
+    assert "| Elasticsearch | 0.6810 | 0.9000 | 0.6000 | 0.6500 | 1,000 |" in page
     assert page.count("| Narsil TypeScript | not measured yet |") == 3
     assert page.count("| Narsil Rust | not measured yet |") == 2
     assert "The harness has not measured Narsil Rust" not in page
