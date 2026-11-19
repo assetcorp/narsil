@@ -1,6 +1,6 @@
 {
   "name": "@delali/narsil-embeddings-transformers",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "type": "module",
   "description": "Transformers.js embedding and rerank adapters for Narsil search engine",
   "author": "Delali (https://sondelali.com)",
