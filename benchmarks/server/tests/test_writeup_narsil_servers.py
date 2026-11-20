@@ -72,7 +72,7 @@ def test_the_headline_never_names_narsils_rust_server_as_a_rival():
 
 def test_each_narsil_server_has_its_own_row_and_an_unmeasured_one_says_so():
     keyword = server_blocks(_source(with_every_narsil_server(_comparison())), None)["server-keyword"]
-    scifact, nfcorpus = keyword.split("**NFCorpus.**")
+    scifact, nfcorpus = keyword.split("#### NFCorpus")
 
     assert "| Narsil TypeScript | **0.6810**\\* | 0.9000 | 0.6000 | 0.6500 | 900 |" in scifact
     assert "| Narsil Rust | **0.6810**\\* | 0.9000 | 0.6000 | 0.6500 | **1,500**\\* |" in scifact

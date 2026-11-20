@@ -69,7 +69,7 @@ query, with 10,000 permutations, and Holm's correction holds the whole table to
 a 5% error rate, so engines that share a rank are statistically tied.
 
 <!-- BENCH:server-keyword START -->
-**SciFact.**
+#### SciFact
 
 <img src="benchmarks/server/results/runs/20261119T135007Z/charts/equal-precision-keyword-scifact-bars.svg" alt="Two bar panels for the keyword track on SciFact: nDCG@10 per engine, and peak queries per second per engine with a 95% confidence interval across passes." width="820">
 
@@ -84,7 +84,7 @@ a 5% error rate, so engines that share a rank are statistically tied.
 
 <img src="benchmarks/server/results/runs/20261119T135007Z/charts/equal-precision-keyword-scifact-sweep.svg" alt="Line panels for the keyword track on SciFact against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
 
-**NFCorpus.**
+#### NFCorpus
 
 <img src="benchmarks/server/results/runs/20261119T135007Z/charts/equal-precision-keyword-nfcorpus-bars.svg" alt="Two bar panels for the keyword track on NFCorpus: nDCG@10 per engine, and peak queries per second per engine with a 95% confidence interval across passes." width="820">
 
@@ -99,7 +99,7 @@ a 5% error rate, so engines that share a rank are statistically tied.
 
 <img src="benchmarks/server/results/runs/20261119T135007Z/charts/equal-precision-keyword-nfcorpus-sweep.svg" alt="Line panels for the keyword track on NFCorpus against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
 
-**DBpedia entities 100K.**
+#### DBpedia entities 100K
 
 <img src="benchmarks/server/results/runs/20261119T135007Z/charts/equal-precision-keyword-dbpedia-entities-openai-100k-bars.svg" alt="One bar panel for the keyword track on DBpedia entities 100K: peak queries per second per engine with a 95% confidence interval across passes." width="820">
 
@@ -114,7 +114,7 @@ a 5% error rate, so engines that share a rank are statistically tied.
 
 <img src="benchmarks/server/results/runs/20261119T135007Z/charts/equal-precision-keyword-dbpedia-entities-openai-100k-sweep.svg" alt="Line panels for the keyword track on DBpedia entities 100K against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
 
-**DBpedia entities 1M.**
+#### DBpedia entities 1M
 
 <img src="benchmarks/server/results/runs/20261119T135007Z/charts/equal-precision-keyword-dbpedia-entities-openai-1m-bars.svg" alt="One bar panel for the keyword track on DBpedia entities 1M: peak queries per second per engine with a 95% confidence interval across passes." width="820">
 
@@ -153,7 +153,7 @@ measures search while writes arrive.
 <!-- BENCH:server-vector START -->
 On SciFact, every engine tunes its search effort to reach ann_recall@10 of at least 0.99 against the exact neighbours, and each returns the same ranking, so nDCG@10 is 0.6239 and Recall@100 is 0.9227 across the field. On NFCorpus, every engine tunes its search effort to reach ann_recall@10 of at least 0.99 against the exact neighbours. The tables report each engine's measured ranking quality. On DBpedia entities 100K, every engine tunes its search effort to reach ann_recall@10 of at least 0.99 against the exact neighbours. The set carries no relevance judgements, so it reports recall, latency, and throughput and no ranking quality. On DBpedia entities 1M, every engine tunes its search effort to reach ann_recall@10 of at least 0.99 against the exact neighbours. The set carries no relevance judgements, so it reports recall, latency, and throughput and no ranking quality.
 
-**SciFact.**
+#### SciFact
 
 <img src="benchmarks/server/results/runs/20261119T135007Z/charts/equal-precision-vector-scifact-bars.svg" alt="Two bar panels for the vector track on SciFact: nDCG@10 per engine, and peak queries per second per engine with a 95% confidence interval across passes." width="820">
 
@@ -170,7 +170,7 @@ On SciFact, every engine tunes its search effort to reach ann_recall@10 of at le
 
 <img src="benchmarks/server/results/runs/20261119T135007Z/charts/vector-scifact-throughput-against-recall.svg" alt="Queries per second against ANN recall@10 on SciFact, one point per search-effort level per engine, with equal precision drawn solid and recommended production settings dashed." width="820">
 
-**NFCorpus.**
+#### NFCorpus
 
 <img src="benchmarks/server/results/runs/20261119T135007Z/charts/equal-precision-vector-nfcorpus-bars.svg" alt="Two bar panels for the vector track on NFCorpus: nDCG@10 per engine, and peak queries per second per engine with a 95% confidence interval across passes." width="820">
 
@@ -187,7 +187,7 @@ On SciFact, every engine tunes its search effort to reach ann_recall@10 of at le
 
 <img src="benchmarks/server/results/runs/20261119T135007Z/charts/vector-nfcorpus-throughput-against-recall.svg" alt="Queries per second against ANN recall@10 on NFCorpus, one point per search-effort level per engine, with equal precision drawn solid and recommended production settings dashed." width="820">
 
-**DBpedia entities 100K.**
+#### DBpedia entities 100K
 
 <img src="benchmarks/server/results/runs/20261119T135007Z/charts/equal-precision-vector-dbpedia-entities-openai-100k-bars.svg" alt="One bar panel for the vector track on DBpedia entities 100K: peak queries per second per engine with a 95% confidence interval across passes." width="820">
 
@@ -204,7 +204,7 @@ On SciFact, every engine tunes its search effort to reach ann_recall@10 of at le
 
 <img src="benchmarks/server/results/runs/20261119T135007Z/charts/vector-dbpedia-entities-openai-100k-throughput-against-recall.svg" alt="Queries per second against ANN recall@10 on DBpedia entities 100K, one point per search-effort level per engine, with equal precision drawn solid and recommended production settings dashed." width="820">
 
-**DBpedia entities 1M.**
+#### DBpedia entities 1M
 
 <img src="benchmarks/server/results/runs/20261119T135007Z/charts/equal-precision-vector-dbpedia-entities-openai-1m-bars.svg" alt="One bar panel for the vector track on DBpedia entities 1M: peak queries per second per engine with a 95% confidence interval across passes." width="820">
 
@@ -230,7 +230,7 @@ Hybrid fusion combines the keyword and vector rankings, and the fusion method
 differs per engine, so ranking quality varies again.
 
 <!-- BENCH:server-hybrid START -->
-**SciFact.**
+#### SciFact
 
 <img src="benchmarks/server/results/runs/20261119T135007Z/charts/equal-precision-hybrid-scifact-bars.svg" alt="Two bar panels for the hybrid track on SciFact: nDCG@10 per engine, and peak queries per second per engine with a 95% confidence interval across passes." width="820">
 
@@ -245,7 +245,7 @@ differs per engine, so ranking quality varies again.
 
 <img src="benchmarks/server/results/runs/20261119T135007Z/charts/equal-precision-hybrid-scifact-sweep.svg" alt="Line panels for the hybrid track on SciFact against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
 
-**NFCorpus.**
+#### NFCorpus
 
 <img src="benchmarks/server/results/runs/20261119T135007Z/charts/equal-precision-hybrid-nfcorpus-bars.svg" alt="Two bar panels for the hybrid track on NFCorpus: nDCG@10 per engine, and peak queries per second per engine with a 95% confidence interval across passes." width="820">
 
@@ -260,7 +260,7 @@ differs per engine, so ranking quality varies again.
 
 <img src="benchmarks/server/results/runs/20261119T135007Z/charts/equal-precision-hybrid-nfcorpus-sweep.svg" alt="Line panels for the hybrid track on NFCorpus against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
 
-**DBpedia entities 100K.**
+#### DBpedia entities 100K
 
 <img src="benchmarks/server/results/runs/20261119T135007Z/charts/equal-precision-hybrid-dbpedia-entities-openai-100k-bars.svg" alt="One bar panel for the hybrid track on DBpedia entities 100K: peak queries per second per engine with a 95% confidence interval across passes." width="820">
 
@@ -275,7 +275,7 @@ differs per engine, so ranking quality varies again.
 
 <img src="benchmarks/server/results/runs/20261119T135007Z/charts/equal-precision-hybrid-dbpedia-entities-openai-100k-sweep.svg" alt="Line panels for the hybrid track on DBpedia entities 100K against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
 
-**DBpedia entities 1M.**
+#### DBpedia entities 1M
 
 <img src="benchmarks/server/results/runs/20261119T135007Z/charts/equal-precision-hybrid-dbpedia-entities-openai-1m-bars.svg" alt="One bar panel for the hybrid track on DBpedia entities 1M: peak queries per second per engine with a 95% confidence interval across passes." width="820">
 
@@ -303,8 +303,10 @@ tunes its search effort to the same recall target, so compression differs by eng
 on purpose while the accuracy bar stays fixed. The equal-precision figures above
 remain the headline.
 
+### Vector track at production settings
+
 <!-- BENCH:server-vector-best-config START -->
-**SciFact.**
+#### SciFact
 
 <img src="benchmarks/server/results/runs/20261119T135007Z/charts/best-config-vector-scifact-bars.svg" alt="Two bar panels for the vector track on SciFact: nDCG@10 per engine, and peak queries per second per engine with a 95% confidence interval across passes." width="820">
 
@@ -319,7 +321,7 @@ remain the headline.
 
 <img src="benchmarks/server/results/runs/20261119T135007Z/charts/best-config-vector-scifact-sweep.svg" alt="Line panels for the vector track on SciFact against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
 
-**NFCorpus.**
+#### NFCorpus
 
 <img src="benchmarks/server/results/runs/20261119T135007Z/charts/best-config-vector-nfcorpus-bars.svg" alt="Two bar panels for the vector track on NFCorpus: nDCG@10 per engine, and peak queries per second per engine with a 95% confidence interval across passes." width="820">
 
@@ -334,7 +336,7 @@ remain the headline.
 
 <img src="benchmarks/server/results/runs/20261119T135007Z/charts/best-config-vector-nfcorpus-sweep.svg" alt="Line panels for the vector track on NFCorpus against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
 
-**DBpedia entities 100K.**
+#### DBpedia entities 100K
 
 <img src="benchmarks/server/results/runs/20261119T135007Z/charts/best-config-vector-dbpedia-entities-openai-100k-bars.svg" alt="One bar panel for the vector track on DBpedia entities 100K: peak queries per second per engine with a 95% confidence interval across passes." width="820">
 
@@ -349,7 +351,7 @@ remain the headline.
 
 <img src="benchmarks/server/results/runs/20261119T135007Z/charts/best-config-vector-dbpedia-entities-openai-100k-sweep.svg" alt="Line panels for the vector track on DBpedia entities 100K against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
 
-**DBpedia entities 1M.**
+#### DBpedia entities 1M
 
 <img src="benchmarks/server/results/runs/20261119T135007Z/charts/best-config-vector-dbpedia-entities-openai-1m-bars.svg" alt="One bar panel for the vector track on DBpedia entities 1M: peak queries per second per engine with a 95% confidence interval across passes." width="820">
 
@@ -367,8 +369,10 @@ remain the headline.
 <img src="benchmarks/server/results/runs/20261119T135007Z/charts/best-config-vector-latency-profile.svg" alt="Server-side latency at p50, p95, p99, p99.9, and the maximum for each engine on the vector track at its peak concurrency level, one panel per dataset, on a logarithmic scale. An engine that reports no server-side time is absent, and a whole-millisecond timer leaves out the points it floors to zero." width="820">
 <!-- BENCH:server-vector-best-config END -->
 
+### Hybrid track at production settings
+
 <!-- BENCH:server-hybrid-best-config START -->
-**SciFact.**
+#### SciFact
 
 <img src="benchmarks/server/results/runs/20261119T135007Z/charts/best-config-hybrid-scifact-bars.svg" alt="Two bar panels for the hybrid track on SciFact: nDCG@10 per engine, and peak queries per second per engine with a 95% confidence interval across passes." width="820">
 
@@ -383,7 +387,7 @@ remain the headline.
 
 <img src="benchmarks/server/results/runs/20261119T135007Z/charts/best-config-hybrid-scifact-sweep.svg" alt="Line panels for the hybrid track on SciFact against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
 
-**NFCorpus.**
+#### NFCorpus
 
 <img src="benchmarks/server/results/runs/20261119T135007Z/charts/best-config-hybrid-nfcorpus-bars.svg" alt="Two bar panels for the hybrid track on NFCorpus: nDCG@10 per engine, and peak queries per second per engine with a 95% confidence interval across passes." width="820">
 
@@ -398,7 +402,7 @@ remain the headline.
 
 <img src="benchmarks/server/results/runs/20261119T135007Z/charts/best-config-hybrid-nfcorpus-sweep.svg" alt="Line panels for the hybrid track on NFCorpus against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
 
-**DBpedia entities 100K.**
+#### DBpedia entities 100K
 
 <img src="benchmarks/server/results/runs/20261119T135007Z/charts/best-config-hybrid-dbpedia-entities-openai-100k-bars.svg" alt="One bar panel for the hybrid track on DBpedia entities 100K: peak queries per second per engine with a 95% confidence interval across passes." width="820">
 
@@ -413,7 +417,7 @@ remain the headline.
 
 <img src="benchmarks/server/results/runs/20261119T135007Z/charts/best-config-hybrid-dbpedia-entities-openai-100k-sweep.svg" alt="Line panels for the hybrid track on DBpedia entities 100K against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
 
-**DBpedia entities 1M.**
+#### DBpedia entities 1M
 
 <img src="benchmarks/server/results/runs/20261119T135007Z/charts/best-config-hybrid-dbpedia-entities-openai-1m-bars.svg" alt="One bar panel for the hybrid track on DBpedia entities 1M: peak queries per second per engine with a 95% confidence interval across passes." width="820">
 

@@ -212,7 +212,7 @@ def _track_block(source: Source, profile: str, name: str, render_table, comparis
         dataset_id = dataset["dataset_id"]
         rows = dataset["rows"]
         label = dataset_name(dataset_id)
-        chunks.append(f"**{label}.**")
+        chunks.append(f"#### {label}")
         bars = _bars_figure(chart_dir, profile, name, dataset_id, rows)
         if bars:
             chunks.append(bars)
