@@ -123,6 +123,8 @@ async fn clusters_whose_key_prefixes_nest_list_and_watch_only_their_own_records(
         tenant(&endpoint, "outer", outer.clone()).await,
         tenant(&endpoint, "nodes-eu", format!("{outer}/nodes-eu")).await,
         tenant(&endpoint, "schema-eu", format!("{outer}/schema-eu")).await,
+        tenant(&endpoint, "nodes", format!("{outer}/nodes")).await,
+        tenant(&endpoint, "schema", format!("{outer}/schema")).await,
     ];
 
     for tenant in tenants.iter().rev() {

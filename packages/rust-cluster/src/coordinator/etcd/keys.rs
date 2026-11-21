@@ -70,8 +70,10 @@ impl CoordinatorKeys {
     }
 }
 
-pub(crate) fn suffix_after<'a>(full_key: &'a str, prefix: &str) -> &'a str {
-    full_key.strip_prefix(prefix).unwrap_or_default()
+pub(crate) fn record_name<'a>(full_key: &'a str, prefix: &str) -> Option<&'a str> {
+    full_key
+        .strip_prefix(prefix)
+        .filter(|name| !name.is_empty() && !name.contains('/'))
 }
 
 pub(crate) fn index_name_of_metadata_suffix(suffix: &str) -> Option<&str> {
