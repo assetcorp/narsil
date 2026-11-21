@@ -81,6 +81,7 @@ export type {
   TaskType,
 } from './tasks'
 export type {
+  GetDocumentQuery,
   HttpCreateIndexBody,
   HttpGroupResult,
   HttpHit,

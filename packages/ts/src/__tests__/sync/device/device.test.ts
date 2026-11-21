@@ -267,7 +267,9 @@ describe('a synced device', () => {
       for (const engine of [started.engine, serving().running.engine]) {
         expect(await engine.countDocuments(INDEX)).toBe(oracle.size)
         for (const [id, vector] of oracle) {
-          const held = (await engine.get(INDEX, id))?.embedding as ArrayLike<number> | undefined
+          const held = (await engine.get(INDEX, id, { document: { vectors: true } }))?.embedding as
+            | ArrayLike<number>
+            | undefined
           expect(held === undefined ? undefined : Array.from(held)).toEqual(vector)
         }
         for (const id of ['from-server', 'from-device']) {

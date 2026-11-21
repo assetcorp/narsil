@@ -74,6 +74,12 @@ function expectWholeDocument(actual: Record<string, unknown> | undefined, expect
   expect(actual?.embedding).toEqual(asStored(expected.embedding))
 }
 
+function expectDocumentWithoutVectors(actual: Record<string, unknown> | undefined, expected: TripDocument): void {
+  expect(actual?.title).toBe(expected.title)
+  expect(actual?.file_id).toBe(expected.file_id)
+  expect(actual).not.toHaveProperty('embedding')
+}
+
 interface TermSearchShape {
   params: { limit: number; document?: unknown }
   expectDocument(actual: Record<string, unknown>, expected: TripDocument): void
@@ -110,10 +116,14 @@ const TERM_SEARCH_SHAPES: TermSearchShape[] = [
   },
   {
     params: { limit: 3 },
-    expectDocument: (actual, expected) => expectWholeDocument(actual, expected),
+    expectDocument: (actual, expected) => expectDocumentWithoutVectors(actual, expected),
   },
   {
     params: { document: true, limit: 3 },
+    expectDocument: (actual, expected) => expectDocumentWithoutVectors(actual, expected),
+  },
+  {
+    params: { document: { vectors: true }, limit: 3 },
     expectDocument: (actual, expected) => expectWholeDocument(actual, expected),
   },
   {
@@ -127,9 +137,7 @@ const TERM_SEARCH_SHAPES: TermSearchShape[] = [
   {
     params: { document: { include: ['title', 'embedding.missing.path'] }, limit: 3 },
     expectDocument: (actual, expected) => {
-      expect(actual.title).toBe(expected.title)
-      expect(actual.embedding).toEqual(asStored(expected.embedding))
-      expect(actual).not.toHaveProperty('file_id')
+      expect(actual).toEqual({ title: expected.title })
     },
   },
 ]
@@ -218,16 +226,16 @@ describe.skipIf(!built)('request threads answering reads while they load a large
       postJson<{ count: number }>(srv.base, `/indexes/${index}/search/preflight`, { term: 'taxi' }),
       postJson<{ terms: Array<{ term: string }> }>(srv.base, `/indexes/${index}/suggest`, { prefix: 'tax' }),
       getJson<{ exists: boolean }>(srv.base, `/indexes/${index}/documents/${sample.id}/_exists`),
-      getJson<{ document: Record<string, unknown> }>(srv.base, `/indexes/${index}/documents/${sample.id}`),
+      getJson<{ document: Record<string, unknown> }>(srv.base, `/indexes/${index}/documents/${sample.id}?vectors=true`),
       postJson<{ documents: Record<string, Record<string, unknown>> }>(
         srv.base,
         `/indexes/${index}/documents/_multi-get`,
-        { docIds: [sample.id, 'nobody-inserted-this'] },
+        { docIds: [sample.id, 'nobody-inserted-this'], document: { vectors: true } },
       ),
       postJson<{ documents: Array<{ id: string; document: Record<string, unknown> }> }>(
         srv.base,
         `/indexes/${index}/documents/_list`,
-        { limit: 3 },
+        { limit: 3, document: { vectors: true } },
       ),
     ])
     for (const response of [preflight, suggest, exists, single, multi, list]) expectStatus(response, 200)

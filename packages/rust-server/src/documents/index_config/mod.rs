@@ -62,6 +62,7 @@ pub(crate) fn index_config_of(http: &Map) -> Outcome<IndexConfig> {
     config.strict = http
         .get("strict")
         .map(|strict| *strict == Value::Bool(true));
+    config.return_vectors = return_vectors_of(http.get("returnVectors"))?;
     config.required = http.get("required").and_then(required_of);
     config.track_positions = http
         .get("trackPositions")
@@ -90,6 +91,17 @@ fn scoring_of(name: &str) -> Option<ScoringMode> {
 
 fn pattern_value_limit_of(limit: &Value) -> u64 {
     whole_number(limit).map_or(0, saturating_count)
+}
+
+fn return_vectors_of(given: Option<&Value>) -> Outcome<Option<bool>> {
+    match given {
+        None => Ok(None),
+        Some(Value::Bool(return_vectors)) => Ok(Some(*return_vectors)),
+        Some(other) => Err(config_refusal(
+            "returnVectors must be true or false",
+            vec![("returnVectors", other.clone())],
+        )),
+    }
 }
 
 fn text_storage_of(storage: Option<&Value>) -> Outcome<Option<Storage>> {

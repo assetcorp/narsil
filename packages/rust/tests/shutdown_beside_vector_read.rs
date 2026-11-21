@@ -45,6 +45,7 @@ fn shutdown_inside_a_group_reducer_is_refused_without_stopping_the_engine() {
         let stopping = Arc::clone(&calling);
         let (shutdown, shut_down) = channel();
         let params = QueryParams {
+            document: Some(support::WHOLE_DOCUMENT),
             term: Some("article".to_string()),
             group: Some(GroupConfig {
                 fields: vec!["title".to_string()],
@@ -68,7 +69,12 @@ fn shutdown_inside_a_group_reducer_is_refused_without_stopping_the_engine() {
         narsil::ErrorCode::CONFIG_INVALID
     );
     assert_eq!(result.unwrap().hits[0].document, expected);
-    assert_eq!(engine.get("articles", "article").unwrap(), Some(expected));
+    assert_eq!(
+        engine
+            .get_with("articles", "article", Some(&support::WHOLE_DOCUMENT))
+            .unwrap(),
+        Some(expected)
+    );
     engine.shutdown().unwrap();
 }
 
@@ -143,6 +149,7 @@ fn shutdown_beside_read(disk: bool) {
             engine.query(
                 "articles",
                 &QueryParams {
+                    document: Some(support::WHOLE_DOCUMENT),
                     term: Some("article".to_string()),
                     ..QueryParams::default()
                 },
@@ -189,7 +196,12 @@ fn shutdown_beside_read(disk: bool) {
             |engine| engine.register_tokenizer("held", tokenizer),
         )
         .unwrap();
-        assert_eq!(reopened.get("articles", "article").unwrap(), Some(expected));
+        assert_eq!(
+            reopened
+                .get_with("articles", "article", Some(&support::WHOLE_DOCUMENT))
+                .unwrap(),
+            Some(expected)
+        );
         reopened.shutdown().unwrap();
         std::fs::remove_dir_all(scratch.path()).unwrap();
     }

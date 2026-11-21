@@ -126,10 +126,15 @@ pub struct Pin {
     pub position: usize,
 }
 
-/// Which parts of each stored document a hit carries.
+/// Which parts of each stored document a hit or a read carries.
+///
+/// A read leaves every vector field out unless it asks for that field. Where `vectors` is set, it decides for every
+/// vector field. Otherwise, the read returns a vector field whose path `include` lists, and every other vector field
+/// only where the index sets [`crate::IndexConfig::return_vectors`]. The `include` and `exclude` lists then apply to
+/// each vector field that the read returns.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub enum DocumentProjection {
-    /// The whole document, which is the default.
+    /// Every field, apart from the vector fields that the read leaves out, which is the default.
     #[default]
     All,
     /// No document at all.
@@ -140,6 +145,8 @@ pub enum DocumentProjection {
         include: Option<Vec<String>>,
         /// The field paths to leave out.
         exclude: Option<Vec<String>>,
+        /// Whether the read returns every vector field, or `None` to let `include` and the index decide.
+        vectors: Option<bool>,
     },
 }
 

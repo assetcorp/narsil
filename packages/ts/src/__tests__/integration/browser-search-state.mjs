@@ -63,7 +63,11 @@ try {
   await engine.update('readings', 'reading-00000', { title, category: 'earlier', embedding: [1, 0] })
   writing = undefined
   let vectorWriteStartedDuringSearch = false
-  const vectorSearch = engine.query('readings', { vector: { field: 'embedding', value: [1, 0] }, limit: 10_000 })
+  const vectorSearch = engine.query('readings', {
+    vector: { field: 'embedding', value: [1, 0] },
+    limit: 10_000,
+    document: { vectors: true },
+  })
   for (let tick = 0; tick < 10_000 && writing === undefined; tick++) {
     if (engine.getStats('readings').heldSearchStates > 0) {
       vectorWriteStartedDuringSearch = true

@@ -15,6 +15,7 @@ import type { ClusterReadDeps } from './scatter'
 export interface RankedRead {
   last: boolean
   fields: string[] | null
+  vectors: boolean
   requireEveryPartition: boolean
 }
 
@@ -71,7 +72,12 @@ export function createRankedDocumentReader(
     })
   }
 
-  function readOwnContext(context: RankingContext, docIds: readonly string[], last: boolean): Map<string, AnyDocument> {
+  function readOwnContext(
+    context: RankingContext,
+    docIds: readonly string[],
+    last: boolean,
+    vectors: boolean,
+  ): Map<string, AnyDocument> {
     const registry = deps.searchContexts
     const found = registry?.read(context.contextId, docIds) ?? null
     if (last) {
@@ -80,7 +86,7 @@ export function createRankedDocumentReader(
     }
     if (found === null) throw contextLost(context, indexName)
     const documents = new Map<string, AnyDocument>()
-    for (const [docId, snapshot] of found) documents.set(docId, documentOfSnapshot(snapshot))
+    for (const [docId, snapshot] of found) documents.set(docId, documentOfSnapshot(snapshot, vectors))
     return documents
   }
 
@@ -89,6 +95,7 @@ export function createRankedDocumentReader(
     docIds: readonly string[],
     last: boolean,
     fields: string[] | null,
+    vectors: boolean,
   ): Promise<Map<string, AnyDocument>> {
     const documents = new Map<string, AnyDocument>()
     for (let start = 0; start < docIds.length; start += FETCH_GROUP_DOCUMENT_IDS) {
@@ -99,6 +106,7 @@ export function createRankedDocumentReader(
           indexName,
           documentIds: chunk.map(docId => ({ docId, partitionId: resolvePartitionId(docId, partitionCount) })),
           fields,
+          ...(vectors ? {} : { vectors: false }),
           highlight: null,
           contextId: context.contextId,
           releaseContext,
@@ -156,8 +164,8 @@ export function createRankedDocumentReader(
       for (const { context, docIds: contextIds } of byContext.values()) {
         reads.push(
           context.nodeId === deps.nodeId && deps.searchContexts !== undefined
-            ? Promise.resolve().then(() => readOwnContext(context, contextIds, options.last))
-            : readRemoteContext(context, contextIds, options.last, options.fields),
+            ? Promise.resolve().then(() => readOwnContext(context, contextIds, options.last, options.vectors))
+            : readRemoteContext(context, contextIds, options.last, options.fields, options.vectors),
         )
       }
       if (unsourced.length > 0) {
@@ -169,7 +177,7 @@ export function createRankedDocumentReader(
             indexName,
             unsourced,
             allocation,
-            options.fields,
+            { fields: options.fields, vectors: options.vectors },
             options.requireEveryPartition,
           ),
         )

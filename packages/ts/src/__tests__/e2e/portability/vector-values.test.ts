@@ -96,7 +96,7 @@ describe('a document vector whose float32 form is infinite or NaN', () => {
     const engine = await vectorIndex()
     await engine.insert('items', { title: 'largest', embedding: withFirst(LARGEST_FLOAT32) }, 'largest')
 
-    const stored = (await engine.get('items', 'largest'))?.embedding
+    const stored = (await engine.get('items', 'largest', { document: { vectors: true } }))?.embedding
     expect(Array.from(stored as ArrayLike<number>)).toEqual(withFirst(LARGEST_FLOAT32).map(Math.fround))
   })
 })

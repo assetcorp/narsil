@@ -305,7 +305,7 @@ func TestAnExportOfAnIndexWithoutCaptureHoldsNoPositionsAndImportIgnoresThem(t *
 	if restored, err := other.GetChanges(ctx, "restored"); err != nil || restored.Enabled {
 		t.Fatalf("a snapshot restored onto another engine reads %+v with error %s", restored, codeOrMessage(err))
 	}
-	copied, found, err := other.Get(ctx, "copy", "a")
+	copied, found, err := other.Get(ctx, "copy", "a", engine.ReturnVectors(true))
 	imported := mapOf(copied)
 	delete(imported, "id")
 	if err != nil || !found || !jsonEqual(imported, oracle.snapshot()["a"]) {

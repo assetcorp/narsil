@@ -21,7 +21,8 @@ var hitVector = []float32{0.5, -1, 2, 0.25}
 
 func hitWithVector(t *testing.T, narsil *engine.Narsil) *engine.Document {
 	t.Helper()
-	result, err := narsil.Query(context.Background(), documentOrderIndex, engine.QueryParams{Term: "shared"})
+	result, err := narsil.Query(context.Background(), documentOrderIndex, engine.QueryParams{Term: "shared",
+		Document: engine.ReturnVectors(true)})
 	if err != nil || len(result.Hits) != 1 {
 		t.Fatalf("the query returned %d hits with %s: %v", len(result.Hits), codeOrMessage(err), err)
 	}
@@ -30,7 +31,7 @@ func hitWithVector(t *testing.T, narsil *engine.Narsil) *engine.Document {
 
 func requireStoredVector(t *testing.T, narsil *engine.Narsil, body string) {
 	t.Helper()
-	stored, found, err := narsil.Get(context.Background(), documentOrderIndex, hitVectorsDocumentID)
+	stored, found, err := narsil.Get(context.Background(), documentOrderIndex, hitVectorsDocumentID, engine.ReturnVectors(true))
 	if err != nil || !found {
 		t.Fatalf("the engine failed to read the document (found %t) with %s: %v", found, codeOrMessage(err), err)
 	}

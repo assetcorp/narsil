@@ -175,6 +175,23 @@ export function partialFieldsOf(schema: SchemaDefinition): readonly string[] {
   return frozen
 }
 
+const vectorPathsBySchema = new WeakMap<SchemaDefinition, readonly string[][]>()
+
+export function vectorFieldSegmentsOf(schema: SchemaDefinition): readonly string[][] {
+  const cached = vectorPathsBySchema.get(schema)
+  if (cached !== undefined) return cached
+  const paths: string[][] = []
+  for (const field of schemaFieldsOf(schema)) {
+    if (field.base !== 'vector') continue
+    const segments = field.path.split('.')
+    Object.freeze(segments)
+    paths.push(segments)
+  }
+  const frozen = Object.freeze(paths)
+  vectorPathsBySchema.set(schema, frozen)
+  return frozen
+}
+
 export function extractVectorFieldsFromSchema(schema: SchemaDefinition): Map<string, number> {
   const result = new Map<string, number>()
   for (const field of schemaFieldsOf(schema)) {

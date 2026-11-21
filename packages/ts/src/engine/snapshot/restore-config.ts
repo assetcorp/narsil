@@ -25,6 +25,7 @@ export interface SnapshotEnvelope {
   trackPositions?: unknown
   textStorage?: unknown
   strict?: unknown
+  returnVectors?: unknown
   required?: unknown
   vectorPromotion?: unknown
   patternValueLimit?: unknown
@@ -48,6 +49,7 @@ export type ConfigFieldSource = Pick<
   | 'trackPositions'
   | 'textStorage'
   | 'strict'
+  | 'returnVectors'
   | 'required'
   | 'vectorPromotion'
   | 'patternValueLimit'
@@ -253,6 +255,7 @@ export function readSharedConfigFields(source: ConfigFieldSource, reject: Config
     reject("textStorage must be 'memory' or 'disk'")
   }
   const strict = restoredBoolean(source.strict, 'strict', reject)
+  const returnVectors = restoredBoolean(source.returnVectors, 'returnVectors', reject)
   const required = restoredRequired(source.required, reject)
   const vectorPromotion = restoredVectorPromotion(source.vectorPromotion, reject)
   if (source.patternValueLimit !== undefined && typeof source.patternValueLimit !== 'number') {
@@ -268,6 +271,7 @@ export function readSharedConfigFields(source: ConfigFieldSource, reject: Config
     ...(trackPositions !== undefined ? { trackPositions } : {}),
     ...(textStorage === 'memory' || textStorage === 'disk' ? { textStorage } : {}),
     ...(strict !== undefined ? { strict } : {}),
+    ...(returnVectors !== undefined ? { returnVectors } : {}),
     ...(required !== undefined ? { required } : {}),
     ...(vectorPromotion !== undefined ? { vectorPromotion } : {}),
     ...(typeof source.patternValueLimit === 'number' ? { patternValueLimit: source.patternValueLimit } : {}),

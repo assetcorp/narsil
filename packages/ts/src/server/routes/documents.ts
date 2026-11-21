@@ -83,6 +83,7 @@ export function documentRoutes(shared: SharedRouteOptions): RouteSpec[] {
       summary: 'Read one document',
       tags: ['Documents'],
       request: null,
+      query: 'GetDocumentQuery',
       responses: { 200: 'DocumentResponse' },
     },
     {

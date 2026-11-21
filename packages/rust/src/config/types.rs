@@ -275,6 +275,9 @@ pub struct IndexConfig {
     pub vector_promotion: Option<VectorPromotion>,
     /// Whether the index refuses a document that holds a field the schema lacks.
     pub strict: Option<bool>,
+    /// Whether a read returns the vector fields of each document where the read itself does not say. False by
+    /// default, because a vector of 1,536 dimensions adds about 32 KB of JSON to each result.
+    pub return_vectors: Option<bool>,
     /// The vector fields that the engine fills by embedding text.
     pub embedding: Option<EmbeddingConfig>,
     /// The field paths that every document must hold.
@@ -299,6 +302,7 @@ impl std::fmt::Debug for IndexConfig {
             .field("bm25", &self.bm25)
             .field("track_positions", &self.track_positions)
             .field("strict", &self.strict)
+            .field("return_vectors", &self.return_vectors)
             .finish_non_exhaustive()
     }
 }

@@ -18,6 +18,7 @@ export {
   type SchemaField,
   schemaFieldsOf,
   validateSchema,
+  vectorFieldSegmentsOf,
 } from './schema'
 export { assertStorableDocument } from './storable'
 export {

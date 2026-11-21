@@ -242,7 +242,7 @@ export async function runQuery<T>(
       offset,
       sortFields,
       sortSignature,
-      projection: resolveProjection(params.document),
+      projection: resolveProjection(params.document, config),
       placesPinned: context.partitionIds === undefined,
     },
     highlighting: {

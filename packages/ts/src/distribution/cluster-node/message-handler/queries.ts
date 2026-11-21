@@ -1,6 +1,6 @@
 import { encode } from '@msgpack/msgpack'
 import type { SortMode } from '../../../core/ordering'
-import { applyProjection, type ResolvedProjection, resolveProjection } from '../../../core/projection'
+import { applyProjection, resolveProjection, type VectorReadSettings } from '../../../core/projection'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import { oversampledShardSize } from '../../../search/oversample'
 import { readSortValues } from '../../../search/sort-keys'
@@ -8,6 +8,7 @@ import { normalizeSort, sortModesOf } from '../../../search/sorting'
 import { encodeDocumentReply } from '../../../serialization/document-encoding'
 import type { QueryResult } from '../../../types/results'
 import type { AnyDocument } from '../../../types/schema'
+import type { GetOptions } from '../../../types/search'
 import { validateFetchPayload, validateSearchPayload, validateStatsPayload } from '../../query/codec'
 import { decodeRequestPayload } from '../../request-decode'
 import type {
@@ -136,6 +137,13 @@ async function convertLocalGroupsToWire(
   return wireGroups
 }
 
+interface FetchedFields {
+  fields: string[] | null
+  vectors: boolean
+}
+
+const VECTORS_CHOSEN_BY_THE_FETCH: VectorReadSettings = { schema: {} }
+
 export async function handleFetch(
   message: TransportMessage,
   respond: RespondFn,
@@ -143,13 +151,13 @@ export async function handleFetch(
 ): Promise<void> {
   const payload = validateFetchPayload(decodeRequestPayload(message.payload, message.type))
 
-  const projection = resolveProjection(payload.fields === null ? undefined : { include: payload.fields })
+  const read: FetchedFields = { fields: payload.fields, vectors: payload.vectors !== false }
 
   const contextId = payload.contextId ?? null
   const documents =
     contextId === null
-      ? await readCurrentDocuments(deps, payload.indexName, payload.documentIds, projection)
-      : readContextDocuments(deps, contextId, payload.documentIds, payload.releaseContext !== false, projection)
+      ? await readCurrentDocuments(deps, payload.indexName, payload.documentIds, read)
+      : readContextDocuments(deps, contextId, payload.documentIds, payload.releaseContext !== false, read)
 
   refuseEncodeWithoutRoom(documents.map(fetched => fetched.document))
   const resultPayload: FetchResultPayload = { documents }
@@ -166,17 +174,16 @@ async function readCurrentDocuments(
   deps: DataNodeHandlerDeps,
   indexName: string,
   documentIds: readonly FetchDocumentId[],
-  projection: ResolvedProjection,
+  read: FetchedFields,
 ): Promise<FetchedDocument[]> {
   const documents: FetchedDocument[] = []
+  const options: GetOptions = {
+    document: { ...(read.fields === null ? {} : { include: read.fields }), vectors: read.vectors },
+  }
   for (const docRef of documentIds) {
-    const doc = await deps.engine.get(indexName, docRef.docId)
+    const doc = await deps.engine.get(indexName, docRef.docId, options)
     if (doc !== undefined) {
-      documents.push({
-        docId: docRef.docId,
-        document: applyProjection(doc as AnyDocument, projection) as Record<string, unknown>,
-        highlights: null,
-      })
+      documents.push({ docId: docRef.docId, document: doc as Record<string, unknown>, highlights: null })
     }
   }
   return documents
@@ -187,8 +194,12 @@ function readContextDocuments(
   contextId: string,
   documentIds: readonly FetchDocumentId[],
   releaseContext: boolean,
-  projection: ResolvedProjection,
+  read: FetchedFields,
 ): FetchedDocument[] {
+  const projection = resolveProjection(
+    read.fields === null ? undefined : { include: read.fields },
+    VECTORS_CHOSEN_BY_THE_FETCH,
+  )
   const docIds = documentIds.map(docRef => docRef.docId)
   const found = deps.searchContexts?.read(contextId, docIds) ?? null
   if (releaseContext) deps.searchContexts?.release(contextId)
@@ -206,7 +217,7 @@ function readContextDocuments(
     if (snapshot === undefined) continue
     documents.push({
       docId,
-      document: applyProjection(documentOfSnapshot(snapshot), projection) as Record<string, unknown>,
+      document: applyProjection(documentOfSnapshot(snapshot, read.vectors), projection) as Record<string, unknown>,
       highlights: null,
     })
   }

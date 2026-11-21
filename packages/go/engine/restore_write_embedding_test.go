@@ -113,7 +113,7 @@ func targetRestoringOnFirstEmbedding(t *testing.T, archive []byte) (*engine.Nars
 
 func requireStored(t *testing.T, narsil *engine.Narsil, id string, title string, vector []float32) {
 	t.Helper()
-	stored, found, err := narsil.Get(context.Background(), callbackIndex, id)
+	stored, found, err := narsil.Get(context.Background(), callbackIndex, id, engine.ReturnVectors(true))
 	if err != nil || !found {
 		t.Fatalf("document %s is missing from the restored index: found %v, %v", id, found, err)
 	}

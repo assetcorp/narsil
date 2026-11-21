@@ -175,6 +175,7 @@ pub(crate) fn metadata_of(index: &IndexState, base: &IndexMetadata) -> IndexMeta
         .text_storage
         .map(|storage| storage.name().to_string());
     metadata.strict = config.strict;
+    metadata.return_vectors = config.return_vectors;
     metadata.required = config.required.clone();
     metadata.vector_promotion = config.vector_promotion.as_ref().map(promotion_metadata);
     metadata.pattern_value_limit = config.pattern_value_limit;
@@ -289,6 +290,7 @@ pub(crate) fn config_of(metadata: &IndexMetadata) -> Result<IndexConfig> {
     config.track_positions = metadata.track_positions;
     config.text_storage = metadata.text_storage.as_deref().and_then(Storage::parse);
     config.strict = metadata.strict;
+    config.return_vectors = metadata.return_vectors;
     config.required = metadata.required.clone();
     config.vector_promotion = metadata
         .vector_promotion

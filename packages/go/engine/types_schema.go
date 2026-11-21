@@ -184,4 +184,9 @@ type EmbeddingFieldConfig = model.EmbeddingFieldConfig
 
 // IndexConfig carries everything CreateIndex needs: the schema, the language,
 // and the partitioning, scoring, analysis, vector, and embedding settings.
+// ReturnVectors sets whether a read returns the vector fields when its
+// DocumentProjection leaves that choice to the index; it defaults to false,
+// because a vector of 1,536 dimensions adds about 32 KB of JSON to each
+// result. A snapshot, a document export, and a restart of a durable engine
+// keep the setting.
 type IndexConfig = model.IndexConfig

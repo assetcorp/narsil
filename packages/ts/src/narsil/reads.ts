@@ -379,6 +379,7 @@ export async function runEngineListDocuments<T = AnyDocument>(
         manager,
         schema: entry.config.schema,
         strict: entry.config.strict,
+        returnVectors: entry.config.returnVectors,
         partitionIds,
         patternWorkCap: core.patternWorkCap,
       }),

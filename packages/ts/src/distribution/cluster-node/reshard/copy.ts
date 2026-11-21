@@ -114,7 +114,7 @@ function readSnapshotPage(
       [job.partitionId],
     )
     const ids = listed.documents.map(document => document.id)
-    const stored = await engine.getMultiple(job.sourceGeneration, ids)
+    const stored = await engine.getMultiple(job.sourceGeneration, ids, { document: { vectors: true } })
     const operations: ReshardForwardOperation[] = []
     for (const id of ids) {
       const document = stored.get(id)

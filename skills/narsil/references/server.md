@@ -115,6 +115,7 @@ Content-Type: application/json
 - The search body takes the same fields as `query`, and the answer holds `hits`, `count`, `countExact`, `coverage`, and, when asked for, `facets` and `cursor`.
 - Create an index with `POST /indexes` and `{"name": "products", "config": {"schema": {"title": "string", "price": "number"}}}`. Insert one document with `POST /indexes/{name}/documents` and `{"document": {...}}`, and many with `POST /indexes/{name}/documents/_batch` and `{"documents": [...]}`.
 - Load a large corpus as NDJSON through `POST /indexes/{name}/documents/_import`, and add `?async=true` to receive a task that `GET /tasks/{id}` reports on.
+- Every read leaves out vector fields unless the index sets `"returnVectors": true`. Add `?vectors=true` to `GET /indexes/{name}/documents/{id}`, or send `"document": {"vectors": true}` in a search, multi-get, or list body, to get them back.
 - The server answers a failure with `{"error": {"code", "message", "details"}}` and the HTTP status that matches the code.
 - A JSON request can't carry an embedding adapter, so register adapters by name in `createNarsil({ embeddingAdapters })`, and name one under `config.embedding.adapter` when you create the index.
 

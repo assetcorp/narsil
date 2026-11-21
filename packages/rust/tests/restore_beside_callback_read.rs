@@ -38,7 +38,11 @@ impl Tokenizer for ReadingTokenizer {
             };
             let started = Instant::now();
             while started.elapsed() < NESTED_READ_WINDOW {
-                reads.found.push(engine.get(INDEX, DOC_ID).unwrap());
+                reads.found.push(
+                    engine
+                        .get_with(INDEX, DOC_ID, Some(&support::WHOLE_DOCUMENT))
+                        .unwrap(),
+                );
                 reads.listed.push(
                     engine
                         .list_indexes()
@@ -120,6 +124,7 @@ fn a_tokenizer_reading_its_own_index_during_a_restore_swap_finishes_both_calls()
         let result = searching.query(
             INDEX,
             &QueryParams {
+                document: Some(support::WHOLE_DOCUMENT),
                 term: Some("article".to_string()),
                 ..QueryParams::default()
             },
@@ -149,6 +154,11 @@ fn a_tokenizer_reading_its_own_index_during_a_restore_swap_finishes_both_calls()
     assert!(reads.listed.iter().all(|names| names == &[INDEX]));
     assert_eq!(result.hits.len(), 1);
     assert_eq!(result.hits[0].document, expected);
-    assert_eq!(engine.get(INDEX, DOC_ID).unwrap(), Some(expected));
+    assert_eq!(
+        engine
+            .get_with(INDEX, DOC_ID, Some(&support::WHOLE_DOCUMENT))
+            .unwrap(),
+        Some(expected)
+    );
     engine.shutdown().unwrap();
 }

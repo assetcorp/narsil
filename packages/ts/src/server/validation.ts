@@ -1,4 +1,5 @@
 import { ANALYSIS_CHANGE_MEMBERS } from '../engine/constants'
+import type { ErrorCode } from '../errors'
 import { DEFAULT_RERANK_WINDOW } from '../rerank/constants'
 import { DEFAULT_PAGE_SIZE, MAX_SORT_FIELDS } from '../search/constants'
 import type { ListParams, QueryParams, SuggestParams } from '../types/search'
@@ -25,6 +26,7 @@ import type {
 export interface ValidationFailure {
   message: string
   details?: Record<string, unknown>
+  code?: ErrorCode
 }
 
 export function isPlainObject(value: unknown): value is Record<string, unknown> {

@@ -70,7 +70,7 @@ func overlapWrite(race *placingRace, writer int, random *rand.Rand, first int) e
 
 func overlapRead(race *placingRace, random *rand.Rand) error {
 	id := overlapID(random.Intn(overlapSeedingWriter+1), random.Intn(overlapSlotsPerWriter))
-	document, held, err := race.narsil.Get(race.ctx, placingIndexName, id)
+	document, held, err := race.narsil.Get(race.ctx, placingIndexName, id, engine.ReturnVectors(true))
 	if err != nil {
 		return fmt.Errorf("reading %s while vector searches ran failed: %w", id, err)
 	}

@@ -194,6 +194,7 @@ export interface DocumentImportResult {
 export type DocumentProjection = boolean | {
     include?: string[];
     exclude?: string[];
+    vectors?: boolean;
 };
 
 // @public
@@ -458,6 +459,11 @@ export function getLanguage(name: string): LanguageModule;
 export function getNormalizationCacheSize(): number;
 
 // @public
+export interface GetOptions {
+    document?: DocumentProjection;
+}
+
+// @public
 export function getStopWords(name: string): StopWordOverride;
 
 // @public
@@ -542,6 +548,7 @@ export interface IndexConfig {
     partitions?: PartitionConfig;
     patternValueLimit?: number;
     required?: string[];
+    returnVectors?: boolean;
     schema: SchemaDefinition;
     stopWords?: StopWordOverride | string;
     strict?: boolean;
@@ -711,9 +718,9 @@ export interface Narsil extends IndexLifecycleOperations, DocumentWriteOperation
     createIndex(name: string, config: IndexConfig): Promise<void>;
     dropIndex(name: string): Promise<void>;
     exportDocuments(indexName: string): Promise<ReadableStream<Uint8Array>>;
-    get(indexName: string, docId: string): Promise<AnyDocument | undefined>;
+    get(indexName: string, docId: string, options?: GetOptions): Promise<AnyDocument | undefined>;
     getMemoryStats(): Promise<MemoryStats>;
-    getMultiple(indexName: string, docIds: string[]): Promise<Map<string, AnyDocument>>;
+    getMultiple(indexName: string, docIds: string[], options?: GetOptions): Promise<Map<string, AnyDocument>>;
     getPartitionStats(indexName: string): PartitionStatsResult[];
     getStats(indexName: string): IndexStats;
     has(indexName: string, docId: string): Promise<boolean>;

@@ -263,7 +263,9 @@ fn require_answers_match_an_exact_scan(
 }
 
 fn stored_vector(engine: &Narsil, id: &str) -> Option<Vec<f32>> {
-    let document = engine.get(INDEX, id).expect("the document read succeeds")?;
+    let document = engine
+        .get_with(INDEX, id, Some(&support::WHOLE_DOCUMENT))
+        .expect("the document read succeeds")?;
     match document.get(FIELD) {
         Some(Value::Array(values)) => Some(
             values

@@ -61,10 +61,15 @@ fn projection<'py>(
     Ok(match projection {
         DocumentProjection::All => true.into_pyobject(py)?.to_owned().into_any(),
         DocumentProjection::None => false.into_pyobject(py)?.to_owned().into_any(),
-        DocumentProjection::Fields { include, exclude } => {
+        DocumentProjection::Fields {
+            include,
+            exclude,
+            vectors,
+        } => {
             let dict = PyDict::new(py);
             set_some(&dict, "include", include.clone())?;
             set_some(&dict, "exclude", exclude.clone())?;
+            set_some(&dict, "vectors", *vectors)?;
             dict.into_any()
         }
     })
@@ -365,6 +370,7 @@ pub(crate) fn index_config_dict<'py>(
         dict.set_item("vectorPromotion", entry)?;
     }
     set_some(&dict, "strict", config.strict)?;
+    set_some(&dict, "returnVectors", config.return_vectors)?;
     set_some(&dict, "required", config.required.clone())?;
     set_some(&dict, "surfaceForms", config.surface_forms)?;
     set_some(&dict, "patternValueLimit", config.pattern_value_limit)?;

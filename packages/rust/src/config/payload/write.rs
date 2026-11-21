@@ -233,6 +233,9 @@ pub(crate) fn configuration_payload(config: &IndexConfig, facts: &PayloadFacts<'
     if let Some(strict) = config.strict {
         payload.insert("strict", Value::Bool(strict));
     }
+    if let Some(return_vectors) = config.return_vectors {
+        payload.insert("returnVectors", Value::Bool(return_vectors));
+    }
     if let Some(required) = &config.required {
         payload.insert("required", Value::from(required.clone()));
     }

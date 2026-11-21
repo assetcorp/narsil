@@ -36,6 +36,8 @@ with Narsil() as engine:
 
 The program prints `1 ronin`, then `heat` and `ronin` with their cosine scores. When a query sets both `term` and `vector`, the engine fuses the two rankings into one hybrid ranking.
 
+The documents that a read returns leave out their vector fields, so `engine.get("films", "heat")` answers without `embedding`. To get the vectors back, set `"returnVectors": True` in the index settings, or pass `{"vectors": True}` as the `document` argument of `get` and `get_multiple`, or as the `document` member of a query or a listing.
+
 Every setting, query, and result is a plain dict whose keys are the field names of the Narsil specification, the same names that the TypeScript package and the HTTP server use, so you can copy a query from their documentation without changing it. Method names and keyword arguments use Python's style, such as `insert_batch` and `doc_id`.
 
 ## Use it from asyncio

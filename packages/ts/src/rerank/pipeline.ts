@@ -12,6 +12,7 @@ import { DEFAULT_LIMIT, DEFAULT_OFFSET, ErrorCodes, NarsilError, RESULT_WINDOW }
 export interface RerankedQueryIo<T> {
   host: RuntimeHost
   schema: SchemaDefinition
+  returnVectors?: boolean
   maxWindow: number
   binding: CursorBinding
   clampsPins: boolean
@@ -96,7 +97,7 @@ export async function runRerankedQuery<T>(request: QueryParams, io: RerankedQuer
   const offset = host.clampRowCount(request.offset, DEFAULT_OFFSET)
   const cursorDepth = request.searchAfter === undefined ? 0 : rerankCursorDepth(request.searchAfter, io.binding, host)
   const depth = firstStageDepth(hybridDepth, plan.window, cursorDepth, offset, limit)
-  const projection = host.resolveProjection(request.document)
+  const projection = host.resolveProjection(request.document, io)
 
   const { rerank: _rerank, pinned: _pinned, searchAfter: _searchAfter, highlight: _highlight, ...firstParams } = request
   const placesPins = request.searchAfter === undefined && request.pinned !== undefined

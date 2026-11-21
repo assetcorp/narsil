@@ -36,6 +36,7 @@ export interface IndexSettings extends ClusterSyncSettings, ClusterQuerySuggesti
   trackPositions?: boolean
   textStorage?: 'memory' | 'disk'
   strict?: boolean
+  returnVectors?: boolean
   required?: string[]
   vectorPromotion?: VectorIndexConfig
   patternValueLimit?: number
@@ -114,6 +115,7 @@ function settingsFieldsOf(source: SettingsSource): Omit<IndexSettings, 'language
     ...(source.trackPositions !== undefined ? { trackPositions: source.trackPositions } : {}),
     ...(source.textStorage !== undefined ? { textStorage: source.textStorage } : {}),
     ...(source.strict !== undefined ? { strict: source.strict } : {}),
+    ...(source.returnVectors !== undefined ? { returnVectors: source.returnVectors } : {}),
     ...(source.required !== undefined ? { required: source.required } : {}),
     ...(source.vectorPromotion !== undefined ? { vectorPromotion: source.vectorPromotion } : {}),
     ...(source.patternValueLimit !== undefined ? { patternValueLimit: source.patternValueLimit } : {}),

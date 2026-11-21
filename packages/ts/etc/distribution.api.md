@@ -156,9 +156,9 @@ export interface ClusterNode extends ClusterNodeSearchSettings, ClusterNodeSyncS
         signal?: AbortSignal;
     }): Promise<void>;
     dropIndex(name: string): Promise<void>;
-    get(indexName: string, docId: string): Promise<AnyDocument | undefined>;
+    get(indexName: string, docId: string, options?: GetOptions): Promise<AnyDocument | undefined>;
     getMemoryStats(): Promise<MemoryStats>;
-    getMultiple(indexName: string, docIds: string[]): Promise<Map<string, AnyDocument>>;
+    getMultiple(indexName: string, docIds: string[], options?: GetOptions): Promise<Map<string, AnyDocument>>;
     getPartitionStats(indexName: string): Promise<PartitionStatsResult[]>;
     getStats(indexName: string): Promise<IndexStats>;
     has(indexName: string, docId: string): Promise<boolean>;

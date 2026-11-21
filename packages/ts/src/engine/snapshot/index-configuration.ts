@@ -78,6 +78,7 @@ export function configurationPayloadOf(
     ...(config.trackPositions !== undefined ? { trackPositions: config.trackPositions } : {}),
     ...(config.textStorage !== undefined ? { textStorage: config.textStorage } : {}),
     ...(config.strict !== undefined ? { strict: config.strict } : {}),
+    ...(config.returnVectors !== undefined ? { returnVectors: config.returnVectors } : {}),
     ...(config.required !== undefined ? { required: config.required } : {}),
     ...(config.vectorPromotion !== undefined ? { vectorPromotion: config.vectorPromotion } : {}),
     ...(config.patternValueLimit !== undefined ? { patternValueLimit: config.patternValueLimit } : {}),
