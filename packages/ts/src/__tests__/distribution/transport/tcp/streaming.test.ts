@@ -291,5 +291,45 @@ describe('TcpTransport', () => {
       expect(received[0]).toEqual(chunk1)
       expect(received[1]).toEqual(chunk2)
     })
+
+    it('fails only the stream whose handler throws, with that error, while the shared connection answers other requests', async () => {
+      const target = `127.0.0.1:${portB}`
+      let requestArrived = (): void => {}
+      const requestReachedServer = new Promise<void>(resolve => {
+        requestArrived = resolve
+      })
+      let releaseAnswer = (): void => {}
+      const answerReleased = new Promise<void>(resolve => {
+        releaseAnswer = resolve
+      })
+      await transportB.listen(async (message, respond) => {
+        if (message.requestId === 'req-in-flight') {
+          requestArrived()
+          await answerReleased
+          await respond(makeResponse(message.requestId, 'node-b'))
+          return
+        }
+        for (let chunk = 1; chunk <= 3; chunk++) {
+          await respond({ ...message, sourceId: 'node-b', payload: new Uint8Array([chunk]) })
+        }
+      })
+
+      const inFlight = transportA.send(target, makeMessage({ requestId: 'req-in-flight' }))
+      await requestReachedServer
+      const badChunk = new Error('bad chunk')
+      const received: number[] = []
+      const failure = await transportA
+        .stream(target, makeMessage({ requestId: 'req-throwing-stream' }), chunk => {
+          received.push(chunk[0] ?? -1)
+          if (received.length === 2) throw badChunk
+        })
+        .catch((thrown: unknown) => thrown)
+      releaseAnswer()
+      const answer = await inFlight
+
+      expect(failure).toBe(badChunk)
+      expect(answer.requestId).toBe('req-in-flight')
+      expect(received).toEqual([1, 2])
+    })
   })
 })

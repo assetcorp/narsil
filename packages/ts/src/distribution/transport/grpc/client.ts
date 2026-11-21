@@ -91,20 +91,13 @@ export class GrpcClientPool {
       rearm()
 
       call.on('data', (chunk: Uint8Array) => {
+        if (settled) return
         rearm()
         try {
           handler(chunk)
         } catch (err) {
           call.cancel()
-          settle(() =>
-            reject(
-              new TransportError(
-                TransportErrorCodes.DECODE_FAILED,
-                `Stream chunk handler failed: ${err instanceof Error ? err.message : String(err)}`,
-                { target, requestId: message.requestId },
-              ),
-            ),
-          )
+          settle(() => reject(err))
         }
       })
 
