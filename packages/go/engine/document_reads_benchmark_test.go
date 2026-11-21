@@ -68,14 +68,22 @@ func filledDocumentReadsIndex(b *testing.B, withVectors bool) *engine.Narsil {
 	return narsil
 }
 
-func documentReadsShapes() []struct {
+type documentReadsShape struct {
 	name        string
 	withVectors bool
-} {
-	return []struct {
-		name        string
-		withVectors bool
-	}{{"text fields only", false}, {"with a vector field", true}}
+	projections []engine.DocumentProjection
+}
+
+func (shape documentReadsShape) queryProjection() engine.DocumentProjection {
+	if len(shape.projections) == 0 {
+		return engine.DocumentProjection{}
+	}
+	return shape.projections[0]
+}
+
+func documentReadsShapes() []documentReadsShape {
+	return []documentReadsShape{{"text fields only", false, nil}, {"with a vector field", true, nil},
+		{"with a vector field and vectors asked for", true, []engine.DocumentProjection{engine.ReturnVectors(true)}}}
 }
 
 func BenchmarkGetOneDocument(b *testing.B) {
@@ -87,7 +95,7 @@ func BenchmarkGetOneDocument(b *testing.B) {
 			for b.Loop() {
 				id := fmt.Sprintf("doc-%04d", serial%documentReadsDocuments)
 				serial++
-				document, found, err := narsil.Get(context.Background(), documentReadsIndex, id)
+				document, found, err := narsil.Get(context.Background(), documentReadsIndex, id, shape.projections...)
 				if err != nil || !found || document == nil {
 					b.Fatalf("the engine returned no document under %s: %v", id, err)
 				}
@@ -106,7 +114,7 @@ func BenchmarkGetTenDocuments(b *testing.B) {
 			narsil := filledDocumentReadsIndex(b, shape.withVectors)
 			b.ReportAllocs()
 			for b.Loop() {
-				documents, err := narsil.GetMultiple(context.Background(), documentReadsIndex, ids)
+				documents, err := narsil.GetMultiple(context.Background(), documentReadsIndex, ids, shape.projections...)
 				if err != nil || len(documents) != len(ids) {
 					b.Fatalf("the engine returned %d documents: %v", len(documents), err)
 				}
@@ -116,9 +124,9 @@ func BenchmarkGetTenDocuments(b *testing.B) {
 }
 
 func BenchmarkKeywordSearchReturningTenHits(b *testing.B) {
-	params := engine.QueryParams{Term: "shared", Limit: engine.Some(documentReadsLimit)}
 	for _, shape := range documentReadsShapes() {
 		b.Run(shape.name, func(b *testing.B) {
+			params := engine.QueryParams{Term: "shared", Limit: engine.Some(documentReadsLimit), Document: shape.queryProjection()}
 			narsil := filledDocumentReadsIndex(b, shape.withVectors)
 			b.ReportAllocs()
 			for b.Loop() {
@@ -132,7 +140,7 @@ func BenchmarkKeywordSearchReturningTenHits(b *testing.B) {
 }
 
 func BenchmarkInsertBatchOfHundred(b *testing.B) {
-	for _, shape := range documentReadsShapes() {
+	for _, shape := range documentReadsShapes()[:2] {
 		b.Run(shape.name, func(b *testing.B) {
 			ctx := context.Background()
 			narsil := documentReadsEngine(b)
