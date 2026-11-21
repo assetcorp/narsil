@@ -66,7 +66,7 @@ func singleProjection(projections []model.DocumentProjection) (model.DocumentPro
 // QueryParams.Document, so without one the document leaves out every vector
 // field unless the index sets ReturnVectors; pass ReturnVectors(true) for the
 // whole document. Get returns CodeSearchInvalidField when it receives more
-// than one projection. The document holds its own copy of the stored bytes,
+// than one projection. The document holds a separate copy of the stored bytes,
 // so it stays readable after later writes, a vacuum, a compaction, and Close,
 // and a change to it reaches the index only through Update. It returns
 // CodePersistenceLoadFailed when the stored bytes of the document do not

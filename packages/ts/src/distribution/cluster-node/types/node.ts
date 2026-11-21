@@ -327,9 +327,9 @@ export interface ClusterNode extends ClusterNodeSearchSettings, ClusterNodeSyncS
    *
    * @param indexName - The index holding the document.
    * @param docId - The document to read.
-   * @param options - The shape of the returned document. Vector fields are
-   * left out unless `document.vectors` is true, an `include` path names the
-   * field, or the index sets `returnVectors`.
+   * @param options - The shape of the returned document. The read leaves
+   * vector fields out unless `document.vectors` is true, an `include` path
+   * equals the field's path, or the index sets `returnVectors`.
    * @returns The document, or `undefined` when the partition holds no
    * document under this id.
    */

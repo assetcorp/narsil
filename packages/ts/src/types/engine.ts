@@ -108,12 +108,11 @@ export interface Narsil
   /**
    * Fetches one stored document by id, without searching.
    *
-   * The document comes back without its vector fields unless `options` or
-   * the index's {@link IndexConfig.returnVectors} setting asks for them. A
-   * vector field that comes back is a `Float32Array`, whatever form you gave
-   * it. `JSON.stringify` writes one as an object keyed by index, so convert
-   * it with `Array.from` before you serialise the document yourself. The
-   * HTTP routes convert it for you.
+   * The document leaves out its vector fields unless `options` or the
+   * index's {@link IndexConfig.returnVectors} setting asks for them. A vector
+   * field that comes back is a `Float32Array`, which `JSON.stringify` writes
+   * as an object keyed by index, so convert it with `Array.from` before you
+   * serialise the document yourself. The HTTP routes convert it for you.
    *
    * @param indexName - The index holding the document.
    * @param docId - The document to fetch.
@@ -124,12 +123,11 @@ export interface Narsil
   /**
    * Fetches many stored documents by id in one pass.
    *
-   * Each document comes back without its vector fields unless `options` or
-   * the index's {@link IndexConfig.returnVectors} setting asks for them.
-   *
    * @param indexName - The index holding the documents.
    * @param docIds - The documents to fetch.
-   * @param options - The projection that chooses which fields come back.
+   * @param options - The projection that chooses which fields come back, as
+   * for {@link Narsil.get}, so each document leaves out its vector fields
+   * unless the projection or {@link IndexConfig.returnVectors} asks for them.
    * @returns A map from id to document, holding an entry for each id that
    * exists and nothing for the rest.
    */

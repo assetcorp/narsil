@@ -265,7 +265,7 @@ export interface QueryParams {
  *
  * A read leaves every vector field out by default, because a vector of 1,536
  * dimensions adds about 32 KB of JSON to each result. Set `vectors` to true,
- * or name the vector field in `include`, to get it back on one read, and set
+ * or list the vector field's path in `include`, to get it back on one read, and set
  * {@link IndexConfig.returnVectors} to get the vectors back on every read of
  * an index. `vectors: false` leaves them out even on such an index.
  *
