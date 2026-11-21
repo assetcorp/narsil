@@ -13,29 +13,55 @@ pub(crate) enum Shape {
     },
 }
 
+enum ReturnedVectors {
+    Every,
+    Absent,
+    PerField(Vec<bool>),
+}
+
 pub(crate) struct Projection {
     pub(crate) shape: Shape,
-    returned_vectors: Vec<bool>,
+    returned_vectors: ReturnedVectors,
+}
+
+fn every_or_absent(index: &IndexState, returned: bool) -> ReturnedVectors {
+    match (index.vectors.fields().is_empty(), returned) {
+        (true, _) => ReturnedVectors::PerField(Vec::new()),
+        (false, true) => ReturnedVectors::Every,
+        (false, false) => ReturnedVectors::Absent,
+    }
 }
 
 impl Projection {
     pub(crate) fn whole_documents(index: &IndexState) -> Projection {
         Projection {
             shape: Shape::Full,
-            returned_vectors: vec![true; index.vectors.fields().len()],
+            returned_vectors: every_or_absent(index, true),
         }
     }
 
     pub(crate) fn returns_vector(&self, at: usize) -> bool {
-        self.returned_vectors.get(at).copied().unwrap_or(false)
+        match &self.returned_vectors {
+            ReturnedVectors::Every => true,
+            ReturnedVectors::Absent => false,
+            ReturnedVectors::PerField(returned) => returned.get(at).copied().unwrap_or(false),
+        }
     }
 
     pub(crate) fn returns_any_vector(&self) -> bool {
-        self.returned_vectors.contains(&true)
+        match &self.returned_vectors {
+            ReturnedVectors::Every => true,
+            ReturnedVectors::Absent => false,
+            ReturnedVectors::PerField(returned) => returned.contains(&true),
+        }
     }
 
     pub(crate) fn leaves_out_any_vector(&self) -> bool {
-        self.returned_vectors.contains(&false)
+        match &self.returned_vectors {
+            ReturnedVectors::Every => false,
+            ReturnedVectors::Absent => true,
+            ReturnedVectors::PerField(returned) => returned.contains(&false),
+        }
     }
 }
 
@@ -110,7 +136,7 @@ pub(crate) fn resolve_projection(
     if fields.is_empty() || matches!(shape, Shape::Nothing) {
         return Projection {
             shape,
-            returned_vectors: Vec::new(),
+            returned_vectors: ReturnedVectors::PerField(Vec::new()),
         };
     }
     let asked = asked_vectors(projection);
@@ -118,11 +144,11 @@ pub(crate) fn resolve_projection(
         let returned = asked.unwrap_or_else(|| index.config().return_vectors == Some(true));
         return Projection {
             shape,
-            returned_vectors: vec![returned; fields.len()],
+            returned_vectors: every_or_absent(index, returned),
         };
     }
     let mut by_setting = None;
-    let returned_vectors = fields
+    let per_field = fields
         .iter()
         .map(|entry| {
             let path = split_path(&entry.path);
@@ -138,7 +164,7 @@ pub(crate) fn resolve_projection(
         .collect();
     Projection {
         shape,
-        returned_vectors,
+        returned_vectors: ReturnedVectors::PerField(per_field),
     }
 }
 
