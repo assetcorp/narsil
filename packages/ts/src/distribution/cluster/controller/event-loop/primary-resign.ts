@@ -8,7 +8,7 @@ import { putAllocationOver } from '../../in-sync-version'
 import { getIndexMetadata } from '../../index-metadata'
 import { rewriteForCurrentIndex } from '../../table-identity'
 import { scheduleDebouncedAllocation } from './allocation'
-import { decodeMessage, describeRequest, enqueue, respondRefusal } from './insync-messages'
+import { enqueue, readRequestOrRefuse } from './insync-messages'
 import type { EventLoopState } from './state'
 
 export function validatePrimaryResignPayload(decoded: unknown): PrimaryResignPayload | null {
@@ -71,12 +71,8 @@ export function handlePrimaryResignMessage(
   isActive: () => boolean,
   onError?: (indexName: string, error: unknown) => void,
 ): void {
-  const decoded = decodeMessage(message)
-  const payload = validatePrimaryResignPayload(decoded)
-  if (payload === null) {
-    void respondRefusal(respond, describeRequest(decoded), nodeId, message.requestId)
-    return
-  }
+  const payload = readRequestOrRefuse(message, respond, nodeId, validatePrimaryResignPayload, 'PrimaryResignPayload')
+  if (payload === null) return
 
   enqueue(state, async () => {
     const accepted = isActive() && (await resign(payload, message.sourceId, coordinator, nodeId))

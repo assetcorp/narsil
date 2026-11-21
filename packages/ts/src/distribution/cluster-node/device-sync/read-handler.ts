@@ -1,5 +1,5 @@
 import { ErrorCodes, NarsilError } from '../../../errors'
-import { decode } from '../../../serialization/msgpack'
+import { decodeRequestPayload } from '../../request-decode'
 import { type RespondFn, SyncMessageTypes, type TransportMessage } from '../../transport/types'
 import type { DataNodeHandlerDeps } from '../message-handler/types'
 import { leadingAssignment } from '../reshard/leadership'
@@ -42,7 +42,7 @@ export async function handleSyncRead(
   respond: RespondFn,
   deps: DataNodeHandlerDeps,
 ): Promise<void> {
-  const request = validateSyncReadRequest(decode(message.payload))
+  const request = validateSyncReadRequest(decodeRequestPayload(message.payload, message.type))
   if (request === null) {
     throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'A sync.read request is malformed', {
       sourceNodeId: message.sourceId,

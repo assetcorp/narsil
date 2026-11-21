@@ -1,4 +1,5 @@
 import { handleBackupPartition, handleRestorePartition } from '../../backups/primary-handlers'
+import { answerPing } from '../../ping'
 import type { RespondFn, TransportMessage } from '../../transport/types'
 import {
   ClusterMessageTypes,
@@ -100,6 +101,9 @@ export function createDataNodeHandler(deps: DataNodeHandlerDeps): TransportHandl
           return
         case SuggestionMessageTypes.COUNTS:
           await deps.answerQueryCounts?.(message, respond)
+          return
+        case ClusterMessageTypes.PING:
+          await answerPing(message, respond, deps.nodeId)
           return
         default:
           return

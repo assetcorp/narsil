@@ -173,8 +173,8 @@ export class TcpConnectionPool {
           socket.destroy()
           reject(
             new TransportError(
-              TransportErrorCodes.TIMEOUT,
-              `Connection to '${target}' timed out after ${this.config.connectTimeout}ms`,
+              TransportErrorCodes.CONNECT_FAILED,
+              `Failed to connect to '${target}': no connection was ready within ${this.config.connectTimeout}ms`,
               { target, timeoutMs: this.config.connectTimeout },
             ),
           )

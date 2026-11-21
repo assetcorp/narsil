@@ -1,15 +1,19 @@
 import { encode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../../errors'
-import { decode } from '../../../serialization/msgpack'
+import { isRecord } from '../../payload-guards'
 import {
   createAckMessage,
   createForwardBatchResultMessage,
+  invalidReplicationPayload,
+  optionalIndexUuid,
   validateEntryBatchPayload,
   validateEntryPayload,
   validateForwardBatchPayload,
+  validateForwardOperation,
 } from '../../replication/codec'
 import { validateReplicationEntry } from '../../replication/replica'
 import type { ReplicationLog, ReplicationLogEntry } from '../../replication/types'
+import { decodeRequestPayload } from '../../request-decode'
 import type { ForwardPayload, RespondFn, TransportMessage } from '../../transport/types'
 import { ReplicationMessageTypes } from '../../transport/types'
 import { noteAcceptedPrimaryTerm, noteSupersedingPrimary } from '../led-term'
@@ -24,8 +28,7 @@ export async function handleForward(
   respond: RespondFn,
   deps: DataNodeHandlerDeps,
 ): Promise<void> {
-  const decoded = decode(message.payload) as Record<string, unknown>
-  const payload = validateForwardPayload(decoded)
+  const payload = validateForwardPayload(decodeRequestPayload(message.payload, message.type))
   const heldIndexUuid = deps.engine.indexUuidOf(payload.indexName)
   if (typeof heldIndexUuid === 'string' && holdsAnotherIndex(heldIndexUuid, payload.indexUuid)) {
     throw anotherIndexAsPrimary(payload.indexName, deps.nodeId, heldIndexUuid)
@@ -45,7 +48,7 @@ export async function handleForwardBatch(
   respond: RespondFn,
   deps: DataNodeHandlerDeps,
 ): Promise<void> {
-  const payload = validateForwardBatchPayload(decode(message.payload))
+  const payload = validateForwardBatchPayload(decodeRequestPayload(message.payload, message.type))
   const heldIndexUuid = deps.engine.indexUuidOf(payload.indexName)
   if (typeof heldIndexUuid === 'string' && holdsAnotherIndex(heldIndexUuid, payload.indexUuid)) {
     const refusal = anotherIndexAsPrimary(payload.indexName, deps.nodeId, heldIndexUuid)
@@ -68,7 +71,7 @@ export async function handleReplicationEntry(
   respond: RespondFn,
   deps: DataNodeHandlerDeps,
 ): Promise<void> {
-  const payload = validateEntryPayload(decode(message.payload))
+  const payload = validateEntryPayload(decodeRequestPayload(message.payload, message.type))
   const { entry } = payload
   refuseAnotherIndex(entry.indexName, payload.indexUuid, deps)
 
@@ -82,7 +85,7 @@ export async function handleReplicationEntryBatch(
   respond: RespondFn,
   deps: DataNodeHandlerDeps,
 ): Promise<void> {
-  const payload = validateEntryBatchPayload(decode(message.payload))
+  const payload = validateEntryBatchPayload(decodeRequestPayload(message.payload, message.type))
   const lastEntry = payload.entries[payload.entries.length - 1]
   refuseAnotherIndex(lastEntry.indexName, payload.indexUuid, deps)
 
@@ -267,25 +270,13 @@ async function applyRun(
 }
 
 export function validateForwardPayload(decoded: unknown): ForwardPayload {
-  if (decoded === null || typeof decoded !== 'object' || Array.isArray(decoded)) {
-    throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'Invalid ForwardPayload: expected an object')
+  if (!isRecord(decoded)) {
+    throw invalidReplicationPayload('Invalid ForwardPayload: expected an object')
   }
-  const record = decoded as Record<string, unknown>
-  if (typeof record.indexName !== 'string' || record.indexName.length === 0) {
-    throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'Invalid ForwardPayload: "indexName" must be a non-empty string')
+  if (typeof decoded.indexName !== 'string' || decoded.indexName.length === 0) {
+    throw invalidReplicationPayload('Invalid ForwardPayload: "indexName" must be a non-empty string')
   }
-  if (typeof record.documentId !== 'string' || record.documentId.length === 0) {
-    throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'Invalid ForwardPayload: "documentId" must be a non-empty string')
-  }
-  if (record.operation !== 'insert' && record.operation !== 'remove' && record.operation !== 'update') {
-    throw new NarsilError(
-      ErrorCodes.CONFIG_INVALID,
-      'Invalid ForwardPayload: "operation" must be "insert", "remove", or "update"',
-    )
-  }
-  const indexUuid = record.indexUuid
-  if (indexUuid !== undefined && indexUuid !== null && (typeof indexUuid !== 'string' || indexUuid.length === 0)) {
-    throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'Invalid ForwardPayload: "indexUuid" must be a non-empty string')
-  }
+  validateForwardOperation(decoded, 'ForwardPayload')
+  optionalIndexUuid(decoded.indexUuid, 'ForwardPayload')
   return decoded as unknown as ForwardPayload
 }

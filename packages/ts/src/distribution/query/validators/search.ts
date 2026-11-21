@@ -1,5 +1,4 @@
 import { isSortMode, SORT_MODES } from '../../../core/ordering'
-import { validateBM25Shape } from '../../../search/bm25-params'
 import { MAX_CURSOR_LENGTH, MAX_SORT_FIELDS } from '../../../search/constants'
 import { oversampledShardSize } from '../../../search/oversample'
 import { validateIndexName } from '../../cluster/index-metadata'
@@ -17,9 +16,11 @@ import {
 } from '../constants'
 import {
   CONFIG_INVALID,
+  dropNilMember,
   isFiniteNumber,
   isInteger,
   isRecord,
+  restoreMissingAsNil,
   SEARCH_INVALID_FIELD,
   SEARCH_INVALID_MODE,
   throwInvalid,
@@ -44,12 +45,23 @@ import {
   validateRescoreWindowParam,
   validateTermMatchParam,
   validateVectorMetricParam,
+  validateWireBm25Param,
 } from './search-options'
 
 export const MAX_FACET_SHARD_SIZE = oversampledShardSize(MAX_FACET_SIZE)
 
 const ALLOWED_SCORING = ['local', 'dfs', 'broadcast'] as const
 const ALLOWED_SORT_DIRECTIONS = ['asc', 'desc'] as const
+const VECTOR_OPTIONAL_MEMBERS = [
+  'value',
+  'text',
+  'similarity',
+  'metric',
+  'efSearch',
+  'oversample',
+  'rescoreWindow',
+] as const
+const SEARCH_OPTIONAL_MEMBERS = ['globalStats', 'facetShardSize'] as const
 
 function validateIndexNameField(value: unknown, fieldLabel: string): string {
   if (typeof value !== 'string') {
@@ -63,7 +75,7 @@ function validateVectorParams(value: unknown): void {
   if (!isRecord(value)) {
     throwInvalid(CONFIG_INVALID, 'Invalid SearchPayload: "params.vector" must be an object')
   }
-  if (!Object.hasOwn(value, 'rescoreWindow')) value.rescoreWindow = null
+  restoreMissingAsNil(value, VECTOR_OPTIONAL_MEMBERS)
   validateFieldName(value.field, 'params.vector.field', SEARCH_INVALID_FIELD)
   if (value.value !== null) {
     if (!Array.isArray(value.value)) {
@@ -138,6 +150,7 @@ function validateSortParams(value: unknown): void {
       throwInvalid(CONFIG_INVALID, `Invalid SearchPayload: "params.sort[${i}]" must be an object`)
     }
     validateFieldName(entry.field, `params.sort[${i}].field`, SEARCH_INVALID_FIELD)
+    dropNilMember(entry, 'mode')
     if (!ALLOWED_SORT_DIRECTIONS.includes(entry.direction as (typeof ALLOWED_SORT_DIRECTIONS)[number])) {
       throwInvalid(
         SEARCH_INVALID_MODE,
@@ -255,8 +268,8 @@ function validateParams(params: Record<string, unknown>): void {
     validateBoostParams(params.boost)
   }
 
-  if (params.bm25 !== undefined && params.bm25 !== null) validateBM25Shape(params.bm25, 'settable')
-  if (params.indexBm25 !== undefined && params.indexBm25 !== null) validateBM25Shape(params.indexBm25, 'stored')
+  validateWireBm25Param(params, 'bm25', 'settable')
+  validateWireBm25Param(params, 'indexBm25', 'stored')
   validateAnalysisGeneration(params.analysisGeneration, 'SearchPayload')
 
   if (params.tolerance !== null) {
@@ -345,6 +358,7 @@ export function validateSearchPayload(decoded: unknown): SearchPayload {
     throwInvalid(CONFIG_INVALID, 'Invalid SearchPayload: "params" must be an object')
   }
   validateParams(decoded.params)
+  restoreMissingAsNil(decoded, SEARCH_OPTIONAL_MEMBERS)
 
   if (decoded.globalStats !== null) {
     validateGlobalStatsShape(decoded.globalStats)

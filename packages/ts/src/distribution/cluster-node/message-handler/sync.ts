@@ -1,5 +1,7 @@
 import { encode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../../errors'
+import { chunkByBudget } from '../../chunking'
+import { WIRE_BATCH_BUDGET } from '../../constants'
 import type { PartitionAssignment } from '../../coordinator/types'
 import { defaultSpoolDirectory, spoolSnapshotStream } from '../../replication/snapshot-spool'
 import { decideSyncTier, decodeSyncRequest } from '../../replication/sync-primary'
@@ -185,15 +187,24 @@ export async function sendSyncEntriesResponse(
   entries: SyncEntriesPayload['entries'],
   syncSession: string,
 ): Promise<void> {
-  const payload: SyncEntriesPayload = {
-    entries,
-    isLast: true,
-    syncSession,
-  }
-  await respond({
-    type: ReplicationMessageTypes.SYNC_ENTRIES,
-    sourceId: deps.nodeId,
-    requestId: message.requestId,
-    payload: encode(payload),
+  const batches = chunkByBudget(entries, {
+    ...WIRE_BATCH_BUDGET,
+    payloadBytesOf: entry => (entry.document?.byteLength ?? 0) + (entry.previousDocument?.byteLength ?? 0),
   })
+  if (batches.length === 0) {
+    batches.push([])
+  }
+  for (let index = 0; index < batches.length; index++) {
+    const payload: SyncEntriesPayload = {
+      entries: batches[index],
+      isLast: index === batches.length - 1,
+      syncSession,
+    }
+    await respond({
+      type: ReplicationMessageTypes.SYNC_ENTRIES,
+      sourceId: deps.nodeId,
+      requestId: message.requestId,
+      payload: encode(payload),
+    })
+  }
 }

@@ -1,4 +1,5 @@
 import { type ErrorCode, ErrorCodes } from '../../errors'
+import { answerPing } from '../ping'
 import {
   ClusterMessageTypes,
   type NodeTransport,
@@ -45,23 +46,26 @@ function refuseMessage(
 }
 
 /**
- * Builds the handler a node listens with before it has joined, which refuses every message it receives.
+ * Builds the handler a node listens with before it has joined, which answers a `cluster.ping` with a
+ * `cluster.pong` and refuses every other message it receives.
  *
  * A node opens its transport listener before it registers, so that a peer reaching it early receives a stated
  * refusal in place of a connection failure it would have to time out on.
  *
- * @param nodeId - This node's id, which names the sender of each refusal.
+ * @param nodeId - This node's id, which names the sender of each answer.
  * @returns The handler to pass to `listen` until the node starts serving.
  */
 export function createNotReadyHandler(nodeId: string): TransportHandler {
   return (message, respond) =>
-    refuseMessage(
-      nodeId,
-      message,
-      respond,
-      ErrorCodes.NODE_NOT_READY,
-      `Node '${nodeId}' has yet to finish joining the cluster, so it serves nothing`,
-    )
+    message.type === ClusterMessageTypes.PING
+      ? answerPing(message, respond, nodeId)
+      : refuseMessage(
+          nodeId,
+          message,
+          respond,
+          ErrorCodes.NODE_NOT_READY,
+          `Node '${nodeId}' has yet to finish joining the cluster, so it serves nothing`,
+        )
 }
 
 /**

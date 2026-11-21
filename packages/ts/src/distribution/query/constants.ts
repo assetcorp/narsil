@@ -29,10 +29,7 @@ export { MIN_OVERSAMPLE } from '../../vector/osq/constants'
 export const MAX_OVERSAMPLE = 100
 export const MAX_GROUP_FIELDS = 64
 
-export const MAX_HIGHLIGHT_TAG_LENGTH = 256
-export const MAX_HIGHLIGHT_SNIPPET_LENGTH = 65_536
-
-export const MAX_LIST_CURSOR_LENGTH = 4096
+export const MAX_LIST_CURSOR_LENGTH = 40_960
 export const MAX_SUGGEST_WIRE_LIMIT = 1_000
 export const MAX_COUNT_VALUE = Number.MAX_SAFE_INTEGER
 export const MAX_LANGUAGE_NAME_LENGTH = 64

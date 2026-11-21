@@ -1,4 +1,5 @@
 import { MAX_DOC_ID_LENGTH } from '../../../engine/constants'
+import { type BM25ValueRanges, validateBM25Shape } from '../../../search/bm25-params'
 import { MAX_HYBRID_DEPTH, MIN_HYBRID_DEPTH } from '../../../search/constants'
 import {
   MAX_EF_SEARCH,
@@ -22,6 +23,7 @@ import {
   isFiniteNumber,
   isInteger,
   isRecord,
+  restoreMissingAsNil,
   SEARCH_INVALID_FIELD,
   SEARCH_INVALID_MODE,
   throwInvalid,
@@ -33,12 +35,17 @@ const ALLOWED_MODES = ['fulltext', 'vector', 'hybrid'] as const
 const ALLOWED_FACET_ORDERS = ['asc', 'desc'] as const
 const ALLOWED_METRICS = ['cosine', 'dotProduct', 'euclidean'] as const
 const ALLOWED_HYBRID_STRATEGIES = ['rrf', 'linear'] as const
+const HYBRID_OPTIONAL_MEMBERS = ['strategy', 'k', 'alpha', 'depth'] as const
+const GROUP_OPTIONAL_MEMBERS = ['limit'] as const
+const FACET_OPTIONAL_MEMBERS = ['sort', 'ranges'] as const
+const BM25_MEMBERS = ['k1', 'b', 'fields'] as const
+const BM25_FIELD_MEMBERS = ['k1', 'b'] as const
 
 export function validateHybridParams(value: unknown): void {
   if (!isRecord(value)) {
     throwInvalid(CONFIG_INVALID, 'Invalid SearchPayload: "params.hybrid" must be an object')
   }
-  if (!Object.hasOwn(value, 'depth')) value.depth = null
+  restoreMissingAsNil(value, HYBRID_OPTIONAL_MEMBERS)
   if (
     value.strategy !== null &&
     !ALLOWED_HYBRID_STRATEGIES.includes(value.strategy as (typeof ALLOWED_HYBRID_STRATEGIES)[number])
@@ -75,6 +82,7 @@ export function validateGroupParams(value: unknown): void {
   if (!isRecord(value)) {
     throwInvalid(CONFIG_INVALID, 'Invalid SearchPayload: "params.group" must be an object')
   }
+  restoreMissingAsNil(value, GROUP_OPTIONAL_MEMBERS)
   const fields = validateStringArray(
     value.fields,
     'params.group.fields',
@@ -137,6 +145,7 @@ export function validateFacetParams(value: unknown): void {
     if (!isRecord(entry)) {
       throwInvalid(CONFIG_INVALID, `Invalid SearchPayload: "params.facets[${i}]" must be an object`)
     }
+    restoreMissingAsNil(entry, FACET_OPTIONAL_MEMBERS)
     validateFieldName(entry.field, `params.facets[${i}].field`, SEARCH_INVALID_FIELD)
     if (entry.sort !== null && !ALLOWED_FACET_ORDERS.includes(entry.sort as (typeof ALLOWED_FACET_ORDERS)[number])) {
       throwInvalid(
@@ -148,6 +157,37 @@ export function validateFacetParams(value: unknown): void {
       validateFacetRanges(entry.ranges, `params.facets[${i}].ranges`)
     }
   }
+}
+
+function presentMembers(value: Record<string, unknown>, members: readonly string[]): Record<string, unknown> {
+  const kept: Record<string, unknown> = {}
+  for (const member of members) {
+    const memberValue = value[member]
+    if (memberValue !== undefined && memberValue !== null) kept[member] = memberValue
+  }
+  return kept
+}
+
+export function validateWireBm25Param(
+  params: Record<string, unknown>,
+  member: 'bm25' | 'indexBm25',
+  ranges: BM25ValueRanges,
+): void {
+  const value = params[member]
+  if (value === undefined || value === null) return
+  if (isRecord(value)) {
+    const kept = presentMembers(value, BM25_MEMBERS)
+    if (isRecord(kept.fields)) {
+      kept.fields = Object.fromEntries(
+        Object.entries(kept.fields).map(([name, pair]) => [
+          name,
+          isRecord(pair) ? presentMembers(pair, BM25_FIELD_MEMBERS) : pair,
+        ]),
+      )
+    }
+    params[member] = kept
+  }
+  validateBM25Shape(params[member], ranges)
 }
 
 export function validateTermMatchParam(value: unknown): void {
