@@ -197,7 +197,11 @@ const QUERY_SHAPE: Shape = Shape::Object(
                 Branches {
                     boolean: Some(&Shape::Flag),
                     object: Some(&Shape::Object(
-                        &[("include", STRINGS), ("exclude", STRINGS)],
+                        &[
+                            ("include", STRINGS),
+                            ("exclude", STRINGS),
+                            ("vectors", Shape::Flag),
+                        ],
                         &[],
                     )),
                     ..NO_BRANCHES
