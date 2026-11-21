@@ -16,14 +16,12 @@ use tonic_prost::ProstCodec;
 
 use super::envelope::{
     Chunk, Envelope, GRPC_TIMEOUT_HEADER, MAX_GRPC_MESSAGE_BYTES, OPEN_STREAM_METHOD_PATH,
-    SEND_METHOD_PATH, check_message_size, client_deadline, report_size_limit_as_resource_exhausted,
+    SEND_METHOD_PATH, client_deadline, report_size_limit_as_resource_exhausted, within_limit,
 };
 use crate::constants::{
     GRPC_KEEPALIVE_TIME_MS, GRPC_KEEPALIVE_TIMEOUT_MS, STREAM_CHUNK_QUEUE_LENGTH,
 };
-use crate::message::{
-    TransportMessage, carrier_error, decode_message, encode_message, encoded_message_len,
-};
+use crate::message::{TransportMessage, carrier_error, decode_message, encode_message};
 use crate::transport::BoxFuture;
 use crate::transport::handler::{ReplySink, Respond};
 use crate::transport::io::PeerStream;
@@ -40,11 +38,10 @@ fn no_listener() -> Status {
     Status::unavailable("No listener is registered")
 }
 
-fn envelope_of(message: &TransportMessage) -> Result<Envelope, Status> {
-    check_message_size(encoded_message_len(message))?;
-    Ok(Envelope {
+fn envelope_of(message: &TransportMessage) -> Envelope {
+    Envelope {
         message: encode_message(message).into(),
-    })
+    }
 }
 
 struct FirstReply {
@@ -61,11 +58,10 @@ impl ReplySink for FirstReply {
 }
 
 async fn answer_send(handlers: Arc<HandlerSlot>, request: Envelope) -> Result<Envelope, Status> {
-    check_message_size(request.message.len())?;
     let handler = handlers.current().ok_or_else(no_listener)?;
     let message = match decode_message(&request.message) {
         Ok(message) => message,
-        Err(error) => return envelope_of(&carrier_error("", error.message())),
+        Err(error) => return Ok(envelope_of(&carrier_error("", error.message()))),
     };
     let request_id = message.request_id.clone();
     let (answer, mut answered) = oneshot::channel();
@@ -91,7 +87,7 @@ async fn answer_send(handlers: Arc<HandlerSlot>, request: Envelope) -> Result<En
         },
     };
     match reply {
-        Some(reply) => envelope_of(&reply),
+        Some(reply) => within_limit(envelope_of(&reply)),
         None => std::future::pending().await,
     }
 }
@@ -126,7 +122,7 @@ impl ReplySink for StreamReplies {
                 return;
             };
             self.sent.fetch_add(1, Ordering::AcqRel);
-            let chunk = check_message_size(message.payload.len()).map(|()| Chunk {
+            let chunk = within_limit(Chunk {
                 data: message.payload,
             });
             let _ = chunks.send(chunk).await;
@@ -145,7 +141,6 @@ impl Stream for ChunkStream {
 }
 
 async fn open_stream(handlers: Arc<HandlerSlot>, request: Envelope) -> Result<ChunkStream, Status> {
-    check_message_size(request.message.len())?;
     let handler = handlers.current().ok_or_else(no_listener)?;
     let message = decode_message(&request.message)
         .map_err(|error| Status::invalid_argument(error.message()))?;

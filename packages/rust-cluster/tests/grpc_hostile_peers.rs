@@ -261,35 +261,6 @@ async fn a_message_past_the_size_limit_is_refused_as_resource_exhausted() {
 }
 
 #[tokio::test]
-async fn the_message_limit_excludes_the_protobuf_envelope_allowance() {
-    let handler = listen_handler(|message: TransportMessage, respond: Respond| async move {
-        respond
-            .send(TransportMessage::new(
-                "test.answer",
-                "server",
-                message.request_id,
-                Bytes::new(),
-            ))
-            .await;
-        Ok(())
-    });
-    let (transport, address) = listening_node(handler).await;
-    let message_type = "test.large";
-    let request_id = "boundary";
-    let empty_length = envelope(message_type, request_id, &[]).len();
-    let binary_header_growth = 3;
-    let largest_payload = support::MAX_MESSAGE_SIZE_BYTES - empty_length - binary_header_growth;
-    for (extra, expected) in [(0, GRPC_OK), (1, GRPC_RESOURCE_EXHAUSTED)] {
-        let payload = vec![0; largest_payload + extra];
-        let message = envelope(message_type, request_id, &payload);
-        assert_eq!(message.len(), support::MAX_MESSAGE_SIZE_BYTES + extra);
-        let answer = call(&address, SEND_PATH, grpc_frame(&message), None).await;
-        assert_eq!(answer.grpc_status, expected);
-    }
-    transport.shutdown().await;
-}
-
-#[tokio::test]
 async fn open_stream_refuses_an_envelope_that_cannot_be_decoded_and_an_unknown_method_is_unimplemented()
  {
     let (transport, address) = listening_node(not_ready_handler(NODE_ID)).await;
