@@ -125,6 +125,8 @@ func defaultVectorReadCases() []vectorReadCase {
 			func(record map[string]any) map[string]any { return recordOnly(record, "title") }},
 		{"asking for vectors while including only text", engine.IncludeFields("title").WithVectors(true),
 			func(record map[string]any) map[string]any { return recordOnly(record, "title") }},
+		{"include paths cannot enter vector arrays", engine.IncludeFields("title", "embedding.0", "meta.embedding.0").WithVectors(true),
+			func(record map[string]any) map[string]any { return recordOnly(record, "title") }},
 		{"asking for vectors while excluding one", engine.ReturnVectors(true).Excluding("embedding"),
 			func(record map[string]any) map[string]any { return recordWithout(record, "embedding") }},
 		{"asking for vectors with no fields", engine.NoDocumentFields().WithVectors(true),
