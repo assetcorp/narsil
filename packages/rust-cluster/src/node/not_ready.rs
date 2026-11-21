@@ -8,7 +8,10 @@ use crate::message::{TransportMessage, message_types, refusal};
 use crate::transport::{ListenHandler, Respond, listen_handler};
 use crate::wire;
 
-fn decode_request_payload(payload: &[u8], message_type: &str) -> Result<Value, ClusterError> {
+pub(crate) fn decode_request_payload(
+    payload: &[u8],
+    message_type: &str,
+) -> Result<Value, ClusterError> {
     decode_msgpack(payload).map_err(|error| {
         ClusterError::new(
             codes::TRANSPORT_DECODE_FAILED,
@@ -66,7 +69,7 @@ pub(crate) fn answer_ping(message: &TransportMessage, node_id: &str) -> Transpor
     }
 }
 
-fn not_ready(node_id: &str) -> ClusterError {
+pub(crate) fn not_ready(node_id: &str) -> ClusterError {
     ClusterError::new(
         codes::NODE_NOT_READY,
         format!("Node '{node_id}' has yet to finish joining the cluster, so it serves nothing"),
