@@ -239,7 +239,8 @@ impl Connection {
                 }
             }
             FRAME_TYPE_STREAM_END => {
-                if let Some(Waiter::Stream(waiter)) = self.take(&frame.request_id) {
+                if let Some(waiter) = self.stream_waiter(&frame.request_id) {
+                    self.forget(&frame.request_id);
                     waiter.finish(Ok(()));
                 }
             }
