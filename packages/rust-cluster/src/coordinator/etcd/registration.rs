@@ -166,6 +166,7 @@ async fn restore_lost_registration(
     lost: &Arc<ManagedLease>,
     node_id: &str,
 ) -> bool {
+    let _active = inner.lease_operations.read().await;
     let _exclusive = inner.leases.exclusively(&keys.key).await;
     let Some(tracked) = inner.leases.get(&keys.key) else {
         return true;
