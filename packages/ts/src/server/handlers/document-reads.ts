@@ -2,7 +2,7 @@ import { ErrorCodes, NarsilError } from '../../errors'
 import type { Narsil } from '../../narsil'
 import { DEFAULT_PAGE_SIZE } from '../../search/constants'
 import type { AnyDocument } from '../../types/schema'
-import type { ListParams } from '../../types/search'
+import type { DocumentProjection, ListParams } from '../../types/search'
 import { respondAnswer } from '../answer-stream'
 import type { ResolvedLimits } from '../deps'
 import { parseJsonObject, rejectInvalid, respondError, respondJson } from '../handler-utils'
@@ -15,7 +15,7 @@ import type {
   MultiGetBody,
   MultiGetResponse,
 } from '../types'
-import { validateList, validateMultiGet } from '../validation'
+import { isPlainObject, validateList, validateMultiGet } from '../validation'
 
 export type ReadEngine = Pick<
   Narsil,
@@ -77,7 +77,7 @@ export function createDocumentReadHandlers(deps: ReadHandlerDeps) {
       const found = await engine.getMultiple(
         ctx.params[0],
         body.docIds,
-        body.document === undefined ? undefined : { document: body.document },
+        body.document === undefined ? undefined : { document: withoutNullMembers(body.document) },
       )
       const documents: Record<string, AnyDocument> = {}
       for (const [id, doc] of found) documents[id] = doc
@@ -100,6 +100,7 @@ export function createDocumentReadHandlers(deps: ReadHandlerDeps) {
     try {
       const page = await engine.listDocuments(ctx.params[0], {
         ...params,
+        ...(params.document === undefined ? {} : { document: withoutNullMembers(params.document) }),
         limit: params.limit ?? Math.min(DEFAULT_PAGE_SIZE, limits.maxFetchDocuments),
       })
       await respondAnswer(ctx, page, 'documents', `a list on index '${ctx.params[0]}'`)
@@ -111,8 +112,13 @@ export function createDocumentReadHandlers(deps: ReadHandlerDeps) {
   return { get, exists, count, multiGet, list }
 }
 
+function withoutNullMembers(document: DocumentProjection): DocumentProjection {
+  if (!isPlainObject(document)) return document
+  return Object.fromEntries(Object.entries(document).filter(([, given]) => given !== null))
+}
+
 function vectorsQueryOf(value: string | null): boolean | undefined {
-  if (value === null) return undefined
+  if (value === null || value === '') return undefined
   if (value === 'true') return true
   if (value === 'false') return false
   throw new NarsilError(ErrorCodes.SEARCH_INVALID_FIELD, 'Query parameter "vectors" must be true or false', {

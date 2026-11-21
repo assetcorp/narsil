@@ -82,25 +82,28 @@ describe('vector fields in documents read over HTTP', () => {
     )
   })
 
+  it('reads a null vectors switch and an empty vectors parameter as absent on every read', async () => {
+    const base = await serveBooks()
+    const nothingSet = { include: null, exclude: null, vectors: null }
+    expect(await readEveryWay(base, 'plain', '?vectors=', nothingSet)).toEqual(everyWay(WITHOUT_VECTORS))
+    expect(await readEveryWay(base, 'kept', '?vectors', nothingSet)).toEqual(everyWay(WITH_VECTORS))
+  })
+
   it('refuses a vectors switch or a returnVectors setting that is not true or false', async () => {
     const base = await serveBooks()
-    for (const value of ['yes', 'TRUE', '1', '', 'true%00']) {
+    for (const value of ['yes', 'TRUE', '1', 'true%00']) {
       const answer = await sendRaw(base, 'GET', `/indexes/plain/documents/${BOOK.id}?vectors=${value}`)
       expect([answer.status, errorCodeOf(answer.body)], value).toEqual([400, 'SEARCH_INVALID_FIELD'])
     }
     for (const vectors of ['true', 1, null, [true], {}]) {
       const document = JSON.stringify({ vectors })
-      const searchTakesNullAsAbsent = vectors === null
-      for (const [path, body] of [
-        ...(searchTakesNullAsAbsent
-          ? []
-          : [
-              ['/indexes/plain/search', `{"term":"harbour","document":${document}}`],
-              ['/indexes/plain/search/preflight', `{"term":"harbour","document":${document}}`],
-            ]),
+      const routes = [
+        ['/indexes/plain/search', `{"term":"harbour","document":${document}}`],
+        ['/indexes/plain/search/preflight', `{"term":"harbour","document":${document}}`],
         ['/indexes/plain/documents/_list', `{"document":${document}}`],
         ['/indexes/plain/documents/_multi-get', `{"docIds":["${BOOK.id}"],"document":${document}}`],
-      ]) {
+      ]
+      for (const [path, body] of vectors === null ? [] : routes) {
         const answer = await sendRaw(base, 'POST', path, body)
         expect([answer.status, errorCodeOf(answer.body)], `${path} ${document}`).toEqual([400, 'SEARCH_INVALID_FIELD'])
       }

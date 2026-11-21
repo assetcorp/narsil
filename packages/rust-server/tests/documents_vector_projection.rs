@@ -20,7 +20,7 @@ const NOTES: [(&str, &str); 3] = [
     ("c", r#"{"title":"harbor light","meta":{"tag":"x"}}"#),
 ];
 const HOSTILE_FLAGS: &str = r#"[null,0,1,"true","false",[],[true],{}]"#;
-const HOSTILE_QUERY_FLAGS: [&str; 7] = ["", "TRUE", "False", "1", "0", "yes", "true%00"];
+const HOSTILE_QUERY_FLAGS: [&str; 6] = ["TRUE", "False", "1", "0", "yes", "true%00"];
 
 fn note(id: &str) -> Value {
     let found = NOTES.iter().find(|(note, _)| *note == id);
@@ -255,11 +255,16 @@ async fn malformed_vector_options_are_refused_on_every_route() {
                 object(vec![("document", projection.clone())]),
             ),
         ];
+        let expected = if hostile.is_null() {
+            (200, None)
+        } else {
+            (400, Some("SEARCH_INVALID_FIELD"))
+        };
         for (route, body) in bodies {
             let (status, answer) = posted(port, "notes", route, body).await;
             assert_eq!(
                 (status, error_code(&answer)),
-                (400, Some("SEARCH_INVALID_FIELD")),
+                expected,
                 "{route} with vectors {hostile:?}: {answer:?}"
             );
         }
@@ -323,6 +328,16 @@ async fn malformed_vector_options_are_refused_on_every_route() {
             (status, error_code(&answer)),
             (400, Some("SEARCH_INVALID_FIELD")),
             "GET with vectors={hostile}"
+        );
+    }
+    for empty in ["?vectors=", "?vectors"] {
+        let (status, answer) = read_one(port, "notes", "a", empty).await;
+        assert_eq!(status, 200, "GET with {empty}: {answer:?}");
+        let document = answer.as_object().and_then(|body| body.get("document"));
+        assert_eq!(
+            document,
+            Some(&without_vectors(&note("a"))),
+            "GET with {empty}"
         );
     }
     let (status, answer) = read_one(port, "notes", "absent", "?vectors=true").await;
