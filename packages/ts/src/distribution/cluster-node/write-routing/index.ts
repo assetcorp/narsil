@@ -3,7 +3,7 @@ import { bm25SetsValue } from '../../../core/scorer'
 import { providedDocId } from '../../../engine/mutations/insert-admission'
 import { requireConfigurationWithinSizeLimit } from '../../../engine/snapshot/index-configuration-limit'
 import { prepareConfiguredSynonyms } from '../../../engine/synonym-sets'
-import { requireSurfaceFormsForPartialFields, validateReturnVectors } from '../../../engine/validation'
+import { requireSurfaceFormsForPartialFields, validateBooleanOnlySettings } from '../../../engine/validation'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import { getLanguage } from '../../../languages/registry'
 import type { Narsil } from '../../../narsil'
@@ -79,7 +79,7 @@ export async function routeCreateIndex(
   const config: IndexConfig = { ...requestedConfig, schema: validateSchema(requestedConfig.schema) }
   requireCreatableSchema(config.schema)
   requireSurfaceFormsForPartialFields(config.schema, config.surfaceForms)
-  validateReturnVectors(config.returnVectors)
+  validateBooleanOnlySettings(config)
   if (config.bm25 !== undefined) validateBM25Params(config.bm25, config.schema, ErrorCodes.CONFIG_INVALID)
   const setsFieldPairs = config.bm25?.fields !== undefined && bm25SetsValue({ fields: config.bm25.fields })
   if (setsFieldPairs) {

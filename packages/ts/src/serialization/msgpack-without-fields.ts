@@ -6,6 +6,7 @@ export { headerAt } from '#platform/segment-codec-host'
 export type { ValueHeader } from './msgpack-header'
 
 const FORBIDDEN_KEYS = new Set(['__proto__', 'constructor', 'prototype'])
+const MSGPACK_NIL = 0xc0
 const keyDecoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
 
 const walkedHeader: ValueHeader = { headerBytes: 0, bodyBytes: 0, children: 0 }
@@ -74,7 +75,7 @@ export function decodeMapWithoutFields(
     if (key === null || FORBIDDEN_KEYS.has(key.key)) return null
     const valueEnd = endOfValue(view, key.end)
     if (valueEnd === null) return null
-    if (!skippedFields.has(key.key)) {
+    if (!skippedFields.has(key.key) || view.getUint8(key.end) === MSGPACK_NIL) {
       try {
         document[key.key] = decode(bytes.subarray(key.end, valueEnd))
       } catch {

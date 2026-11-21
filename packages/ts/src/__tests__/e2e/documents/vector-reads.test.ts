@@ -66,6 +66,15 @@ async function readEveryWay(base: string, name: string, query: string, document?
   }
 }
 
+function projectionRoutes(document: string): Array<[string, string]> {
+  return [
+    ['/indexes/plain/search', `{"term":"harbour","document":${document}}`],
+    ['/indexes/plain/search/preflight', `{"term":"harbour","document":${document}}`],
+    ['/indexes/plain/documents/_list', `{"document":${document}}`],
+    ['/indexes/plain/documents/_multi-get', `{"docIds":["${BOOK.id}"],"document":${document}}`],
+  ]
+}
+
 function everyWay(document: unknown, single: unknown = document): ReadAnswers {
   return { single, multi: document, searched: document, listed: document }
 }
@@ -107,13 +116,15 @@ describe('vector fields in documents read over HTTP', () => {
         const answer = await sendRaw(base, 'POST', path, body)
         expect([answer.status, errorCodeOf(answer.body)], `${path} ${document}`).toEqual([400, 'SEARCH_INVALID_FIELD'])
       }
-      const created = await sendRaw(
-        base,
-        'POST',
-        '/indexes',
-        JSON.stringify({ name: 'refused', config: { schema: SCHEMA, returnVectors: vectors } }),
-      )
-      expect([created.status, errorCodeOf(created.body)], document).toEqual([400, 'CONFIG_INVALID'])
+      for (const setting of ['returnVectors', 'strict', 'surfaceForms', 'trackPositions']) {
+        const created = await sendRaw(
+          base,
+          'POST',
+          '/indexes',
+          JSON.stringify({ name: 'refused', config: { schema: SCHEMA, [setting]: vectors } }),
+        )
+        expect([created.status, errorCodeOf(created.body)], `${setting} ${document}`).toEqual([400, 'CONFIG_INVALID'])
+      }
     }
     const indexes = await sendRaw(base, 'GET', '/indexes')
     expect(JSON.stringify(indexes.body)).not.toContain('refused')
@@ -131,10 +142,14 @@ describe('vector fields in documents read over HTTP', () => {
       '{"exclude":[true]}',
       '{"vectors":"true"}',
     ]) {
-      for (const path of ['/indexes/plain/search', '/indexes/plain/search/preflight']) {
-        const answer = await sendRaw(base, 'POST', path, `{"term":"harbour","document":${document}}`)
+      for (const [path, body] of projectionRoutes(document)) {
+        const answer = await sendRaw(base, 'POST', path, body)
         expect([answer.status, errorCodeOf(answer.body)], `${path} ${document}`).toEqual([400, 'SEARCH_INVALID_FIELD'])
       }
+    }
+    for (const [path, body] of projectionRoutes('null')) {
+      const answer = await sendRaw(base, 'POST', path, body)
+      expect(answer.status, `${path} with a null projection: ${JSON.stringify(answer.body)}`).toBe(200)
     }
   })
 })

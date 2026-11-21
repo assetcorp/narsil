@@ -224,25 +224,24 @@ async fn malformed_vector_options_are_refused_on_every_route() {
     assert_eq!(created(port, "notes", vec![]).await, 201);
     stored(port, "notes").await;
     for hostile in parsed(HOSTILE_FLAGS).as_array().expect("a list").clone() {
-        let reply = send(
-            port,
-            &Call::new("POST", "/indexes").json(&object(vec![
-                ("name", Value::from("refused")),
-                (
-                    "config",
-                    object(vec![
-                        ("schema", parsed(SCHEMA)),
-                        ("returnVectors", hostile.clone()),
-                    ]),
-                ),
-            ])),
-        )
-        .await;
-        assert_eq!(
-            (reply.status, reply.error_code().as_deref()),
-            (400, Some("CONFIG_INVALID")),
-            "returnVectors {hostile:?}"
-        );
+        for setting in ["returnVectors", "strict", "surfaceForms", "trackPositions"] {
+            let reply = send(
+                port,
+                &Call::new("POST", "/indexes").json(&object(vec![
+                    ("name", Value::from("refused")),
+                    (
+                        "config",
+                        object(vec![("schema", parsed(SCHEMA)), (setting, hostile.clone())]),
+                    ),
+                ])),
+            )
+            .await;
+            assert_eq!(
+                (reply.status, reply.error_code().as_deref()),
+                (400, Some("CONFIG_INVALID")),
+                "{setting} {hostile:?}"
+            );
+        }
         let projection = object(vec![("vectors", hostile.clone())]);
         let ids = Value::Array(vec![Value::from("a")]);
         let bodies = [
@@ -294,13 +293,19 @@ async fn malformed_vector_options_are_refused_on_every_route() {
         }
     }
     for hostile in ["5", "\"all\"", "[]"] {
-        let body = format!(r#"{{"docIds":["a"],"document":{hostile}}}"#);
-        let (status, answer) = posted(port, "notes", "documents/_multi-get", parsed(&body)).await;
-        assert_eq!(
-            (status, error_code(&answer)),
-            (400, Some("SEARCH_INVALID_FIELD")),
-            "multi-get with document {hostile}"
-        );
+        let multi_get = format!(r#"{{"docIds":["a"],"document":{hostile}}}"#);
+        let list = format!(r#"{{"document":{hostile}}}"#);
+        for (route, body) in [
+            ("documents/_multi-get", multi_get),
+            ("documents/_list", list),
+        ] {
+            let (status, answer) = posted(port, "notes", route, parsed(&body)).await;
+            assert_eq!(
+                (status, error_code(&answer)),
+                (400, Some("SEARCH_INVALID_FIELD")),
+                "{route} with document {hostile}"
+            );
+        }
     }
     for document in [
         "5",

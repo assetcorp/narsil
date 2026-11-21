@@ -152,8 +152,8 @@ impl IndexVectors {
 
     /// Moves every vector out of a document that passed validation, so that the partition stores none.
     ///
-    /// An insert leaves a `null` vector field in the stored document, while an update clears every vector field,
-    /// as every Narsil engine does.
+    /// Every write leaves a `null` vector field in the stored document, while an update clears every other value
+    /// at a vector path, as every Narsil engine does.
     pub(crate) fn take_vectors(
         &self,
         document: &mut Map,
@@ -163,8 +163,9 @@ impl IndexVectors {
             .fields
             .iter()
             .map(|entry| {
-                let holds_vector = matches!(value_at(document, &entry.path), Some(Value::Array(_)));
-                if !holds_vector && !clears_every_field {
+                let held = value_at(document, &entry.path);
+                let holds_vector = matches!(held, Some(Value::Array(_)));
+                if matches!(held, Some(Value::Null)) || (!holds_vector && !clears_every_field) {
                     return None;
                 }
                 match take_value_at(document, &entry.path) {

@@ -451,6 +451,7 @@ projection = boolean or {
 
 An implementation must apply a projection as follows:
 
+- A projection of null counts as absent, and an implementation must raise `SEARCH_INVALID_FIELD` for a projection that is neither a boolean nor a map, such as a number, a string, or a list.
 - An absent projection and `true` keep every field apart from the vector fields that [Vector Fields in Results](#vector-fields-in-results) leaves out, and `false` makes every returned document an empty map.
 - A field path splits at each `.` into segments, so `author.name` addresses the `name` key inside the `author` map. An implementation must ignore an empty segment, must ignore any path that holds the segment `__proto__`, `constructor`, or `prototype`, and must never step into a list.
 - With `include`, a document holds only the included paths that it stores, and `exclude` then removes each of its paths from what remains. A path that matches no stored field changes nothing.
