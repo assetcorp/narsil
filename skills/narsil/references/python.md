@@ -12,6 +12,7 @@ The `delali-narsil` package embeds the engine in a Python program, which imports
 
 - `Narsil()` keeps every index in memory, and `Narsil({"durability": {"directory": "./search-data"}})` logs every write before the call returns and finds every index again in a later program. Use it in a `with` block or call `shutdown()`, so that the engine flushes its logs.
 - Every setting, query, and result is a plain dict whose keys are the names that the TypeScript package and the HTTP server use, so a query from their documentation works unchanged. Method names follow Python's style, such as `insert_batch` and `doc_id`.
+- A read leaves out vector fields. Pass `{"vectors": True}` as the `document` argument of `get` and `get_multiple`, or as the `document` member of a query or a listing, to get them back, or set `"returnVectors": True` in the index settings.
 - `AsyncNarsil.open()` gives the same methods as coroutines, and it makes each call on a worker thread so that the event loop keeps running.
 - Every method releases the interpreter lock while the engine works, so several threads can search one engine in parallel.
 - A failure raises `narsil.NarsilError`, whose `code` matches the TypeScript code for the same input. The package also checks the shape of every setting and query, and it raises `CONFIG_INVALID` for an unknown key or a wrong type. Leave a key out to keep its default, because a `None` can raise.

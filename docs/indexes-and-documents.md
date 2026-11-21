@@ -77,6 +77,7 @@ The engine applies the first two limits and the configuration limit only to new 
 | `tokenizer` | `CustomTokenizer \| string` | Replaces the built-in tokenizer with your own `tokenize(text)` implementation, inline or by the name of a tokenizer registered with `registerTokenizer`. See [Named tokenizers and stop words](language-support.md#named-tokenizers-and-stop-words). |
 | `trackPositions` | `boolean` | Stores token positions in each posting, which [phrase search](full-text-search.md#phrase-search) compares. The default is `true`. With `false`, the engine stores less and refuses a phrase with `SEARCH_INVALID_PHRASE`, while highlighting works either way. |
 | `surfaceForms` | `boolean` | Records the original spellings of stemmed words for suggestions and prefix completions. The default is `true`. See [Suggestions](full-text-search.md#suggestions). |
+| `returnVectors` | `boolean` | With `true`, every read returns the vector fields of each document unless the read sets `vectors: false` in its `document` projection. The default is `false`, under which a read leaves them out unless it asks for them. For a value other than `true` or `false`, `createIndex` throws `CONFIG_INVALID`. See [Choosing what comes back](full-text-search.md#choosing-what-comes-back). |
 | `vectorPromotion` | `VectorIndexConfig` | Tunes the HNSW promotion threshold, graph parameters, and quantization. See [Vector search](vector-search.md#vector-search). |
 | `strict` | `boolean` | The engine rejects a document with a field that the schema does not declare, and throws `SEARCH_INVALID_FIELD` for a filter, sort, facet, or group on such a field. |
 | `embedding` | `EmbeddingFieldConfig` | Maps text fields to vector fields for auto-embedding. See [Embedding adapters](embedding-adapters.md#embedding-adapters). |
@@ -145,6 +146,20 @@ const exists = await narsil.has('products', 'kb-042')
 const count = await narsil.countDocuments('products')
 ```
 
+`get` and `getMultiple` leave out the vector fields of each document, as a search does. Pass a `document` projection to ask for them, or to read part of a document:
+
+<!-- example setup
+import { createNarsil } from '@delali/narsil'
+const narsil = await createNarsil()
+-->
+```ts
+const withVectors = await narsil.get('products', 'kb-042', { document: { vectors: true } })
+
+const titles = await narsil.getMultiple('products', ['kb-042', 'kb-043'], { document: { include: ['title'] } })
+```
+
+Read a document with `vectors: true` before you change it and pass it back to `update`. `update` replaces the whole document, so a copy that you read without its vectors will store none.
+
 ### List
 
 `listDocuments` reads the stored documents in document-id order without searching, which is how you page through a whole index. Leave the cursor out for the first page, pass back the cursor each page carries, and stop when it comes back null.
@@ -171,7 +186,7 @@ The cursor holds no engine state, so it stays valid after a restart, a snapshot 
 
 The engine compares ids by their Unicode code points, so `'10'` sorts ahead of `'9'`. Every machine and every Narsil implementation produces the same order.
 
-`filters` narrows the listing to the documents your filter accepts, and `total` then counts those documents. `document` takes the same projection [`query`](full-text-search.md) takes. Pass it to drop a vector field, because a field the projection keeps is copied out of the store for every listed document, and the engine reads its vector back out of the index as well.
+`filters` narrows the listing to the documents your filter accepts, and `total` then counts those documents. `document` takes the same projection [`query`](full-text-search.md#choosing-what-comes-back) takes, so a listing leaves out vector fields unless it asks for them. Pass it to drop the fields that a page has no use for, because the engine copies each field that the projection keeps out of the store for every listed document.
 
 <!-- example setup
 import { createNarsil } from '@delali/narsil'
@@ -181,7 +196,7 @@ const narsil = await createNarsil()
 const page = await narsil.listDocuments('products', {
   limit: 100,
   filters: { fields: { price: { lte: 50 } } },
-  document: { exclude: ['embedding'] },
+  document: { include: ['title', 'price'] },
 })
 ```
 

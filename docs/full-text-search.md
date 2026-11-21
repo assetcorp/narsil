@@ -26,7 +26,7 @@ The default `limit` is 10. Each hit has the shape `{ id, score, document, highli
 
 ## Choosing what comes back
 
-By default, each hit contains the whole stored document. Set `document` to return part of it or none of it. Pass `false` where the ids and scores are all you need; every hit's `document` is then an empty object. Pass `include` to keep the named fields alone, or `exclude` to drop the named fields and keep the rest. Use dots to name a nested field, such as `author.name`. The engine applies only the names that match a field.
+By default, each hit contains the stored document without its vector fields. Set `document` to return part of it or none of it. Pass `false` where the ids and scores are all you need; every hit's `document` is then an empty object. Pass `include` to keep the named fields alone, or `exclude` to drop the named fields and keep the rest. Use dots to name a nested field, such as `author.name`. The engine applies only the names that match a field.
 
 <!-- example setup
 import { createNarsil } from '@delali/narsil'
@@ -35,11 +35,13 @@ const narsil = await createNarsil()
 ```ts
 const results = await narsil.query('products', {
   term: 'wireless keyboard',
-  document: { exclude: ['embedding'] },
+  document: { exclude: ['description'], vectors: true },
 })
 ```
 
-Exclude a vector field on a similarity search. The engine copies out of the store only the fields that the projection keeps. It also reads a vector back out of the index only for a field that the projection keeps. When you keep a 384-dimension vector, each hit in the response grows by about 8 KB.
+A hit carries its vector fields when the projection sets `vectors: true`, when an `include` entry names the vector field itself, as `include: ['embedding']` does, or when you create the index with `returnVectors: true`. Set `vectors: false` to leave them out of the hits of an index that sets `returnVectors`. Where you set `vectors`, it decides for every vector field at once, and `include` and `exclude` then apply to the fields that it keeps. An `include` entry that names only the object around a vector field, such as `meta` for `meta.sketch`, returns that object without the vector. The engine throws `SEARCH_INVALID_FIELD` for a `vectors` value other than `true` or `false`.
+
+The engine copies out of the store only the fields that the projection keeps, and it reads a vector back out of the index only for a field that the hit returns. When a hit returns a 384-dimension vector, that hit grows by about 8 KB in a JSON response.
 
 ## Fuzzy matching
 
