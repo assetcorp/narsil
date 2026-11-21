@@ -203,6 +203,7 @@ const QUERY_SHAPE = object([
         object: object([
           ['include', STRINGS],
           ['exclude', STRINGS],
+          ['vectors', BOOLEAN],
         ]),
       },
     },

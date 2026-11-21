@@ -91,13 +91,22 @@ describe('vector fields in documents read over HTTP', () => {
     for (const vectors of ['true', 1, null, [true], {}]) {
       const document = JSON.stringify({ vectors })
       const searchTakesNullAsAbsent = vectors === null
-      for (const [path, body] of [
-        ...(searchTakesNullAsAbsent ? [] : [['/indexes/plain/search', `{"term":"harbour","document":${document}}`]]),
-        ['/indexes/plain/documents/_list', `{"document":${document}}`],
-        ['/indexes/plain/documents/_multi-get', `{"docIds":["${BOOK.id}"],"document":${document}}`],
+      for (const [path, body, code] of [
+        ...(searchTakesNullAsAbsent
+          ? []
+          : [
+              ['/indexes/plain/search', `{"term":"harbour","document":${document}}`, 'INVALID_REQUEST'],
+              ['/indexes/plain/search/preflight', `{"term":"harbour","document":${document}}`, 'INVALID_REQUEST'],
+            ]),
+        ['/indexes/plain/documents/_list', `{"document":${document}}`, 'SEARCH_INVALID_FIELD'],
+        [
+          '/indexes/plain/documents/_multi-get',
+          `{"docIds":["${BOOK.id}"],"document":${document}}`,
+          'SEARCH_INVALID_FIELD',
+        ],
       ]) {
         const answer = await sendRaw(base, 'POST', path, body)
-        expect([answer.status, errorCodeOf(answer.body)], `${path} ${document}`).toEqual([400, 'SEARCH_INVALID_FIELD'])
+        expect([answer.status, errorCodeOf(answer.body)], `${path} ${document}`).toEqual([400, code])
       }
       const created = await sendRaw(
         base,
