@@ -11,7 +11,13 @@ import { assertSufficientActiveReplicas, resolvePrimaryAssignment } from './assi
 import { type AppendedWrite, asWriteError, createGroupCommit, replicateAppendedWrites } from './batch-commit'
 import { compensateInsert, compensateRemove, compensateUpdate, throwWriteFailure } from './failures'
 import { inLeadingPartitionQueue } from './leading-queue'
-import { appendDeletion, appendStoredCopy, numberedWrite, type PrimaryWriteScope } from './numbered-write'
+import {
+  appendDeletion,
+  appendStoredCopy,
+  numberedWrite,
+  type PrimaryWriteScope,
+  WHOLE_DOCUMENT,
+} from './numbered-write'
 import { applyInProjectedGroups, projectOne } from './projected-groups'
 import { replicateEntry } from './replication'
 import { settleRollback } from './rollback'
@@ -63,7 +69,7 @@ export async function applyPrimaryRemove(
   const queued: PrimaryWriteScope = { indexName, partitionId, assignment, deps }
   await inLeadingPartitionQueue(queued, async scope => {
     if (condition !== undefined && decideCondition(scope, docId, condition) === 'acknowledge') return
-    const previousDocument = await deps.engine.get(indexName, docId)
+    const previousDocument = await deps.engine.get(indexName, docId, WHOLE_DOCUMENT)
     const previousRecord = previousRecordOf(scope, docId)
     const removed = await numberedWrite(
       scope,
@@ -96,7 +102,7 @@ export async function applyPrimaryUpdate(
     if (condition !== undefined && decideCondition(scope, docId, condition) === 'acknowledge') return
     const projected = projectOne(deps, indexName, document)
     try {
-      const previousDocument = await deps.engine.get(indexName, docId)
+      const previousDocument = await deps.engine.get(indexName, docId, WHOLE_DOCUMENT)
       const previousRecord = previousRecordOf(scope, docId)
       const updated = await numberedWrite(
         scope,
@@ -199,7 +205,7 @@ export async function applyPrimaryUpdateBatch(
               acknowledged.push(update.docId)
               return
             }
-            const previousDocument = await deps.engine.get(indexName, update.docId)
+            const previousDocument = await deps.engine.get(indexName, update.docId, WHOLE_DOCUMENT)
             const previousRecord = previousRecordOf(scope, update.docId)
             const updated = await numberedWrite(
               scope,
@@ -254,7 +260,7 @@ export async function applyPrimaryRemoveBatch(
             acknowledged.push(docId)
             continue
           }
-          const previousDocument = await deps.engine.get(indexName, docId)
+          const previousDocument = await deps.engine.get(indexName, docId, WHOLE_DOCUMENT)
           const previousRecord = previousRecordOf(scope, docId)
           const removed = await numberedWrite(
             scope,
@@ -370,7 +376,7 @@ export async function resolveForwardedUpdateDocument(
       'Invalid ForwardPayload: update requires a document or updateFields',
     )
   }
-  const existing = await deps.engine.get(indexName, documentId)
+  const existing = await deps.engine.get(indexName, documentId, WHOLE_DOCUMENT)
   if (existing === undefined) {
     throw new NarsilError(ErrorCodes.DOC_NOT_FOUND, `Document '${documentId}' does not exist in index '${indexName}'`, {
       indexName,

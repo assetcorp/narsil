@@ -13,7 +13,7 @@ import type {
   SuggestResult,
 } from '../../../types/results'
 import type { AnyDocument, IndexConfig, InsertOptions } from '../../../types/schema'
-import type { ListParams, QueryParams, SuggestParams } from '../../../types/search'
+import type { GetOptions, ListParams, QueryParams, SuggestParams } from '../../../types/search'
 import type { NodeRole } from '../../coordinator/types'
 import type { ClusterNodeChanges } from './changes-settings'
 import type { ClusterNamespace, CreateIndexOptions } from './config'
@@ -327,10 +327,13 @@ export interface ClusterNode extends ClusterNodeSearchSettings, ClusterNodeSyncS
    *
    * @param indexName - The index holding the document.
    * @param docId - The document to read.
+   * @param options - The shape of the returned document. Vector fields are
+   * left out unless `document.vectors` is true, an `include` path names the
+   * field, or the index sets `returnVectors`.
    * @returns The document, or `undefined` when the partition holds no
    * document under this id.
    */
-  get(indexName: string, docId: string): Promise<AnyDocument | undefined>
+  get(indexName: string, docId: string, options?: GetOptions): Promise<AnyDocument | undefined>
   /**
    * Reads many documents, grouping the ids by the node that serves each
    * partition and fetching every group in one round trip.
@@ -340,10 +343,12 @@ export interface ClusterNode extends ClusterNodeSearchSettings, ClusterNodeSyncS
    *
    * @param indexName - The index holding the documents.
    * @param docIds - The documents to read.
+   * @param options - The shape of each returned document, which follows the
+   * same rules as {@link ClusterNode.get}.
    * @returns The documents found, keyed by id; an id nothing is stored under
    * is absent.
    */
-  getMultiple(indexName: string, docIds: string[]): Promise<Map<string, AnyDocument>>
+  getMultiple(indexName: string, docIds: string[], options?: GetOptions): Promise<Map<string, AnyDocument>>
   /**
    * Reports whether a document exists, reading through the same routing as
    * {@link ClusterNode.get}.

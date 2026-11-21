@@ -10,6 +10,7 @@ import type { ClusterLocalEngine } from '../local-engine'
 import { readRejectionOf, refuseDecodeWithoutRoom, sendToNode } from '../node-messaging'
 import type { SearchContextRegistry } from '../search-contexts'
 import type { ClusterNodeConfig } from '../types'
+import type { VectorReadView } from './vector-reads'
 
 export interface ClusterReadDeps {
   config: ClusterNodeConfig
@@ -19,6 +20,7 @@ export interface ClusterReadDeps {
   searchContexts?: SearchContextRegistry
   bm25View: Bm25View
   analysisView: AnalysisView
+  vectorReads: VectorReadView
 }
 
 export interface ScatterGroup {

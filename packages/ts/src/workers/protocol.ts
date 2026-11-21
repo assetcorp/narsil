@@ -3,6 +3,7 @@ import type { PagedSegmentSnapshot, SharedSegmentSnapshot } from '../core/partit
 import type { RemovedSpellings } from '../core/partition/frozen/surface-slot'
 import type { SegmentPayload } from '../core/partition/segment-payload'
 import type { SharedPatternWork } from '../core/pattern-index/work-meter'
+import type { ResolvedProjection } from '../core/projection'
 import type { PageRequest } from '../engine/query/assemble'
 import type { LongQueryThreadSettings, RequestThreadSettings } from '../server/request-threads/messages'
 import type { GlobalStatistics, SerializablePartition, SerializedSurfaceForms } from '../types/internal'
@@ -39,7 +40,7 @@ type WorkerCommand =
       readGeneration?: number
     }
   | { type: 'preflight'; indexName: string; params: QueryParams; requestId: string; patternWork: SharedPatternWork }
-  | { type: 'get'; indexName: string; docId: string; requestId: string }
+  | { type: 'get'; indexName: string; docId: string; requestId: string; projection: ResolvedProjection }
   | { type: 'has'; indexName: string; docId: string; requestId: string }
   | { type: 'count'; indexName: string; requestId: string }
   | {

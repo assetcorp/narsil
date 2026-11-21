@@ -70,7 +70,7 @@ it.each([
     const docId = beforeSwap ? 'b' : 'reading'
     const partitionCount = !afterReplay || boundary === 'before-transition' ? 2 : 1
     try {
-      const document = await recovered.get('readings', docId)
+      const document = await recovered.get('readings', docId, { document: { vectors: true } })
       const title = boundary === 'after-transition' ? 'meadow' : bothLayouts ? 'lake' : 'forest'
       expect(document?.title).toBe(title)
       expect(document?.embedding).toEqual(
@@ -87,7 +87,10 @@ it.each([
     const reopened = await createNarsil({ durability: { directory }, workers: { enabled: false } })
     try {
       expect(reopened.getPartitionStats('readings')).toHaveLength(partitionCount)
-      expect(await reopened.get('readings', docId)).toEqual({ title: 'mountain', embedding: new Float32Array([1, 1]) })
+      expect(await reopened.get('readings', docId, { document: { vectors: true } })).toEqual({
+        title: 'mountain',
+        embedding: new Float32Array([1, 1]),
+      })
       const ranked = await reopened.query('readings', { vector: { field: 'embedding', value: [1, 0] } })
       expect(ranked.hits.map(hit => hit.id)).toEqual([docId])
       expect(ranked.hits[0].score).toBeCloseTo(1 / Math.sqrt(2), 6)

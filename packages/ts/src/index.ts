@@ -134,6 +134,7 @@ export type {
 export type {
   DocumentProjection,
   FacetConfig,
+  GetOptions,
   GroupConfig,
   GroupReducer,
   HighlightConfig,

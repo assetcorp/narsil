@@ -1,3 +1,4 @@
+import type { GetOptions } from '../../types/reads'
 import type { QueryResult } from '../../types/results'
 import type { AnyDocument } from '../../types/schema'
 import type { QueryParams } from '../../types/search'
@@ -37,6 +38,8 @@ import {
   routeUpdateBatch,
   type WriteRoutingDeps,
 } from './write-routing'
+
+const DOCUMENT_PRESENCE: GetOptions = { document: false }
 
 export type ClusterNodeOperations = Pick<
   ClusterNode,
@@ -255,16 +258,18 @@ export function createClusterNodeOperations(deps: ClusterNodeOperationDeps): Clu
       )
     },
 
-    async get(indexName, docId) {
-      return read(indexName, async name => (await readClusterDocuments(readDeps, name, [docId])).get(docId))
+    async get(indexName, docId, options) {
+      return read(indexName, async name => (await readClusterDocuments(readDeps, name, [docId], options)).get(docId))
     },
 
-    async getMultiple(indexName, docIds) {
-      return read(indexName, name => readClusterDocuments(readDeps, name, docIds))
+    async getMultiple(indexName, docIds, options) {
+      return read(indexName, name => readClusterDocuments(readDeps, name, docIds, options))
     },
 
     async has(indexName, docId) {
-      return read(indexName, async name => (await readClusterDocuments(readDeps, name, [docId])).has(docId))
+      return read(indexName, async name =>
+        (await readClusterDocuments(readDeps, name, [docId], DOCUMENT_PRESENCE)).has(docId),
+      )
     },
   }
 }

@@ -3,12 +3,22 @@ import { encodeJson } from '../json-encoding'
 import type { ImportResult, TaskRecord } from '../server/types'
 import type { BatchResult, ListResult } from '../types/results'
 import type { AnyDocument, InsertOptions, WriteOptions } from '../types/schema'
-import type { ListParams } from '../types/search'
+import type { DocumentProjection, ListParams } from '../types/search'
 import { NO_TIMEOUT } from './constants'
 import type { Transport } from './http'
 import type { RequestOptions } from './options'
 import { indexPath } from './paths'
 import { readArray, readBody, readObject } from './response-shape'
+
+/**
+ * These options shape one {@link BulkOperations.getMultiple} request.
+ *
+ * @public
+ */
+export interface GetMultipleOptions extends RequestOptions {
+  /** This chooses how much of each document comes back. Every field apart from the vector fields comes back by default. */
+  document?: DocumentProjection
+}
 
 /**
  * This is a corpus, in whichever form you already hold it.
@@ -94,13 +104,16 @@ export interface BulkOperations {
    * The result leaves out an id the index does not hold while the call still
    * succeeds, so compare the size against what you asked for.
    *
+   * Each document comes back without its vector fields unless
+   * `options.document` or the index's `returnVectors` setting asks for them.
+   *
    * @param indexName - This names the index holding the documents.
    * @param docIds - These are the ids to read.
-   * @param options - This sets the signal, the deadline, and the headers for
-   * this request.
+   * @param options - This chooses which fields come back, and sets the signal,
+   * the deadline, and the headers for this request.
    * @returns The map holds every document found, keyed by id.
    */
-  getMultiple(indexName: string, docIds: string[], options?: RequestOptions): Promise<Map<string, AnyDocument>>
+  getMultiple(indexName: string, docIds: string[], options?: GetMultipleOptions): Promise<Map<string, AnyDocument>>
   /**
    * Pages through the stored documents without searching, in document-id order
    * until the parameters name a sort.
@@ -234,7 +247,7 @@ export function createBulkOperations(transport: Transport): BulkOperations {
       const payload = await transport.json({
         method: 'POST',
         path,
-        body: encodeJson({ docIds }),
+        body: encodeJson(options?.document === undefined ? { docIds } : { docIds, document: options.document }),
         contentType: 'application/json',
         repeatable: true,
         options,

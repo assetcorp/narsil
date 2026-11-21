@@ -153,6 +153,7 @@ export const OPERATION_CASES: Readonly<Record<string, OperationCase>> = {
   },
   get: {
     valid: () => ({ name: INDEX, id: 'seed-1', statuses: [200] }),
+    alsoValid: () => [{ name: INDEX, id: 'seed-1', query: 'vectors=true', statuses: [200] }],
     hostile: () => ({ name: INDEX, id: 'no-such-document', statuses: [404] }),
   },
   has: {
@@ -166,6 +167,9 @@ export const OPERATION_CASES: Readonly<Record<string, OperationCase>> = {
   },
   getMultiple: {
     valid: () => ({ name: INDEX, json: { docIds: ['seed-1', 'no-such-document'] }, statuses: [200] }),
+    alsoValid: () => [
+      { name: INDEX, json: { docIds: ['seed-1'], document: { vectors: true, exclude: ['price'] } }, statuses: [200] },
+    ],
     hostile: () => ({ name: INDEX, json: { docIds: 'seed-1' }, statuses: [400] }),
   },
   importNdjson: {

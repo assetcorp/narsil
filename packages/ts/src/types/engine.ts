@@ -17,7 +17,7 @@ import type {
   SuggestResult,
 } from './results'
 import type { AnyDocument, IndexConfig, PartitionConfig } from './schema'
-import type { ListParams, QueryParams, SuggestParams } from './search'
+import type { GetOptions, ListParams, QueryParams, SuggestParams } from './search'
 import type { SyncOperations } from './sync'
 import type { SynonymOperations } from './synonym-operations'
 import type { VectorMaintenanceOperations } from './vector-maintenance-operations'
@@ -108,25 +108,32 @@ export interface Narsil
   /**
    * Fetches one stored document by id, without searching.
    *
-   * A vector field comes back as a `Float32Array`, whatever form you give it.
-   * `JSON.stringify` writes one as an object keyed by index, so convert it
-   * with `Array.from`, or project the field away, before you serialise the
-   * document yourself. The HTTP routes convert it for you.
+   * The document comes back without its vector fields unless `options` or
+   * the index's {@link IndexConfig.returnVectors} setting asks for them. A
+   * vector field that comes back is a `Float32Array`, whatever form you gave
+   * it. `JSON.stringify` writes one as an object keyed by index, so convert
+   * it with `Array.from` before you serialise the document yourself. The
+   * HTTP routes convert it for you.
    *
    * @param indexName - The index holding the document.
    * @param docId - The document to fetch.
+   * @param options - The projection that chooses which fields come back.
    * @returns The document, or `undefined` when the index holds no such id.
    */
-  get(indexName: string, docId: string): Promise<AnyDocument | undefined>
+  get(indexName: string, docId: string, options?: GetOptions): Promise<AnyDocument | undefined>
   /**
    * Fetches many stored documents by id in one pass.
    *
+   * Each document comes back without its vector fields unless `options` or
+   * the index's {@link IndexConfig.returnVectors} setting asks for them.
+   *
    * @param indexName - The index holding the documents.
    * @param docIds - The documents to fetch.
+   * @param options - The projection that chooses which fields come back.
    * @returns A map from id to document, holding an entry for each id that
    * exists and nothing for the rest.
    */
-  getMultiple(indexName: string, docIds: string[]): Promise<Map<string, AnyDocument>>
+  getMultiple(indexName: string, docIds: string[], options?: GetOptions): Promise<Map<string, AnyDocument>>
   /**
    * Reports whether an index holds a document, without reading it.
    *

@@ -31,6 +31,12 @@ export function mapHttpIndexConfig(http: HttpIndexConfig): IndexConfig {
   if (http.surfaceForms !== undefined) config.surfaceForms = http.surfaceForms === true
   if (http.vectorPromotion !== undefined) config.vectorPromotion = http.vectorPromotion
   if (http.strict !== undefined) config.strict = http.strict
+  if (http.returnVectors !== undefined) {
+    if (typeof http.returnVectors !== 'boolean') {
+      throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'Field "returnVectors" must be true or false')
+    }
+    config.returnVectors = http.returnVectors
+  }
   if (http.required !== undefined) config.required = http.required
   if (http.patternValueLimit !== undefined) config.patternValueLimit = http.patternValueLimit
   if (http.synonyms !== undefined) config.synonyms = http.synonyms

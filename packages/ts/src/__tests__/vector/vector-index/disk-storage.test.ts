@@ -61,7 +61,7 @@ describe('a vector field kept on disk', () => {
     await handle.write(new Uint8Array(replaced.buffer), 0, replaced.byteLength, offset)
     await handle.close()
 
-    const document = await reader.get('papers', 'p9')
+    const document = await reader.get('papers', 'p9', { document: { vectors: true } })
     expect(Array.from(document?.embedding as Float32Array)).toEqual(Array.from(replaced))
     await reader.shutdown()
   })

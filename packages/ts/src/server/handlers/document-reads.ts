@@ -33,7 +33,12 @@ export function createDocumentReadHandlers(deps: ReadHandlerDeps) {
 
   async function get(ctx: RouteContext): Promise<void> {
     try {
-      const document = await engine.get(ctx.params[0], ctx.params[1])
+      const vectors = vectorsQueryOf(ctx.query.get('vectors'))
+      const document = await engine.get(
+        ctx.params[0],
+        ctx.params[1],
+        vectors === undefined ? undefined : { document: { vectors } },
+      )
       if (document === undefined) {
         respondError(ctx, indexDocNotFound(ctx.params[1]))
         return
@@ -69,7 +74,11 @@ export function createDocumentReadHandlers(deps: ReadHandlerDeps) {
       return
     }
     try {
-      const found = await engine.getMultiple(ctx.params[0], body.docIds)
+      const found = await engine.getMultiple(
+        ctx.params[0],
+        body.docIds,
+        body.document === undefined ? undefined : { document: body.document },
+      )
       const documents: Record<string, AnyDocument> = {}
       for (const [id, doc] of found) documents[id] = doc
       const answer: MultiGetResponse = { documents }
@@ -100,6 +109,16 @@ export function createDocumentReadHandlers(deps: ReadHandlerDeps) {
   }
 
   return { get, exists, count, multiGet, list }
+}
+
+function vectorsQueryOf(value: string | null): boolean | undefined {
+  if (value === null) return undefined
+  if (value === 'true') return true
+  if (value === 'false') return false
+  throw new NarsilError(ErrorCodes.SEARCH_INVALID_FIELD, 'Query parameter "vectors" must be true or false', {
+    option: 'vectors',
+    received: value.slice(0, 64),
+  })
 }
 
 function indexDocNotFound(docId: string): NarsilError {

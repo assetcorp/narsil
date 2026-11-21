@@ -1,5 +1,5 @@
 import type { getNestedValue } from '../../../core/partition/utils'
-import type { applyProjection } from '../../../core/projection'
+import type { applyProjection, VectorReadSettings } from '../../../core/projection'
 import { loadRerankRuntime } from '../../../engine/query/fixed-depth-code'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import type { engineCoreOf } from '../../../narsil/internals'
@@ -9,6 +9,7 @@ import type { QueryResult } from '../../../types/results'
 import type { AnyDocument } from '../../../types/schema'
 import type { QueryParams } from '../../../types/search'
 import type { ClusterReadDeps } from './scatter'
+import { keepsAnyVectorField } from './vector-reads'
 
 export interface ClusterRerankHost extends RuntimeHost {
   engineCoreOf: typeof engineCoreOf
@@ -17,12 +18,12 @@ export interface ClusterRerankHost extends RuntimeHost {
   applyProjection: typeof applyProjection
 }
 
-type ReadDocuments = (docIds: string[], last: boolean) => Promise<Map<string, AnyDocument>>
+type ReadDocuments = (docIds: string[], last: boolean, vectors: boolean) => Promise<Map<string, AnyDocument>>
 
 export async function rerankClusterQuery<T>(
   deps: ClusterReadDeps,
-  indexName: string,
   params: QueryParams,
+  settings: VectorReadSettings,
   firstStage: (params: QueryParams) => Promise<QueryResult<T>>,
   readDocuments: ReadDocuments,
   host: ClusterRerankHost,
@@ -32,28 +33,25 @@ export async function rerankClusterQuery<T>(
   if (core === undefined) {
     throw new NarsilError(ErrorCodes.RERANK_CONFIG_INVALID, 'This cluster node holds no rerank adapters')
   }
-  const schema = await deps.config.coordinator.getSchema(indexName)
-  if (schema === null) {
-    throw new NarsilError(ErrorCodes.INDEX_NOT_FOUND, `Index "${indexName}" does not exist`, { indexName })
-  }
   const { rerankOnHost, rerankTextOf, runRerankedQuery } = await loadRerankRuntime()
   const result = await runRerankedQuery<T>(params, {
     host,
-    schema,
+    schema: settings.schema,
+    returnVectors: settings.returnVectors,
     maxWindow: core.rerankSettings.maxWindow,
     binding: () => host.queryBindingOf(params),
     clampsPins: false,
     fusesRankings: request => request.vector !== undefined && (request.term !== undefined || request.mode === 'hybrid'),
     firstStage,
     async texts(docIds, fields) {
-      const documents = await readDocuments(docIds, false)
+      const documents = await readDocuments(docIds, false, false)
       return docIds.map(docId => {
         const document = documents.get(docId)
         return document === undefined ? '' : rerankTextOf(fields.map(field => host.getNestedValue(document, field)))
       })
     },
     async storedPins(docIds) {
-      return new Set((await readDocuments(docIds, false)).keys())
+      return new Set((await readDocuments(docIds, false, false)).keys())
     },
     score: (adapter, query, documents) => rerankOnHost(core, adapter, query, documents),
     async fillDocuments(hits, groups, projection) {
@@ -63,7 +61,11 @@ export async function rerankClusterQuery<T>(
         for (const hit of grouped) hit.document = {}
         return
       }
-      const documents = await readDocuments([...hits.map(hit => hit.id), ...grouped.map(hit => hit.id)], true)
+      const documents = await readDocuments(
+        [...hits.map(hit => hit.id), ...grouped.map(hit => hit.id)],
+        true,
+        keepsAnyVectorField(projection, settings),
+      )
       const read = (docId: string): AnyDocument => {
         const document = documents.get(docId)
         return document === undefined ? {} : host.applyProjection(document, projection)

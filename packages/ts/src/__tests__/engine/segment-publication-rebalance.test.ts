@@ -68,6 +68,7 @@ describe('segment publication during partition replacement', () => {
         const found = await engine.query<{ embedding: Float32Array }>('records', {
           term: 'published',
           limit: 5_000,
+          document: { vectors: true },
         })
         expect(found.count).toBe(documents.length)
         expect(new Set(found.hits.map(hit => hit.id))).toEqual(new Set(documents.map(doc => doc.id)))
@@ -76,6 +77,7 @@ describe('segment publication during partition replacement', () => {
         const ranked = await engine.query<{ embedding: Float32Array }>('records', {
           vector: { field: 'embedding', value: [1, 0] },
           limit: 5_000,
+          document: { vectors: true },
         })
         expect(ranked.hits).toHaveLength(documents.length + 1)
         for (const hit of ranked.hits) {

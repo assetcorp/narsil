@@ -181,6 +181,7 @@ export interface IndexMetadata {
   trackPositions?: boolean
   textStorage?: 'memory' | 'disk'
   strict?: boolean
+  returnVectors?: boolean
   required?: string[]
   vectorPromotion?: VectorIndexConfig
   patternValueLimit?: number

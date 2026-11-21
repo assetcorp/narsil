@@ -88,10 +88,10 @@ describe('restore on a durable engine', () => {
 
     engine = await createNarsil({ durability: { directory: dir } })
 
-    const alpha = await engine.get('docs', 'id-alpha')
+    const alpha = await engine.get('docs', 'id-alpha', { document: { vectors: true } })
     expect(alpha).toBeDefined()
     expect(Array.from((alpha?.embedding as ArrayLike<number>) ?? [])).toHaveLength(4)
-    const beta = await engine.get('docs', 'id-beta')
+    const beta = await engine.get('docs', 'id-beta', { document: { vectors: true } })
     expect(Array.from((beta?.embedding as ArrayLike<number>) ?? [])).toHaveLength(4)
   })
 })

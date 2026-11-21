@@ -130,6 +130,9 @@ export function validateListPayload(decoded: unknown): ListPayload {
   if (decoded.fields !== null) {
     validateStringArray(decoded.fields, 'fields', MAX_FIELDS_LIST, 255, SEARCH_INVALID_FIELD)
   }
+  if (decoded.vectors !== null && decoded.vectors !== undefined && typeof decoded.vectors !== 'boolean') {
+    throwInvalid(CONFIG_INVALID, 'Invalid ListPayload: "vectors" must be a boolean, or null')
+  }
   return decoded as unknown as ListPayload
 }
 
