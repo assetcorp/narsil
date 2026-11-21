@@ -232,7 +232,12 @@ impl ManagedLease {
                 self.record_renewal(sent_at, self.ttl_seconds);
                 Ok(())
             }
-            Err(failure) => Err(lease_error("keepaliveLease", &failure)),
+            Err(failure) => {
+                if is_not_found(&failure) {
+                    self.mark_lost();
+                }
+                Err(lease_error("keepaliveLease", &failure))
+            }
         }
     }
 
