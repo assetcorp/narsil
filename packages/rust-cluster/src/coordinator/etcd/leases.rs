@@ -197,7 +197,7 @@ impl ManagedLease {
             return;
         };
         let mut validity = lock(&self.validity);
-        if validity.is_some_and(|current| current.held_until >= held_until) {
+        if *self.lost.borrow() || validity.is_some_and(|current| current.held_until >= held_until) {
             return;
         }
         *validity = Some(Validity { held_until, ttl });
@@ -208,7 +208,8 @@ impl ManagedLease {
     }
 
     fn mark_lost(&self) {
-        *lock(&self.validity) = None;
+        let mut validity = lock(&self.validity);
+        *validity = None;
         self.lost.send_replace(true);
     }
 
