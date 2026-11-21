@@ -139,7 +139,7 @@ function readsFor(client: NarsilClient, kept: Set<string>, round: number): Array
   const probe = slice[0] ?? 'lamp-0'
   return [
     async () => {
-      const found = await client.getMultiple(INDEX_NAME, slice)
+      const found = await client.getMultiple(INDEX_NAME, slice, { document: { vectors: true } })
       expect(found.size).toBe(slice.length)
       for (const docId of slice) expectLamp(docId, found.get(docId), kept)
     },
@@ -147,13 +147,14 @@ function readsFor(client: NarsilClient, kept: Set<string>, round: number): Array
       const result = await client.query(INDEX_NAME, {
         vector: { field: 'embedding', value: embeddingOf(lampNumberOf(probe)) },
         limit: READ_DOCUMENTS,
+        document: { vectors: true },
       })
       expect(result.hits[0]?.id, `the nearest lamp to ${probe}'s own vector`).toBe(probe)
       expect(result.hits.length).toBe(Math.min(READ_DOCUMENTS, kept.size))
       for (const hit of result.hits) expectLamp(hit.id, hit.document, kept)
     },
     async () => {
-      const page = await client.listDocuments(INDEX_NAME, { limit: READ_DOCUMENTS })
+      const page = await client.listDocuments(INDEX_NAME, { limit: READ_DOCUMENTS, document: { vectors: true } })
       expect(page.total).toBe(kept.size)
       expect(page.documents.length).toBe(Math.min(READ_DOCUMENTS, kept.size))
       for (const listed of page.documents) expectLamp(listed.id, listed.document, kept)
