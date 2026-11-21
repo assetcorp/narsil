@@ -703,6 +703,9 @@ type HTTPIndexBody struct {
 	SurfaceForms *bool `json:"surfaceForms,omitempty"`
 	// Setting this rejects a document carrying a field the schema does not declare.
 	Strict *bool `json:"strict,omitempty"`
+	// Setting this returns the vector fields on every search, listing, and read of this index, which
+	// otherwise leave them out unless the request asks for them.
+	ReturnVectors *bool `json:"returnVectors,omitempty"`
 	// This names a server-registered embedding adapter and the fields it embeds.
 	Embedding *CreateIndexEmbedding `json:"embedding,omitempty"`
 	// The server rejects a document that omits any of these fields.
@@ -836,7 +839,8 @@ type HTTPQueryParams struct {
 	// Setting this returns the numbers behind each hit's score, which is what you read when a ranking
 	// surprises you.
 	IncludeScoreComponents *bool `json:"includeScoreComponents,omitempty"`
-	// This chooses how much of each stored document comes back, and the whole document by default.
+	// This chooses how much of each stored document comes back. By default a hit carries every field apart
+	// from the vector fields, which come back only where DocumentProjection or the index asks for them.
 	Document *HTTPQueryParamsDocument `json:"document,omitempty"`
 	// These settings collapse the hits into groups by field value.
 	Group *HTTPQueryParamsGroup `json:"group,omitempty"`
@@ -856,6 +860,9 @@ type HTTPQueryParamsDocumentObject struct {
 	Include []string `json:"include,omitzero"`
 	// Names the fields to drop, so every other field is kept.
 	Exclude []string `json:"exclude,omitzero"`
+	// Setting this to true returns every vector field, and false leaves every one out, whatever `include`
+	// and the index setting say. `include` and `exclude` then apply to the vector fields that this keeps.
+	Vectors *bool `json:"vectors,omitempty"`
 }
 
 // HTTPQueryParamsGroup: These settings collapse the hits into groups by field value.
@@ -1128,7 +1135,9 @@ type ListParams struct {
 	// document-id order when you leave this out. The engine reads every document the listing covers to
 	// build a sorted page, so a sorted listing costs more than the default order on a large index.
 	Sort *ListParamsSort `json:"sort,omitempty"`
-	// This chooses how much of each stored document comes back, and the whole document by default.
+	// This chooses how much of each stored document comes back. By default a listing returns every field
+	// apart from the vector fields, which come back only where DocumentProjection or the index asks for
+	// them.
 	Document *ListParamsDocument `json:"document,omitempty"`
 }
 
@@ -1138,6 +1147,9 @@ type ListParamsDocumentObject struct {
 	Include []string `json:"include,omitzero"`
 	// Names the fields to drop, so every other field is kept.
 	Exclude []string `json:"exclude,omitzero"`
+	// Setting this to true returns every vector field, and false leaves every one out, whatever `include`
+	// and the index setting say. `include` and `exclude` then apply to the vector fields that this keeps.
+	Vectors *bool `json:"vectors,omitempty"`
 }
 
 // ListResult: What Narsil.listDocuments returns: one page of stored documents and the cursor that
@@ -1228,6 +1240,20 @@ type MemoryStatsResponseWorkersItem struct {
 type MultiGetBody struct {
 	// The server fetches the documents with these ids.
 	DocIDs []string `json:"docIds"`
+	// This chooses how much of each document comes back. Every field apart from the vector fields comes
+	// back by default.
+	Document *MultiGetBodyDocument `json:"document,omitempty"`
+}
+
+// MultiGetBodyDocumentObject: The shape of one form of the `document` field of `MultiGetBody`.
+type MultiGetBodyDocumentObject struct {
+	// Names the fields to keep, so every field left out of this list is dropped.
+	Include []string `json:"include,omitzero"`
+	// Names the fields to drop, so every other field is kept.
+	Exclude []string `json:"exclude,omitzero"`
+	// Setting this to true returns every vector field, and false leaves every one out, whatever `include`
+	// and the index setting say. `include` and `exclude` then apply to the vector fields that this keeps.
+	Vectors *bool `json:"vectors,omitempty"`
 }
 
 // MultiGetResponse: The body of `POST /indexes/{name}/documents/_multi-get`.
@@ -2538,6 +2564,32 @@ func (u *ListParamsDocument) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 	return unionMismatch("ListParamsDocument", data)
+}
+
+// MultiGetBodyDocument holds one of several forms.
+// Set exactly one field. A value with no field set, or with two, fails to encode.
+type MultiGetBodyDocument struct {
+	Bool                       *bool
+	MultiGetBodyDocumentObject *MultiGetBodyDocumentObject
+}
+
+// MarshalJSON writes the one field that is set, and fails when none or several are set.
+func (u MultiGetBodyDocument) MarshalJSON() ([]byte, error) {
+	return marshalUnion("MultiGetBodyDocument", u.Bool, u.MultiGetBodyDocumentObject)
+}
+
+// UnmarshalJSON sets the field whose form matches the JSON, and fails when no form matches.
+func (u *MultiGetBodyDocument) UnmarshalJSON(data []byte) error {
+	*u = MultiGetBodyDocument{}
+	switch jsonKindOf(data) {
+	case "bool":
+		return json.Unmarshal(data, &u.Bool)
+	case "object":
+		return json.Unmarshal(data, &u.MultiGetBodyDocumentObject)
+	case "null":
+		return nil
+	}
+	return unionMismatch("MultiGetBodyDocument", data)
 }
 
 // SchemaDefinitionValue holds one of several forms.

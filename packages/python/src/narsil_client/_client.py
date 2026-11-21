@@ -102,6 +102,7 @@ class NarsilClient(Operations):
         name: str,
         id: str,
         *,
+        vectors: bool | None = None,
         timeout_ms: int | None = None,
         headers: Mapping[str, str] | None = None,
         max_response_bytes: int | None = None,
@@ -112,6 +113,8 @@ class NarsilClient(Operations):
             name: The name of the index.
             id: The id of the document. The client encodes it, so an id holding a slash, a space, or an
                 accent reaches the document stored under that id.
+            vectors: Under True, the document carries its vector fields, and under False it carries
+                none, whatever the index setting says. Under None, the index setting decides.
             timeout_ms: The client waits this many milliseconds for each try of this request.
             headers: The client adds these headers to this request.
             max_response_bytes: The client stops reading the answer past this many bytes.
@@ -121,7 +124,12 @@ class NarsilClient(Operations):
         """
         try:
             answer = super().get(
-                name, id, timeout_ms=timeout_ms, headers=headers, max_response_bytes=max_response_bytes
+                name,
+                id,
+                vectors=None if vectors is None else ("true" if vectors else "false"),
+                timeout_ms=timeout_ms,
+                headers=headers,
+                max_response_bytes=max_response_bytes,
             )
         except NarsilError as error:
             if error.code == DOC_NOT_FOUND:

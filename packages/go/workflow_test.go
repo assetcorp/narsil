@@ -75,7 +75,7 @@ func TestClientRunsTheWholeIndexLifecycleOnALiveServer(t *testing.T) {
 		t.Fatal(err)
 	}
 	for id, document := range workflowDocuments {
-		stored, err := client.Get(ctx, name, id)
+		stored, err := client.Get(ctx, name, id, narsil.GetParams{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -83,7 +83,7 @@ func TestClientRunsTheWholeIndexLifecycleOnALiveServer(t *testing.T) {
 			t.Fatalf("the document %q came back as %v", id, stored)
 		}
 	}
-	missing, err := client.Get(ctx, name, "guides/missing")
+	missing, err := client.Get(ctx, name, "guides/missing", narsil.GetParams{})
 	if err != nil || missing != nil {
 		t.Fatalf("a missing document came back as %v with %v", missing, err)
 	}
@@ -146,7 +146,7 @@ func TestClientRunsTheWholeIndexLifecycleOnALiveServer(t *testing.T) {
 		t.Fatalf("the restore finished as %+v with %v", restored, err)
 	}
 	expectCount(t, client, restoredName, totalAfterLoad)
-	accented, err := client.Get(ctx, restoredName, accentedID)
+	accented, err := client.Get(ctx, restoredName, accentedID, narsil.GetParams{})
 	if err != nil || accented["title"] != workflowDocuments[accentedID]["title"] {
 		t.Fatalf("the restored accented document came back as %v with %v", accented, err)
 	}
