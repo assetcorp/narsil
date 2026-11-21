@@ -1,9 +1,10 @@
 use super::params::DocumentProjection;
+use crate::engine::index::IndexState;
 use crate::value::{Map, Value};
 
 const PROTOTYPE_POLLUTION_KEYS: [&str; 3] = ["__proto__", "constructor", "prototype"];
 
-pub(crate) enum Projection {
+pub(crate) enum Shape {
     Full,
     Nothing,
     Fields {
@@ -12,15 +13,44 @@ pub(crate) enum Projection {
     },
 }
 
+pub(crate) struct Projection {
+    pub(crate) shape: Shape,
+    returned_vectors: Vec<bool>,
+}
+
+impl Projection {
+    pub(crate) fn whole_documents(index: &IndexState) -> Projection {
+        Projection {
+            shape: Shape::Full,
+            returned_vectors: vec![true; index.vectors.fields().len()],
+        }
+    }
+
+    pub(crate) fn returns_vector(&self, at: usize) -> bool {
+        self.returned_vectors.get(at).copied().unwrap_or(false)
+    }
+
+    pub(crate) fn returns_any_vector(&self) -> bool {
+        self.returned_vectors.contains(&true)
+    }
+
+    pub(crate) fn leaves_out_any_vector(&self) -> bool {
+        self.returned_vectors.contains(&false)
+    }
+}
+
+fn split_path(path: &str) -> Vec<String> {
+    path.split('.')
+        .filter(|segment| !segment.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
 fn split_paths(paths: &[String]) -> Vec<Vec<String>> {
     paths
         .iter()
         .filter_map(|path| {
-            let segments: Vec<String> = path
-                .split('.')
-                .filter(|segment| !segment.is_empty())
-                .map(str::to_string)
-                .collect();
+            let segments = split_path(path);
             let usable = !segments.is_empty()
                 && !segments
                     .iter()
@@ -34,21 +64,74 @@ fn asked(paths: &Option<Vec<String>>) -> Option<&[String]> {
     paths.as_deref().filter(|paths| !paths.is_empty())
 }
 
-pub(crate) fn resolve_projection(projection: Option<&DocumentProjection>) -> Projection {
+fn resolve_shape(projection: Option<&DocumentProjection>) -> Shape {
     match projection {
-        None | Some(DocumentProjection::All) => Projection::Full,
-        Some(DocumentProjection::None) => Projection::Nothing,
-        Some(DocumentProjection::Fields { include, exclude }) => {
+        None | Some(DocumentProjection::All) => Shape::Full,
+        Some(DocumentProjection::None) => Shape::Nothing,
+        Some(DocumentProjection::Fields {
+            include, exclude, ..
+        }) => {
             let include = asked(include);
             let exclude = asked(exclude);
             if include.is_none() && exclude.is_none() {
-                return Projection::Full;
+                return Shape::Full;
             }
-            Projection::Fields {
+            Shape::Fields {
                 include: include.map(split_paths),
                 exclude: exclude.map(split_paths).unwrap_or_default(),
             }
         }
+    }
+}
+
+fn asked_vectors(projection: Option<&DocumentProjection>) -> Option<bool> {
+    match projection {
+        Some(DocumentProjection::Fields { vectors, .. }) => *vectors,
+        _ => None,
+    }
+}
+
+fn included_exactly(shape: &Shape, path: &[String]) -> bool {
+    match shape {
+        Shape::Fields {
+            include: Some(include),
+            ..
+        } => include.iter().any(|included| included.as_slice() == path),
+        _ => false,
+    }
+}
+
+pub(crate) fn resolve_projection(
+    projection: Option<&DocumentProjection>,
+    index: &IndexState,
+) -> Projection {
+    let shape = resolve_shape(projection);
+    let fields = index.vectors.fields();
+    if fields.is_empty() || matches!(shape, Shape::Nothing) {
+        return Projection {
+            shape,
+            returned_vectors: Vec::new(),
+        };
+    }
+    let asked = asked_vectors(projection);
+    let mut by_setting = None;
+    let returned_vectors = fields
+        .iter()
+        .map(|entry| {
+            let path = split_path(&entry.path);
+            let returned = match asked {
+                Some(asked) => asked,
+                None if included_exactly(&shape, &path) => true,
+                None => {
+                    *by_setting.get_or_insert_with(|| index.config().return_vectors == Some(true))
+                }
+            };
+            returned && keeps_path(&shape, &path)
+        })
+        .collect();
+    Projection {
+        shape,
+        returned_vectors,
     }
 }
 
@@ -60,27 +143,30 @@ fn covers(outer: &[String], inner: &[String]) -> bool {
     outer.len() <= inner.len() && overlaps(outer, inner)
 }
 
-pub(crate) fn projection_keeps_field(projection: &Projection, field: &str) -> bool {
-    match projection {
-        Projection::Full => true,
-        Projection::Nothing => false,
-        Projection::Fields { include, exclude } => {
-            let path: Vec<String> = field
-                .split('.')
-                .filter(|segment| !segment.is_empty())
-                .map(str::to_string)
-                .collect();
+fn keeps_path(shape: &Shape, path: &[String]) -> bool {
+    match shape {
+        Shape::Full => true,
+        Shape::Nothing => false,
+        Shape::Fields { include, exclude } => {
             if path.is_empty() {
                 return false;
             }
             if include
                 .as_ref()
-                .is_some_and(|include| !include.iter().any(|included| overlaps(included, &path)))
+                .is_some_and(|include| !include.iter().any(|included| overlaps(included, path)))
             {
                 return false;
             }
-            !exclude.iter().any(|excluded| covers(excluded, &path))
+            !exclude.iter().any(|excluded| covers(excluded, path))
         }
+    }
+}
+
+pub(crate) fn projection_keeps_field(shape: &Shape, field: &str) -> bool {
+    match shape {
+        Shape::Full => true,
+        Shape::Nothing => false,
+        Shape::Fields { .. } => keeps_path(shape, &split_path(field)),
     }
 }
 
@@ -137,18 +223,18 @@ fn write_path(target: &mut Map, path: &[String], value: Value) {
     current.insert(last.clone(), value);
 }
 
-pub(crate) fn project_document(document: &Map, projection: &Projection) -> Map {
-    match projection {
-        Projection::Full => document.clone(),
-        Projection::Nothing => Map::new(),
-        Projection::Fields {
+pub(crate) fn project_document(document: &Map, shape: &Shape) -> Map {
+    match shape {
+        Shape::Full => document.clone(),
+        Shape::Nothing => Map::new(),
+        Shape::Fields {
             include: None,
             exclude,
         } => match exclude.is_empty() {
             true => document.clone(),
             false => kept_entries(document, &mut Vec::new(), exclude),
         },
-        Projection::Fields {
+        Shape::Fields {
             include: Some(include),
             exclude,
         } => {

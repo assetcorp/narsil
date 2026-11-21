@@ -159,7 +159,7 @@ pub(crate) fn reranked_query<'a>(
     let cursor_depth = cursor_depth(params, &binding)?;
     let depth = first_stage_depth(hybrid_depth, plan.window, cursor_depth, offset, limit)?;
     let start = cursor_depth.saturating_add(offset);
-    let projection = resolve_projection(params.document.as_ref());
+    let projection = resolve_projection(params.document.as_ref(), index);
     let mut first_params = params.clone();
     first_params.rerank = None;
     first_params.pinned = None;

@@ -4,6 +4,8 @@ use std::sync::Arc;
 
 use crate::engine::index::IndexState;
 use crate::engine::layout::TextLayout;
+use crate::engine::query::projected::hit_document;
+use crate::engine::query::projection::Projection;
 use crate::error::Result;
 use crate::index::partition::PartitionSnapshot;
 use crate::index::segment::{SegmentData, SegmentEntry};
@@ -74,6 +76,7 @@ impl QuerySnapshots {
         index: &IndexState,
         id: &str,
         location: Option<Location>,
+        projection: &Projection,
     ) -> Result<Option<Arc<Map>>> {
         let location = match location {
             Some(location) => Some(location),
@@ -84,13 +87,7 @@ impl QuerySnapshots {
                 Some((entry, ordinal)) => entry.document(ordinal)?,
                 None => return Ok(None),
             };
-        if index.vectors.is_empty() {
-            return Ok(Some(stored));
-        }
-        let mut document = Arc::unwrap_or_clone(stored);
-        let vectors = index.vectors.pinned_vectors(id, self.pin.value())?;
-        index.vectors.attach(vectors, &mut document);
-        Ok(Some(Arc::new(document)))
+        hit_document(index, projection, id, &self.pin, stored).map(Some)
     }
 }
 

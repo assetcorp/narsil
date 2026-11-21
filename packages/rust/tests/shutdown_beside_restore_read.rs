@@ -73,6 +73,7 @@ fn shutdown_wakes_reads_already_waiting_for_a_restore_to_drain_a_search() {
         query_engine.query(
             INDEX,
             &QueryParams {
+                document: Some(support::WHOLE_DOCUMENT),
                 term: Some("article".to_string()),
                 group: Some(GroupConfig {
                     fields: vec!["title".to_string()],
@@ -120,11 +121,14 @@ fn shutdown_wakes_reads_already_waiting_for_a_restore_to_drain_a_search() {
                 started.send(()).unwrap();
                 loop {
                     let result = match operation {
-                        0 => engine.get(INDEX, "kept").map(|_| false),
+                        0 => engine
+                            .get_with(INDEX, "kept", Some(&support::WHOLE_DOCUMENT))
+                            .map(|_| false),
                         1 => engine
                             .query(
                                 INDEX,
                                 &QueryParams {
+                                    document: Some(support::WHOLE_DOCUMENT),
                                     term: Some("article".to_string()),
                                     ..QueryParams::default()
                                 },
@@ -182,7 +186,12 @@ fn shutdown_wakes_reads_already_waiting_for_a_restore_to_drain_a_search() {
         assert_eq!(search.unwrap_err().code(), ErrorCode::INSTANCE_SHUT_DOWN);
     }
     let reopened = Narsil::open(configuration(&scratch)).unwrap();
-    assert_eq!(reopened.get(INDEX, "kept").unwrap(), Some(expected));
+    assert_eq!(
+        reopened
+            .get_with(INDEX, "kept", Some(&support::WHOLE_DOCUMENT))
+            .unwrap(),
+        Some(expected)
+    );
     reopened.shutdown().unwrap();
     assert!(
         listed.is_empty(),

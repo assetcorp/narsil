@@ -9,6 +9,7 @@ use super::documents::{Location, QuerySnapshots};
 use super::facets::{MatchedSegment, count_facets};
 use super::fulltext::{TextSearch, analyse_text, partition_terms, search_partition_text};
 use super::params::QueryParams;
+use super::projection::Projection;
 use super::scope::QueryScope;
 use super::scored::needs_all_results;
 use super::scoring::{GlobalStats, scoring_mode};
@@ -75,8 +76,10 @@ impl<'q> QueryRun<'q> {
         &self,
         id: &str,
         location: Option<Location>,
+        projection: &Projection,
     ) -> Result<Option<Arc<Map>>> {
-        self.snapshots.document(self.index, id, location)
+        self.snapshots
+            .document(self.index, id, location, projection)
     }
 }
 

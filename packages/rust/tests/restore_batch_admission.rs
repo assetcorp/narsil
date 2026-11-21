@@ -219,7 +219,7 @@ fn require_restored_batch(before: IndexSettings, after: IndexSettings) {
         let mut expected = document_of(submitted);
         expected.insert(VECTOR_FIELD, vector_value(&vector_for(source)));
         let stored = target
-            .get(INDEX, id)
+            .get_with(INDEX, id, Some(&support::WHOLE_DOCUMENT))
             .unwrap()
             .unwrap_or_else(|| panic!("acknowledged document {id} is missing"));
         assert_eq!(stored, expected, "acknowledged document {id}");
@@ -249,13 +249,15 @@ fn require_restored_batch(before: IndexSettings, after: IndexSettings) {
     assert_eq!(failed, expected_failed, "refused documents");
     for id in &refused {
         assert_eq!(
-            target.get(INDEX, id).unwrap(),
+            target
+                .get_with(INDEX, id, Some(&support::WHOLE_DOCUMENT))
+                .unwrap(),
             None,
             "refused document {id}"
         );
     }
     let mut archived = target
-        .get(INDEX, ARCHIVED_ID)
+        .get_with(INDEX, ARCHIVED_ID, Some(&support::WHOLE_DOCUMENT))
         .unwrap()
         .expect("the restored index lost the archived document");
     archived.remove("id");

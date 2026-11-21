@@ -118,7 +118,7 @@ fn listed_page(
     let signature = sort_signature_of(Some(sort))?;
     require_sortable_fields(index, Some(sort))?;
     let matcher = segment_matcher(index, params.filters.as_ref(), limits)?;
-    let projection = resolve_projection(params.document.as_ref());
+    let projection = resolve_projection(params.document.as_ref(), index);
     let binding = list_binding(params.filters.as_ref());
     let cursor = match &params.cursor {
         None => None,

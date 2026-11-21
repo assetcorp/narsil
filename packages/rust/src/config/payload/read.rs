@@ -158,6 +158,7 @@ pub(crate) fn restored_config_fields(payload: &Map, reject: Rejection<'_>) -> Re
         Some(_) => return Err(reject("textStorage must be 'memory' or 'disk'")),
     }
     config.strict = boolean(payload.get("strict"), "strict", reject)?;
+    config.return_vectors = boolean(payload.get("returnVectors"), "returnVectors", reject)?;
     if let Some(required) = payload.get("required") {
         config.required = Some(
             string_list(Some(required))

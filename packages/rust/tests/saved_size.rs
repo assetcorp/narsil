@@ -214,7 +214,7 @@ fn require_documents(narsil: &Narsil, model: &BTreeMap<String, u64>, moment: &st
     }
     let ids: Vec<String> = model.keys().cloned().collect();
     for (id, document) in narsil
-        .get_multiple(INDEX, &ids)
+        .get_multiple_with(INDEX, &ids, Some(&support::WHOLE_DOCUMENT))
         .expect("the documents read")
     {
         let version = model.get(&id).copied().expect("only held documents return");
