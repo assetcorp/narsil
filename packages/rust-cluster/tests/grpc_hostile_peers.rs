@@ -208,6 +208,7 @@ async fn send_holds_a_call_that_gets_no_answer_until_the_callers_deadline_and_no
 
     for (deadline, expected) in [
         (Some("300m"), CLIENT_DEADLINE),
+        (Some("99999999H"), SERVER_REQUEST_TIMEOUT),
         (None, SERVER_REQUEST_TIMEOUT),
         (Some("5x"), SERVER_REQUEST_TIMEOUT),
     ] {
