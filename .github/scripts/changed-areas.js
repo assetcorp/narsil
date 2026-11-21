@@ -122,7 +122,7 @@ const PATHS_BY_LANGUAGE_AREA = {
       '.github/workflows/rust-server.yml',
       ...README_EXAMPLE_SCRIPTS,
     ],
-    except: ['packages/rust/tests/', 'packages/go/engine/', 'packages/ts/src/__tests__/'],
+    except: ['packages/rust/tests/', 'packages/rust/benches/', 'packages/go/engine/', 'packages/ts/src/__tests__/'],
     compiledMarkdown: ['packages/rust-server/README.md'],
   },
   python_engine: {
@@ -137,7 +137,7 @@ const PATHS_BY_LANGUAGE_AREA = {
       '.github/workflows/python-engine.yml',
       ...README_EXAMPLE_SCRIPTS,
     ],
-    except: ['packages/rust/tests/', ...FOLDERS_OUTSIDE_THE_ENGINE_BUNDLE],
+    except: ['packages/rust/tests/', 'packages/rust/benches/', ...FOLDERS_OUTSIDE_THE_ENGINE_BUNDLE],
     compiledMarkdown: ['packages/python-engine/README.md'],
   },
   go_engine: {
@@ -253,7 +253,7 @@ const PATHS_BY_LANGUAGE_AREA = {
       '.github/scripts/container-image-smoke.js',
       ...BUILD_CONFIG_FILES,
     ],
-    except: ['packages/rust/tests/', 'packages/rust-server/tests/'],
+    except: ['packages/rust/tests/', 'packages/rust/benches/', 'packages/rust-server/tests/'],
   },
   cluster: {
     paths: [
