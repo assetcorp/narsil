@@ -5,7 +5,7 @@ import { replyDeadlineMs } from '../reply-deadline'
 import { TransportError, TransportErrorCodes, type TransportMessage } from '../types'
 import { decodeTransportMessage, encodeFrame, encodeTransportMessage, FrameParser, type WireFrame } from './framing'
 import { parseAddress } from './parse-address'
-import { createPendingStream, type PendingStream } from './pending-stream'
+import { answerPendingStream, createPendingStream, deliverStreamChunk, type PendingStream } from './pending-stream'
 import {
   FRAME_TYPE_REQUEST,
   FRAME_TYPE_RESPONSE,
@@ -264,21 +264,7 @@ export class TcpConnectionPool {
 
       const pendingStream = this.pendingStreams.get(pendingKey)
       if (pendingStream !== undefined) {
-        pendingStream.rearm()
-        try {
-          const message = decodeTransportMessage(frame.data)
-          pendingStream.handler(message.payload)
-        } catch (err) {
-          this.pendingStreams.delete(pendingKey)
-          clearTimeout(pendingStream.timer)
-          pendingStream.reject(
-            new TransportError(
-              TransportErrorCodes.DECODE_FAILED,
-              `Failed to decode stream frame: ${err instanceof Error ? err.message : String(err)}`,
-              { target, requestId: frame.requestId },
-            ),
-          )
-        }
+        answerPendingStream(pendingStream, frame.requestId, frame.data)
       }
       return
     }
@@ -286,8 +272,7 @@ export class TcpConnectionPool {
     if (frame.frameType === FRAME_TYPE_STREAM_CHUNK) {
       const pending = this.pendingStreams.get(pendingKey)
       if (pending !== undefined) {
-        pending.rearm()
-        pending.handler(frame.data)
+        deliverStreamChunk(pending, frame.data)
       }
       return
     }

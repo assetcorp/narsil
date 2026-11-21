@@ -1,0 +1,39 @@
+name: Install the pinned protoc
+description: Downloads one protoc release from the protocolbuffers GitHub releases, refuses it unless its SHA-256 digest matches, and sets PROTOC for the build scripts that compile protobuf definitions.
+
+runs:
+  using: composite
+  steps:
+    - name: Download protoc, check its digest, and set PROTOC
+      shell: bash
+      env:
+        PROTOC_VERSION: '36.2'
+        PROTOC_SHA256_LINUX_X64: 121f6c7afe1d4d0e3ea6aab9432038599250134cbf4474cb1167d2c7decd4278
+        PROTOC_SHA256_DARWIN_ARM64: 9cd98a532c5c5e0c4161314de0225de27e4c8a323917b6ea7b1b714d3ae23466
+        PROTOC_SHA256_WIN32_X64: f0c128dc0d8492eceece83bb459a4c0e316764b929ffbf1aa416357fd644edd3
+      run: |
+        set -euo pipefail
+        case "$RUNNER_OS-$RUNNER_ARCH" in
+          Linux-X64) asset=linux-x86_64; digest=$PROTOC_SHA256_LINUX_X64; binary=protoc ;;
+          macOS-ARM64) asset=osx-aarch_64; digest=$PROTOC_SHA256_DARWIN_ARM64; binary=protoc ;;
+          Windows-X64) asset=win64; digest=$PROTOC_SHA256_WIN32_X64; binary=protoc.exe ;;
+          *) echo "::error::No pinned protoc digest covers $RUNNER_OS on $RUNNER_ARCH"; exit 1 ;;
+        esac
+        archive="$RUNNER_TEMP/protoc-$PROTOC_VERSION-$asset.zip"
+        curl --fail --silent --show-error --location --retry 3 --output "$archive" \
+          "https://github.com/protocolbuffers/protobuf/releases/download/v$PROTOC_VERSION/protoc-$PROTOC_VERSION-$asset.zip"
+        if command -v sha256sum > /dev/null; then
+          actual=$(sha256sum "$archive" | cut -d ' ' -f 1)
+        else
+          actual=$(shasum -a 256 "$archive" | cut -d ' ' -f 1)
+        fi
+        if [ "$actual" != "$digest" ]; then
+          echo "::error::protoc $PROTOC_VERSION for $asset has the SHA-256 digest $actual, but the pinned digest is $digest"
+          exit 1
+        fi
+        if command -v unzip > /dev/null; then
+          unzip -q -o "$archive" -d "$RUNNER_TEMP/protoc"
+        else
+          7z x -y -o"$RUNNER_TEMP/protoc" "$archive" > /dev/null
+        fi
+        echo "PROTOC=$RUNNER_TEMP/protoc/bin/$binary" >> "$GITHUB_ENV"
