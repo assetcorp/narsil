@@ -26,6 +26,25 @@ pub mod codes {
     pub const COORDINATOR_UNAVAILABLE: &str = "COORDINATOR_UNAVAILABLE";
     /// etcd refused the user or the password that the coordinator signed in with.
     pub const COORDINATOR_AUTH_FAILED: &str = "COORDINATOR_AUTH_FAILED";
+    /// A controller message reached a node that holds no controller lease.
+    pub const NODE_NOT_CONTROLLER: &str = "NODE_NOT_CONTROLLER";
+    /// A node follows a specification version whose major version differs from the active controller's.
+    pub const NODE_VERSION_INCOMPATIBLE: &str = "NODE_VERSION_INCOMPATIBLE";
+    /// A node stopped while it waited for its earlier registration to lapse, or a node that shut down was started
+    /// again.
+    pub const NODE_NOT_JOINED: &str = "NODE_NOT_JOINED";
+    /// A node that has joined the cluster, or is joining it, was started again.
+    pub const NODE_ALREADY_JOINED: &str = "NODE_ALREADY_JOINED";
+    /// The controller of this node cannot run the operation that a request asks for.
+    pub const CLUSTER_OPERATION_UNSUPPORTED: &str = "CLUSTER_OPERATION_UNSUPPORTED";
+    /// The stored metadata of an index breaks its rules.
+    pub const CONTROLLER_METADATA_INVALID: &str = "CONTROLLER_METADATA_INVALID";
+    /// The allocator was given a partition count or a replication factor outside its range.
+    pub const ALLOCATION_INVALID_CONFIG: &str = "ALLOCATION_INVALID_CONFIG";
+    /// The allocator found no node that holds the data role.
+    pub const ALLOCATION_NO_DATA_NODES: &str = "ALLOCATION_NO_DATA_NODES";
+    /// The controller could not place a partition or write an allocation table.
+    pub const ALLOCATION_FAILED: &str = "ALLOCATION_FAILED";
 }
 
 /// A failure of a cluster node, a transport, or a coordinator, with the code that a peer or a caller branches on.

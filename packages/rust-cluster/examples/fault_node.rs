@@ -8,7 +8,10 @@ use narsil_cluster::coordinator::etcd::{
     EtcdAuthConfig, EtcdCoordinator, EtcdCoordinatorConfig, EtcdTlsConfig,
 };
 use narsil_cluster::coordinator::{NodeCapacity, NodeRegistration};
-use narsil_cluster::node::{next_started_at, not_ready_handler, resolve_node_id};
+use narsil_cluster::error::ClusterError;
+use narsil_cluster::node::{
+    ClusterNode, ClusterNodeConfig, ControllerTiming, next_started_at, resolve_node_id,
+};
 use narsil_cluster::transport::grpc::{GrpcTransport, GrpcTransportConfig};
 use narsil_cluster::transport::tcp::{TcpTransport, TcpTransportConfig};
 use narsil_cluster::transport::{NodeTransport, TlsConfig};
@@ -25,6 +28,8 @@ struct FaultNodeSettings {
     directory: Option<PathBuf>,
     node_id: Option<String>,
     roles: Vec<String>,
+    version: String,
+    controller: ControllerTiming,
     grpc: bool,
     transport_tls: Option<TlsConfig>,
 }
@@ -117,6 +122,22 @@ fn transport_tls(settings: &Map) -> Result<Option<TlsConfig>, String> {
     }))
 }
 
+fn milliseconds(settings: &Map, key: &str, default: u64) -> Result<u64, String> {
+    if field(settings, key).is_none() {
+        return Ok(default);
+    }
+    Ok(whole_number(settings, key, f64::from(u32::MAX))? as u64)
+}
+
+fn controller_timing(settings: &Map) -> Result<ControllerTiming, String> {
+    let defaults = ControllerTiming::default();
+    Ok(ControllerTiming {
+        lease_ttl_ms: milliseconds(settings, "controllerLeaseTtlMs", defaults.lease_ttl_ms)?,
+        standby_retry_ms: milliseconds(settings, "standbyRetryMs", defaults.standby_retry_ms)?,
+        node_left_delay_ms: milliseconds(settings, "nodeLeftDelayMs", defaults.node_left_delay_ms)?,
+    })
+}
+
 fn read_settings() -> Result<FaultNodeSettings, String> {
     let raw =
         std::env::var(SETTINGS_VARIABLE).map_err(|_| format!("{SETTINGS_VARIABLE} is not set"))?;
@@ -147,6 +168,8 @@ fn read_settings() -> Result<FaultNodeSettings, String> {
             None => vec![COORDINATOR_ROLE.to_string()],
             Some(_) => strings(&settings, "roles")?,
         },
+        version: text(&settings, "version")?.unwrap_or_else(|| SPEC_VERSION.to_string()),
+        controller: controller_timing(&settings)?,
         grpc: transport.as_deref() == Some(GRPC_TRANSPORT),
         transport_tls: transport_tls(&settings)?,
     })
@@ -199,41 +222,45 @@ async fn stop_requested() -> Result<(), String> {
 
 async fn serve() -> Result<(), String> {
     let settings = read_settings()?;
-    if settings.roles.is_empty() {
-        return Err(format!(
-            "{SETTINGS_VARIABLE}.roles must contain at least one role"
-        ));
-    }
     let node_id = resolve_node_id(settings.node_id.as_deref(), settings.directory.as_deref())
         .map_err(|error| error.to_string())?;
-    let coordinator = EtcdCoordinator::connect(settings.etcd.clone())
-        .await
-        .map_err(|error| error.to_string())?;
+    let coordinator = Arc::new(
+        EtcdCoordinator::connect(settings.etcd.clone())
+            .await
+            .map_err(|error| error.to_string())?,
+    );
     let transport = create_transport(&node_id, &settings)?;
-    let listening = transport
-        .listen(not_ready_handler(node_id.clone()))
-        .await
-        .map_err(|error| error.to_string())?;
     let registration = NodeRegistration {
         node_id: node_id.clone(),
         address: format!("{LISTEN_HOST}:{}", settings.advertised_port),
         roles: settings.roles.clone(),
         capacity: NodeCapacity::default(),
         started_at: next_started_at(),
-        version: SPEC_VERSION.to_string(),
+        version: settings.version.clone(),
         extra: Map::new(),
     };
-    coordinator
-        .register_node(&registration)
-        .await
-        .map_err(|error| error.to_string())?;
-    println!("READY {node_id}");
-    stop_requested().await?;
-    let deregistered = coordinator.deregister_node(&node_id).await;
-    listening.stop();
+    let reporting_id = node_id.clone();
+    let config = ClusterNodeConfig {
+        controller: settings.controller,
+        on_error: Some(Arc::new(move |error: &ClusterError| {
+            eprintln!("{reporting_id}: {error}");
+        })),
+        ..ClusterNodeConfig::new(
+            Arc::clone(&coordinator),
+            Arc::clone(&transport),
+            registration,
+        )
+    };
+    let node = ClusterNode::new(config).map_err(|error| error.to_string())?;
+    let started = node.start().await;
+    if started.is_ok() {
+        println!("READY {node_id}");
+        stop_requested().await?;
+    }
+    node.shutdown().await;
     transport.shutdown().await;
     coordinator.shutdown().await;
-    deregistered.map_err(|error| error.to_string())
+    started.map_err(|error| error.to_string())
 }
 
 #[tokio::main]

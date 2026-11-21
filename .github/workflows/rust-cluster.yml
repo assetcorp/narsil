@@ -139,4 +139,8 @@ jobs:
         working-directory: packages/ts
         env:
           NARSIL_RUST_CLUSTER_NODE: ${{ github.workspace }}/packages/rust-cluster/target/debug/examples/fault_node
-        run: pnpm vitest run src/__tests__/e2e/cluster-faults/rust-node.test.ts
+        run: >-
+          pnpm vitest run --no-file-parallelism
+          src/__tests__/e2e/cluster-faults/rust-node.test.ts
+          src/__tests__/e2e/cluster-faults/rust-controller.test.ts
+          src/__tests__/e2e/cluster-faults/rust-controller-handover.test.ts

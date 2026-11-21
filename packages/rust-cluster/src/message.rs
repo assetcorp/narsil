@@ -24,6 +24,30 @@ pub mod message_types {
     pub const REPLICATION_ENTRY_BATCH: &str = "replication.entry_batch";
     /// The start of a new primary term.
     pub const REPLICATION_TERM_START: &str = "replication.term_start";
+    /// A primary's request that the controller admit a caught-up replica to the in-sync set.
+    pub const REPLICATION_INSYNC_ADD: &str = "replication.insync_add";
+    /// A request that the controller drop a replica from the in-sync set.
+    pub const REPLICATION_INSYNC_REMOVE: &str = "replication.insync_remove";
+    /// The controller's answer to an in-sync change or a primary's resignation.
+    pub const REPLICATION_INSYNC_CONFIRM: &str = "replication.insync_confirm";
+    /// A primary's request that the controller hand its partition to another node.
+    pub const REPLICATION_PRIMARY_RESIGN: &str = "replication.primary_resign";
+    /// A primary's report that its copy of a partition is ready, and the controller's answer to it.
+    pub const CLUSTER_BOOTSTRAP_COMPLETE: &str = "cluster.bootstrap_complete";
+    /// The controller's question of which partitions a node's local copy holds, and the node's answer.
+    pub const CLUSTER_PARTITION_STORES: &str = "cluster.partition_stores";
+    /// A request that the controller change the replication factor of an index.
+    pub const CLUSTER_REPLICATION_FACTOR: &str = "cluster.replication_factor";
+    /// A request that the controller change the partition count of an index.
+    pub const CLUSTER_REBALANCE: &str = "cluster.rebalance";
+    /// A request that the controller take a backup of an index.
+    pub const CLUSTER_BACKUP: &str = "cluster.backup";
+    /// A request that the controller restore an index from a backup.
+    pub const CLUSTER_BACKUP_RESTORE: &str = "cluster.backup_restore";
+    /// A request that the controller delete a backup.
+    pub const CLUSTER_BACKUP_DELETE: &str = "cluster.backup_delete";
+    /// A request that the controller build the query suggestions of an index.
+    pub const SUGGESTIONS_BUILD: &str = "suggestions.build";
 }
 
 /// One message between two cluster nodes, whose payload holds the MessagePack body that its `type` defines.

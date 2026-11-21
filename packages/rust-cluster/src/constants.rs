@@ -48,3 +48,34 @@ pub const ETCD_CALL_RETRIES: u32 = 3;
 pub const MAX_NODE_ID_LENGTH: usize = 255;
 pub const DEFAULT_CAPACITY_MEMORY_BYTES: u64 = 8_000_000_000;
 pub const DEFAULT_CAPACITY_CPU_CORES: u64 = 4;
+
+pub const ESTIMATED_PARTITION_BYTES: f64 = 52_428_800.0;
+pub const BALANCE_THROTTLE_FACTOR: f64 = 1.2;
+pub const REBALANCE_THRESHOLD: f64 = 0.1;
+pub const LEADERSHIP_IMBALANCE_THRESHOLD: f64 = 2.0;
+
+pub const DEFAULT_CONTROLLER_LEASE_TTL_MS: u64 = 15_000;
+pub const DEFAULT_STANDBY_RETRY_MS: u64 = 5_000;
+pub const DEFAULT_NODE_LEFT_DELAY_MS: u64 = 60_000;
+pub const DEFAULT_NODE_HEARTBEAT_INTERVAL_MS: u64 = 10_000;
+pub const ALLOCATION_DEBOUNCE_MS: u64 = 500;
+pub const ALLOCATION_RETRY_DELAY_MS: u64 = 1_000;
+pub const ALLOCATION_CAS_ATTEMPTS: usize = 5;
+pub const BOOTSTRAP_CAS_ATTEMPTS: usize = 5;
+pub const INSYNC_CAS_ATTEMPTS: usize = 5;
+pub const RECOVERY_CAS_ATTEMPTS: usize = 5;
+pub const TEARDOWN_CAS_ATTEMPTS: usize = 5;
+pub const TEARDOWN_RETRY_DELAY_MS: u64 = 500;
+pub const TEARDOWN_RETRY_ROUNDS: usize = 3;
+pub const PARTITION_STORES_TIMEOUT_MS: u64 = 5_000;
+
+pub const CHANGE_CAPTURE_SPEC_VERSION: &str = "1.5";
+pub const HIDDEN_GENERATION_PREFIX: &str = "narsil-generation-";
+pub const REBALANCE_RECORD_KEY_SUFFIX: &str = "/rebalance";
+pub const DEFAULT_ZONE_ATTRIBUTE: &str = "zone";
+pub const MAX_INDEX_NAME_LENGTH: usize = 255;
+pub const MAX_INDEX_UUID_LENGTH: usize = 128;
+pub const MAX_PARTITION_COUNT: f64 = 65_536.0;
+pub const MAX_REPLICATION_FACTOR: f64 = 255.0;
+pub const SYNC_EPOCH_HEX_DIGITS: usize = 32;
+pub const MAX_DISPLAYED_VALUE_CHARS: usize = 100;
