@@ -17,6 +17,7 @@ use tonic_prost::ProstCodec;
 
 use super::envelope::{
     Chunk, Envelope, MAX_GRPC_MESSAGE_BYTES, OPEN_STREAM_METHOD_PATH, SEND_METHOD_PATH,
+    check_message_size,
 };
 use crate::constants::{GRPC_KEEPALIVE_TIME_MS, GRPC_KEEPALIVE_TIMEOUT_MS, MAX_MESSAGE_SIZE_BYTES};
 use crate::error::{ClusterError, ClusterResult, codes};
@@ -267,7 +268,10 @@ impl GrpcPool {
                 ));
             }
         };
-        decode_message(&response.into_inner().message).map_err(|error| {
+        let response = response.into_inner();
+        check_message_size(response.message.len())
+            .map_err(|status| map_status(target, request_id, &status))?;
+        decode_message(&response.message).map_err(|error| {
             call_details(
                 ClusterError::new(
                     codes::TRANSPORT_DECODE_FAILED,
@@ -323,6 +327,8 @@ impl GrpcPool {
                 Ok(Err(status)) => return Err(map_status(target, request_id, &status)),
                 Err(_) => return Err(idle_error()),
             };
+            check_message_size(chunk.data.len())
+                .map_err(|status| map_status(target, request_id, &status))?;
             call_chunk_handler(&mut handler, chunk.data)?;
         }
     }

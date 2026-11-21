@@ -41,11 +41,18 @@ impl EtcdCoordinator {
     ) -> ClusterResult<bool> {
         self.inner.ensure_open()?;
         let etcd_key = self.inner.keys.generic(key);
-        let condition = match expected {
-            None => Compare::create_revision(etcd_key.clone(), CompareOp::Equal, 0),
-            Some(expected) => Compare::value(etcd_key.clone(), CompareOp::Equal, expected.to_vec()),
+        let conditions = match expected {
+            None => vec![Compare::create_revision(
+                etcd_key.clone(),
+                CompareOp::Equal,
+                0,
+            )],
+            Some(expected) => vec![
+                Compare::create_revision(etcd_key.clone(), CompareOp::Greater, 0),
+                Compare::value(etcd_key.clone(), CompareOp::Equal, expected.to_vec()),
+            ],
         };
-        let txn = Txn::new().when(vec![condition]).and_then(vec![TxnOp::put(
+        let txn = Txn::new().when(conditions).and_then(vec![TxnOp::put(
             etcd_key.clone(),
             value.to_vec(),
             None,

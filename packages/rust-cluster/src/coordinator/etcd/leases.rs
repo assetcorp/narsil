@@ -13,8 +13,6 @@ use crate::constants::{ETCD_CALL_TIMEOUT_MS, LEASE_RENEWALS_PER_TTL, RECONNECT_F
 use crate::coordinator::types::RegistrationLease;
 use crate::error::{ClusterError, ClusterResult, codes};
 
-const MILLISECONDS_PER_SECOND: u64 = 1_000;
-
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex
         .lock()
@@ -151,7 +149,19 @@ impl ManagedLease {
         ttl_seconds: u64,
     ) -> ClusterResult<Arc<ManagedLease>> {
         let sent_at = Instant::now();
-        let ttl = ttl_seconds as i64;
+        let ttl = i64::try_from(ttl_seconds)
+            .ok()
+            .filter(|_| {
+                sent_at
+                    .checked_add(Duration::from_secs(ttl_seconds))
+                    .is_some()
+            })
+            .ok_or_else(|| {
+                ClusterError::new(
+                    codes::CONFIG_INVALID,
+                    "The lease lifetime exceeds the supported clock range",
+                )
+            })?;
         let granted = call(&pool, "grantLease", |mut clients| async move {
             clients.lease.grant(ttl, None).await
         })
@@ -166,9 +176,8 @@ impl ManagedLease {
             renewing: Mutex::new(None),
         });
         lease.record_renewal(sent_at, ttl_seconds);
-        let interval = Duration::from_millis(
-            (ttl_seconds * MILLISECONDS_PER_SECOND / u64::from(LEASE_RENEWALS_PER_TTL)).max(1),
-        );
+        let interval = (Duration::from_secs(ttl_seconds) / LEASE_RENEWALS_PER_TTL)
+            .max(Duration::from_millis(1));
         let renewing = tokio::spawn(keep_renewing(
             Arc::downgrade(&lease),
             pool,
@@ -183,8 +192,10 @@ impl ManagedLease {
         if ttl_seconds == 0 {
             return;
         }
-        let ttl = Duration::from_millis(ttl_seconds * MILLISECONDS_PER_SECOND);
-        let held_until = sent_at + ttl;
+        let ttl = Duration::from_secs(ttl_seconds);
+        let Some(held_until) = sent_at.checked_add(ttl) else {
+            return;
+        };
         let mut validity = lock(&self.validity);
         if validity.is_some_and(|current| current.held_until >= held_until) {
             return;
@@ -221,7 +232,12 @@ impl ManagedLease {
                 self.record_renewal(sent_at, self.ttl_seconds);
                 Ok(())
             }
-            Err(failure) => Err(lease_error("keepaliveLease", &failure)),
+            Err(failure) => {
+                if is_not_found(&failure) {
+                    self.mark_lost();
+                }
+                Err(lease_error("keepaliveLease", &failure))
+            }
         }
     }
 
