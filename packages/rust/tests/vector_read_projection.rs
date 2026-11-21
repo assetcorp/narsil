@@ -196,6 +196,15 @@ fn cases() -> Vec<(&'static str, Option<DocumentProjection>, Oracle)> {
             Some(fields(&["title"], &[], Some(true))),
             |source, _| only(source, &["title"]),
         ),
+        (
+            "include paths cannot enter vector arrays",
+            Some(fields(
+                &["title", "embedding.0", "meta.embedding.0"],
+                &[],
+                Some(true),
+            )),
+            |source, _| only(source, &["title"]),
+        ),
     ]
 }
 
