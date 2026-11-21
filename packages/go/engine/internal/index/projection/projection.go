@@ -153,6 +153,9 @@ func (p Projection) showsVector(fieldPath string, returnedByDefault bool) bool {
 		return p.vectors.Or(returnedByDefault)
 	}
 	path := splitFieldPath(fieldPath)
+	if p.includeList && !coveredByAny(p.include, path) {
+		return false
+	}
 	returned, set := p.vectors.Get()
 	if !set {
 		returned = returnedByDefault || (p.includeList && p.includesExactly(path))
