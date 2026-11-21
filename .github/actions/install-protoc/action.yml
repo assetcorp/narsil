@@ -23,9 +23,9 @@ runs:
         curl --fail --silent --show-error --location --retry 3 --output "$archive" \
           "https://github.com/protocolbuffers/protobuf/releases/download/v$PROTOC_VERSION/protoc-$PROTOC_VERSION-$asset.zip"
         if command -v sha256sum > /dev/null; then
-          actual=$(sha256sum "$archive" | cut -d ' ' -f 1)
+          actual=$(sha256sum < "$archive" | cut -d ' ' -f 1)
         else
-          actual=$(shasum -a 256 "$archive" | cut -d ' ' -f 1)
+          actual=$(shasum -a 256 < "$archive" | cut -d ' ' -f 1)
         fi
         if [ "$actual" != "$digest" ]; then
           echo "::error::protoc $PROTOC_VERSION for $asset has the SHA-256 digest $actual, but the pinned digest is $digest"
