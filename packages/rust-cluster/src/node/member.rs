@@ -71,7 +71,7 @@ impl NodeInner {
 
     fn report(&self, error: &ClusterError) {
         if let Some(on_error) = &self.on_error {
-            on_error(error);
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| on_error(error)));
         }
     }
 
