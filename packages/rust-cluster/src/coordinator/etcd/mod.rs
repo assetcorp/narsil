@@ -42,6 +42,7 @@ pub(crate) struct Inner {
     keys: CoordinatorKeys,
     guard: WriteGuard,
     leases: LeaseManager,
+    lease_operations: tokio::sync::RwLock<()>,
     ttl_seconds: u64,
     closed: AtomicBool,
     watchers: Mutex<HashMap<u64, StopSender>>,
@@ -66,6 +67,7 @@ impl Inner {
 
     fn claim_watch_slot(&self, stop: StopSender) -> ClusterResult<u64> {
         let mut watchers = lock(&self.watchers);
+        self.ensure_open()?;
         if watchers.len() >= MAX_WATCHERS {
             return Err(watcher_limit_error(watchers.len()));
         }
@@ -108,6 +110,7 @@ impl EtcdCoordinator {
             keys,
             guard: WriteGuard::new(config.max_request_bytes),
             leases: LeaseManager::default(),
+            lease_operations: tokio::sync::RwLock::new(()),
             ttl_seconds: config.node_heartbeat_ttl_seconds.max(1),
             closed: AtomicBool::new(false),
             watchers: Mutex::new(HashMap::new()),
@@ -132,6 +135,7 @@ impl EtcdCoordinator {
     /// or a null byte, or where the request would pass `max_request_bytes`, and with `COORDINATOR_UNAVAILABLE` where
     /// etcd cannot be reached.
     pub async fn register_node(&self, registration: &NodeRegistration) -> ClusterResult<()> {
+        let _active = self.inner.lease_operations.read().await;
         self.inner.ensure_open()?;
         validate_node_id(&registration.node_id)?;
         let keys = RegistrationKeys {
@@ -148,9 +152,11 @@ impl EtcdCoordinator {
     /// Fails with `CONFIG_INVALID` for an invalid node id, and with `COORDINATOR_UNAVAILABLE` where etcd cannot be
     /// reached.
     pub async fn deregister_node(&self, node_id: &str) -> ClusterResult<()> {
+        let _active = self.inner.lease_operations.read().await;
         self.inner.ensure_open()?;
         validate_node_id(node_id)?;
         let key = self.inner.keys.node(node_id);
+        let _exclusive = self.inner.leases.exclusively(&key).await;
         let entry = self.inner.leases.remove(&key);
         self.inner.leases.forget_holder(&key);
         if let Some(entry) = entry {
@@ -258,8 +264,10 @@ impl EtcdCoordinator {
         node_id: &str,
         ttl_ms: u64,
     ) -> ClusterResult<bool> {
+        let _active = self.inner.lease_operations.read().await;
         self.inner.ensure_open()?;
         let etcd_key = self.inner.keys.lease(key);
+        let _exclusive = self.inner.leases.exclusively(&etcd_key).await;
         let ttl_seconds = ttl_ms.div_ceil(1_000).max(1);
         if let Some(existing) = self
             .inner
@@ -305,8 +313,10 @@ impl EtcdCoordinator {
     ///
     /// Fails with `CONFIG_INVALID` after shutdown.
     pub async fn renew_lease(&self, key: &str, node_id: &str) -> ClusterResult<bool> {
+        let _active = self.inner.lease_operations.read().await;
         self.inner.ensure_open()?;
         let etcd_key = self.inner.keys.lease(key);
+        let _exclusive = self.inner.leases.exclusively(&etcd_key).await;
         let Some(entry) = self.inner.leases.get_by_node_id(&etcd_key, node_id) else {
             return Ok(false);
         };
@@ -323,8 +333,11 @@ impl EtcdCoordinator {
     ///
     /// Fails with `CONFIG_INVALID` after shutdown.
     pub async fn release_lease(&self, key: &str) -> ClusterResult<()> {
+        let _active = self.inner.lease_operations.read().await;
         self.inner.ensure_open()?;
-        if let Some(entry) = self.inner.leases.remove(&self.inner.keys.lease(key)) {
+        let etcd_key = self.inner.keys.lease(key);
+        let _exclusive = self.inner.leases.exclusively(&etcd_key).await;
+        if let Some(entry) = self.inner.leases.remove(&etcd_key) {
             entry.lease.revoke().await;
         }
         Ok(())
@@ -360,6 +373,7 @@ impl EtcdCoordinator {
         for stop in watchers {
             stop.send_replace(true);
         }
+        let _exclusive = self.inner.lease_operations.write().await;
         self.inner.leases.revoke_all().await;
     }
 }

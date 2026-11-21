@@ -208,6 +208,7 @@ async fn send_holds_a_call_that_gets_no_answer_until_the_callers_deadline_and_no
 
     for (deadline, expected) in [
         (Some("300m"), CLIENT_DEADLINE),
+        (Some("99999999H"), SERVER_REQUEST_TIMEOUT),
         (None, SERVER_REQUEST_TIMEOUT),
         (Some("5x"), SERVER_REQUEST_TIMEOUT),
     ] {
@@ -226,6 +227,22 @@ async fn send_holds_a_call_that_gets_no_answer_until_the_callers_deadline_and_no
 }
 
 #[tokio::test]
+async fn a_listener_that_panics_before_returning_its_future_sends_a_carrier_error() {
+    let handler: ListenHandler = std::sync::Arc::new(|_, _| panic!("listener failed"));
+    let (transport, address) = listening_node(handler).await;
+    let request = grpc_frame(&envelope("test.panic", "panic", &[]));
+
+    let answer = call(&address, SEND_PATH, request, None).await;
+
+    assert_eq!(answer.grpc_status, GRPC_OK);
+    let carrier = decode(&answer.messages[0]);
+    assert_eq!(carrier.text("type"), "error");
+    assert_eq!(carrier.text("requestId"), "panic");
+    assert_eq!(carrier.text("sourceId"), "");
+    transport.shutdown().await;
+}
+
+#[tokio::test]
 async fn a_message_past_the_size_limit_is_refused_as_resource_exhausted() {
     let (transport, address) = listening_node(not_ready_handler(NODE_ID)).await;
     let oversized = vec![0u8; support::MAX_MESSAGE_SIZE_BYTES + GRPC_ENVELOPE_OVERHEAD_BYTES];
@@ -240,6 +257,35 @@ async fn a_message_past_the_size_limit_is_refused_as_resource_exhausted() {
     );
     let after = call(&address, SEND_PATH, grpc_frame(&ping), None).await;
     assert_pong(&decode(&after.messages[0]), "after-oversized");
+    transport.shutdown().await;
+}
+
+#[tokio::test]
+async fn the_message_limit_excludes_the_protobuf_envelope_allowance() {
+    let handler = listen_handler(|message: TransportMessage, respond: Respond| async move {
+        respond
+            .send(TransportMessage::new(
+                "test.answer",
+                "server",
+                message.request_id,
+                Bytes::new(),
+            ))
+            .await;
+        Ok(())
+    });
+    let (transport, address) = listening_node(handler).await;
+    let message_type = "test.large";
+    let request_id = "boundary";
+    let empty_length = envelope(message_type, request_id, &[]).len();
+    let binary_header_growth = 3;
+    let largest_payload = support::MAX_MESSAGE_SIZE_BYTES - empty_length - binary_header_growth;
+    for (extra, expected) in [(0, GRPC_OK), (1, GRPC_RESOURCE_EXHAUSTED)] {
+        let payload = vec![0; largest_payload + extra];
+        let message = envelope(message_type, request_id, &payload);
+        assert_eq!(message.len(), support::MAX_MESSAGE_SIZE_BYTES + extra);
+        let answer = call(&address, SEND_PATH, grpc_frame(&message), None).await;
+        assert_eq!(answer.grpc_status, expected);
+    }
     transport.shutdown().await;
 }
 

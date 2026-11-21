@@ -30,6 +30,19 @@ pub struct WatchHandle {
     stop: watch::Sender<bool>,
 }
 
+struct WatchSlot {
+    owner: Weak<Inner>,
+    slot: u64,
+}
+
+impl Drop for WatchSlot {
+    fn drop(&mut self) {
+        if let Some(inner) = self.owner.upgrade() {
+            inner.release_watch_slot(self.slot);
+        }
+    }
+}
+
 impl WatchHandle {
     /// Ends the watch, after which its handler receives no further change.
     pub fn stop(self) {
@@ -41,6 +54,7 @@ struct PrefixState {
     prefix: String,
     mod_revisions: HashMap<String, i64>,
     handlers: PrefixHandlers,
+    stopped: watch::Receiver<bool>,
 }
 
 fn attach_failure(message: String) -> ClusterError {
@@ -60,6 +74,9 @@ fn report(inner: &Inner, outcome: std::thread::Result<ClusterResult<()>>) {
 
 impl PrefixState {
     fn put(&mut self, inner: &Inner, key: String, value: &[u8], mod_revision: i64) {
+        if *self.stopped.borrow() || inner.is_shut_down() {
+            return;
+        }
         let outcome =
             std::panic::catch_unwind(AssertUnwindSafe(|| (self.handlers.put)(&key, value)));
         self.mod_revisions.insert(key, mod_revision);
@@ -67,6 +84,9 @@ impl PrefixState {
     }
 
     fn delete(&mut self, inner: &Inner, key: &str) {
+        if *self.stopped.borrow() || inner.is_shut_down() {
+            return;
+        }
         self.mod_revisions.remove(key);
         let outcome = std::panic::catch_unwind(AssertUnwindSafe(|| (self.handlers.delete)(key)));
         report(inner, outcome);
@@ -239,7 +259,11 @@ async fn follow(
             let revision = state.list(&held, true).await?;
             open_stream(&held, &state.prefix, revision).await
         };
-        if let Ok(open) = reopened.await {
+        let outcome = tokio::select! {
+            outcome = reopened => outcome,
+            _ = stop.wait_for(|stopped| *stopped) => return,
+        };
+        if let Ok(open) = outcome {
             stream = Some(open);
             delay = Duration::from_millis(RECONNECT_FIRST_DELAY_MS);
         }
@@ -254,25 +278,22 @@ pub(crate) async fn watch_prefix(
     inner.ensure_open()?;
     let (stop, stopped) = watch::channel(false);
     let slot = inner.claim_watch_slot(stop.clone())?;
+    let slot = WatchSlot {
+        owner: Arc::downgrade(inner),
+        slot,
+    };
     let mut state = PrefixState {
         prefix,
         mod_revisions: HashMap::new(),
         handlers,
+        stopped: stopped.clone(),
     };
-    let start_revision = match state.list(inner, false).await {
-        Ok(revision) => revision,
-        Err(error) => {
-            inner.release_watch_slot(slot);
-            return Err(error);
-        }
-    };
+    let start_revision = state.list(inner, false).await?;
     let first = open_stream(inner, &state.prefix, start_revision).await.ok();
     let owner = Arc::downgrade(inner);
     tokio::spawn(async move {
-        follow(owner.clone(), state, first, stopped).await;
-        if let Some(inner) = owner.upgrade() {
-            inner.release_watch_slot(slot);
-        }
+        let _slot = slot;
+        follow(owner, state, first, stopped).await;
     });
     Ok(WatchHandle { stop })
 }

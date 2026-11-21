@@ -11,7 +11,7 @@ pub(crate) async fn run_handler(
     message: TransportMessage,
     respond: Respond,
 ) -> Result<(), String> {
-    match tokio::spawn(handler(message, respond)).await {
+    match tokio::spawn(async move { handler(message, respond).await }).await {
         Ok(Ok(())) => Ok(()),
         Ok(Err(error)) => Err(error.message().to_string()),
         Err(_) => Err("The listener failed while it handled the request".to_string()),

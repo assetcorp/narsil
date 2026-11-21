@@ -142,20 +142,39 @@ impl Connection {
         }
     }
 
-    fn forget(&self, request_id: &str) {
-        lock(&self.pending).waiters.remove(request_id);
+    fn forget_stream(&self, request_id: &str, expected: &StreamWaiter) {
+        let mut pending = lock(&self.pending);
+        if matches!(pending.waiters.get(request_id), Some((_, Waiter::Stream(waiter))) if std::ptr::eq(waiter.as_ref(), expected))
+        {
+            pending.waiters.remove(request_id);
+        }
     }
 
-    fn take(&self, request_id: &str) -> Option<Waiter> {
-        lock(&self.pending)
-            .waiters
-            .remove(request_id)
-            .map(|(_, waiter)| waiter)
+    fn response_waiter(&self, request_id: &str) -> Option<Waiter> {
+        let mut pending = lock(&self.pending);
+        if let Some((_, Waiter::Stream(waiter))) = pending.waiters.get(request_id) {
+            return Some(Waiter::Stream(Arc::clone(waiter)));
+        }
+        pending.waiters.remove(request_id).map(|(_, waiter)| waiter)
     }
 
     fn stream_waiter(&self, request_id: &str) -> Option<Arc<StreamWaiter>> {
         match lock(&self.pending).waiters.get(request_id) {
             Some((_, Waiter::Stream(waiter))) => Some(Arc::clone(waiter)),
+            _ => None,
+        }
+    }
+
+    fn take_stream_waiter(&self, request_id: &str) -> Option<Arc<StreamWaiter>> {
+        let mut pending = lock(&self.pending);
+        if !matches!(
+            pending.waiters.get(request_id),
+            Some((_, Waiter::Stream(_)))
+        ) {
+            return None;
+        }
+        match pending.waiters.remove(request_id) {
+            Some((_, Waiter::Stream(waiter))) => Some(waiter),
             _ => None,
         }
     }
@@ -184,7 +203,7 @@ impl Connection {
         match call_chunk_handler(&mut lock(&waiter.handler), chunk) {
             Ok(()) => waiter.progress.notify_one(),
             Err(error) => {
-                self.forget(request_id);
+                self.forget_stream(request_id, waiter);
                 waiter.finish(Err(error));
             }
         }
@@ -193,7 +212,7 @@ impl Connection {
     fn answer_stream_with(&self, request_id: &str, waiter: &StreamWaiter, data: &Bytes) {
         match decode_message(data) {
             Ok(message) if message.message_type == CARRIER_ERROR_TYPE => {
-                self.forget(request_id);
+                self.forget_stream(request_id, waiter);
                 waiter.finish(Err(peer_unavailable(
                     &self.target,
                     format!(
@@ -206,7 +225,7 @@ impl Connection {
             }
             Ok(message) => self.deliver_chunk(request_id, waiter, message.payload),
             Err(error) => {
-                self.forget(request_id);
+                self.forget_stream(request_id, waiter);
                 waiter.finish(Err(decode_failed(
                     &self.target,
                     request_id,
@@ -218,20 +237,21 @@ impl Connection {
 
     fn dispatch(&self, frame: Frame) {
         match frame.frame_type {
-            FRAME_TYPE_RESPONSE => match self.stream_waiter(&frame.request_id) {
-                Some(waiter) => self.answer_stream_with(&frame.request_id, &waiter, &frame.data),
-                None => {
-                    if let Some(Waiter::Request(answer)) = self.take(&frame.request_id) {
-                        let decoded = decode_message(&frame.data).map_err(|error| {
-                            decode_failed(
-                                &self.target,
-                                &frame.request_id,
-                                format!("Failed to decode response: {}", error.message()),
-                            )
-                        });
-                        let _ = answer.send(decoded);
-                    }
+            FRAME_TYPE_RESPONSE => match self.response_waiter(&frame.request_id) {
+                Some(Waiter::Stream(waiter)) => {
+                    self.answer_stream_with(&frame.request_id, &waiter, &frame.data)
                 }
+                Some(Waiter::Request(answer)) => {
+                    let decoded = decode_message(&frame.data).map_err(|error| {
+                        decode_failed(
+                            &self.target,
+                            &frame.request_id,
+                            format!("Failed to decode response: {}", error.message()),
+                        )
+                    });
+                    let _ = answer.send(decoded);
+                }
+                None => {}
             },
             FRAME_TYPE_STREAM_CHUNK => {
                 if let Some(waiter) = self.stream_waiter(&frame.request_id) {
@@ -239,7 +259,7 @@ impl Connection {
                 }
             }
             FRAME_TYPE_STREAM_END => {
-                if let Some(Waiter::Stream(waiter)) = self.take(&frame.request_id) {
+                if let Some(waiter) = self.take_stream_waiter(&frame.request_id) {
                     waiter.finish(Ok(()));
                 }
             }

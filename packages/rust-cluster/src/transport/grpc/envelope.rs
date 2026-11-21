@@ -27,18 +27,13 @@ pub(crate) struct Chunk {
     pub(crate) data: Bytes,
 }
 
-pub(crate) fn too_large_status(bytes: usize) -> Status {
-    Status::resource_exhausted(format!(
-        "Sent message larger than max ({bytes} vs. {MAX_GRPC_MESSAGE_BYTES})"
-    ))
-}
-
-pub(crate) fn within_limit<M: Message>(message: M) -> Result<M, Status> {
-    let length = message.encoded_len();
-    if length > MAX_GRPC_MESSAGE_BYTES {
-        return Err(too_large_status(length));
+pub(crate) fn check_message_size(bytes: usize) -> Result<(), Status> {
+    if bytes > MAX_MESSAGE_SIZE_BYTES {
+        return Err(Status::resource_exhausted(format!(
+            "Message larger than max ({bytes} vs. {MAX_MESSAGE_SIZE_BYTES})"
+        )));
     }
-    Ok(message)
+    Ok(())
 }
 
 pub(crate) const GRPC_TIMEOUT_HEADER: &str = "grpc-timeout";
