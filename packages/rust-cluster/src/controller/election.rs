@@ -1,3 +1,4 @@
+use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
@@ -102,7 +103,9 @@ impl Inner {
         Box::pin(async move {
             if let Err(error) = self.stand_for_election().await {
                 if let Some(on_election_error) = &self.config.on_election_error {
-                    on_election_error("", &error);
+                    let _ = std::panic::catch_unwind(AssertUnwindSafe(|| {
+                        on_election_error("", &error);
+                    }));
                 }
                 self.stand_by();
             }
