@@ -29,18 +29,20 @@ export function coordinatorKeys(config: EtcdCoordinatorConfig): CoordinatorKeys 
   return {
     node: (nodeId: string) => buildKey(prefix, ETCD_KEY_NODES, nodeId),
     nodeStartedAt: (nodeId: string) => buildKey(prefix, ETCD_KEY_NODE_STARTED_AT, nodeId),
-    nodePrefix: () => buildKey(prefix, ETCD_KEY_NODES),
+    nodePrefix: () => buildKey(prefix, ETCD_KEY_NODES, ''),
     allocation: (indexName: string) => buildKey(prefix, ETCD_KEY_ALLOCATION, indexName),
-    allocationPrefix: () => buildKey(prefix, ETCD_KEY_ALLOCATION),
+    allocationPrefix: () => buildKey(prefix, ETCD_KEY_ALLOCATION, ''),
     partition: (indexName: string, partitionId: number) =>
       buildKey(prefix, ETCD_KEY_PARTITION, indexName, String(partitionId)),
     schema: (indexName: string) => buildKey(prefix, ETCD_KEY_SCHEMA, indexName),
-    schemaPrefix: () => buildKey(prefix, ETCD_KEY_SCHEMA),
+    schemaPrefix: () => buildKey(prefix, ETCD_KEY_SCHEMA, ''),
     lease: (key: string) => buildKey(prefix, ETCD_KEY_LEASE, key),
     generic: (key: string) => buildKey(prefix, ETCD_KEY_GENERIC, key),
   }
 }
 
-export function extractSuffix(fullKey: string, prefix: string): string {
-  return fullKey.slice(prefix.length + 1)
+export function recordName(fullKey: string, prefix: string): string | null {
+  if (!fullKey.startsWith(prefix)) return null
+  const name = fullKey.slice(prefix.length)
+  return name.length === 0 || name.includes('/') ? null : name
 }

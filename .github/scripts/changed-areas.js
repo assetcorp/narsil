@@ -26,6 +26,7 @@ const AREAS_BY_PREFIX = [
   ['benchmarks/', []],
   ['packages/rust/', []],
   ['packages/rust-server/', []],
+  ['packages/rust-cluster/', []],
   ['packages/rust-container/', []],
   ['packages/python-engine/', []],
   ['packages/go/engine/', []],
@@ -124,6 +125,19 @@ const PATHS_BY_LANGUAGE_AREA = {
     ],
     except: ['packages/rust/tests/', 'packages/rust/benches/', 'packages/go/engine/', 'packages/ts/src/__tests__/'],
     compiledMarkdown: ['packages/rust-server/README.md'],
+  },
+  rust_cluster: {
+    paths: [
+      'packages/rust-cluster/',
+      'packages/rust/',
+      'packages/native/src/',
+      'packages/native/include/',
+      'packages/ts/src/',
+      ...BUILD_CONFIG_FILES,
+      '.github/workflows/rust-cluster.yml',
+    ],
+    except: ['packages/rust/tests/', 'packages/rust/benches/'],
+    compiledMarkdown: ['packages/rust-cluster/README.md'],
   },
   python_engine: {
     paths: [
@@ -274,6 +288,7 @@ const CI_AREAS_THAT_LOAD_THE_ENGINE = [
   'conformance',
   'rust',
   'rust_server',
+  'rust_cluster',
   'python_engine',
   'go_engine',
   'native_core',
