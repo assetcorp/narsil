@@ -239,7 +239,12 @@ async function searchCluster<T>(
     params.facets,
   )
   const groups = await assembleDistributedGroups(params, distributed, projection, (docIds, last) =>
-    reader.read(docIds, { last: last && !readsLater, fields: null, vectors, requireEveryPartition: true }),
+    reader.read(docIds, {
+      last: last && !readsLater,
+      fields: null,
+      vectors: vectors || params.group?.reduce !== undefined,
+      requireEveryPartition: true,
+    }),
   )
   if (groups !== undefined) {
     result.groups = groups

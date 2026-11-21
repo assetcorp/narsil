@@ -210,7 +210,7 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
 
   const readBase = { config: routingConfig, nodeId, engine, resolveNodeTargets, searchContexts }
   const readViews = createReadViews(readBase, config.coordinator, engine, forwardOnError)
-  const { bm25View, analysisView, readDeps } = readViews
+  const { analysisView, readDeps } = readViews
   const servingName = (indexName: string) => servingNameOf(allocationView.routing, indexName)
   const deviceSync = createClusterDeviceSync({
     ...cleanupDeps,
