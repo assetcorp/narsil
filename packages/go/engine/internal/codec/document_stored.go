@@ -51,6 +51,10 @@ func (s *documentState) decode() {
 	s.entries = entries
 	s.indexKeys()
 	for _, later := range s.later {
+		if _, leavesOutNull := later.value.(nullLeftOut); leavesOutNull {
+			s.dropNullAt(later.path)
+			continue
+		}
 		s.putPath(later.path, later.value)
 	}
 	s.later = nil
