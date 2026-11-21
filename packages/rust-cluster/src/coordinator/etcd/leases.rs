@@ -9,7 +9,7 @@ use tokio::task::AbortHandle;
 
 use super::client::{call, unreachable};
 use super::endpoints::{CallFailure, EndpointPool, is_lease_not_found};
-use crate::constants::{ETCD_CALL_TIMEOUT_MS, LEASE_RENEWALS_PER_TTL};
+use crate::constants::{ETCD_CALL_TIMEOUT_MS, LEASE_RENEWALS_PER_TTL, RECONNECT_FIRST_DELAY_MS};
 use crate::coordinator::types::RegistrationLease;
 use crate::error::{ClusterError, ClusterResult, codes};
 
@@ -60,25 +60,34 @@ struct OpenKeeper {
     endpoint: usize,
 }
 
+async fn answer(open: &mut OpenKeeper) -> Result<Option<i64>, CallFailure> {
+    let exchange = async {
+        open.keeper.keep_alive().await?;
+        open.stream.message().await
+    };
+    match tokio::time::timeout(Duration::from_millis(ETCD_CALL_TIMEOUT_MS), exchange).await {
+        Ok(Ok(response)) => Ok(response.map(|response| response.ttl())),
+        Ok(Err(error)) => Err(CallFailure::Etcd(error)),
+        Err(_) => Err(CallFailure::TimedOut),
+    }
+}
+
+fn judged(ttl: i64) -> Renewal {
+    if ttl > 0 {
+        Renewal::Held
+    } else {
+        Renewal::Gone
+    }
+}
+
 async fn renew(pool: &EndpointPool, open: &mut Option<OpenKeeper>, id: i64) -> Renewal {
     if let Some(current) = open.as_mut() {
-        let answer = match current.keeper.keep_alive().await {
-            Ok(()) => current.stream.message().await,
-            Err(error) => Err(error),
-        };
-        match answer {
-            Ok(Some(response)) if response.ttl() > 0 => return Renewal::Held,
-            Ok(Some(_)) => return Renewal::Gone,
-            Ok(None) => {
-                *open = None;
-                return Renewal::Unanswered;
-            }
-            Err(error) => {
-                pool.report_failure(current.endpoint, &CallFailure::Etcd(error))
-                    .await;
-                *open = None;
-            }
+        match answer(current).await {
+            Ok(Some(ttl)) => return judged(ttl),
+            Ok(None) => {}
+            Err(failure) => pool.report_failure(current.endpoint, &failure).await,
         }
+        *open = None;
     }
     match pool
         .serve(|mut clients| async move { clients.lease.keep_alive(id).await })
@@ -105,8 +114,9 @@ async fn keep_renewing(
     interval: Duration,
 ) {
     let mut open = None;
+    let mut wait = interval;
     loop {
-        tokio::time::sleep(interval).await;
+        tokio::time::sleep(wait).await;
         let Some(held) = lease.upgrade() else {
             return;
         };
@@ -114,20 +124,18 @@ async fn keep_renewing(
             return;
         }
         let sent_at = Instant::now();
-        let renewal = tokio::time::timeout(
-            Duration::from_millis(ETCD_CALL_TIMEOUT_MS),
-            renew(&pool, &mut open, id),
-        )
-        .await
-        .unwrap_or(Renewal::Unanswered);
-        match renewal {
-            Renewal::Held => held.record_renewal(sent_at, held.ttl_seconds),
+        match renew(&pool, &mut open, id).await {
+            Renewal::Held => {
+                held.record_renewal(sent_at, held.ttl_seconds);
+                wait = interval;
+            }
             Renewal::Gone => {
                 held.mark_lost();
                 return;
             }
             Renewal::Unanswered => {
                 open = None;
+                wait = Duration::from_millis(RECONNECT_FIRST_DELAY_MS).min(interval);
                 if held.has_expired() {
                     held.mark_lost();
                     return;
