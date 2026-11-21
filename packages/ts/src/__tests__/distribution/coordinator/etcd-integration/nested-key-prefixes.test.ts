@@ -62,6 +62,8 @@ describe('EtcdCoordinator integration - clusters whose key prefixes nest', () =>
       ['outer', outerPrefix],
       ['nodes-eu', `${outerPrefix}/nodes-eu`],
       ['schema-eu', `${outerPrefix}/schema-eu`],
+      ['nodes', `${outerPrefix}/nodes`],
+      ['schema', `${outerPrefix}/schema`],
     ] as const) {
       const coordinator = await createEtcdCoordinator({ endpoints: [endpoint], keyPrefix, nodeHeartbeatTtlSeconds: 5 })
       const tenant: Tenant = { name, coordinator, nodeEvents: [], schemaEvents: [], stopWatching: [] }

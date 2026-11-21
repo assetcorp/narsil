@@ -3,7 +3,7 @@ import { compareCodePoints } from '../../../core/ordering'
 import type { SchemaDefinition } from '../../../types/schema'
 import { INDEX_METADATA_KEY_PREFIX, indexNameOfMetadataSuffix } from '../index-metadata-key'
 import type { ClusterCoordinator, IndexMetadataEvent, SchemaEvent } from '../types'
-import { type CoordinatorKeys, extractSuffix } from './keys'
+import { type CoordinatorKeys, recordName } from './keys'
 import type { PrefixWatchHandlers } from './prefix-watch'
 import type { EtcdWriteGuard } from './request-size'
 import { deserializeSchema, serializeSchema } from './serialization'
@@ -93,7 +93,10 @@ export function storedValueMethods(context: StoredValueContext): StoredValueMeth
       assertNotShutdown()
       const prefix = keys.schemaPrefix()
       const result = await client.getAll().prefix(prefix).keys()
-      return result.map(fullKey => extractSuffix(fullKey, prefix)).sort(compareCodePoints)
+      return result
+        .map(fullKey => recordName(fullKey, prefix))
+        .filter(indexName => indexName !== null)
+        .sort(compareCodePoints)
     },
 
     async watchSchemas(handler: (event: SchemaEvent) => void): Promise<() => void> {
@@ -101,11 +104,13 @@ export function storedValueMethods(context: StoredValueContext): StoredValueMeth
       const prefix = keys.schemaPrefix()
       return watchPrefix(prefix, {
         put(kv: IKeyValue) {
-          const schema = deserializeSchema(kv.value)
-          handler({ type: 'schema_created', indexName: extractSuffix(kv.key.toString(), prefix), schema })
+          const indexName = recordName(kv.key.toString(), prefix)
+          if (indexName === null) return
+          handler({ type: 'schema_created', indexName, schema: deserializeSchema(kv.value) })
         },
         delete(fullKey: string) {
-          handler({ type: 'schema_dropped', indexName: extractSuffix(fullKey, prefix), schema: null })
+          const indexName = recordName(fullKey, prefix)
+          if (indexName !== null) handler({ type: 'schema_dropped', indexName, schema: null })
         },
       })
     },
