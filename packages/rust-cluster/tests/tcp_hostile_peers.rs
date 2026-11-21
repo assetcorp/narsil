@@ -133,6 +133,31 @@ async fn frames_that_are_not_requests_go_unanswered() {
 }
 
 #[tokio::test]
+async fn a_listener_that_panics_before_returning_its_future_sends_a_carrier_error() {
+    let (transport, address) = listening_node(CONNECTION_LIMIT).await;
+    let handler = std::sync::Arc::new(|_, _| panic!("listener failed"));
+    let listening = transport
+        .listen(handler)
+        .await
+        .expect("the handler changes");
+    let mut peer = connect(&address).await;
+    peer.write_all(&ping_frame("panic"))
+        .await
+        .expect("the request leaves");
+
+    let reply = read_frame(&mut peer)
+        .await
+        .expect("the node reports the failure");
+    let carrier = decode(&reply.bytes("data"));
+    assert_eq!(carrier.text("type"), "error");
+    assert_eq!(carrier.text("requestId"), "panic");
+    assert_eq!(carrier.text("sourceId"), "");
+    listening.stop();
+    ping_over(&mut peer, "after-panic").await;
+    transport.shutdown().await;
+}
+
+#[tokio::test]
 async fn the_listener_drops_a_connection_past_its_limit_and_accepts_again_once_one_closes() {
     let (transport, address) = listening_node(CONNECTION_LIMIT).await;
     let mut held = Vec::new();
