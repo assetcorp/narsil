@@ -30,13 +30,14 @@ function requireFieldPathList(paths: unknown, option: 'include' | 'exclude'): vo
   }
 }
 
-function splitPaths(paths: string[] | undefined): string[][] {
+function splitPaths(paths: string[] | undefined, vectorFields: readonly string[][]): string[][] {
   if (!paths) return []
   const split: string[][] = []
   for (const path of paths) {
     const segments = path.split('.').filter(segment => segment.length > 0)
     if (segments.length === 0) continue
     if (segments.some(segment => PROTOTYPE_POLLUTION_KEYS.has(segment))) continue
+    if (vectorFields.some(field => field.length < segments.length && covers(field, segments))) continue
     split.push(segments)
   }
   return split
@@ -180,9 +181,9 @@ export function resolveProjection(
   }
   const askedInclude = shaped !== undefined && Array.isArray(shaped.include) && shaped.include.length > 0
   const askedExclude = shaped !== undefined && Array.isArray(shaped.exclude) && shaped.exclude.length > 0
-  const include = askedInclude ? splitPaths(shaped.include) : null
-  const exclude = askedExclude ? splitPaths(shaped.exclude) : []
   const vectorFields = vectorFieldSegmentsOf(index.schema)
+  const include = askedInclude ? splitPaths(shaped.include, vectorFields) : null
+  const exclude = askedExclude ? splitPaths(shaped.exclude, vectorFields) : []
   for (const field of vectorFields) {
     if (!returnsVectorField(field, shaped?.vectors, include, index.returnVectors === true)) exclude.push(field)
   }
