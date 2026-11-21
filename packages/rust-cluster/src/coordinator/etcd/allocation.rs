@@ -4,6 +4,7 @@ use etcd_client::{Compare, CompareOp, Txn, TxnOp};
 
 use super::EtcdCoordinator;
 use super::client::EtcdWrite;
+use super::keys::record_name;
 use super::watch::{PrefixHandlers, WatchHandle, watch_prefix};
 use crate::constants::CONTROLLER_LEASE_KEY;
 use crate::coordinator::serialization::{decode_allocation, encode_allocation};
@@ -155,14 +156,18 @@ impl EtcdCoordinator {
         F: Fn(AllocationTable) + Send + Sync + 'static,
     {
         let handler = Arc::new(handler);
+        let prefix = self.inner.keys.allocation_prefix();
+        let put_prefix = prefix.clone();
         let handlers = PrefixHandlers {
-            put: Box::new(move |_, value| {
-                handler(decode_allocation(value)?);
+            put: Box::new(move |key, value| {
+                if record_name(key, &put_prefix).is_some() {
+                    handler(decode_allocation(value)?);
+                }
                 Ok(())
             }),
             delete: Box::new(|_| Ok(())),
         };
-        watch_prefix(&self.inner, self.inner.keys.allocation_prefix(), handlers).await
+        watch_prefix(&self.inner, prefix, handlers).await
     }
 
     /// Returns the state of one partition, which is `Unassigned` where etcd stores none.

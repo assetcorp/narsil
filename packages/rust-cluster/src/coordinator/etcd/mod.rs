@@ -19,7 +19,7 @@ pub use watch::WatchHandle;
 
 use self::client::{WriteGuard, connect_and_probe};
 use self::endpoints::EndpointPool;
-use self::keys::{CoordinatorKeys, suffix_after};
+use self::keys::{CoordinatorKeys, record_name};
 use self::leases::{LeaseManager, ManagedLease};
 use self::registration::{RegistrationKeys, write_node_registration};
 use self::watch::{PrefixHandlers, watch_prefix, watcher_limit_error};
@@ -212,13 +212,14 @@ impl EtcdCoordinator {
             .inner
             .get(
                 "listNodes",
-                prefix,
+                prefix.as_bytes(),
                 Some(etcd_client::GetOptions::new().with_prefix()),
             )
             .await?;
         listing
             .kvs()
             .iter()
+            .filter(|entry| record_name(&String::from_utf8_lossy(entry.key()), &prefix).is_some())
             .map(|entry| decode_registration(entry.value()))
             .collect()
     }
@@ -236,16 +237,19 @@ impl EtcdCoordinator {
         let prefix = self.inner.keys.node_prefix();
         let handler = Arc::new(handler);
         let on_put = Arc::clone(&handler);
+        let put_prefix = prefix.clone();
         let deleted_prefix = prefix.clone();
         let handlers = PrefixHandlers {
-            put: Box::new(move |_, value| {
-                on_put(NodeEvent::Joined(decode_registration(value)?));
+            put: Box::new(move |key, value| {
+                if record_name(key, &put_prefix).is_some() {
+                    on_put(NodeEvent::Joined(decode_registration(value)?));
+                }
                 Ok(())
             }),
             delete: Box::new(move |key| {
-                handler(NodeEvent::Left(
-                    suffix_after(key, &deleted_prefix).to_string(),
-                ));
+                if let Some(node_id) = record_name(key, &deleted_prefix) {
+                    handler(NodeEvent::Left(node_id.to_string()));
+                }
                 Ok(())
             }),
         };

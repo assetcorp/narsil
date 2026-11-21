@@ -5,7 +5,7 @@ use narsil::Value;
 
 use super::EtcdCoordinator;
 use super::client::EtcdWrite;
-use super::keys::{index_metadata_prefix, index_name_of_metadata_suffix, suffix_after};
+use super::keys::{index_metadata_prefix, index_name_of_metadata_suffix, record_name};
 use super::watch::{PrefixHandlers, WatchHandle, watch_prefix};
 use crate::coordinator::serialization::{decode_schema, encode_schema};
 use crate::coordinator::types::{IndexMetadataEvent, SchemaEvent};
@@ -139,7 +139,9 @@ impl EtcdCoordinator {
         let mut names: Vec<String> = found
             .kvs()
             .iter()
-            .map(|entry| suffix_after(&String::from_utf8_lossy(entry.key()), &prefix).to_string())
+            .filter_map(|entry| {
+                record_name(&String::from_utf8_lossy(entry.key()), &prefix).map(str::to_string)
+            })
             .collect();
         names.sort();
         Ok(names)
@@ -163,16 +165,21 @@ impl EtcdCoordinator {
         let delete_prefix = prefix.clone();
         let handlers = PrefixHandlers {
             put: Box::new(move |key, value| {
+                let Some(index_name) = record_name(key, &put_prefix) else {
+                    return Ok(());
+                };
                 on_put(SchemaEvent::Created {
-                    index_name: suffix_after(key, &put_prefix).to_string(),
+                    index_name: index_name.to_string(),
                     schema: decode_schema(value)?,
                 });
                 Ok(())
             }),
             delete: Box::new(move |key| {
-                handler(SchemaEvent::Dropped {
-                    index_name: suffix_after(key, &delete_prefix).to_string(),
-                });
+                if let Some(index_name) = record_name(key, &delete_prefix) {
+                    handler(SchemaEvent::Dropped {
+                        index_name: index_name.to_string(),
+                    });
+                }
                 Ok(())
             }),
         };
