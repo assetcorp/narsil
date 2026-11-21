@@ -177,4 +177,20 @@ describe('vector fields in read results', () => {
       await expect(engine.listDocuments('plain', { document })).rejects.toMatchObject(refused)
     }
   })
+
+  it('does not return vector components through include paths that enter a vector array', async () => {
+    const engine = await open(false)
+    await fill(engine, 'plain', {})
+    const document = { include: ['title', 'embedding.0', 'meta.sketch.0'], vectors: true }
+    const found = await engine.get('plain', TRAILS[0].id, { document })
+    expect(found).toEqual({ title: TRAILS[0].title })
+    const searched = await engine.query('plain', { term: 'ridge', document })
+    for (const hit of searched.hits) {
+      expect(hit.document).toEqual({ title: TRAILS.find(trail => trail.id === hit.id)?.title })
+    }
+    const listed = await engine.listDocuments('plain', { document })
+    for (const item of listed.documents) {
+      expect(item.document).toEqual({ title: TRAILS.find(trail => trail.id === item.id)?.title })
+    }
+  })
 })
