@@ -17,7 +17,7 @@ const PEAK_REPORT_TIMEOUT_MS = 5_000
 const PEAK_REPORT_POLL_MS = 20
 const PEAK_OLD_GENERATION_LINE = /PEAK_OLD_GENERATION (\d+)\n/
 const PORT_ATTEMPTS = 5
-const PORT_TAKEN_LINES = [/Failed to listen on /, /EADDRINUSE/]
+const PORT_TAKEN_LINES = [/Failed to listen on /, /EADDRINUSE/, /Address already in use/]
 
 export interface NodeProcess {
   nodeId: string

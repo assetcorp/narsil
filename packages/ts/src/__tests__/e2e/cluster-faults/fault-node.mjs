@@ -1,5 +1,6 @@
 import { createFilesystemPersistence } from '../../../../dist/adapters/filesystem.mjs'
 import { createEtcdCoordinator } from '../../../../dist/distribution/coordinator/etcd.mjs'
+import { createGrpcTransport } from '../../../../dist/distribution/transport/grpc.mjs'
 import { createTcpTransport } from '../../../../dist/distribution/transport/tcp.mjs'
 import { clusterNodeEngine, createClusterNode } from '../../../../dist/distribution.mjs'
 import { createServer } from '../../../../dist/server.mjs'
@@ -13,11 +14,15 @@ const coordinator = await createEtcdCoordinator({
   ...(settings.etcdTls === undefined ? {} : { tls: settings.etcdTls }),
   ...(settings.etcdAuth === undefined ? {} : { auth: settings.etcdAuth }),
 })
-const transport = createTcpTransport('fault-node', {
+const transportConfig = {
   host: '127.0.0.1',
   port: settings.transportPort,
   ...(settings.transportTls === undefined ? {} : { tls: settings.transportTls }),
-})
+}
+const transport =
+  settings.transport === 'grpc'
+    ? await createGrpcTransport('fault-node', transportConfig)
+    : createTcpTransport('fault-node', transportConfig)
 const node = await createClusterNode({
   coordinator,
   transport,

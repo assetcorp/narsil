@@ -201,14 +201,14 @@ describe('GrpcTransport', () => {
         respond({ ...makeResponse(message.requestId, 'node-b'), payload: new Uint8Array([1]) })
       })
 
+      const badChunk = new Error('bad chunk')
       const err = await transportA
         .stream(target, makeMessage(), () => {
-          throw new Error('bad chunk')
+          throw badChunk
         })
-        .catch((thrown: TransportError) => thrown)
+        .catch((thrown: unknown) => thrown)
 
-      expect(err).toBeInstanceOf(TransportError)
-      expect((err as TransportError).code).toBe(TransportErrorCodes.DECODE_FAILED)
+      expect(err).toBe(badChunk)
     })
   })
 

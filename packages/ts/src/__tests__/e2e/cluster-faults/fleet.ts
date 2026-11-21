@@ -25,6 +25,18 @@ export interface FleetSettings {
   waitForServingMs: number
   fixedNodeIds: boolean
   backups?: { directory: string; keyPrefix: string }
+  transport?: 'tcp' | 'grpc'
+  rustSlots?: readonly number[]
+}
+
+export const RUST_NODE_VARIABLE = 'NARSIL_RUST_CLUSTER_NODE'
+
+function rustNodeBinary(): string {
+  const binary = process.env[RUST_NODE_VARIABLE]
+  if (binary === undefined || binary === '') {
+    throw new Error(`${RUST_NODE_VARIABLE} must name the Rust fault node binary to start a Rust slot`)
+  }
+  return binary
 }
 
 export interface FleetNode {
@@ -109,6 +121,7 @@ export async function startFleet(
       advertisedPort: entry.transportProxy.port,
       directory: entry.directory,
       ...(settings.fixedNodeIds ? { nodeId: `fault-node-${entry.slot}` } : {}),
+      ...(settings.transport === undefined ? {} : { transport: settings.transport }),
       ...(settings.backups === undefined
         ? {}
         : { backupDirectory: settings.backups.directory, backupKeyPrefix: settings.backups.keyPrefix }),
@@ -139,7 +152,8 @@ export async function startFleet(
   async function startOnce(entry: Slot): Promise<boolean> {
     const slot = entry.slot
     const { NODE_OPTIONS: _inherited, ...parentEnv } = process.env
-    const child = spawn(process.execPath, [NODE_SCRIPT], {
+    const rust = settings.rustSlots?.includes(slot) === true
+    const child = spawn(rust ? rustNodeBinary() : process.execPath, rust ? [] : [NODE_SCRIPT], {
       env: { ...parentEnv, NARSIL_FAULT_NODE: JSON.stringify(nodeSettings(entry)) },
       stdio: ['ignore', 'pipe', 'pipe'],
     })
