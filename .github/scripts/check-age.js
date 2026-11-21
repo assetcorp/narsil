@@ -1,10 +1,13 @@
 const { execFileSync } = require('node:child_process')
 const { existsSync, readFileSync } = require('node:fs')
+const { GIT_OUTPUT_LIMIT_BYTES, addedCargoCrates, crateIndexEntries, isCratesIoSource } = require('./age-gate-cargo.js')
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const LOCKFILE = 'pnpm-lock.yaml'
 const REGISTRY_URL = 'https://registry.npmjs.org'
+const EXEMPTIONS_FILE = '.github/scripts/dependency-age-exemptions.json'
 const FETCH_TIMEOUT_MS = 10_000
+const USER_AGENT = 'narsil-dependency-age-gate (https://github.com/assetcorp/narsil)'
 
 // uWebSockets.js is published only through GitHub, never the npm registry, so it
 // has no registry publish date to gate on; the supply-chain gate verifies its pin.
@@ -19,20 +22,43 @@ const minimumPublishedAt = Date.now() - minAgeDays * DAY_MS
 
 const main = async () => {
   const baseRef = resolveBaseRef()
+  const exemptions = readExemptions()
+  const failures = []
+
+  await checkNpmPackages(baseRef, exemptions.npm, failures)
+  await checkCargoCrates(baseRef, exemptions.cargo, failures)
+
+  if (failures.length === 0) {
+    console.log(
+      `Dependency age gate passed. Every new package version is at least ${minAgeDays} day(s) old or listed in ${EXEMPTIONS_FILE}.`,
+    )
+    return
+  }
+
+  console.error(`Dependency age gate failed. ${failures.length} package version(s) are too new or unverifiable.`)
+
+  for (const failure of failures) {
+    console.error(`- ${failure}`)
+    console.error(`::error title=Dependency age gate failed::${escapeAnnotationValue(failure)}`)
+  }
+
+  process.exitCode = 1
+}
+
+const checkNpmPackages = async (baseRef, exempted, failures) => {
   const currentPackages = parsePnpmLock(readFileSync(LOCKFILE, 'utf8'))
-  const basePackages = parsePnpmLock(readBaseLockfile(baseRef))
+  const basePackages = parsePnpmLock(readBaseFile(baseRef, LOCKFILE))
   const addedPackages = [...currentPackages.values()]
     .filter(pkg => !basePackages.has(createPackageKey(pkg)))
     .sort(comparePackages)
 
   if (addedPackages.length === 0) {
-    console.log('Dependency age gate passed. No new pnpm package versions were added.')
+    console.log('No new pnpm package versions were added.')
     return
   }
 
   console.log(`Checking ${addedPackages.length} newly added pnpm package version(s).`)
 
-  const failures = []
   const metadataByName = new Map()
 
   for (const pkg of addedPackages) {
@@ -48,6 +74,10 @@ const main = async () => {
       continue
     }
 
+    if (isExempted(exempted, packageKey)) {
+      continue
+    }
+
     let metadata
 
     try {
@@ -57,39 +87,116 @@ const main = async () => {
       continue
     }
 
-    const publishedAt = metadata.time?.[pkg.version]
-
-    if (typeof publishedAt !== 'string') {
-      failures.push(`${packageKey}: publish timestamp was not available from the npm registry`)
-      continue
-    }
-
-    const publishedTime = Date.parse(publishedAt)
-
-    if (Number.isNaN(publishedTime)) {
-      failures.push(`${packageKey}: publish timestamp is invalid: ${publishedAt}`)
-      continue
-    }
-
-    if (publishedTime > minimumPublishedAt) {
-      const ageDays = Math.max(0, (Date.now() - publishedTime) / DAY_MS).toFixed(2)
-      failures.push(`${packageKey}: published ${ageDays} day(s) ago, below the ${minAgeDays} day minimum`)
-    }
+    checkPublishedAt(packageKey, metadata.time?.[pkg.version], 'the npm registry', failures)
   }
+}
 
-  if (failures.length === 0) {
-    console.log(`Dependency age gate passed. All new package versions are at least ${minAgeDays} day(s) old.`)
+const checkCargoCrates = async (baseRef, exempted, failures) => {
+  const addedCrates = addedCargoCrates(baseRef, readBaseFile).sort(comparePackages)
+
+  if (addedCrates.length === 0) {
+    console.log('No new Cargo crate versions were added.')
     return
   }
 
-  console.error(`Dependency age gate failed. ${failures.length} package version(s) are too new or unverifiable.`)
+  console.log(`Checking ${addedCrates.length} newly added Cargo crate version(s).`)
 
-  for (const failure of failures) {
-    console.error(`- ${failure}`)
-    console.error(`::error title=Dependency age gate failed::${escapeAnnotationValue(failure)}`)
+  const indexEntriesByName = new Map()
+
+  for (const crate of addedCrates) {
+    const crateKey = createPackageKey(crate)
+
+    if (isExempted(exempted, crateKey)) {
+      continue
+    }
+
+    if (!isCratesIoSource(crate.source)) {
+      failures.push(`${crateKey}: comes from ${crate.source}, which has no crates.io publish date to gate on`)
+      continue
+    }
+
+    let entries
+
+    try {
+      entries = await crateIndexEntries(crate.name, indexEntriesByName, fetchBody)
+    } catch (error) {
+      failures.push(`${crateKey}: crates.io index lookup failed: ${formatError(error)}`)
+      continue
+    }
+
+    const entry = entries.find(candidate => candidate.vers === crate.version)
+    checkPublishedAt(crateKey, entry?.pubtime, 'the crates.io index', failures)
+  }
+}
+
+const checkPublishedAt = (packageKey, publishedAt, registry, failures) => {
+  if (typeof publishedAt !== 'string') {
+    failures.push(`${packageKey}: publish timestamp was not available from ${registry}`)
+    return
   }
 
-  process.exitCode = 1
+  const publishedTime = Date.parse(publishedAt)
+
+  if (Number.isNaN(publishedTime)) {
+    failures.push(`${packageKey}: publish timestamp is invalid: ${publishedAt}`)
+    return
+  }
+
+  if (publishedTime > minimumPublishedAt) {
+    const ageDays = Math.max(0, (Date.now() - publishedTime) / DAY_MS).toFixed(2)
+    failures.push(`${packageKey}: published ${ageDays} day(s) ago, below the ${minAgeDays} day minimum`)
+  }
+}
+
+const readExemptions = () => {
+  if (!existsSync(EXEMPTIONS_FILE)) {
+    return { npm: new Map(), cargo: new Map() }
+  }
+
+  const parsed = JSON.parse(readFileSync(EXEMPTIONS_FILE, 'utf8'))
+
+  return { npm: exemptionsFor(parsed, 'npm'), cargo: exemptionsFor(parsed, 'cargo') }
+}
+
+const exemptionsFor = (parsed, ecosystem) => {
+  const entries = parsed?.[ecosystem]
+
+  if (!Array.isArray(entries)) {
+    throw new Error(`${EXEMPTIONS_FILE} must hold a "${ecosystem}" array.`)
+  }
+
+  const exempted = new Map()
+
+  for (const [position, entry] of entries.entries()) {
+    const complete =
+      typeof entry?.name === 'string' &&
+      entry.name.length > 0 &&
+      typeof entry.version === 'string' &&
+      /^\d\S*$/.test(entry.version) &&
+      typeof entry.reason === 'string' &&
+      entry.reason.trim().length > 0
+
+    if (!complete) {
+      throw new Error(
+        `${EXEMPTIONS_FILE}: ${ecosystem} entry ${position} must hold a name, an exact version, and a reason.`,
+      )
+    }
+
+    exempted.set(createPackageKey(entry), entry.reason.trim())
+  }
+
+  return exempted
+}
+
+const isExempted = (exempted, packageKey) => {
+  const reason = exempted.get(packageKey)
+
+  if (reason === undefined) {
+    return false
+  }
+
+  console.log(`Skipping ${packageKey}: ${EXEMPTIONS_FILE} lists it as verified: ${reason}`)
+  return true
 }
 
 function parsePositiveInteger(value) {
@@ -117,7 +224,7 @@ const resolveBaseRef = () => {
     }
   }
 
-  throw new Error('Could not resolve a base commit to compare pnpm-lock.yaml against.')
+  throw new Error('Could not resolve a base commit to compare the lockfiles against.')
 }
 
 const readBaseShaFromEvent = () => {
@@ -141,11 +248,11 @@ const gitCommitExists = ref => {
   }
 }
 
-const readBaseLockfile = baseRef => {
+const readBaseFile = (baseRef, path) => {
   try {
-    return execFileSync('git', ['show', `${baseRef}:${LOCKFILE}`], {
+    return execFileSync('git', ['show', `${baseRef}:${path}`], {
       encoding: 'utf8',
-      maxBuffer: 64 * 1024 * 1024,
+      maxBuffer: GIT_OUTPUT_LIMIT_BYTES,
       stdio: ['ignore', 'pipe', 'ignore'],
     })
   } catch {
@@ -206,31 +313,37 @@ const parsePnpmPackageKey = key => {
   return { name, version }
 }
 
+const fetchBody = async (url, accept, registry) => {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
+
+  try {
+    const response = await fetch(url, {
+      headers: { Accept: accept, 'User-Agent': USER_AGENT },
+      signal: controller.signal,
+    })
+
+    if (!response.ok) {
+      throw new Error(`${registry} returned HTTP ${response.status} for ${url}`)
+    }
+
+    return await response.text()
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
 const fetchMetadata = async (name, cache) => {
   if (cache.has(name)) {
     return cache.get(name)
   }
 
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
+  const metadata = JSON.parse(
+    await fetchBody(`${REGISTRY_URL}/${encodeURIComponent(name)}`, 'application/json', 'npm registry'),
+  )
+  cache.set(name, metadata)
 
-  try {
-    const response = await fetch(`${REGISTRY_URL}/${encodeURIComponent(name)}`, {
-      headers: { Accept: 'application/json' },
-      signal: controller.signal,
-    })
-
-    if (!response.ok) {
-      throw new Error(`npm registry returned HTTP ${response.status} for ${name}`)
-    }
-
-    const metadata = await response.json()
-    cache.set(name, metadata)
-
-    return metadata
-  } finally {
-    clearTimeout(timeout)
-  }
+  return metadata
 }
 
 const formatError = error => (error instanceof Error ? error.message : String(error))
