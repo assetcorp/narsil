@@ -27,6 +27,8 @@ export interface FleetSettings {
   backups?: { directory: string; keyPrefix: string }
   transport?: 'tcp' | 'grpc'
   rustSlots?: readonly number[]
+  nodeLeftDelayMs?: number
+  slotSettings?: Readonly<Record<number, Readonly<Record<string, unknown>>>>
 }
 
 export const RUST_NODE_VARIABLE = 'NARSIL_RUST_CLUSTER_NODE'
@@ -122,6 +124,7 @@ export async function startFleet(
       directory: entry.directory,
       ...(settings.fixedNodeIds ? { nodeId: `fault-node-${entry.slot}` } : {}),
       ...(settings.transport === undefined ? {} : { transport: settings.transport }),
+      ...(settings.nodeLeftDelayMs === undefined ? {} : { nodeLeftDelayMs: settings.nodeLeftDelayMs }),
       ...(settings.backups === undefined
         ? {}
         : { backupDirectory: settings.backups.directory, backupKeyPrefix: settings.backups.keyPrefix }),
@@ -136,6 +139,7 @@ export async function startFleet(
               key: bundles.serverBundle.key,
             },
           }),
+      ...settings.slotSettings?.[entry.slot],
     }
   }
 
