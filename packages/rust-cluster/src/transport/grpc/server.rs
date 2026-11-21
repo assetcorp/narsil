@@ -101,7 +101,8 @@ async fn answer_send_by(
         .metadata()
         .get(GRPC_TIMEOUT_HEADER)
         .and_then(|value| client_deadline(value.as_bytes()))
-        .unwrap_or(request_timeout);
+        .unwrap_or(request_timeout)
+        .min(request_timeout);
     match tokio::time::timeout(deadline, answer_send(handlers, request.into_inner())).await {
         Ok(answer) => answer,
         Err(_) => Err(Status::deadline_exceeded("Deadline exceeded")),
