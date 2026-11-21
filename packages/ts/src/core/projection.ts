@@ -144,6 +144,18 @@ function requireVectorsSwitch(vectors: unknown): void {
   })
 }
 
+type ProjectionFields = Exclude<DocumentProjection, boolean>
+
+function projectionFields(projection: unknown): ProjectionFields | undefined {
+  if (projection === undefined || projection === null || projection === true) return undefined
+  if (typeof projection === 'object' && !Array.isArray(projection)) return projection as ProjectionFields
+  throw new NarsilError(
+    ErrorCodes.SEARCH_INVALID_FIELD,
+    'The "document" option takes true, false, or an object of field path lists',
+    { option: 'document', received: Array.isArray(projection) ? 'array' : typeof projection },
+  )
+}
+
 function samePath(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && covers(a, b)
 }
@@ -176,7 +188,7 @@ export function resolveProjection(
   index: VectorReadSettings,
 ): ResolvedProjection {
   if (projection === false) return NO_FIELD
-  const shaped = typeof projection === 'object' && projection !== null ? projection : undefined
+  const shaped = projectionFields(projection)
   if (shaped !== undefined) {
     requireFieldPathList(shaped.include, 'include')
     requireFieldPathList(shaped.exclude, 'exclude')

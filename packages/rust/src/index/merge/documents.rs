@@ -17,7 +17,10 @@ pub(crate) struct DocumentTable {
 
 fn remove_path(document: &mut Map, path: &str) -> bool {
     match path.split_once('.') {
-        None => document.remove(path).is_some(),
+        None if document.get(path).is_some_and(|value| !value.is_null()) => {
+            document.remove(path).is_some()
+        }
+        None => false,
         Some((first, rest)) => match document.get_mut(first) {
             Some(Value::Object(nested)) => remove_path(nested, rest),
             _ => false,
@@ -27,7 +30,7 @@ fn remove_path(document: &mut Map, path: &str) -> bool {
 
 fn holds_path(document: &Map, path: &str) -> bool {
     match path.split_once('.') {
-        None => document.contains_key(path),
+        None => document.get(path).is_some_and(|value| !value.is_null()),
         Some((first, rest)) => match document.get(first) {
             Some(Value::Object(nested)) => holds_path(nested, rest),
             _ => false,

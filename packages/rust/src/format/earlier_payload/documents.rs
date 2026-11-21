@@ -110,18 +110,19 @@ fn is_vector_type(type_value: &Value) -> bool {
 }
 
 fn remove_field_at_path(fields: &mut Map, path: &str) {
-    let Some((parents, leaf)) = path.rsplit_once('.') else {
-        fields.remove(path);
-        return;
-    };
+    let (parents, leaf) = path
+        .rsplit_once('.')
+        .map_or((None, path), |(parents, leaf)| (Some(parents), leaf));
     let mut current = fields;
-    for segment in parents.split('.') {
+    for segment in parents.into_iter().flat_map(|parents| parents.split('.')) {
         let Some(Value::Object(next)) = current.get_mut(segment) else {
             return;
         };
         current = next;
     }
-    current.remove(leaf);
+    if current.get(leaf).is_some_and(|value| !value.is_null()) {
+        current.remove(leaf);
+    }
 }
 
 fn stored_fields(id: &str, document: Value) -> Result<Map> {

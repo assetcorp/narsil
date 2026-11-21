@@ -1,4 +1,4 @@
-import { validateReturnVectors } from '../engine/validation'
+import { validateBooleanOnlySettings } from '../engine/validation'
 import { ErrorCodes, NarsilError } from '../errors'
 import type { EmbeddingFieldConfig, IndexConfig, SchemaDefinition } from '../types/schema'
 import type { HttpIndexConfig } from './types'
@@ -21,6 +21,7 @@ export function mapHttpIndexConfig(http: HttpIndexConfig): IndexConfig {
     throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'Index config requires a "schema" object')
   }
 
+  validateBooleanOnlySettings(http)
   const config: IndexConfig = { schema: http.schema as SchemaDefinition }
 
   if (http.language !== undefined) config.language = http.language
@@ -29,13 +30,10 @@ export function mapHttpIndexConfig(http: HttpIndexConfig): IndexConfig {
   if (http.bm25 !== undefined) config.bm25 = http.bm25
   if (http.trackPositions !== undefined) config.trackPositions = http.trackPositions
   if (http.textStorage !== undefined) config.textStorage = http.textStorage
-  if (http.surfaceForms !== undefined) config.surfaceForms = http.surfaceForms === true
+  if (http.surfaceForms !== undefined) config.surfaceForms = http.surfaceForms
   if (http.vectorPromotion !== undefined) config.vectorPromotion = http.vectorPromotion
   if (http.strict !== undefined) config.strict = http.strict
-  if (http.returnVectors !== undefined) {
-    validateReturnVectors(http.returnVectors)
-    config.returnVectors = http.returnVectors
-  }
+  if (http.returnVectors !== undefined) config.returnVectors = http.returnVectors
   if (http.required !== undefined) config.required = http.required
   if (http.patternValueLimit !== undefined) config.patternValueLimit = http.patternValueLimit
   if (http.synonyms !== undefined) config.synonyms = http.synonyms

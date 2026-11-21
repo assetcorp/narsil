@@ -1,6 +1,11 @@
 package codec
 
-import "strings"
+import (
+	"bytes"
+	"slices"
+	"strings"
+	"unsafe"
+)
 
 type HeldEntry struct {
 	Value  any
@@ -18,6 +23,111 @@ func PutHeldPath(document *Document, path string, value any) {
 		return
 	}
 	document.writable().putPath(path, value)
+}
+
+type nullLeftOut struct{}
+
+func LeaveOutNullsAt(document *Document, paths []string) {
+	if len(paths) == 0 || document == nil {
+		return
+	}
+	if state := document.held; state != nil && state.stored != nil && !state.opened {
+		if bytes.IndexByte(state.stored, tagNil) < 0 {
+			return
+		}
+		for _, path := range paths {
+			if storedHoldsNullAt(state.stored, path) {
+				state.markChanged()
+				state.later = append(state.later, heldPath{path: path, value: nullLeftOut{}})
+			}
+		}
+		return
+	}
+	if state := document.readable(); state != nil {
+		for _, path := range paths {
+			state.dropNullAt(path)
+		}
+	}
+}
+
+func mayBeStoredAsNumberKey(leaf string) bool {
+	return leaf == "" || leaf[0] == '-' || (leaf[0] >= '0' && leaf[0] <= '9')
+}
+
+func storedMayHoldNullAt(stored []byte, path string) bool {
+	leaf := path[strings.LastIndexByte(path, '.')+1:]
+	if mayBeStoredAsNumberKey(leaf) {
+		return true
+	}
+	text := unsafe.String(unsafe.SliceData(stored), len(stored))
+	for from := 0; from < len(text); {
+		at := strings.IndexByte(text[from:], tagNil)
+		if at < 0 {
+			return false
+		}
+		at += from
+		if strings.HasSuffix(text[:at], leaf) {
+			return true
+		}
+		from = at + 1
+	}
+	return false
+}
+
+func storedHoldsNullAt(stored []byte, path string) bool {
+	if !storedMayHoldNullAt(stored, path) {
+		return false
+	}
+	decoder := NewDecoder(stored, DecodeOptions{})
+	for {
+		segment, rest, nested := strings.Cut(path, ".")
+		found, err := decoder.seekLastMapKey(segment)
+		if err != nil {
+			return true
+		}
+		if !found {
+			return false
+		}
+		tag, err := decoder.peekTag()
+		if err != nil {
+			return true
+		}
+		if !nested {
+			return tag == tagNil
+		}
+		if typeOfTag(tag) != TypeMap {
+			return false
+		}
+		path = rest
+	}
+}
+
+func (s *documentState) dropNullAt(path string) {
+	current := s
+	for {
+		segment, rest, nested := strings.Cut(path, ".")
+		position, known := current.position(segment)
+		if !known {
+			return
+		}
+		if !nested {
+			if current.entries[position].value == nil {
+				current.markChanged()
+				current.entries = slices.Delete(current.entries, position, position+1)
+				current.indexKeys()
+			}
+			return
+		}
+		next, isDocument := current.entries[position].value.(*Document)
+		if !isDocument {
+			return
+		}
+		current = next.readable()
+		if current == nil {
+			return
+		}
+		path = rest
+	}
 }
 
 func (s *documentState) putPath(path string, value any) {
