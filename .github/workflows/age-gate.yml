@@ -23,13 +23,13 @@ jobs:
 
       - name: Run age gate
         run: |
-          script_path="$RUNNER_TEMP/check-age.js"
+          for script in check-age.js age-gate-cargo.js; do
+            if ! git show "${BASE_SHA}:.github/scripts/${script}" > "$RUNNER_TEMP/${script}" 2>/dev/null; then
+              cp ".github/scripts/${script}" "$RUNNER_TEMP/${script}"
+            fi
+          done
 
-          if ! git show "${BASE_SHA}:.github/scripts/check-age.js" > "$script_path" 2>/dev/null; then
-            cp .github/scripts/check-age.js "$script_path"
-          fi
-
-          node "$script_path"
+          node "$RUNNER_TEMP/check-age.js"
         env:
           MIN_AGE_DAYS: 4
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
