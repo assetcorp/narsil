@@ -20,7 +20,8 @@ pub(crate) mod params;
 mod phrases;
 mod pinned;
 pub(crate) mod preflight;
-mod projection;
+pub(crate) mod projected;
+pub(crate) mod projection;
 mod ranked;
 mod rerank;
 pub(crate) mod results;
@@ -134,7 +135,7 @@ fn shaped_query(
             index.track_positions,
         )?;
     }
-    let projection = resolve_projection(params.document.as_ref());
+    let projection = resolve_projection(params.document.as_ref(), index);
     let page = shaped_page(&run, search, &projection)?;
     let partitions = run.snapshots.partitions.len();
     Ok(QueryResult {

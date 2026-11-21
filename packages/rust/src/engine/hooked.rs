@@ -1,6 +1,5 @@
 use super::EngineInner;
 use super::plugins::{PluginRegistry, WriteHook};
-use super::reads;
 use super::writes::{
     BatchFailure, BatchResult, NextDocumentId, insert_doc_id, provided_doc_id,
     require_matching_doc_id,
@@ -94,7 +93,7 @@ pub(crate) fn before_update(
     validate_doc_id(doc_id)?;
     require_matching_doc_id(doc_id, document)?;
     let old = engine
-        .read_index(index, |state| reads::get(state, doc_id))?
+        .read_index(index, |state| state.full_document(doc_id))?
         .unwrap_or_default();
     engine.plugins.before_write(WriteHook::Update, |plugin| {
         plugin.before_update(index, doc_id, &old, document)

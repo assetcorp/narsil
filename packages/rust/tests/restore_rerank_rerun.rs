@@ -273,6 +273,7 @@ fn only_rerank_calls_that_a_restore_interrupted_count_toward_the_refusal_never_a
                 document: Some(DocumentProjection::Fields {
                     include: None,
                     exclude: Some(vec!["embedding".into()]),
+                    vectors: None,
                 }),
                 ..reranked_search()
             },

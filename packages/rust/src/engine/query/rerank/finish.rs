@@ -10,7 +10,8 @@ use crate::engine::query::embedded::EmbeddedQuery;
 use crate::engine::query::highlight::highlight_hits;
 use crate::engine::query::pagination::{PositionWindow, page_by_position};
 use crate::engine::query::params::{Pin, QueryParams};
-use crate::engine::query::projection::{Projection, project_document};
+use crate::engine::query::projected::projected_document;
+use crate::engine::query::projection::{Projection, Shape};
 use crate::engine::query::results::{GroupResult, Hit, QueryResult};
 use crate::error::Result;
 
@@ -77,10 +78,10 @@ impl<'a> AwaitingScores<'a> {
 fn with_documents(index: &IndexState, hits: Vec<Hit>, projection: &Projection) -> Result<Vec<Hit>> {
     let mut filled = Vec::with_capacity(hits.len());
     for mut hit in hits {
-        hit.document = match projection {
-            Projection::Nothing => Default::default(),
-            _ => match index.full_document(&hit.id)? {
-                Some(document) => project_document(&document, projection),
+        hit.document = match projection.shape {
+            Shape::Nothing => Default::default(),
+            _ => match projected_document(index, &hit.id, projection)? {
+                Some(document) => document,
                 None => continue,
             },
         };

@@ -44,6 +44,7 @@ pub(crate) struct IndexMetadata {
     pub(crate) track_positions: Option<bool>,
     pub(crate) text_storage: Option<String>,
     pub(crate) strict: Option<bool>,
+    pub(crate) return_vectors: Option<bool>,
     pub(crate) required: Option<Vec<String>>,
     pub(crate) vector_promotion: Option<VectorPromotion>,
     pub(crate) pattern_value_limit: Option<u64>,
@@ -84,6 +85,7 @@ impl IndexMetadata {
             track_positions: None,
             text_storage: None,
             strict: None,
+            return_vectors: None,
             required: None,
             vector_promotion: None,
             pattern_value_limit: None,
@@ -152,6 +154,7 @@ pub(crate) fn metadata_from_wire(raw: &Map) -> Result<IndexMetadata> {
         }
     }
     meta.strict = flag(raw, "strict");
+    meta.return_vectors = flag(raw, "return_vectors");
     meta.required = string_list(raw.get("required"));
     meta.vector_promotion = promotion_from_wire(raw.get("vector_promotion"))?;
     if let Some(limit) = raw.get("pattern_value_limit") {
@@ -240,6 +243,9 @@ pub(crate) fn metadata_to_wire(meta: &IndexMetadata) -> Map {
     }
     if let Some(strict) = meta.strict {
         wire.insert("strict", Value::Bool(strict));
+    }
+    if let Some(return_vectors) = meta.return_vectors {
+        wire.insert("return_vectors", Value::Bool(return_vectors));
     }
     if let Some(required) = &meta.required {
         wire.insert(

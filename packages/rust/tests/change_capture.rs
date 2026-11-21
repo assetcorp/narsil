@@ -265,7 +265,7 @@ fn only_an_index_that_records_previous_documents_writes_the_new_log_framing() {
     );
     for (id, wanted) in &oracle.documents {
         let held = narsil
-            .get(INDEX, id)
+            .get_with(INDEX, id, Some(&support::WHOLE_DOCUMENT))
             .expect("the read answers")
             .expect("the document survives");
         assert_eq!(
