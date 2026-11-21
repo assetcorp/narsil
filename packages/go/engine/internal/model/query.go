@@ -76,6 +76,7 @@ type DocumentProjection struct {
 	kind    DocumentProjectionKind
 	include Optional[[]string]
 	exclude []string
+	vectors Optional[bool]
 }
 
 func NoDocumentFields() DocumentProjection {
@@ -95,7 +96,16 @@ func (p DocumentProjection) Excluding(fields ...string) DocumentProjection {
 		return p
 	}
 	excluded := append(append([]string{}, p.exclude...), fields...)
-	return DocumentProjection{kind: ProjectSelectedFields, include: p.include, exclude: excluded}
+	return DocumentProjection{kind: ProjectSelectedFields, include: p.include, exclude: excluded, vectors: p.vectors}
+}
+
+func (p DocumentProjection) WithVectors(returned bool) DocumentProjection {
+	p.vectors = Some(returned)
+	return p
+}
+
+func (p DocumentProjection) Vectors() (bool, bool) {
+	return p.vectors.Get()
 }
 
 func (p DocumentProjection) Kind() DocumentProjectionKind {

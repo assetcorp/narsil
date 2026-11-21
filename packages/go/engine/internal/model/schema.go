@@ -191,6 +191,7 @@ type IndexConfig struct {
 	TextStorage       TextStorage
 	VectorPromotion   *VectorIndexConfig
 	Strict            bool
+	ReturnVectors     bool
 	Embedding         *EmbeddingFieldConfig
 	Required          []string
 	SurfaceForms      Optional[bool]

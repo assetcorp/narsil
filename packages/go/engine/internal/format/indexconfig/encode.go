@@ -30,6 +30,7 @@ func (config Configuration) Value() codec.OrderedMap {
 	is.PutOptional(&entries, "trackPositions", config.TrackPositions, is.Flag)
 	is.PutOptional(&entries, "textStorage", config.TextStorage, is.Text)
 	is.PutOptional(&entries, "strict", config.Strict, is.Flag)
+	is.PutOptional(&entries, "returnVectors", config.ReturnVectors, is.Flag)
 	is.PutOptional(&entries, "required", config.Required, is.Texts)
 	if config.VectorPromotion != nil {
 		is.Put(&entries, "vectorPromotion", config.VectorPromotion.Value(is.Camel))
