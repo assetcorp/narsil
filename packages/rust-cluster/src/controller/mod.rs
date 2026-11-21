@@ -106,7 +106,9 @@ impl Inner {
 
     fn report(&self, index_name: &str, error: &ClusterError) {
         if let Some(on_error) = &self.config.on_error {
-            on_error(index_name, error);
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                on_error(index_name, error);
+            }));
         }
     }
 
