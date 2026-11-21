@@ -197,6 +197,7 @@ NodeRegistration {
   }
   startedAt: string          (ISO 8601 timestamp)
   version:   string          (specification version, such as '1.2')
+  metadata:  Map<string, string> or absent   (labels, such as the zone that zone-aware allocation reads)
   memory: {
     processBytes:      uint64
     processLimitBytes: uint64
@@ -216,7 +217,7 @@ IndexPartitionBytes {
 
 ### nodeId
 
-A unique identifier, recommended as a time-ordered UUID v7. A node with a durability directory must generate its `nodeId` once, store it in that directory, and reuse it on every later start, so that the controller recognises the node's copies after a restart. A node without a durability directory must generate a new `nodeId` on every start. A node must wait for the lease of a live registration under its `nodeId` to expire before it registers.
+A unique identifier, recommended as a time-ordered UUID v7. A `nodeId` must hold 1 to 255 characters and must not contain `/`, `\`, `..`, or U+0000, because a coordinator writes it into its keys, and a coordinator must refuse any other `nodeId` with `CONFIG_INVALID`. A node with a durability directory must generate its `nodeId` once, store it in that directory, and reuse it on every later start, so that the controller recognises the node's copies after a restart. A node without a durability directory must generate a new `nodeId` on every start. A node must wait for the lease of a live registration under its `nodeId` to expire before it registers.
 
 ### address
 
@@ -236,7 +237,7 @@ The ISO 8601 timestamp of when the node started. It serves diagnostics, and it b
 
 ### version
 
-The specification version the node follows, which is 1.5 for this specification. A node must register the version that it follows, because a minor version can add a capability that a coordinator has to check before it sends a query, as [Phrase Queries](query-routing.md#phrase-queries) and [BM25 Parameters](query-routing.md#bm25-parameters) do. Nodes on incompatible versions must not share a cluster, so the controller places no partition on a node whose major version differs from its own, and it treats a version that it cannot parse as a different major version. The controller must also place no partition of an index with [previousDocument](../changes.md#previous-document) on, or of a generation that it builds for such an index, on a node whose version lies below 1.5, because such a node computes the [checksum](replication.md#checksum) of every entry over seven fields. A node that finds an active controller on a different major version as it joins must fail its start with `NODE_VERSION_INCOMPATIBLE`. A node that finds no active controller joins, and the controller that a later election chooses keeps it out of allocation where the major versions differ.
+The specification version the node follows, which is 1.5 for this specification. A version must match `^[0-9]+\.[0-9]+$`, a major number and a minor number that compare as integers, and a node must register the version that it follows, because a minor version can add a capability that a coordinator has to check before it sends a query, as [Phrase Queries](query-routing.md#phrase-queries) and [BM25 Parameters](query-routing.md#bm25-parameters) do. Nodes on incompatible versions must not share a cluster, so the controller places no partition on a node whose major version differs from its own, and it treats a version that it cannot parse as a different major version. The controller must also place no partition of an index with [previousDocument](../changes.md#previous-document) on, or of a generation that it builds for such an index, on a node whose version lies below 1.5, because such a node computes the [checksum](replication.md#checksum) of every entry over seven fields. A node that finds an active controller on a different major version as it joins must fail its start with `NODE_VERSION_INCOMPATIBLE`. A node that finds no active controller joins, and the controller that a later election chooses keeps it out of allocation where the major versions differ.
 
 ### memory
 
@@ -596,8 +597,8 @@ The allocator must satisfy five constraints:
 ```text
 AllocationConstraints {
   zoneAwareness:    boolean          (default false)
-  zoneAttribute:    string           (the capacity key naming the zone, default 'zone')
-  maxShardsPerNode: uint32 or absent (an optional upper bound)
+  zoneAttribute:    string           (the key of the registration's metadata that holds the zone, default 'zone')
+  maxShardsPerNode: uint32 or absent (an optional upper bound of at least 1)
 }
 ```
 
@@ -614,6 +615,7 @@ The node that creates an index in cluster mode stores the index metadata in the 
 ```text
 IndexMetadata {
   indexUuid:         string          (unique identifier, such as a UUID v7)
+  indexName:         string          (the name under which the creating node stored this record)
   partitionCount:    uint32
   replicationFactor: uint8
   constraints:       AllocationConstraints
@@ -633,6 +635,7 @@ IndexSettings {
   surfaceForms:      boolean                      (a reader treats an absent value as true)
   defaultScoring:    string                       (optional; "local", "dfs", or "broadcast")
   trackPositions:    boolean                      (optional)
+  textStorage:       string                       (optional; "memory" or "disk", and an absent value means "memory")
   strict:            boolean                      (optional)
   returnVectors:     boolean                      (optional; whether a read returns vector fields by default, false where absent)
   required:          List<string>                 (optional; field paths every document must supply)
@@ -681,7 +684,7 @@ AnalysisFailure {
 }
 ```
 
-Every other write of the index metadata must keep `pendingAnalysis`, `analysisFailure`, `sync`, `syncActive`, `syncEpoch`, `changes`, `querySuggestions`, `bannedQueries`, and `querySuggestionsSource` unchanged.
+Every other write of the index metadata must keep `pendingAnalysis`, `analysisFailure`, `sync`, `syncActive`, `syncEpoch`, `changes`, `querySuggestions`, `bannedQueries`, and `querySuggestionsSource` unchanged. A node that rewrites the record must also keep every key of the record and of `settings` that it does not recognise, so that a node on an earlier specification version never drops a setting that a later version wrote. A drop clears the record by writing a zero-length value, which every reader must treat as an absent record.
 
 The creating node generates the `indexUuid`, which identifies the index for as long as the index exists. When a node creates an index under the name of a dropped one, it generates a new `indexUuid`, so the two indexes stay distinct although they share a name. A node must compare the value with the one that it persisted before it adopts a local copy; see [Joining the Cluster](#joining-the-cluster).
 
@@ -702,7 +705,7 @@ _narsil/index/{indexName}/config
 
 ### Synonym Set Storage
 
-The encoded set is the MessagePack encoding of the `List<SynonymRule>` that the caller wrote, as [Synonyms](../algorithms.md#synonyms) defines. A node must split the encoded set, in order, into chunks of at most 1,048,576 bytes, so that each write stays inside the request size that etcd accepts by default. It must store chunk `i` under `_narsil/synonyms/{indexUuid}/{generation}/{i}` with `compareAndSet(key, absent, chunk)`, so that no writer can change a stored chunk. Every stored copy takes a fresh `generation`, so that a node that deletes a replaced copy can never delete a copy that another node stored.
+The encoded set is the MessagePack encoding of the `List<SynonymRule>` that the caller wrote, as [Synonyms](../algorithms.md#synonyms) defines. A node must split the encoded set, in order, into chunks of 1,048,576 bytes, so that each write stays inside the request size that etcd accepts by default. Every chunk but the last must hold exactly 1,048,576 bytes, because a reader must refuse a reference whose `chunkCount` differs from `byteLength` divided by 1,048,576 and rounded up. It must store chunk `i` under `_narsil/synonyms/{indexUuid}/{generation}/{i}` with `compareAndSet(key, absent, chunk)`, so that no writer can change a stored chunk. Every stored copy takes a fresh `generation`, so that a node that deletes a replaced copy can never delete a copy that another node stored.
 
 A node that reads the set must join the chunks in order. Where a chunk is absent, the node must read the index metadata again, because a replacement can delete the chunks of the copy that the node read first. It must raise `CONTROLLER_METADATA_INVALID` where the metadata still references that generation, where the joined bytes disagree with `byteLength` or `digest`, or where the set breaks the shape or the limits in [Synonyms](../algorithms.md#synonyms), as it rejects any other malformed key of `settings`.
 
@@ -806,9 +809,14 @@ A caller rebuilds the terms of a cluster index through any node, which sends [cl
    For an index with sync or change capture on, that compareAndSet
    also writes a new syncEpoch and clears syncActive.
 
-5. Where a node refuses for memory or for a name with no registration,
-   the controller writes no pendingAnalysis and an analysisFailure
-   with one compareAndSet, and every node drops its new terms.
+5. Where a node refuses with ANALYSIS_REBUILD_MEMORY_EXCEEDED,
+   LANGUAGE_NOT_SUPPORTED, or CONFIG_INVALID, the controller writes no
+   pendingAnalysis and an analysisFailure with one compareAndSet, and
+   every node drops its new terms. The controller sends the request
+   again after any other refusal, so a node must refuse with one of
+   those three codes a change that it can never build, and it must
+   refuse with ANALYSIS_CHANGE_REPLACED a generation that differs from
+   the pending one.
 
 6. A node switches when its watch delivers the new generation, or
    earlier when a query asks for a generation that it has finished
@@ -835,8 +843,9 @@ A caller changes the `partitionCount` of an index by sending [cluster.rebalance]
 ```text
 1. The controller records the change under
    _narsil/index/{indexName}/rebalance with compareAndSet against
-   an absent value, so that a second change to the same index fails
-   with PARTITION_REBALANCING_BACKPRESSURE while the first one runs.
+   the value that it read, which must be absent or empty, so that a
+   second change to the same index fails with
+   PARTITION_REBALANCING_BACKPRESSURE while the first one runs.
 2. It creates the generation as an ordinary index named
    narsil-generation-{indexUuid}, with a fresh indexUuid, the stored
    schema and settings, the new partitionCount, and the current
@@ -848,23 +857,23 @@ A caller changes the `partitionCount` of an index by sending [cluster.rebalance]
 3. Once every partition of the generation is ACTIVE, the controller
    sends cluster.reshard_start to the primary of each partition of
    the current generation. That primary takes a snapshot of its
-   partition at its last sequence number S, records S under
+   partition at its forwardable end S, records S under
    _narsil/index/{indexName}/rebalance/{partitionId}, and sends
    every document in the snapshot through cluster.reshard_forward,
    routed by the new partitionCount.
 4. The primary then reads its replication log from S + 1 in
-   sequence order and forwards each entry as the full document that
-   the entry left, or as a removal. After each batch that the
-   generation acknowledges, it records the highest forwarded
-   sequence number under the same key, together with the last
-   sequence number in its log at that moment.
+   sequence order and forwards each entry up to its forwardable end
+   as the full document that the entry left, or as a removal. After
+   each batch that the generation acknowledges, it records the
+   highest forwarded sequence number under the same key, together
+   with its forwardable end at that moment as sourceLastSeqNo.
 5. Once the recorded forwarded sequence number of every partition
    is within 1,000 entries of its recorded last sequence number, the controller sets the phase of the
    record to cutover and sends cluster.reshard_cutover with block to
    each primary of the current generation. Each of those primaries
    refuses every new write with PARTITION_REBALANCING_BACKPRESSURE,
    waits for the writes that it has already accepted, and answers
-   with its last sequence number.
+   with its forwardable end.
 6. Once each recorded forwarded sequence number reaches the one
    that its primary answered, the controller, for an index with sync
    or change capture on, writes a new syncEpoch and clears syncActive
@@ -875,7 +884,7 @@ A caller changes the `partitionCount` of an index by sending [cluster.rebalance]
    every read and write onto the generation.
 7. The current generation then goes through the deletion flow. The
    controller keeps the schema and the index metadata stored under
-   the index name, so that the name stays taken, and it deletes the
+   the index name, so that the name stays taken, and it clears the
    record.
 ```
 
@@ -886,7 +895,7 @@ Six rules keep the copy exact through faults:
 - When the controller promotes a new primary for a partition of the current generation, it sends cluster.reshard_start to that primary, which resumes after the recorded sequence number. Where the log of that primary no longer holds the next entry, the primary sends cluster.reshard_purge to every primary of the generation, which removes every document that routes to that partition under the current `partitionCount`, and it restarts from a new snapshot once they all answer, so that no document that a removal deleted in the gap survives.
 - A primary of the current generation keeps refusing writes with `PARTITION_REBALANCING_BACKPRESSURE` from the cutover block until its copy is dropped, and a primary that the controller promotes while the phase is `cutover` must refuse writes in the same way, so that a router with a stale table retries until its allocation watch delivers the swap.
 - Where the catch-up in step 6 takes longer than 10,000 ms, the controller sends cluster.reshard_cutover with lift, sets the phase back to `copying`, and tries again. After 10 cutover attempts, it aborts the change.
-- An abort, and any failure before the swap, sets the phase to `aborting`, drops the generation through the deletion flow, deletes the record, and lifts the block, so the current generation keeps serving. A newly elected controller reads the record and resumes: in the `copying` phase it sends cluster.reshard_start again, in the `cutover` phase it sends lift and returns to `copying`, and in the `aborting` phase it finishes the drop.
+- An abort, and any failure before the swap, sets the phase to `aborting`, drops the generation through the deletion flow, clears the record, and lifts the block, so the current generation keeps serving. A newly elected controller reads the record and resumes: in the `copying` phase it sends cluster.reshard_start again, in the `cutover` phase it sends lift and returns to `copying`, and in the `aborting` phase it finishes the drop.
 
 The controller stores the record and each partition's progress as MessagePack in the coordinator's general key-value store:
 
@@ -907,13 +916,13 @@ RebalanceProgress {
   primaryTerm:    uint64   (the term of the primary that wrote this record)
   snapshotSeqNo:  uint64
   forwardedSeqNo: uint64
-  sourceLastSeqNo: uint64  (the last sequence number in the primary's log when it wrote this record)
+  sourceLastSeqNo: uint64  (the primary's forwardable end when it wrote this record)
 }
 ```
 
-The controller creates the record with compareAndSet against an absent value and deletes it, with every progress key, once the swap or the abort finishes. The primary of each partition writes its progress key with compareAndSet. The generation keeps its own config, schema, and allocation keys under its own name.
+A primary's forwardable end is its partition's commit point, extended over each following entry in its log whose `primaryTerm` is below the primary's current term, so that the copy never holds an entry that a failover can roll back. A zero-length value under either key means that the key holds no record. The controller creates the record with compareAndSet against the value that it read, and once the swap or the abort finishes it clears the record and every progress key by compareAndSet to a zero-length value, because `delete` carries no comparison. The primary of each partition writes its progress key with compareAndSet. The generation keeps its own config, schema, and allocation keys under its own name.
 
-The node that received the call waits until the allocation table of the index name carries the generation that the record names, and it fails the call with `ALLOCATION_FAILED` where the record is deleted first. A node must refuse to create an index whose name starts with `narsil-generation-` through any operation that a caller can reach, failing with `CONFIG_INVALID`.
+The node that received the call waits until the allocation table of the index name carries the generation that the record names, and it fails the call with `ALLOCATION_FAILED` where the record is cleared first. A node must refuse to create an index whose name starts with `narsil-generation-` through any operation that a caller can reach, failing with `CONFIG_INVALID`.
 
 ### Index Deletion Flow
 
@@ -980,7 +989,9 @@ A drop is not atomic across nodes: a query routed while the teardown runs can re
 1. The node that receives the replace request:
    a. raises CONFIG_INVALID for a set that breaks Synonyms in
       algorithms.md, analysing each word with the index's analysis
-   b. reads the metadata with get('_narsil/index/{indexName}/config'),
+   b. reads the metadata of the generation that serves the index,
+      whose name is servingName, with
+      get('_narsil/index/{servingName}/config'),
       and raises INDEX_NOT_FOUND where the value is absent, empty,
       or holds another indexUuid, after it deletes any chunks that
       it stored in step c
@@ -988,14 +999,15 @@ A drop is not atomic across nodes: a query routed while the teardown runs can re
       once for the whole request
    d. writes the metadata, with settings.synonyms set to the new
       reference or left out for an empty set, through
-      compareAndSet('_narsil/index/{indexName}/config', current, bytes)
+      compareAndSet('_narsil/index/{servingName}/config', current, bytes)
    e. returns to step b when that compareAndSet fails, until its
       retry budget runs out, and then deletes its chunks and raises
       CLUSTER_WRITE_BLOCKED with the reason settings_contention
    f. deletes each chunk of the generation that the replaced
       metadata referenced, once the compareAndSet succeeds
-   g. sends cluster.index_settings to every node that the allocation
-      table assigns a partition of the index, and returns once each
+   g. sends cluster.index_settings with servingName to every node
+      that the allocation table of servingName assigns a partition,
+      and returns once each
       of them answers; a node that gives no answer within the
       transport timeout makes the request fail with
       QUERY_NODE_TIMEOUT, while the stored set stays in place
@@ -1140,6 +1152,29 @@ A node that deregisters without draining first counts as a failed node, so the c
 | EtcdCoordinator | etcd v3 | Production. It uses etcd leases for node heartbeats, the key-value store for allocation tables, and watches for change notification. |
 | InMemoryCoordinator | An in-process map | Testing and single-process development, with no external infrastructure. |
 | KubernetesCoordinator | The Kubernetes API | Kubernetes-native deployments. It uses Lease objects for elections, ConfigMaps or custom resources for allocation tables, and the watch API for change notification. |
+
+### etcd Layout
+
+Every `EtcdCoordinator` must store each record under the key and in the encoding below, so that nodes in any language can share one etcd cluster. `{prefix}` is the coordinator's configured key prefix, `_narsil` by default, and a key joins its segments with `/`.
+
+| Record | etcd key | Value |
+|--------|----------|-------|
+| Node registration | `{prefix}/nodes/{nodeId}` | The MessagePack `NodeRegistration`, under the node's lease |
+| Node start time | `{prefix}/node-started-at/{nodeId}` | `startedAt` as UTF-8 text, under the same lease |
+| Allocation table | `{prefix}/allocation/{indexName}` | The MessagePack `AllocationTable`, with `assignments` encoded as a list of `[partitionId, PartitionAssignment]` pairs |
+| Partition state | `{prefix}/partition/{indexName}/{partitionId}` | The `PartitionState` name as UTF-8 text |
+| Schema | `{prefix}/schema/{indexName}` | The MessagePack map of the schema as the caller wrote it, with a nested map for each nested field |
+| Lease | `{prefix}/lease/{key}` | The holder's `nodeId` as UTF-8 text, under an etcd lease |
+| General key-value store | `{prefix}/kv/{key}` | The bytes that the caller wrote |
+
+`{key}` is the key that the caller passes, so the controller lease `_narsil/controller` is stored at `_narsil/lease/_narsil/controller` under the default prefix, and the index metadata `_narsil/index/{indexName}/config` at `_narsil/kv/_narsil/index/{indexName}/config`. The values that the table gives as UTF-8 text are the exceptions to the MessagePack rule of [Community Adapter Guidelines](#community-adapter-guidelines). An etcd coordinator must also follow these rules:
+
+- `registerNode` must write the registration and the start time in one transaction, under one lease of `nodeHeartbeatTtlSeconds`, and `deregisterNode` must delete both keys in one transaction.
+- `acquireLease` must grant an etcd lease of `ttlMs` rounded up to whole seconds, with a minimum of 1 second, and write the holder in a transaction that requires the key to be absent. It must return true where that transaction fails because the key already holds the caller's `nodeId`, and `releaseLease` must revoke the lease.
+- `compareAndSet` with `expected` absent must require the key's create revision to be 0, and otherwise it must require the stored value to equal `expected` byte for byte.
+- A guarded `putAllocation` must commit in one transaction that requires the allocation key to be absent where `expectedVersion` is absent, or to hold the mod revision of the table that it read and found at `expectedVersion`. The same transaction must require the controller lease key to hold `writerNodeId`, and with a `replicaRegistration` it must require the replica's registration key to exist and its start time key to hold `startedAt`.
+- `getPartitionState` must return `UNASSIGNED` for an absent key.
+- `watchNodes`, `watchAllocation`, and `watchSchemas` must watch the prefixes `{prefix}/nodes/`, `{prefix}/allocation/`, and `{prefix}/schema/`, and `watchIndexMetadata` must watch `{prefix}/kv/_narsil/index/` and report only the keys that end in `/config`.
 
 ### Community Adapter Guidelines
 

@@ -20,7 +20,7 @@ export function readRestorePlacement(request: Record<string, unknown>): RestoreP
   if (constraints !== undefined && constraints !== null) {
     const read = readAllocationConstraints(constraints)
     if (read === null) {
-      return '"constraints" must hold "zoneAwareness" as a boolean, "zoneAttribute" as a non-empty string, and "maxShardsPerNode" as a positive integer or null'
+      return '"constraints" must hold "zoneAwareness" as a boolean, "zoneAttribute" as a non-empty string, and "maxShardsPerNode" as a positive integer, or leave any of them out'
     }
     placement.constraints = read
   }

@@ -1,5 +1,4 @@
 import { ErrorCodes, NarsilError } from '../../../errors'
-import { decode } from '../../../serialization/msgpack'
 import type { BatchResult } from '../../../types/results'
 import type { AnyDocument, InsertOptions } from '../../../types/schema'
 import type { PartitionAssignment } from '../../coordinator/types'
@@ -10,6 +9,7 @@ import { markAbandoned, previousRecordOf } from './abandoned-write'
 import { assertSufficientActiveReplicas, resolvePrimaryAssignment } from './assignment'
 import { type AppendedWrite, asWriteError, createGroupCommit, replicateAppendedWrites } from './batch-commit'
 import { compensateInsert, compensateRemove, compensateUpdate, throwWriteFailure } from './failures'
+import { decodeForwardedDocument } from './forwarded-document'
 import { inLeadingPartitionQueue } from './leading-queue'
 import {
   appendDeletion,
@@ -316,9 +316,9 @@ async function applyAdmittedForwardedWrite(payload: ForwardPayload, deps: WriteR
 
   if (payload.operation === 'insert') {
     if (payload.document === null) {
-      throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'Invalid ForwardPayload: insert requires a document')
+      throw new NarsilError(ErrorCodes.REPLICATION_ENTRY_INVALID, 'Invalid ForwardPayload: insert requires a document')
     }
-    const document = decode(payload.document) as AnyDocument
+    const document = decodeForwardedDocument(payload.document, payload.documentId)
     return applyPrimaryInsert(
       payload.indexName,
       document,
@@ -368,11 +368,11 @@ export async function resolveForwardedUpdateDocument(
   deps: WriteRoutingDeps,
 ): Promise<AnyDocument> {
   if (document !== null) {
-    return decode(document) as AnyDocument
+    return decodeForwardedDocument(document, documentId)
   }
   if (updateFields === null) {
     throw new NarsilError(
-      ErrorCodes.CONFIG_INVALID,
+      ErrorCodes.REPLICATION_ENTRY_INVALID,
       'Invalid ForwardPayload: update requires a document or updateFields',
     )
   }

@@ -33,7 +33,8 @@ export function validatePartitionStoresResultPayload(decoded: unknown): Partitio
   if (typeof decoded.indexName !== 'string' || decoded.indexName.length === 0) {
     return null
   }
-  if (decoded.indexUuid !== null && typeof decoded.indexUuid !== 'string') {
+  const indexUuid = decoded.indexUuid ?? null
+  if (indexUuid !== null && typeof indexUuid !== 'string') {
     return null
   }
   if (!Array.isArray(decoded.partitionIds)) {
@@ -46,7 +47,7 @@ export function validatePartitionStoresResultPayload(decoded: unknown): Partitio
     }
     partitionIds.push(partitionId)
   }
-  return { indexName: decoded.indexName, indexUuid: decoded.indexUuid, partitionIds }
+  return { indexName: decoded.indexName, indexUuid, partitionIds }
 }
 
 /**

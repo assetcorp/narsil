@@ -6,7 +6,7 @@ A cluster can back up an index to a store outside the cluster through a [Persist
 
 ## Store Layout
 
-The operator gives each cluster a key prefix of one or more segments joined by `/`, where each segment holds letters, digits, `.`, `_`, and `-`, and where no segment is `.` or `..`. A node must refuse any other prefix with `CONFIG_INVALID` when it starts. Every key that a cluster writes to the store begins with its prefix:
+The operator gives each cluster a key prefix of at most 512 characters, in one or more segments joined by `/`, where each segment holds letters, digits, `.`, `_`, and `-`, and where no segment is `.` or `..`. A node must refuse any other prefix with `CONFIG_INVALID` when it starts. Every key that a cluster writes to the store begins with its prefix:
 
 | Key | Content |
 |-----|---------|
@@ -16,11 +16,11 @@ The operator gives each cluster a key prefix of one or more segments joined by `
 
 A backup name holds 1 to 128 characters, where the first is a letter or a digit and the rest are letters, digits, `.`, `_`, and `-`. A node must refuse any other name with `CONFIG_INVALID` before it calls the adapter, so that no name can reach a key outside the prefix.
 
-The controller creates the cluster's UUID the first time that the cluster takes a backup, as a UUID v4 under the coordinator key `_narsil/cluster/uuid`, with compareAndSet against an absent value, and nothing ever changes it.
+The controller creates the cluster's UUID the first time that the cluster takes a backup, as the UTF-8 text of a UUID v4 under the coordinator key `_narsil/cluster/uuid`, with compareAndSet against an absent value, and nothing ever changes it.
 
 ### The Claim
 
-Two clusters that write under one prefix can delete each other's files, so each cluster claims its prefix. Before a backup starts, before the controller saves a manifest, and before a deletion removes any key, the controller must read `<keyPrefix>/cluster`. Where that key holds nothing, the controller stores its own UUID there with saveIfAbsent, and where that call returns false, it reads the key again. Because a retry can return false for the controller's own write, the controller compares the value that it reads with its own UUID, and it proceeds only where the two match. Where the key holds another cluster's UUID, the controller must refuse the operation with `BACKUP_STORE_CLAIMED`. A restore and a listing read the store without this check, so that a new cluster can restore the backups of a cluster that no longer exists.
+Two clusters that write under one prefix can delete each other's files, so each cluster claims its prefix. Before a backup starts, before the controller saves a manifest, and before a deletion removes any key, the controller must read `<keyPrefix>/cluster`. Where that key holds nothing, the controller stores its own UUID there with saveIfAbsent, and where that call returns false, it reads the key again. Because a retry can return false for the controller's own write, the controller compares the value that it reads with its own UUID, and it proceeds only where the two match. Where the key holds another cluster's UUID, the controller must refuse the operation with `BACKUP_STORE_CLAIMED`, and it must count a value of more than 128 bytes, or one that is not UTF-8, as another cluster's UUID. A restore and a listing read the store without this check, so that a new cluster can restore the backups of a cluster that no longer exists.
 
 A backup store must offer saveIfAbsent, because a save followed by a read can't stop two controllers from both taking an empty claim. A node must refuse a backup store without saveIfAbsent with CONFIG_INVALID when it starts.
 
@@ -40,7 +40,7 @@ BackupManifest {
   partitionCount:    uint32
   syncEpoch:         string or absent        (the index epoch, which the controller copies from IndexSettings when the backup starts)
   takenBy:           string or absent        ("sync" where device sync started the backup, "changes" where change capture did, and absent for a caller's backup)
-  replicationFactor: uint32
+  replicationFactor: uint8
   constraints:       AllocationConstraints   (as cluster.md defines)
   config:            StoredFile              (an index configuration payload)
   queryHistory:      List<StoredFile> or absent (one history file each, as History in query-suggestions.md defines)
@@ -60,13 +60,13 @@ StoredFile {
 }
 
 ListedFile {
-  key:    string   (the file's key without its leading <indexName>/)
+  key:    string   (the file's key without its leading <indexName>/, at most 1,024 characters, in segments joined by / that each start with a letter or a digit and hold only letters, digits, ., _, and -)
   sha256: string
   bytes:  uint64
 }
 ```
 
-The bytes of a `StoredFile` or a `ListedFile` are stored under `<keyPrefix>/files/<sha256>`.
+The bytes of a `StoredFile` or a `ListedFile` are stored under `<keyPrefix>/files/<sha256>`. A manifest must list at most 1,000,000 files in each partition's `files` and at most 1,000,000 in `queryHistory`, and a reader must treat a manifest that breaks a rule of this section as damaged.
 
 A reader must raise `BACKUP_DAMAGED` for a manifest whose compression flag is 1, as it does for any manifest that fails to decode.
 
@@ -103,9 +103,16 @@ Each partition's manifest is the manifest that a [snapshot archive](../durabilit
 5. Where the controller promotes a new primary for a partition before
    that partition finishes, it sends cluster.backup_partition to the
    new primary, which starts the partition again.
-6. Once every partition has finished, the controller checks with list
-   that every file that the manifest names is stored, checks the
-   claim again, and saves the manifest.
+6. Once every partition has finished, the controller decodes the
+   index configuration payload of every partition, and it fails the
+   backup with ANALYSIS_CHANGE_NOT_READY where two of them differ in
+   a decoded value, so that two primaries that encode one
+   configuration as different bytes still agree. It stores as the
+   manifest's config the payload of the lowest partitionId, with the
+   querySuggestions, bannedQueries, and querySuggestionsSource that
+   the IndexSettings of the index name hold in place of its own. It
+   then checks with list that every file that the manifest names is
+   stored, checks the claim again, and saves the manifest.
 ```
 
 A backup holds every write that each primary acknowledged before it received `cluster.backup_partition`, because the checkpoint of step 4 follows that message. Each partition's content matches its own `lastSeqNo`, and a backup gives no single point in time across partitions.
@@ -202,7 +209,7 @@ Any node can list the backups under its cluster's prefix by reading every manife
 
 ## Jobs
 
-The controller records every backup, restore, and deletion as a job under the coordinator key `_narsil/backups/jobs`, a MessagePack map from job ID to the job, which it writes with compareAndSet:
+The controller records every backup, restore, and deletion as a job under the coordinator key `_narsil/backups/jobs`, a MessagePack map from job ID to the job, which it writes with compareAndSet. It must write a zero-length value in place of an empty map, and every reader must read a zero-length value as an empty map:
 
 ```text
 BackupJob {

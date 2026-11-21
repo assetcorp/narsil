@@ -46,6 +46,10 @@ function malformed(): never {
   )
 }
 
+function nilAsAbsent(value: unknown): unknown {
+  return value === null ? undefined : value
+}
+
 function isOptionalString(value: unknown): value is string | undefined {
   return value === undefined || typeof value === 'string'
 }
@@ -57,35 +61,39 @@ function decodeJobError(value: unknown): BackupJobError | undefined {
 }
 
 function decodeJob(value: unknown): BackupJob {
+  if (!isRecord(value)) malformed()
+  const indexName = nilAsAbsent(value.indexName)
+  const generation = nilAsAbsent(value.generation)
+  const nameIndexUuid = nilAsAbsent(value.nameIndexUuid)
+  const finishedAt = nilAsAbsent(value.finishedAt)
   if (
-    !isRecord(value) ||
     typeof value.kind !== 'string' ||
     !KINDS.has(value.kind) ||
     typeof value.backupName !== 'string' ||
-    !isOptionalString(value.indexName) ||
-    !isOptionalString(value.generation) ||
-    !isOptionalString(value.nameIndexUuid) ||
+    !isOptionalString(indexName) ||
+    !isOptionalString(generation) ||
+    !isOptionalString(nameIndexUuid) ||
     typeof value.status !== 'string' ||
     !STATUSES.has(value.status) ||
     !isCount(value.partitionsDone) ||
     !isCount(value.partitionsTotal) ||
     !isCount(value.startedAt) ||
-    !(value.finishedAt === undefined || isCount(value.finishedAt))
+    !(finishedAt === undefined || isCount(finishedAt))
   ) {
     malformed()
   }
-  const error = decodeJobError(value.error)
+  const error = decodeJobError(nilAsAbsent(value.error))
   return {
     kind: value.kind as BackupJobKind,
     backupName: value.backupName,
-    ...(value.indexName === undefined ? {} : { indexName: value.indexName }),
-    ...(value.generation === undefined ? {} : { generation: value.generation }),
-    ...(value.nameIndexUuid === undefined ? {} : { nameIndexUuid: value.nameIndexUuid }),
+    ...(indexName === undefined ? {} : { indexName }),
+    ...(generation === undefined ? {} : { generation }),
+    ...(nameIndexUuid === undefined ? {} : { nameIndexUuid }),
     status: value.status as BackupJobStatus,
     partitionsDone: value.partitionsDone,
     partitionsTotal: value.partitionsTotal,
     startedAt: value.startedAt,
-    ...(value.finishedAt === undefined ? {} : { finishedAt: value.finishedAt }),
+    ...(finishedAt === undefined ? {} : { finishedAt }),
     ...(error === undefined ? {} : { error }),
   }
 }

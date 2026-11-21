@@ -1,9 +1,9 @@
 import { encode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../../errors'
-import { decode } from '../../../serialization/msgpack'
 import { MAX_PARTITION_COUNT } from '../../constants'
 import { isRecord, isValidInteger } from '../../payload-guards'
 import { createForwardBatchResultMessage } from '../../replication/codec'
+import { decodeRequestPayload } from '../../request-decode'
 import type {
   ReshardCutoverPayload,
   ReshardCutoverResultPayload,
@@ -24,12 +24,7 @@ function invalid(what: string): NarsilError {
 }
 
 function decodedRecord(message: TransportMessage): Record<string, unknown> {
-  let decoded: unknown
-  try {
-    decoded = decode(message.payload)
-  } catch (_) {
-    decoded = null
-  }
+  const decoded = decodeRequestPayload(message.payload, message.type)
   if (!isRecord(decoded)) throw invalid('expected an object')
   return decoded
 }
