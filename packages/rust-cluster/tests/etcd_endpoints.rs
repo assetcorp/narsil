@@ -14,6 +14,9 @@ const LONGEST_CALL: Duration = Duration::from_secs(8);
 const FAILURES_THAT_OPEN_THE_BREAKER: usize = 3;
 const CALLS_BEFORE_GIVING_UP: usize = 40;
 const CALLS_WHILE_SKIPPED: usize = 20;
+const HEARTBEAT_TTL_SECONDS: u64 = 10;
+const TTLS_THE_LEASE_OUTLIVES: u64 = 2;
+const SURVIVAL_POLL: Duration = Duration::from_millis(500);
 
 fn live_endpoint() -> Option<String> {
     std::env::var(ETCD_ENDPOINT_VARIABLE)
@@ -75,7 +78,7 @@ async fn a_hung_etcd_endpoint_is_skipped_once_it_fails_three_calls() {
     let coordinator = EtcdCoordinator::connect(EtcdCoordinatorConfig {
         endpoints: vec![hung_endpoint().await, live],
         key_prefix: unique("_narsil_rust_endpoints"),
-        node_heartbeat_ttl_seconds: 10,
+        node_heartbeat_ttl_seconds: HEARTBEAT_TTL_SECONDS,
         ..EtcdCoordinatorConfig::default()
     })
     .await
@@ -110,6 +113,19 @@ async fn a_hung_etcd_endpoint_is_skipped_once_it_fails_three_calls() {
         slow_calls <= FAILURES_THAT_OPEN_THE_BREAKER,
         "{slow_calls} calls waited on the hung endpoint"
     );
+
+    let outlived =
+        Instant::now() + Duration::from_secs(HEARTBEAT_TTL_SECONDS * TTLS_THE_LEASE_OUTLIVES);
+    while Instant::now() < outlived {
+        let (ids, took) = listed_ids(&coordinator).await;
+        assert_eq!(
+            ids,
+            std::slice::from_ref(&node_id),
+            "the registration lapsed while one endpoint hung"
+        );
+        assert!(took < LONGEST_CALL, "one call waited {took:?}");
+        tokio::time::sleep(SURVIVAL_POLL).await;
+    }
 
     coordinator
         .deregister_node(&node_id)
