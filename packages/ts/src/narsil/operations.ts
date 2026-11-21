@@ -189,10 +189,15 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
       return orchestrator.awaitWrites(indexName)
     },
     async get(indexName: string, docId: string, options?: GetOptions): Promise<AnyDocument | undefined> {
-      return withOpenIndex(indexName, async () => {
-        const projection = resolveProjection(options?.document, requireIndex(indexName).config)
-        return executor.execute({ type: 'get', indexName, docId, requestId: docId, projection })
-      })
+      return withOpenIndex(indexName, () =>
+        executor.execute({
+          type: 'get',
+          indexName,
+          docId,
+          requestId: docId,
+          projection: resolveProjection(options?.document, requireIndex(indexName).config),
+        }),
+      )
     },
     async getMultiple(indexName: string, docIds: string[], options?: GetOptions): Promise<Map<string, AnyDocument>> {
       guardShutdown()

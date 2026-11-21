@@ -10,6 +10,9 @@ export type ResolvedProjection =
   | { kind: 'none' }
   | { kind: 'fields'; include: string[][] | null; exclude: string[][] }
 
+const EVERY_FIELD: ResolvedProjection = Object.freeze({ kind: 'full' })
+const NO_FIELD: ResolvedProjection = Object.freeze({ kind: 'none' })
+
 function requireFieldPathList(paths: unknown, option: 'include' | 'exclude'): void {
   if (paths === undefined) return
   if (!Array.isArray(paths)) {
@@ -172,7 +175,7 @@ export function resolveProjection(
   projection: DocumentProjection | undefined,
   index: VectorReadSettings,
 ): ResolvedProjection {
-  if (projection === false) return { kind: 'none' }
+  if (projection === false) return NO_FIELD
   const shaped = typeof projection === 'object' && projection !== null ? projection : undefined
   if (shaped !== undefined) {
     requireFieldPathList(shaped.include, 'include')
@@ -182,14 +185,14 @@ export function resolveProjection(
   const askedInclude = shaped !== undefined && Array.isArray(shaped.include) && shaped.include.length > 0
   const askedExclude = shaped !== undefined && Array.isArray(shaped.exclude) && shaped.exclude.length > 0
   const returnsEveryVector = shaped?.vectors ?? index.returnVectors === true
-  if (!askedInclude && !askedExclude && returnsEveryVector) return { kind: 'full' }
+  if (!askedInclude && !askedExclude && returnsEveryVector) return EVERY_FIELD
   const vectorFields = vectorFieldSegmentsOf(index.schema)
   const include = askedInclude ? splitPaths(shaped.include, vectorFields) : null
   const exclude = askedExclude ? splitPaths(shaped.exclude, vectorFields) : []
   for (const field of vectorFields) {
     if (!returnsVectorField(field, shaped?.vectors, include, index.returnVectors === true)) exclude.push(field)
   }
-  if (include === null && exclude.length === 0) return { kind: 'full' }
+  if (include === null && exclude.length === 0) return EVERY_FIELD
   return { kind: 'fields', include, exclude }
 }
 
