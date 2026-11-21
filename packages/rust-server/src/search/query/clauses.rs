@@ -266,11 +266,14 @@ pub(crate) fn projection(document: &Value) -> Converted<DocumentProjection> {
     match document {
         Value::Bool(true) => Ok(DocumentProjection::All),
         Value::Bool(false) => Ok(DocumentProjection::None),
-        Value::Object(fields) => Ok(DocumentProjection::Fields {
-            include: projection_paths("document.include", fields.get("include"))?,
-            exclude: projection_paths("document.exclude", fields.get("exclude"))?,
-            vectors: projection_vectors(fields.get("vectors"))?,
-        }),
+        Value::Object(fields) => {
+            let member = |key: &str| fields.get(key).filter(|given| !given.is_null());
+            Ok(DocumentProjection::Fields {
+                include: projection_paths("document.include", member("include"))?,
+                exclude: projection_paths("document.exclude", member("exclude"))?,
+                vectors: projection_vectors(member("vectors"))?,
+            })
+        }
         _ => Err(refusal(
             ErrorCode::SEARCH_INVALID_FIELD,
             "The \"document\" option takes true, false, or an object that lists field paths",

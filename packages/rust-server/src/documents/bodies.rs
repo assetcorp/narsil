@@ -109,7 +109,7 @@ pub(crate) fn multi_get_projection(body: &Value) -> Outcome<Option<DocumentProje
 
 pub(crate) fn read_projection(vectors: Option<&str>) -> Outcome<Option<DocumentProjection>> {
     let vectors = match vectors {
-        None => return Ok(None),
+        None | Some("") => return Ok(None),
         Some("true") => true,
         Some("false") => false,
         Some(other) => {
