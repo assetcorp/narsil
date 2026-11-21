@@ -30,6 +30,19 @@ pub struct WatchHandle {
     stop: watch::Sender<bool>,
 }
 
+struct WatchSlot {
+    owner: Weak<Inner>,
+    slot: u64,
+}
+
+impl Drop for WatchSlot {
+    fn drop(&mut self) {
+        if let Some(inner) = self.owner.upgrade() {
+            inner.release_watch_slot(self.slot);
+        }
+    }
+}
+
 impl WatchHandle {
     /// Ends the watch, after which its handler receives no further change.
     pub fn stop(self) {
@@ -254,25 +267,21 @@ pub(crate) async fn watch_prefix(
     inner.ensure_open()?;
     let (stop, stopped) = watch::channel(false);
     let slot = inner.claim_watch_slot(stop.clone())?;
+    let slot = WatchSlot {
+        owner: Arc::downgrade(inner),
+        slot,
+    };
     let mut state = PrefixState {
         prefix,
         mod_revisions: HashMap::new(),
         handlers,
     };
-    let start_revision = match state.list(inner, false).await {
-        Ok(revision) => revision,
-        Err(error) => {
-            inner.release_watch_slot(slot);
-            return Err(error);
-        }
-    };
+    let start_revision = state.list(inner, false).await?;
     let first = open_stream(inner, &state.prefix, start_revision).await.ok();
     let owner = Arc::downgrade(inner);
     tokio::spawn(async move {
-        follow(owner.clone(), state, first, stopped).await;
-        if let Some(inner) = owner.upgrade() {
-            inner.release_watch_slot(slot);
-        }
+        let _slot = slot;
+        follow(owner, state, first, stopped).await;
     });
     Ok(WatchHandle { stop })
 }
