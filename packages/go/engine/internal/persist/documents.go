@@ -78,8 +78,13 @@ func storedWithoutVectors(logged []byte, paths map[string]int) ([]byte, error) {
 	}
 	for _, path := range sortedKeys(paths) {
 		segments := strings.Split(path, ".")
-		if holder := nestedHolder(document, segments, false); holder != nil {
-			holder.Delete(segments[len(segments)-1])
+		holder := nestedHolder(document, segments, false)
+		if holder == nil {
+			continue
+		}
+		leaf := segments[len(segments)-1]
+		if held, present := codec.HeldValue(holder, leaf); present && held != nil {
+			holder.Delete(leaf)
 		}
 	}
 	return encodedDocument(document)
@@ -130,7 +135,7 @@ func stripVectors(document map[string]any, paths map[string]int) (map[string]any
 		}
 		leaf := segments[len(segments)-1]
 		raw, present := holder[leaf]
-		if !present {
+		if !present || raw == nil {
 			continue
 		}
 		delete(holder, leaf)

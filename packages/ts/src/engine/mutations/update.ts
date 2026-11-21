@@ -54,7 +54,8 @@ function prepareUpdatePartitionDoc(
   }
   const partitionDoc = structuredClone(source)
   for (const [fieldPath, vector] of extractedVectors) {
-    if (vector !== null || getNestedValue(partitionDoc, fieldPath) == null) deleteNestedValue(partitionDoc, fieldPath)
+    if (vector !== null || getNestedValue(partitionDoc, fieldPath) === undefined)
+      deleteNestedValue(partitionDoc, fieldPath)
   }
 
   return { partitionDoc }

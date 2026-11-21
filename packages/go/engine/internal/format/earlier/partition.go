@@ -97,7 +97,10 @@ func removeFieldAtPath(fields *codec.Document, fieldPath string) {
 		}
 		current = next
 	}
-	current.Delete(segments[len(segments)-1])
+	leaf := segments[len(segments)-1]
+	if held, present := codec.HeldValue(current, leaf); present && held != nil {
+		current.Delete(leaf)
+	}
 }
 
 func skippedValue(decoder *codec.Decoder, data []byte) ([]byte, error) {

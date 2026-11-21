@@ -158,16 +158,32 @@ describe('vector fields in read results', () => {
     expect((keptOne?.meta as Record<string, unknown>).sketch).toBeUndefined()
   })
 
-  it('refuses a vectors switch or a returnVectors setting that is not true or false', async () => {
-    const engine = await open(false)
+  it('refuses a vectors switch or a boolean index setting that is not true or false', async () => {
+    let engine = await open(true)
     await fill(engine, 'plain', {})
-    for (const returnVectors of ['true', 1, null, {}]) {
-      await expect(
-        engine.createIndex('refused', { schema: SCHEMA, returnVectors: returnVectors as unknown as boolean }),
-        String(returnVectors),
-      ).rejects.toMatchObject({ code: ErrorCodes.CONFIG_INVALID })
-      expect(engine.listIndexes().map(index => index.name)).toEqual(['plain'])
+    for (const flag of ['true', 1, null, {}]) {
+      for (const setting of ['returnVectors', 'strict', 'surfaceForms', 'trackPositions']) {
+        await expect(
+          engine.createIndex('refused', { schema: SCHEMA, [setting]: flag as unknown as boolean }),
+          `${setting} ${String(flag)}`,
+        ).rejects.toMatchObject({ code: ErrorCodes.CONFIG_INVALID })
+        expect(engine.listIndexes().map(index => index.name)).toEqual(['plain'])
+      }
     }
+    await engine.shutdown()
+    engines.splice(engines.indexOf(engine), 1)
+    engine = await open(true)
+    expect(engine.listIndexes().map(index => index.name)).toEqual(['plain'])
+    for (const projection of [5, 'all', [], ['title']]) {
+      const document = projection as unknown as DocumentProjection
+      const refused = { code: ErrorCodes.SEARCH_INVALID_FIELD }
+      const label = JSON.stringify(projection)
+      await expect(engine.query('plain', { term: 'ridge', document }), label).rejects.toMatchObject(refused)
+      await expect(engine.get('plain', TRAILS[0].id, { document }), label).rejects.toMatchObject(refused)
+      await expect(engine.getMultiple('plain', [TRAILS[0].id], { document }), label).rejects.toMatchObject(refused)
+      await expect(engine.listDocuments('plain', { document }), label).rejects.toMatchObject(refused)
+    }
+    await expectEveryRead(engine, 'plain', null as unknown as DocumentProjection, false, 'a null projection')
     for (const vectors of ['true', 1, null, [true]]) {
       const document = { vectors } as unknown as DocumentProjection
       const refused = { code: ErrorCodes.SEARCH_INVALID_FIELD }
@@ -177,6 +193,35 @@ describe('vector fields in read results', () => {
       await expect(engine.listDocuments('plain', { document })).rejects.toMatchObject(refused)
     }
   })
+
+  it('keeps a null vector field through an update, a checkpoint, a restart, a snapshot restore, and an import', async () => {
+    const stored = (id: string) => ({ id, title: `ridge ${id}`, embedding: null, meta: { sketch: null } })
+    const expectNulls = async (engine: Narsil, indexName: string, label: string): Promise<void> => {
+      for (const id of ['inserted', 'updated']) {
+        expect(await engine.get(indexName, id, { document: { vectors: true } }), `${label} ${id}`).toEqual(stored(id))
+        expect(await engine.get(indexName, id), `${label} ${id}`).toEqual({ id, title: `ridge ${id}`, meta: {} })
+      }
+    }
+    const writer = await open(true)
+    await writer.createIndex('nulls', { schema: SCHEMA })
+    await writer.insert('nulls', stored('inserted'))
+    await writer.insert('nulls', { ...stored('updated'), embedding: [0.1, 0.2, 0.3], meta: { sketch: [0.5, 0.25] } })
+    await writer.update('nulls', 'updated', stored('updated'))
+    await expectNulls(writer, 'nulls', 'written')
+    await writer.checkpoint('nulls')
+    await expectNulls(writer, 'nulls', 'checkpointed')
+    const snapshot = await bytesOf(await writer.snapshot('nulls'))
+    const exported = await bytesOf(await writer.exportDocuments('nulls'))
+    await writer.shutdown()
+    engines.splice(engines.indexOf(writer), 1)
+
+    await expectNulls(await open(true), 'nulls', 'reopened')
+    const restored = await open(false)
+    await restored.restore('nulls', snapshot)
+    await expectNulls(restored, 'nulls', 'restored')
+    expect((await restored.importDocumentExport('imported', exported)).refusedCount).toBe(0)
+    await expectNulls(restored, 'imported', 'imported')
+  }, 60_000)
 
   it('does not return vector components through include paths that enter a vector array', async () => {
     const engine = await open(false)

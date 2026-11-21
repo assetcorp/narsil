@@ -151,11 +151,20 @@ export function validatePatternValueLimit(limit: unknown): void {
   }
 }
 
-export function validateReturnVectors(returnVectors: unknown): void {
-  if (returnVectors === undefined || typeof returnVectors === 'boolean') return
-  throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'returnVectors must be true or false', {
-    returnVectors: returnVectors === null ? 'null' : typeof returnVectors,
-  })
+const BOOLEAN_ONLY_SETTINGS = ['returnVectors', 'strict', 'surfaceForms', 'trackPositions'] as const
+
+export function validateBooleanOnlySettings(
+  config: {
+    readonly [setting in (typeof BOOLEAN_ONLY_SETTINGS)[number]]?: unknown
+  },
+): void {
+  for (const setting of BOOLEAN_ONLY_SETTINGS) {
+    const given = config[setting]
+    if (given === undefined || typeof given === 'boolean') continue
+    throw new NarsilError(ErrorCodes.CONFIG_INVALID, `${setting} must be true or false`, {
+      [setting]: given === null ? 'null' : typeof given,
+    })
+  }
 }
 
 function requirePositiveSafeInteger(field: string, value: number | undefined): void {

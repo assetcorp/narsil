@@ -33,7 +33,7 @@ export function dropStoredVectorValues(
 
 function removeFieldAtPath(fields: Record<string, unknown>, fieldPath: string): void {
   if (!fieldPath.includes('.')) {
-    delete fields[fieldPath]
+    if (fields[fieldPath] !== null) delete fields[fieldPath]
     return
   }
 
@@ -46,5 +46,6 @@ function removeFieldAtPath(fields: Record<string, unknown>, fieldPath: string): 
     }
     current = next as Record<string, unknown>
   }
-  delete current[segments[segments.length - 1]]
+  const leaf = segments[segments.length - 1]
+  if (current[leaf] !== null) delete current[leaf]
 }

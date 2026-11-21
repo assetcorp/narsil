@@ -9,18 +9,18 @@ import (
 
 func (entry *indexEntry) attachHitVectors(ctx context.Context, result *model.QueryResult,
 	requested model.DocumentProjection) error {
-	shown := entry.shownVectorFields(requested)
-	if len(shown) == 0 {
+	vectorFields := entry.vectorFieldsOf(requested)
+	if vectorFields.none() {
 		return nil
 	}
 	for _, hit := range result.Hits {
-		if err := entry.attachVectorsUnder(ctx, hit.Document, hit.ID, shown); err != nil {
+		if err := entry.attachVectorsUnder(ctx, hit.Document, hit.ID, vectorFields); err != nil {
 			return err
 		}
 	}
 	for _, group := range result.Groups {
 		for _, hit := range group.Hits {
-			if err := entry.attachVectorsUnder(ctx, hit.Document, hit.ID, shown); err != nil {
+			if err := entry.attachVectorsUnder(ctx, hit.Document, hit.ID, vectorFields); err != nil {
 				return err
 			}
 		}

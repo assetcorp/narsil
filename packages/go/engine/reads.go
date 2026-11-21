@@ -2,32 +2,60 @@ package engine
 
 import (
 	"context"
+	"slices"
 	"strconv"
 
+	"github.com/assetcorp/narsil/packages/go/engine/internal/codec"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/projection"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/narsilerr"
 )
 
-func (entry *indexEntry) shownVectorFields(requested model.DocumentProjection) []string {
+type vectorFieldChoice struct {
+	shown  []string
+	hidden []string
+}
+
+func (choice vectorFieldChoice) none() bool {
+	return len(choice.shown) == 0 && len(choice.hidden) == 0
+}
+
+func (entry *indexEntry) vectorFieldsOf(requested model.DocumentProjection) vectorFieldChoice {
 	if len(entry.vectorPaths) == 0 {
-		return nil
+		return vectorFieldChoice{}
 	}
-	return projection.Resolve(requested).ShownVectorFields(entry.vectorPaths, entry.config.ReturnVectors)
+	shown := projection.Resolve(requested).ShownVectorFields(entry.vectorPaths, entry.config.ReturnVectors)
+	switch len(shown) {
+	case 0:
+		return vectorFieldChoice{hidden: entry.vectorPaths}
+	case len(entry.vectorPaths):
+		return vectorFieldChoice{shown: shown}
+	}
+	hidden := make([]string, 0, len(entry.vectorPaths)-len(shown))
+	for _, path := range entry.vectorPaths {
+		if !slices.Contains(shown, path) {
+			hidden = append(hidden, path)
+		}
+	}
+	return vectorFieldChoice{shown: shown, hidden: hidden}
 }
 
 func (entry *indexEntry) attachVectorsUnder(ctx context.Context, document *model.Document, id string,
-	shownVectorFields []string) error {
-	if len(shownVectorFields) == 0 || document == nil {
+	vectorFields vectorFieldChoice) error {
+	if document == nil {
 		return nil
 	}
-	return projection.CopyVectorsInto(document, shownVectorFields, func(path string) ([]float32, bool, error) {
+	codec.LeaveOutNullsAt(document, vectorFields.hidden)
+	if len(vectorFields.shown) == 0 {
+		return nil
+	}
+	return projection.CopyVectorsInto(document, vectorFields.shown, func(path string) ([]float32, bool, error) {
 		return entry.handle.Vectors[path].GetVectorUnder(ctx, id)
 	})
 }
 
 func (entry *indexEntry) storedDocument(ctx context.Context, id string, requested model.DocumentProjection,
-	shownVectorFields []string) (*model.Document, bool, error) {
+	vectorFields vectorFieldChoice) (*model.Document, bool, error) {
 	ix := entry.index()
 	pinned, unpin, err := ix.Pin(ctx)
 	if err != nil {
@@ -38,14 +66,14 @@ func (entry *indexEntry) storedDocument(ctx context.Context, id string, requeste
 	if err != nil || !found {
 		return nil, false, err
 	}
-	if err := entry.attachVectorsUnder(pinned, document, id, shownVectorFields); err != nil {
+	if err := entry.attachVectorsUnder(pinned, document, id, vectorFields); err != nil {
 		return nil, false, err
 	}
 	return document, true, nil
 }
 
 func (entry *indexEntry) wholeStoredDocument(ctx context.Context, id string) (*model.Document, bool, error) {
-	return entry.storedDocument(ctx, id, model.DocumentProjection{}, entry.vectorPaths)
+	return entry.storedDocument(ctx, id, model.DocumentProjection{}, vectorFieldChoice{shown: entry.vectorPaths})
 }
 
 func singleProjection(projections []model.DocumentProjection) (model.DocumentProjection, error) {
@@ -85,7 +113,7 @@ func (n *Narsil) Get(ctx context.Context, indexName string, docID string, projec
 	if err := ctx.Err(); err != nil {
 		return nil, false, err
 	}
-	return entry.storedDocument(ctx, docID, requested, entry.shownVectorFields(requested))
+	return entry.storedDocument(ctx, docID, requested, entry.vectorFieldsOf(requested))
 }
 
 // GetMultiple returns each stored document among docIDs as Get returns it
@@ -107,13 +135,13 @@ func (n *Narsil) GetMultiple(ctx context.Context, indexName string, docIDs []str
 		return nil, err
 	}
 	defer unpin()
-	shown := entry.shownVectorFields(requested)
+	vectorFields := entry.vectorFieldsOf(requested)
 	found := make(map[string]*model.Document, len(docIDs))
 	for _, id := range docIDs {
 		if err := pinned.Err(); err != nil {
 			return nil, err
 		}
-		document, held, err := entry.storedDocument(pinned, id, requested, shown)
+		document, held, err := entry.storedDocument(pinned, id, requested, vectorFields)
 		if err != nil {
 			return nil, err
 		}
@@ -169,12 +197,12 @@ func (n *Narsil) ListDocuments(ctx context.Context, indexName string, params Lis
 	if err != nil {
 		return model.ListResult{}, err
 	}
-	shown := entry.shownVectorFields(params.Document)
-	if len(shown) == 0 {
+	vectorFields := entry.vectorFieldsOf(params.Document)
+	if vectorFields.none() {
 		return result, nil
 	}
 	for _, listed := range result.Documents {
-		if err := entry.attachVectorsUnder(pinned, listed.Document, listed.ID, shown); err != nil {
+		if err := entry.attachVectorsUnder(pinned, listed.Document, listed.ID, vectorFields); err != nil {
 			return model.ListResult{}, err
 		}
 	}
