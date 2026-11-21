@@ -634,6 +634,7 @@ IndexSettings {
   defaultScoring:    string                       (optional; "local", "dfs", or "broadcast")
   trackPositions:    boolean                      (optional)
   strict:            boolean                      (optional)
+  returnVectors:     boolean                      (optional; whether a read returns vector fields by default, false where absent)
   required:          List<string>                 (optional; field paths every document must supply)
   vectorPromotion:   VectorSnapshotPromotion      (optional)
   patternValueLimit: uint32                       (optional; the most code points a pattern field value may hold)
