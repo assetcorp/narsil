@@ -181,6 +181,8 @@ export function resolveProjection(
   }
   const askedInclude = shaped !== undefined && Array.isArray(shaped.include) && shaped.include.length > 0
   const askedExclude = shaped !== undefined && Array.isArray(shaped.exclude) && shaped.exclude.length > 0
+  const returnsEveryVector = shaped?.vectors ?? index.returnVectors === true
+  if (!askedInclude && !askedExclude && returnsEveryVector) return { kind: 'full' }
   const vectorFields = vectorFieldSegmentsOf(index.schema)
   const include = askedInclude ? splitPaths(shaped.include, vectorFields) : null
   const exclude = askedExclude ? splitPaths(shaped.exclude, vectorFields) : []
