@@ -38,7 +38,7 @@ impl CoordinatorKeys {
     }
 
     pub(crate) fn node_prefix(&self) -> String {
-        self.build(&[NODES])
+        self.build(&[NODES, ""])
     }
 
     pub(crate) fn allocation(&self, index_name: &str) -> String {
@@ -46,7 +46,7 @@ impl CoordinatorKeys {
     }
 
     pub(crate) fn allocation_prefix(&self) -> String {
-        self.build(&[ALLOCATION])
+        self.build(&[ALLOCATION, ""])
     }
 
     pub(crate) fn partition(&self, index_name: &str, partition_id: u64) -> String {
@@ -58,7 +58,7 @@ impl CoordinatorKeys {
     }
 
     pub(crate) fn schema_prefix(&self) -> String {
-        self.build(&[SCHEMA])
+        self.build(&[SCHEMA, ""])
     }
 
     pub(crate) fn lease(&self, key: &str) -> String {
@@ -71,7 +71,7 @@ impl CoordinatorKeys {
 }
 
 pub(crate) fn suffix_after<'a>(full_key: &'a str, prefix: &str) -> &'a str {
-    full_key.get(prefix.len() + 1..).unwrap_or_default()
+    full_key.strip_prefix(prefix).unwrap_or_default()
 }
 
 pub(crate) fn index_name_of_metadata_suffix(suffix: &str) -> Option<&str> {
