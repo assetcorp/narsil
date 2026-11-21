@@ -49,7 +49,11 @@ const PROJECTIONS: DocumentProjection[] = [
   { include: ['tags.0', 'meta.__proto__', '__proto__', 'constructor.prototype', '..', 'title'] },
   { include: ['embedding', 'title'] },
   true,
+  { vectors: true },
+  { exclude: ['body'], vectors: true },
+  { include: ['embedding', 'title'], vectors: false },
 ]
+const VECTOR_FIELDS = ['embedding']
 const GROUP_FIELDS = ['meta.colour', 'tags.0', 'meta.nested.deep']
 
 let directory: string | null = null
@@ -191,9 +195,11 @@ function readWithoutLists(document: unknown, segments: readonly string[]): { fou
   return { found: true, value: current }
 }
 
-function oracleProjected(document: AnyDocument, projection: DocumentProjection): unknown {
-  if (projection === true) return document
-  if (projection === false) return {}
+function oracleProjected(document: AnyDocument, asked: DocumentProjection): unknown {
+  if (asked === false) return {}
+  const shaped = asked === true ? {} : asked
+  const vectorsLeftOut = VECTOR_FIELDS.filter(field => !(shaped.vectors ?? shaped.include?.includes(field) === true))
+  const projection = { ...shaped, exclude: [...(shaped.exclude ?? []), ...vectorsLeftOut] }
   let projected: Record<string, unknown> = {}
   if (projection.include === undefined) projected = structuredClone(document)
   for (const path of projection.include ?? []) {

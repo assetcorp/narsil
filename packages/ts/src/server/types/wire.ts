@@ -150,6 +150,16 @@ export type HttpCreateIndexBody = Omit<CreateIndexRequest, 'config'> & {
 }
 
 /**
+ * The query string of `GET /indexes/{name}/documents/{id}`.
+ *
+ * @public
+ */
+export interface GetDocumentQuery {
+  /** Under `true`, the document carries its vector fields, and under `false` it carries none, whatever the index setting says. */
+  vectors?: 'true' | 'false'
+}
+
+/**
  * The query string of `DELETE /indexes/{name}/documents/{id}`.
  *
  * @public
@@ -194,6 +204,8 @@ export interface HttpWireTypes {
   DocumentBody: DocumentBody
   /** Every value that a field of an index schema accepts. */
   FieldType: FieldType
+  /** The query string of `GET /indexes/{name}/documents/{id}`. */
+  GetDocumentQuery: GetDocumentQuery
   /** The query string of `POST /indexes/{name}/documents/_import`. */
   ImportDocumentsQuery: ImportDocumentsQuery
   /** The body of `POST /indexes/{name}/documents`. */

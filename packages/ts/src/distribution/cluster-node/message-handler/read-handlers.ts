@@ -41,7 +41,10 @@ export async function handleList(
     limit: payload.limit,
     filters: payload.filters ?? undefined,
     sort: payload.sort ?? undefined,
-    document: payload.fields === null ? undefined : { include: payload.fields },
+    document: {
+      ...(payload.fields === null ? {} : { include: payload.fields }),
+      vectors: payload.vectors !== false,
+    },
   }
 
   const result = await deps.engine.listPartitions(payload.indexName, listParams, payload.partitionIds)

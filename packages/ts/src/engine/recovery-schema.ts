@@ -66,6 +66,9 @@ export function reconstructSchemaFromMetadata(metadata: IndexMetadata): IndexCon
   if (metadata.strict !== undefined) {
     config.strict = metadata.strict
   }
+  if (metadata.returnVectors !== undefined) {
+    config.returnVectors = metadata.returnVectors
+  }
   if (metadata.required !== undefined) {
     config.required = metadata.required
   }

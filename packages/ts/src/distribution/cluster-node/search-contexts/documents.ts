@@ -3,8 +3,9 @@ import type { AnyDocument } from '../../../types/schema'
 import { SEARCH_CONTEXT_ENTRY_HEAP_BYTES } from '../constants'
 import type { DocumentSnapshot } from './snapshots'
 
-export function documentOfSnapshot(snapshot: DocumentSnapshot): AnyDocument {
+export function documentOfSnapshot(snapshot: DocumentSnapshot, withVectors = true): AnyDocument {
   const document = structuredClone(snapshot.fields) as Record<string, unknown>
+  if (!withVectors) return document as AnyDocument
   for (const [fieldPath, vector] of snapshot.vectors) setNestedValue(document, fieldPath, new Float32Array(vector))
   return document as AnyDocument
 }

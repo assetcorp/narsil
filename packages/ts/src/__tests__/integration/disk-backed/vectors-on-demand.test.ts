@@ -87,6 +87,7 @@ describe('a vector field of an index with its text on disk', () => {
       vector: { field: 'embedding', value: [...query], metric: 'cosine', similarity: -1 },
       ...(group === undefined ? {} : { filters: { fields: { group: { eq: group } } } }),
       limit: TOP,
+      document: { vectors: true },
     })
     for (const hit of result.hits) {
       const embedding = hit.document?.embedding
@@ -341,7 +342,9 @@ describe('a vector field of an index with its text on disk', () => {
     expect(damaged).toBe(true)
 
     await open()
-    await expect(engine.get(INDEX, damagedId)).rejects.toMatchObject({ code: ErrorCodes.PERSISTENCE_CRC_MISMATCH })
+    await expect(engine.get(INDEX, damagedId, { document: { vectors: true } })).rejects.toMatchObject({
+      code: ErrorCodes.PERSISTENCE_CRC_MISMATCH,
+    })
     await expect(
       engine.query(INDEX, {
         vector: { field: 'embedding', value: Array.from(wanted), metric: 'cosine', efSearch: PASSAGES },
@@ -350,6 +353,8 @@ describe('a vector field of an index with its text on disk', () => {
     ).rejects.toMatchObject({ code: ErrorCodes.PERSISTENCE_CRC_MISMATCH })
     await new Promise(resolve => setTimeout(resolve, LOAD_FAILURE_WAIT_MS))
     expect(isLoading()).toBe(true)
-    await expect(engine.get(INDEX, damagedId)).rejects.toMatchObject({ code: ErrorCodes.PERSISTENCE_CRC_MISMATCH })
+    await expect(engine.get(INDEX, damagedId, { document: { vectors: true } })).rejects.toMatchObject({
+      code: ErrorCodes.PERSISTENCE_CRC_MISMATCH,
+    })
   }, 120_000)
 })

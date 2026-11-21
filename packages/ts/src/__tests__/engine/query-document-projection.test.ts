@@ -33,15 +33,17 @@ describe('document projection', () => {
     await narsil.shutdown()
   })
 
-  it('returns the whole stored document when the query asks for nothing', async () => {
+  it('returns every field apart from the vectors when the query asks for nothing, and the vectors when it asks for them', async () => {
     await narsil.createIndex('docs', { schema: vectorSchema, language: 'english' })
     await narsil.insert('docs', { title: 'alpha', body: 'searchable text', embedding: vec(0.9) })
 
     const result = await narsil.query('docs', { term: 'searchable' })
+    const withVectors = await narsil.query('docs', { term: 'searchable', document: { vectors: true } })
 
     expect(result.hits).toHaveLength(1)
     expect(result.hits[0].document.title).toBe('alpha')
-    expect(result.hits[0].document.embedding).toBeDefined()
+    expect(result.hits[0].document.embedding).toBeUndefined()
+    expect(Array.from(withVectors.hits[0].document.embedding as Float32Array)).toEqual(vec(0.9).map(Math.fround))
   })
 
   it('returns an empty document for every hit when document is false', async () => {
@@ -85,6 +87,7 @@ describe('document projection', () => {
       mode: 'vector',
       vector: { field: 'embedding', value: vec(1.0), metric: 'cosine' },
       limit: 2,
+      document: { vectors: true },
     })
     const projected = await narsil.query('docs', {
       mode: 'vector',

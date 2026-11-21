@@ -49,6 +49,7 @@ interface RawMetadataPayload extends RawSyncMetadata {
   track_positions?: unknown
   text_storage?: unknown
   strict?: unknown
+  return_vectors?: unknown
   required?: unknown
   vector_promotion?: {
     threshold?: unknown
@@ -141,6 +142,9 @@ function metadataToWire(meta: IndexMetadata): RawMetadataPayload {
   }
   if (meta.strict !== undefined) {
     wire.strict = meta.strict
+  }
+  if (meta.returnVectors !== undefined) {
+    wire.return_vectors = meta.returnVectors
   }
   if (meta.required !== undefined) {
     wire.required = meta.required
@@ -279,6 +283,9 @@ function wireToMetadata(raw: RawMetadataPayload): IndexMetadata {
   }
   if (typeof raw.strict === 'boolean') {
     meta.strict = raw.strict
+  }
+  if (typeof raw.return_vectors === 'boolean') {
+    meta.returnVectors = raw.return_vectors
   }
   if (Array.isArray(raw.required) && raw.required.every(field => typeof field === 'string')) {
     meta.required = raw.required

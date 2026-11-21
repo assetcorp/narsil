@@ -4,8 +4,6 @@ import type { ControllerNode } from '../cluster/controller/types'
 import type { NodeRole } from '../coordinator/types'
 import { openSnapshotSpoolDirectory } from '../replication/snapshot-spool'
 import type { ReplicationLog } from '../replication/types'
-import { createAnalysisView } from './analysis-change/view'
-import { createBm25View } from './bm25-view'
 import { clearBootstrapSyncIndex, createBootstrapSyncState, hasCompletedBootstrapSync } from './bootstrap-sync'
 import { startCatchUpPump, stopCatchUpPump } from './catch-up'
 import { createClusterNamespace } from './cluster-namespace'
@@ -29,6 +27,7 @@ import { createClusterOperationTracker } from './operation-tracker'
 import { createPartitionBootstrap } from './partition-bootstrap'
 import { listenForPeers, listenUntilJoined } from './peer-listener'
 import { createClusterQuerySuggestions } from './query-suggestions'
+import { createReadViews } from './read-views'
 import { requestReplicationFactor } from './replication-factor'
 import { replicationLogKey as buildReplicationLogKey, deleteIndexReplicationLogs } from './replication-logs'
 import { requestRebalance, waitForSwap } from './reshard/request'
@@ -209,9 +208,9 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
     })
   }
 
-  const bm25View = createBm25View({ coordinator: config.coordinator, engine, onError: forwardOnError })
-  const analysisView = createAnalysisView({ coordinator: config.coordinator, engine, onError: forwardOnError })
-  const readDeps = { config: routingConfig, nodeId, engine, resolveNodeTargets, searchContexts, bm25View, analysisView }
+  const readBase = { config: routingConfig, nodeId, engine, resolveNodeTargets, searchContexts }
+  const readViews = createReadViews(readBase, config.coordinator, engine, forwardOnError)
+  const { bm25View, analysisView, readDeps } = readViews
   const servingName = (indexName: string) => servingNameOf(allocationView.routing, indexName)
   const deviceSync = createClusterDeviceSync({
     ...cleanupDeps,
@@ -283,8 +282,7 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
     async start() {
       guardShutdown()
       await allocationView.start()
-      await bm25View.start()
-      await analysisView.start()
+      await readViews.start()
       await deviceSync.start()
 
       const reconcileDeps = { engine, coordinator: config.coordinator, nodeId, onError: forwardOnError }
@@ -350,8 +348,7 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
       await operationTracker.drain()
       await suggestions.stop()
       allocationView.stop()
-      bm25View.stop()
-      analysisView.stop()
+      readViews.stop()
       await deviceSync.stop()
 
       unregisterHandler?.()

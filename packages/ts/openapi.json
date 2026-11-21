@@ -1121,6 +1121,19 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "vectors",
+            "in": "query",
+            "required": false,
+            "description": "Under `true`, the document carries its vector fields, and under `false` it carries none, whatever the index setting says.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
           }
         ],
         "responses": {
@@ -4215,6 +4228,10 @@
             "type": "boolean",
             "description": "Setting this rejects a document carrying a field the schema does not declare."
           },
+          "returnVectors": {
+            "type": "boolean",
+            "description": "Setting this returns the vector fields on every search, listing, and read of this index, which otherwise leave them out unless the request asks for them."
+          },
           "embedding": {
             "$ref": "#/components/schemas/CreateIndexEmbedding",
             "description": "This names a server-registered embedding adapter and the fields it embeds."
@@ -4444,11 +4461,15 @@
                       "type": "string"
                     },
                     "description": "Names the fields to drop, so every other field is kept."
+                  },
+                  "vectors": {
+                    "type": "boolean",
+                    "description": "Setting this to true returns every vector field, and false leaves every one out, whatever `include` and the index setting say. `include` and `exclude` then apply to the vector fields that this keeps."
                   }
                 }
               }
             ],
-            "description": "This chooses how much of each stored document comes back, and the whole document by default."
+            "description": "This chooses how much of each stored document comes back. By default a hit carries every field apart from the vector fields, which come back only where DocumentProjection or the index asks for them."
           },
           "group": {
             "type": "object",
@@ -4974,11 +4995,15 @@
                       "type": "string"
                     },
                     "description": "Names the fields to drop, so every other field is kept."
+                  },
+                  "vectors": {
+                    "type": "boolean",
+                    "description": "Setting this to true returns every vector field, and false leaves every one out, whatever `include` and the index setting say. `include` and `exclude` then apply to the vector fields that this keeps."
                   }
                 }
               }
             ],
-            "description": "This chooses how much of each stored document comes back, and the whole document by default."
+            "description": "This chooses how much of each stored document comes back. By default a listing returns every field apart from the vector fields, which come back only where DocumentProjection or the index asks for them."
           }
         },
         "description": "Everything Narsil.listDocuments  accepts. Narsil.listDocuments  reads the stored documents without ranking them, which is how you page through a whole index. Leave `cursor` out to start at the first document, then pass back the cursor each result carries until it comes back null. A cursor belongs to the sort it was made under, so pass the same `sort` back with it. Changing `sort` invalidates the cursor, and the engine then throws `SEARCH_INVALID_CURSOR` rather than returning a page from the wrong order."
@@ -5184,6 +5209,37 @@
               "type": "string"
             },
             "description": "The server fetches the documents with these ids."
+          },
+          "document": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "include": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "Names the fields to keep, so every field left out of this list is dropped."
+                  },
+                  "exclude": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "Names the fields to drop, so every other field is kept."
+                  },
+                  "vectors": {
+                    "type": "boolean",
+                    "description": "Setting this to true returns every vector field, and false leaves every one out, whatever `include` and the index setting say. `include` and `exclude` then apply to the vector fields that this keeps."
+                  }
+                }
+              }
+            ],
+            "description": "This chooses how much of each document comes back. Every field apart from the vector fields comes back by default."
           }
         },
         "required": [

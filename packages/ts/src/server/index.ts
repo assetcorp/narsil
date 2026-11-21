@@ -40,6 +40,7 @@ export type {
   DocumentResponse,
   ErrorDetail,
   ErrorEnvelope,
+  GetDocumentQuery,
   HttpCreateIndexBody,
   HttpGroupResult,
   HttpHit,

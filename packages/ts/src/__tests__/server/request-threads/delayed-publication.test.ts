@@ -80,6 +80,7 @@ it.skipIf(!existsSync(distEntry)).each(['search', 'publication'] as const)(
           ? postJson<{ hits: Array<{ id: string; document: Document }> }>(server.base, '/indexes/records/search', {
               term: 'suspend',
               limit: DOCUMENTS,
+              document: { vectors: true },
             })
           : server.engine
               .update('records', 'record-0', { ...document('record-0', 1), title: 'suspend record' })
@@ -104,14 +105,19 @@ it.skipIf(!existsSync(distEntry)).each(['search', 'publication'] as const)(
       const current = await postJson<{ hits: Array<{ id: string; document: Document }> }>(
         server.base,
         '/indexes/records/search',
-        { term: 'record', limit: DOCUMENTS },
+        { term: 'record', limit: DOCUMENTS, document: { vectors: true } },
       )
       expect(current.status, JSON.stringify(current.body)).toBe(200)
       expect(current.body.hits.find(hit => hit.id === 'record-0')?.document).toEqual(document('record-0', UPDATES + 1))
       const vectors = await postJson<{ hits: Array<{ id: string; score: number; document: Document }> }>(
         server.base,
         '/indexes/records/search',
-        { mode: 'vector', vector: { field: 'embedding', value: [1, 0] }, limit: DOCUMENTS },
+        {
+          mode: 'vector',
+          vector: { field: 'embedding', value: [1, 0] },
+          limit: DOCUMENTS,
+          document: { vectors: true },
+        },
       )
       expect(vectors.status, JSON.stringify(vectors.body)).toBe(200)
       expect(vectors.body.hits).toHaveLength(DOCUMENTS)

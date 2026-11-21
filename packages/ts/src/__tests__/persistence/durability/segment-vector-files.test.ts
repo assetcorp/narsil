@@ -115,7 +115,7 @@ describe('the vector files of a segmented checkpoint', () => {
     await engine.checkpoint('papers')
 
     expect(await directory.list('papers/segments/')).not.toContain(first.files[0].key)
-    const document = await engine.get('papers', 'p17')
+    const document = await engine.get('papers', 'p17', { document: { vectors: true } })
     expect(Array.from(document?.embedding as Float32Array)).toEqual(Array.from(new Float32Array(embeddingFor(17))))
     await engine.shutdown()
   })

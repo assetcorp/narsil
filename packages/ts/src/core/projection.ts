@@ -1,7 +1,8 @@
 import { copyStoredValue } from '#platform/stored-value-copy'
 import { ErrorCodes, NarsilError } from '../errors'
+import { vectorFieldSegmentsOf } from '../schema/validator/schema'
 import { PROTOTYPE_POLLUTION_KEYS } from '../schema/validator/shared'
-import type { AnyDocument } from '../types/schema'
+import type { AnyDocument, SchemaDefinition } from '../types/schema'
 import type { DocumentProjection } from '../types/search'
 
 export type ResolvedProjection =
@@ -41,7 +42,7 @@ function splitPaths(paths: string[] | undefined): string[][] {
   return split
 }
 
-function overlaps(a: string[], b: string[]): boolean {
+function overlaps(a: readonly string[], b: readonly string[]): boolean {
   const shared = Math.min(a.length, b.length)
   for (let i = 0; i < shared; i++) {
     if (a[i] !== b[i]) return false
@@ -49,7 +50,7 @@ function overlaps(a: string[], b: string[]): boolean {
   return true
 }
 
-function covers(outer: string[], inner: string[]): boolean {
+function covers(outer: readonly string[], inner: readonly string[]): boolean {
   if (outer.length > inner.length) return false
   for (let i = 0; i < outer.length; i++) {
     if (outer[i] !== inner[i]) return false
@@ -126,27 +127,67 @@ function cloneExcept(value: unknown, path: string[], exclude: string[][]): unkno
   return kept
 }
 
+export interface VectorReadSettings {
+  readonly schema: SchemaDefinition
+  readonly returnVectors?: boolean
+}
+
+function requireVectorsSwitch(vectors: unknown): void {
+  if (vectors === undefined || typeof vectors === 'boolean') return
+  throw new NarsilError(ErrorCodes.SEARCH_INVALID_FIELD, 'The "document.vectors" option takes true or false', {
+    option: 'document.vectors',
+    received: vectors === null ? 'null' : typeof vectors,
+  })
+}
+
+function samePath(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && covers(a, b)
+}
+
+function returnsVectorField(
+  field: readonly string[],
+  vectors: boolean | undefined,
+  include: string[][] | null,
+  returnVectors: boolean,
+): boolean {
+  if (vectors !== undefined) return vectors
+  if (include?.some(included => samePath(included, field))) return true
+  return returnVectors
+}
+
 /**
- * Reads what the caller set under `document` into the form the read path uses.
+ * Reads what the caller set under `document` into the form the read path uses,
+ * and adds to it every vector field that the read leaves out: the projection's
+ * `vectors` decides first, a vector field that `include` names is kept next,
+ * and the index's `returnVectors` setting decides the rest.
  *
  * @param projection - The caller's projection, which may be absent.
- * @returns The resolved projection, which is `full` where the caller set
- * nothing and where the shape they set covers every field.
+ * @param index - The schema and the `returnVectors` setting of the index that
+ * the read covers.
+ * @returns The resolved projection, which is `full` where the read keeps
+ * every field.
  */
-export function resolveProjection(projection: DocumentProjection | undefined): ResolvedProjection {
-  if (projection === undefined || projection === true) return { kind: 'full' }
+export function resolveProjection(
+  projection: DocumentProjection | undefined,
+  index: VectorReadSettings,
+): ResolvedProjection {
   if (projection === false) return { kind: 'none' }
-  if (typeof projection !== 'object' || projection === null) return { kind: 'full' }
-  requireFieldPathList(projection.include, 'include')
-  requireFieldPathList(projection.exclude, 'exclude')
-  const askedInclude = Array.isArray(projection.include) && projection.include.length > 0
-  const askedExclude = Array.isArray(projection.exclude) && projection.exclude.length > 0
-  if (!askedInclude && !askedExclude) return { kind: 'full' }
-  return {
-    kind: 'fields',
-    include: askedInclude ? splitPaths(projection.include) : null,
-    exclude: splitPaths(projection.exclude),
+  const shaped = typeof projection === 'object' && projection !== null ? projection : undefined
+  if (shaped !== undefined) {
+    requireFieldPathList(shaped.include, 'include')
+    requireFieldPathList(shaped.exclude, 'exclude')
+    requireVectorsSwitch(shaped.vectors)
   }
+  const askedInclude = shaped !== undefined && Array.isArray(shaped.include) && shaped.include.length > 0
+  const askedExclude = shaped !== undefined && Array.isArray(shaped.exclude) && shaped.exclude.length > 0
+  const include = askedInclude ? splitPaths(shaped.include) : null
+  const exclude = askedExclude ? splitPaths(shaped.exclude) : []
+  const vectorFields = vectorFieldSegmentsOf(index.schema)
+  for (const field of vectorFields) {
+    if (!returnsVectorField(field, shaped?.vectors, include, index.returnVectors === true)) exclude.push(field)
+  }
+  if (include === null && exclude.length === 0) return { kind: 'full' }
+  return { kind: 'fields', include, exclude }
 }
 
 /**

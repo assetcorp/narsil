@@ -27,6 +27,7 @@ export async function executeRerankedQuery<T = AnyDocument>(
   const result = await runRerankedQuery<T>(request, {
     host,
     schema: context.config.schema,
+    returnVectors: context.config.returnVectors,
     maxWindow: runner.maxWindow,
     binding: context.cursorBinding,
     clampsPins: true,

@@ -314,6 +314,11 @@ export interface ErrorEnvelope {
 }
 
 // @public
+export interface GetDocumentQuery {
+    vectors?: 'true' | 'false';
+}
+
+// @public
 export type HttpCreateIndexBody = Omit<CreateIndexRequest, 'config'> & {
     config: HttpIndexBody;
 };
@@ -348,6 +353,7 @@ export interface HttpIndexConfig {
     };
     patternValueLimit?: number;
     required?: string[];
+    returnVectors?: boolean;
     schema: Record<string, unknown>;
     stopWords?: string | string[];
     strict?: boolean;
@@ -402,6 +408,7 @@ export interface HttpWireTypes {
     DocumentResponse: DocumentResponse;
     ErrorEnvelope: ErrorEnvelope;
     FieldType: FieldType;
+    GetDocumentQuery: GetDocumentQuery;
     HttpCreateIndexBody: HttpCreateIndexBody;
     HttpQueryParams: HttpQueryParams;
     HttpQueryResult: HttpQueryResult;
@@ -550,6 +557,7 @@ export interface MemoryStatsResponse extends MemoryStats {
 // @public
 export interface MultiGetBody {
     docIds: string[];
+    document?: DocumentProjection;
 }
 
 // @public

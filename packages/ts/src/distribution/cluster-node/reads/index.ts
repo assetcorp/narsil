@@ -1,9 +1,15 @@
 import { getNestedValue } from '../../../core/partition/utils'
-import { applyProjection, type ResolvedProjection, resolveProjection } from '../../../core/projection'
+import {
+  applyProjection,
+  type ResolvedProjection,
+  resolveProjection,
+  type VectorReadSettings,
+} from '../../../core/projection'
 import { runtimeHost } from '../../../engine/query/runtime-host'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import { engineCoreOf } from '../../../narsil/internals'
 import { queryBindingOf } from '../../../search/cursor-binding'
+import type { GetOptions } from '../../../types/reads'
 import type { QueryResult } from '../../../types/results'
 import type { AnyDocument } from '../../../types/schema'
 import type { QueryParams } from '../../../types/search'
@@ -11,7 +17,7 @@ import type { AllocationTable } from '../../coordinator/types'
 import { distributedQuery } from '../../query/routing'
 import type { DistributedQueryConfig } from '../../query/types'
 import { rerunOnNewerGeneration } from '../analysis-change/rerun'
-import { readDistributedDocuments } from '../node-messaging'
+import { readDocumentsFromCopies } from '../node-messaging'
 import { distributedCountIsExact, distributedResultToLocal } from '../query-conversion'
 import { routableAllocation } from '../routable-allocation'
 import type { ClusterQueryConfig } from '../types'
@@ -21,6 +27,7 @@ import { countStoredPinsFromOutside, dropUnstoredPinnedEntries, readPinPresence 
 import { createRankedDocumentReader, type RankedDocumentReader } from './ranked-documents'
 import type { ClusterRerankHost } from './rerank'
 import type { ClusterReadDeps } from './scatter'
+import { keepsAnyVectorField } from './vector-reads'
 
 export { countCluster, partitionStatsCluster, statsCluster } from './counts'
 export { listIndexesCluster } from './index-list'
@@ -45,18 +52,35 @@ const clusterRerankHost: ClusterRerankHost = {
  * @param deps - The cluster configuration, this node's id, the local engine, and the node target resolver.
  * @param indexName - The index the documents are stored in.
  * @param docIds - The ids to read.
+ * @param options - The shape of each returned document, which leaves vector fields out unless it asks for them.
  * @returns The documents that were found, by id, which omits an id no node holds.
  */
 export async function readClusterDocuments(
   deps: ClusterReadDeps,
   indexName: string,
   docIds: string[],
+  options?: GetOptions,
 ): Promise<Map<string, AnyDocument>> {
   const allocation = await routableAllocation(deps.config.coordinator, indexName)
   if (allocation === null) {
-    return deps.engine.getMultiple(indexName, docIds)
+    return deps.engine.getMultiple(indexName, docIds, options)
   }
-  return readDistributedDocuments(deps.config, deps.nodeId, deps.engine, indexName, docIds, allocation)
+  const settings = await deps.vectorReads.settingsOf(indexName, allocation)
+  const projection = resolveProjection(options?.document, settings)
+  const found = await readDocumentsFromCopies(
+    deps.config,
+    deps.nodeId,
+    deps.engine,
+    indexName,
+    docIds,
+    allocation,
+    { fields: fetchFieldsFor(projection), vectors: keepsAnyVectorField(projection, settings) },
+    true,
+  )
+  if (projection.kind === 'full') return found
+  const documents = new Map<string, AnyDocument>()
+  for (const [docId, document] of found) documents.set(docId, applyProjection(document, projection))
+  return documents
 }
 
 function routingConfig(
@@ -129,19 +153,21 @@ export async function queryCluster<T = AnyDocument>(
   }
   return rerunOnNewerGeneration(deps.analysisView, indexName, () =>
     rerunOnLostContext(async () => {
+      const settings = await deps.vectorReads.settingsOf(indexName, allocation)
+      const search: ClusterSearch = { indexName, settingName, allocation, settings }
       if (params.rerank === undefined) {
         return withRankedReader(deps, indexName, allocation, reader =>
-          searchCluster<T>(deps, indexName, settingName, params, allocation, reader, false),
+          searchCluster<T>(deps, search, params, reader, false),
         )
       }
       const { rerankClusterQuery } = await import('./rerank')
       return withRankedReader(deps, indexName, allocation, reader =>
         rerankClusterQuery<T>(
           deps,
-          indexName,
           params,
-          firstStage => searchCluster<T>(deps, indexName, settingName, firstStage, allocation, reader, true),
-          (docIds, last) => reader.read(docIds, { last, fields: null, requireEveryPartition: true }),
+          settings,
+          firstStage => searchCluster<T>(deps, search, firstStage, reader, true),
+          (docIds, last, vectors) => reader.read(docIds, { last, fields: null, vectors, requireEveryPartition: true }),
           clusterRerankHost,
         ),
       )
@@ -149,16 +175,23 @@ export async function queryCluster<T = AnyDocument>(
   )
 }
 
+interface ClusterSearch {
+  indexName: string
+  settingName: string
+  allocation: AllocationTable
+  settings: VectorReadSettings
+}
+
 async function searchCluster<T>(
   deps: ClusterReadDeps,
-  indexName: string,
-  settingName: string,
+  search: ClusterSearch,
   params: QueryParams,
-  allocation: AllocationTable,
   reader: RankedDocumentReader,
   readsLater: boolean,
 ): Promise<QueryResult<T>> {
-  const projection = resolveProjection(params.document)
+  const { indexName, settingName, allocation, settings } = search
+  const projection = resolveProjection(params.document, settings)
+  const vectors = keepsAnyVectorField(projection, settings)
   const groupsRead = params.group !== undefined && (params.group.reduce !== undefined || projection.kind !== 'none')
   const readsDocuments = readsLater || projection.kind !== 'none' || groupsRead
   const { wireParams, carriesBm25 } =
@@ -186,7 +219,7 @@ async function searchCluster<T>(
   if (projection.kind !== 'none') {
     const found = await reader.read(
       distributed.scored.map(entry => entry.docId),
-      { last: !groupsRead && !readsLater, fields: fetchFieldsFor(projection), requireEveryPartition: false },
+      { last: !groupsRead && !readsLater, fields: fetchFieldsFor(projection), vectors, requireEveryPartition: false },
     )
     for (const [docId, document] of found) documents.set(docId, applyProjection(document, projection) as T)
   }
@@ -206,7 +239,7 @@ async function searchCluster<T>(
     params.facets,
   )
   const groups = await assembleDistributedGroups(params, distributed, projection, (docIds, last) =>
-    reader.read(docIds, { last: last && !readsLater, fields: null, requireEveryPartition: true }),
+    reader.read(docIds, { last: last && !readsLater, fields: null, vectors, requireEveryPartition: true }),
   )
   if (groups !== undefined) {
     result.groups = groups

@@ -42,8 +42,11 @@ describe('a document written and read over HTTP', () => {
     await client.createIndex(INDEX, { schema: SCHEMA })
     const order = fullOrder('o-1')
     expect(await client.insert(INDEX, order)).toBe('o-1')
-    expect(await client.get(INDEX, 'o-1')).toEqual(order)
-    expect((await client.getMultiple(INDEX, ['o-1'])).get('o-1')).toEqual(order)
+    expect(await client.get(INDEX, 'o-1', { vectors: true })).toEqual(order)
+    expect((await client.getMultiple(INDEX, ['o-1'], { document: { vectors: true } })).get('o-1')).toEqual(order)
+    const { embedding: _left, ...withoutVectors } = order
+    expect(await client.get(INDEX, 'o-1')).toEqual(withoutVectors)
+    expect((await client.getMultiple(INDEX, ['o-1'])).get('o-1')).toEqual(withoutVectors)
   })
 
   it('takes its id from the argument or else from the document, refuses the two when they differ, and otherwise generates a UUID version 7', async () => {

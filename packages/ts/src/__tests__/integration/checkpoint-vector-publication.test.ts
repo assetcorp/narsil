@@ -53,7 +53,7 @@ it('keeps checkpoint vectors paired with the documents captured before a concurr
       durability: { tier: 'snapshot', checkpointIntervalMs: 0 },
     })
     try {
-      const document = await recovered.get('readings', 'reading')
+      const document = await recovered.get('readings', 'reading', { document: { vectors: true } })
       expect(document?.title).toBe('river')
       expect(document?.embedding).toEqual(new Float32Array([1, 0]))
     } finally {

@@ -76,7 +76,7 @@ export function createNodeWiring(input: {
         ]),
       ),
     }
-    return readDistributedDocuments(routingConfig, nodeId, engine, indexName, docIds, primariesOnly)
+    return readDistributedDocuments(routingConfig, nodeId, engine, indexName, docIds, primariesOnly, true)
   }
 
   const registration: NodeRegistration = {

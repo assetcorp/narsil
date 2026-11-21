@@ -13,7 +13,7 @@ import { loadSortingFor } from '../../search/sorting-code'
 import { loadedMessagePack, loadMessagePack } from '../../serialization/msgpack-code'
 import type { ListResult, PreflightResult, QueryResult, SuggestResult } from '../../types/results'
 import type { AnyDocument } from '../../types/schema'
-import type { ListParams, QueryParams, SuggestParams } from '../../types/search'
+import type { GetOptions, ListParams, QueryParams, SuggestParams } from '../../types/search'
 import type { OrdinalAdmission } from '../../vector/vector-store/admission'
 import type { DirectExecutorExtensions, IndexQueryContext } from '../../workers/direct-executor'
 import type { HeldFieldPin } from '../../workers/vector-copies'
@@ -62,7 +62,7 @@ export function createThreadReadEngine(options: ThreadReadEngineOptions): Thread
 
   function holdsEveryVectorFieldRead(indexName: string, context: IndexQueryContext, params: QueryParams): boolean {
     if (params.document === false) return true
-    const projection = resolveProjection(params.document === true ? undefined : params.document)
+    const projection = resolveProjection(params.document, context.config)
     return vectorFieldsOf(context).every(
       fieldPath => !projectionKeepsField(projection, fieldPath) || executor.holdsVectorField(indexName, fieldPath),
     )
@@ -272,14 +272,17 @@ export function createThreadReadEngine(options: ThreadReadEngineOptions): Thread
         return result
       })
     },
-    async get(indexName: string, docId: string): Promise<AnyDocument | undefined> {
-      return readCopy(indexName, true, manager => manager.get(docId))
+    async get(indexName: string, docId: string, options?: GetOptions): Promise<AnyDocument | undefined> {
+      return readCopy(indexName, true, (manager, context) =>
+        manager.get(docId, resolveProjection(options?.document, context.config)),
+      )
     },
-    async getMultiple(indexName: string, docIds: string[]): Promise<Map<string, AnyDocument>> {
-      return readCopy(indexName, true, manager => {
+    async getMultiple(indexName: string, docIds: string[], options?: GetOptions): Promise<Map<string, AnyDocument>> {
+      return readCopy(indexName, true, (manager, context) => {
+        const projection = resolveProjection(options?.document, context.config)
         const found = new Map<string, AnyDocument>()
         for (const docId of docIds) {
-          const document = manager.get(docId)
+          const document = manager.get(docId, projection)
           if (document !== undefined) found.set(docId, document)
         }
         return found
@@ -301,6 +304,7 @@ export function createThreadReadEngine(options: ThreadReadEngineOptions): Thread
           manager,
           schema: context.config.schema,
           strict: context.config.strict,
+          returnVectors: context.config.returnVectors,
           patternWorkCap,
         }),
       )

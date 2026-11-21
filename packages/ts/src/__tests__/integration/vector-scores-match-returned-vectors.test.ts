@@ -122,6 +122,7 @@ describe('vector scores while writes run', () => {
       mode: 'vector',
       vector: { field: 'embedding', value: query },
       limit: HITS_PER_SEARCH,
+      document: { vectors: true },
     })
     for (let tick = 0; tick < 10_000 && engine.getStats(INDEX).heldSearchStates === 0; tick++) {
       await Promise.resolve()
@@ -169,6 +170,7 @@ describe('vector scores while writes run', () => {
             mode: 'vector',
             vector: { field: 'embedding', value: query },
             limit: HITS_PER_SEARCH,
+            document: { vectors: true },
             ...(filtered ? { filters: { fields: { group: { eq: 'even' } } } } : {}),
           }
         }

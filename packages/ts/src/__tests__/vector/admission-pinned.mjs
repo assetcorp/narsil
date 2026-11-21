@@ -74,12 +74,14 @@ try {
     mode: 'vector',
     limit: scenario.limit,
     vector: { field: 'embedding', value: scenario.query, metric: 'euclidean', efSearch: scenario.efSearch },
+    document: { vectors: true },
   })
   const hybrid = await writesWhileHeld({
     mode: 'hybrid',
     term: scenario.term,
     limit: scenario.limit,
     vector: { field: 'embedding', value: scenario.query, metric: 'euclidean', efSearch: scenario.efSearch },
+    document: { vectors: true },
   })
   answer = { vector, hybrid }
 } catch (error) {

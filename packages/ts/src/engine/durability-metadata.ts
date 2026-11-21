@@ -45,6 +45,7 @@ export interface MetadataConfig {
   trackPositions?: boolean
   textStorage?: 'memory' | 'disk'
   strict?: boolean
+  returnVectors?: boolean
   required?: string[]
   vectorPromotion?: VectorIndexConfig
   patternValueLimit?: number
@@ -145,6 +146,9 @@ export function metadataFromConfig(
   if (config.strict !== undefined) {
     metadata.strict = config.strict
   }
+  if (config.returnVectors !== undefined) {
+    metadata.returnVectors = config.returnVectors
+  }
   if (config.required !== undefined) {
     metadata.required = config.required
   }
@@ -205,6 +209,7 @@ export function metadataConfigOf(entry: IndexRegistryEntry): MetadataConfig {
     ...(entry.config.trackPositions !== undefined ? { trackPositions: entry.config.trackPositions } : {}),
     ...(entry.config.textStorage !== undefined ? { textStorage: entry.config.textStorage } : {}),
     ...(entry.config.strict !== undefined ? { strict: entry.config.strict } : {}),
+    ...(entry.config.returnVectors !== undefined ? { returnVectors: entry.config.returnVectors } : {}),
     ...(entry.config.required !== undefined ? { required: entry.config.required } : {}),
     ...(entry.config.vectorPromotion !== undefined ? { vectorPromotion: entry.config.vectorPromotion } : {}),
     ...(entry.config.patternValueLimit !== undefined ? { patternValueLimit: entry.config.patternValueLimit } : {}),
