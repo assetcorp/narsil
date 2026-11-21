@@ -143,6 +143,34 @@ describe('vector fields in documents that other nodes hold', () => {
     }
   }, 30_000)
 
+  it('gives group reducers whole stored documents while omitting vectors from the returned hits', async () => {
+    for (const document of [undefined, false] as const) {
+      const answer = await router.query(INDEX, {
+        term: 'lantern',
+        document,
+        group: {
+          fields: ['title'],
+          reduce: {
+            initialValue: () => 0,
+            reducer: (total, stored) => {
+              const embedding = stored.embedding
+              if (!(embedding instanceof Float32Array)) throw new Error('The stored vector is missing')
+              return Number(total) + embedding[0]
+            },
+          },
+        },
+      })
+      expect(answer.groups).toHaveLength(12)
+      for (const group of answer.groups ?? []) {
+        expect(group.reducerError).toBeUndefined()
+        expect(group.reduced).toBe(embeddingOf(indexOf(group.hits[0].id))[0])
+      }
+      for (const hit of [...answer.hits, ...(answer.groups?.flatMap(group => group.hits) ?? [])]) {
+        expect(hit.document?.embedding).toBeUndefined()
+      }
+    }
+  }, 30_000)
+
   it('returns the vectors of an index that sets returnVectors unless the read turns them off', async () => {
     const KEPT = 'kept-shelves'
     await router.createIndex(
