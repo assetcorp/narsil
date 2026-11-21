@@ -67,7 +67,7 @@ function stillEmbedding(vector: number[]) {
 }
 
 async function storedVector(engine: Narsil, id: string): Promise<number[] | null> {
-  const stored = await engine.get(INDEX, id)
+  const stored = await engine.get(INDEX, id, { document: { vectors: true } })
   const embedding = stored?.embedding
   if (embedding instanceof Float32Array || Array.isArray(embedding)) return Array.from(embedding as ArrayLike<number>)
   return null

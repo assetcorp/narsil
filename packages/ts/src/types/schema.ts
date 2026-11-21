@@ -255,6 +255,12 @@ export interface IndexConfig {
    * default.
    */
   strict?: boolean
+  /**
+   * Setting this returns the vector fields on every search, listing, and get
+   * of this index. A read leaves them out by default, and a read that sets
+   * `document: { vectors: false }` leaves them out even here.
+   */
+  returnVectors?: boolean
   /** These settings embed text fields into vector fields on every write. */
   embedding?: EmbeddingFieldConfig
   /** The engine rejects an insert or an update of a document that lacks any of these fields, with `DOC_MISSING_REQUIRED_FIELD`. */

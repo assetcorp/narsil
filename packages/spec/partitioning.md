@@ -425,7 +425,7 @@ params {
 }
 ```
 
-`FilterExpression`, `SortField`, and the projection form match the Narsil query API, as [transport.md](distribution/transport.md#queryparams) describes.
+`FilterExpression` and `SortField` match the Narsil query API, as [transport.md](distribution/transport.md#queryparams) describes, and `document` takes the form that [Document Projection](#document-projection) defines.
 
 The listing behaves as follows:
 
@@ -434,6 +434,37 @@ The listing behaves as follows:
 - `filters` narrows the listing to the documents it accepts, and `total` counts those documents.
 - Each page holds the documents that order strictly after the cursor's anchor, and the cursor uses [Cursor Format](#cursor-format): an unsorted listing anchors on `a` alone, and a sorted one carries `k` and `o`.
 - A listing gives no snapshot guarantee, so a write that lands between two pages may appear in a later page or not at all. The anchor still bounds every page, so no page repeats a document the cursor has passed.
+
+---
+
+## Document Projection
+
+A read that returns stored documents takes a projection, which sets the fields that each returned document holds. These reads are a search, a [listing](#document-listing), a read of one document by its ID, and a read of several documents by their IDs.
+
+```text
+projection = boolean or {
+  include: List<string> or absent   (the field paths to keep; absent or empty keeps every field)
+  exclude: List<string> or absent   (the field paths to drop)
+  vectors: boolean or absent        (whether the read returns vector fields; see Vector Fields in Results)
+}
+```
+
+An implementation must apply a projection as follows:
+
+- An absent projection and `true` keep every field apart from the vector fields that [Vector Fields in Results](#vector-fields-in-results) leaves out, and `false` makes every returned document an empty map.
+- A field path splits at each `.` into segments, so `author.name` addresses the `name` key inside the `author` map. An implementation must ignore an empty segment, must ignore any path that holds the segment `__proto__`, `constructor`, or `prototype`, and must never step into a list.
+- With `include`, a document holds only the included paths that it stores, and `exclude` then removes each of its paths from what remains. A path that matches no stored field changes nothing.
+- An implementation must raise `SEARCH_INVALID_FIELD` when `include` or `exclude` is not a list, when either list holds an entry that is not a string, or when `vectors` is not a boolean.
+
+### Vector Fields in Results
+
+A read must leave every vector field out of each returned document unless the read asks for it, because a vector of 1,536 dimensions adds about 32 KB of JSON to each result. An implementation must decide each vector field in this order:
+
+1. Where the projection sets `vectors`, that value decides for every vector field.
+2. Otherwise, the read returns a vector field whose path, split as above, equals an entry of `include`.
+3. Otherwise, the read returns a vector field only where the index sets `returnVectors` to true.
+
+The `include` and `exclude` rules then apply to each vector field that this order returns. An implementation should read no vector out of its vector index for a field that the read leaves out.
 
 ---
 

@@ -61,7 +61,20 @@ const (
 type SortField = model.SortField
 
 // DocumentProjection picks which fields of each document a read returns.
+// A read leaves every vector field out unless the projection asks for it.
+// WithVectors(true) returns every vector field and WithVectors(false) leaves
+// every one out. When the projection sets neither, a read returns a vector
+// field only when IncludeFields lists its whole path or when the index sets
+// ReturnVectors. The include and exclude lists then apply to each vector
+// field that this rule returns.
 type DocumentProjection = model.DocumentProjection
+
+// ReturnVectors returns a projection that keeps every stored field and sets
+// whether the read returns the vector fields, whatever the index sets in
+// ReturnVectors.
+func ReturnVectors(returned bool) DocumentProjection {
+	return DocumentProjection{}.WithVectors(returned)
+}
 
 // NoDocumentFields returns a projection under which each hit carries its ID alone.
 func NoDocumentFields() DocumentProjection {

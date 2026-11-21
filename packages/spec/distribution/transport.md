@@ -1131,6 +1131,7 @@ A present relevance score may be finite, positive infinity, negative infinity, o
     partitionId: uint32
   }>
   fields:      List<string> or absent   (field projection; absent means every field)
+  vectors:     boolean or absent        (whether the node returns vector fields; absent means true)
   highlight:   HighlightConfig or absent   (reserved: a coordinator must send nil, and a node must ignore it)
   contextId:   string or absent         (the search context to read; absent means the current documents)
   releaseContext: bool or absent        (whether the node frees the context after this read; absent means true)
@@ -1138,6 +1139,8 @@ A present relevance score may be finite, positive infinity, negative infinity, o
 ```
 
 A node that receives `contextId` must read every named document from that [search context](query-routing.md#search-contexts), ignore each `partitionId`, and answer `SEARCH_CONTEXT_MISSING` where it holds no such context and the request names at least one document. `contextId` holds at most 64 characters, and `keepAliveMs` is a positive integer of milliseconds.
+
+A coordinator must send `vectors: false` in a `query.fetch` or a `query.list` whose read leaves every vector field out, as [Vector Fields in Results](../partitioning.md#vector-fields-in-results) decides, and a node that receives it must leave every vector field out of each document that it returns. A node from before this member ignores it, so a coordinator must apply the read's projection to every document that a node returns.
 
 ### query.fetch_result
 
@@ -1230,6 +1233,7 @@ In the stats of an index, the coordinator must report as the saved size the sum 
   filters:      FilterExpression or absent
   sort:         List<SortField> or absent   (field-value order; absent means document-id order)
   fields:       List<string> or absent      (field projection; absent means every field)
+  vectors:      boolean or absent           (whether the node returns vector fields; absent means true)
 }
 ```
 

@@ -151,6 +151,13 @@ export function validatePatternValueLimit(limit: unknown): void {
   }
 }
 
+export function validateReturnVectors(returnVectors: unknown): void {
+  if (returnVectors === undefined || typeof returnVectors === 'boolean') return
+  throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'returnVectors must be true or false', {
+    returnVectors: returnVectors === null ? 'null' : typeof returnVectors,
+  })
+}
+
 function requirePositiveSafeInteger(field: string, value: number | undefined): void {
   if (value === undefined) return
   if (!Number.isSafeInteger(value) || value < 1) {

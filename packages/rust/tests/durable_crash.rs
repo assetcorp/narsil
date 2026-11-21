@@ -218,7 +218,7 @@ fn killed_after(root: &Path, plan: Plan, start: u64, acknowledgements: u64) -> O
 
 fn recovered_versions(narsil: &Narsil, candidates: &[String]) -> BTreeMap<String, u64> {
     let held = narsil
-        .get_multiple(INDEX, candidates)
+        .get_multiple_with(INDEX, candidates, Some(&support::WHOLE_DOCUMENT))
         .expect("the recovered documents read");
     held.into_iter()
         .map(|(id, document)| {

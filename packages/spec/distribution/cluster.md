@@ -637,6 +637,7 @@ IndexSettings {
   trackPositions:    boolean                      (optional)
   textStorage:       string                       (optional; "memory" or "disk", and an absent value means "memory")
   strict:            boolean                      (optional)
+  returnVectors:     boolean                      (optional; whether a read returns vector fields by default, false where absent)
   required:          List<string>                 (optional; field paths every document must supply)
   vectorPromotion:   VectorSnapshotPromotion      (optional)
   patternValueLimit: uint32                       (optional; the most code points a pattern field value may hold)

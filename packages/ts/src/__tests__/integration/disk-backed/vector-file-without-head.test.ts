@@ -137,7 +137,7 @@ describe('a vector field whose files were written without a head', () => {
     let checked = 0
     for (const [id, vector] of oracle) {
       if (checked % 37 === 0) {
-        const document = await engine.get(INDEX, id)
+        const document = await engine.get(INDEX, id, { document: { vectors: true } })
         expect(Array.from(document?.embedding as Float32Array)).toEqual(Array.from(Float32Array.from(vector)))
       }
       checked += 1

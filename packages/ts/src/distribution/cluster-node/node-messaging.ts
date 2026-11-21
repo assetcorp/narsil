@@ -40,6 +40,11 @@ export async function sendToNode(
   })
 }
 
+export interface CopyRead {
+  fields: string[] | null
+  vectors: boolean
+}
+
 interface DocumentRouting {
   routing: PartitionRouting
   idsByPartition: Map<number, string[]>
@@ -107,7 +112,7 @@ async function readFromCopies(
   engine: ClusterLocalEngine,
   indexName: string,
   documentRouting: DocumentRouting,
-  fields: string[] | null,
+  read: CopyRead,
 ): Promise<Map<string, AnyDocument>> {
   const documents = new Map<string, AnyDocument>()
 
@@ -121,12 +126,22 @@ async function readFromCopies(
       const local = await engine.getMultiple(
         indexName,
         documentIds.map(ref => ref.docId),
+        { document: { vectors: read.vectors } },
       )
       for (const [docId, document] of local) found.set(docId, document)
     } else {
       for (let start = 0; start < documentIds.length; start += FETCH_GROUP_DOCUMENT_IDS) {
         const chunk = documentIds.slice(start, start + FETCH_GROUP_DOCUMENT_IDS)
-        const fetchMessage = createFetchMessage({ indexName, documentIds: chunk, fields, highlight: null }, nodeId)
+        const fetchMessage = createFetchMessage(
+          {
+            indexName,
+            documentIds: chunk,
+            fields: read.fields,
+            ...(read.vectors ? {} : { vectors: false }),
+            highlight: null,
+          },
+          nodeId,
+        )
         const response = await sendToNode(config, targetNodeId, fetchMessage, {
           message: `Node '${targetNodeId}' did not answer a document fetch for index '${indexName}'`,
           details: { indexName },
@@ -157,7 +172,7 @@ export async function readDocumentsFromCopies(
   indexName: string,
   docIds: readonly string[],
   allocation: AllocationTable,
-  fields: string[] | null,
+  read: CopyRead,
   requireEveryPartition: boolean,
 ): Promise<Map<string, AnyDocument>> {
   const documentRouting = routeDocumentIds(docIds, allocation)
@@ -171,7 +186,7 @@ export async function readDocumentsFromCopies(
     )
   }
 
-  return readFromCopies(config, nodeId, engine, indexName, documentRouting, fields)
+  return readFromCopies(config, nodeId, engine, indexName, documentRouting, read)
 }
 
 export async function readDistributedDocuments(
@@ -181,6 +196,7 @@ export async function readDistributedDocuments(
   indexName: string,
   docIds: readonly string[],
   allocation: AllocationTable,
+  vectors: boolean,
 ): Promise<Map<string, AnyDocument>> {
-  return readDocumentsFromCopies(config, nodeId, engine, indexName, docIds, allocation, null, true)
+  return readDocumentsFromCopies(config, nodeId, engine, indexName, docIds, allocation, { fields: null, vectors }, true)
 }

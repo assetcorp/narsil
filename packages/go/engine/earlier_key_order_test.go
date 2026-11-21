@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/assetcorp/narsil/packages/go/engine"
 )
 
 func jsonKeyPaths(t *testing.T, data []byte) []string {
@@ -63,7 +65,7 @@ func TestConformanceEarlierReleasesKeepTheKeyOrderOfEveryDocument(t *testing.T) 
 				var expected map[string]json.RawMessage
 				readJSONFile(t, samplesPath(expectedPath), &expected)
 				for id, written := range expected {
-					stored, found, err := narsil.Get(ctx, indexName, id)
+					stored, found, err := narsil.Get(ctx, indexName, id, engine.ReturnVectors(true))
 					if err != nil || !found {
 						t.Fatalf("%s lost document %q: found %t with %s", indexName, id, found, codeOrMessage(err))
 					}

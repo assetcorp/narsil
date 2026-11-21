@@ -206,7 +206,7 @@ func (n *Narsil) replaceDocument(ctx context.Context, entry *indexEntry, release
 	}
 	update := &model.UpdateContext{IndexName: indexName, DocID: docID, NewDocument: working}
 	if n.plugins.hasUpdateHooks() {
-		previous, found, err := entry.storedDocument(ctx, docID)
+		previous, found, err := entry.wholeStoredDocument(ctx, docID)
 		if err != nil {
 			return entry, release, nil, persist.Write{}, err
 		}

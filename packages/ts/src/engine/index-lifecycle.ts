@@ -33,6 +33,7 @@ import {
   validateIndexName,
   validatePartitionConfig,
   validatePatternValueLimit,
+  validateReturnVectors,
 } from './validation'
 import { getVectorFieldPaths } from './vector-fields'
 
@@ -87,6 +88,7 @@ export async function createEngineIndex(
   requirePatternSearchFor(schema)
   requirePartialWordSearchFor(schema)
   validatePatternValueLimit(indexConfig.patternValueLimit)
+  validateReturnVectors(indexConfig.returnVectors)
   requireSurfaceFormsForPartialFields(schema, indexConfig.surfaceForms)
   validateVectorPromotion(indexConfig.vectorPromotion)
   validateVectorStorage(indexConfig.vectorPromotion, core.filesystemDurability)

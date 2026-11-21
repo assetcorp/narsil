@@ -45,8 +45,8 @@ describe('client against a live server', () => {
     await client.insert(index, { id: 'v1', title: 'typed', embedding: new Float32Array([1, 0, 0]) })
     await client.insert(index, { id: 'v2', title: 'plain', embedding: [0, 1, 0] })
 
-    const typed = await client.get(index, 'v1')
-    const plain = await client.get(index, 'v2')
+    const typed = await client.get(index, 'v1', { vectors: true })
+    const plain = await client.get(index, 'v2', { vectors: true })
     expect({ typed: typed?.embedding, plain: plain?.embedding }).toEqual({ typed: [1, 0, 0], plain: [0, 1, 0] })
 
     const found = await client.query(index, {

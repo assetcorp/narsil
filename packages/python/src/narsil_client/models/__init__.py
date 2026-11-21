@@ -1122,6 +1122,10 @@ class HttpIndexBody(ApiModel):
     """
     strict: bool | None = None
     """Setting this rejects a document carrying a field the schema does not declare."""
+    return_vectors: bool | None = Field(default=None, alias="returnVectors")
+    """Setting this returns the vector fields on every search, listing, and read of this index,
+    which otherwise leave them out unless the request asks for them.
+    """
     embedding: CreateIndexEmbedding | None = None
     """This names a server-registered embedding adapter and the fields it embeds."""
     required: list[str] | None = None
@@ -1221,6 +1225,11 @@ class HttpQueryParamsDocumentObject(ApiModel):
     """Names the fields to keep, so every field left out of this list is dropped."""
     exclude: list[str] | None = None
     """Names the fields to drop, so every other field is kept."""
+    vectors: bool | None = None
+    """Setting this to true returns every vector field, and false leaves every one out, whatever
+    `include` and the index setting say. `include` and `exclude` then apply to the vector fields
+    that this keeps.
+    """
 
 
 class HttpQueryParamsGroup(ApiModel):
@@ -1527,7 +1536,9 @@ class HttpQueryParams(ApiModel):
     ranking surprises you.
     """
     document: bool | HttpQueryParamsDocumentObject | None = None
-    """This chooses how much of each stored document comes back, and the whole document by default.
+    """This chooses how much of each stored document comes back. By default a hit carries every
+    field apart from the vector fields, which come back only where DocumentProjection or the
+    index asks for them.
     """
     group: HttpQueryParamsGroup | None = None
     """These settings collapse the hits into groups by field value."""
@@ -1814,6 +1825,11 @@ class ListParamsDocumentObject(ApiModel):
     """Names the fields to keep, so every field left out of this list is dropped."""
     exclude: list[str] | None = None
     """Names the fields to drop, so every other field is kept."""
+    vectors: bool | None = None
+    """Setting this to true returns every vector field, and false leaves every one out, whatever
+    `include` and the index setting say. `include` and `exclude` then apply to the vector fields
+    that this keeps.
+    """
 
 
 class ListParams(ApiModel):
@@ -1845,7 +1861,9 @@ class ListParams(ApiModel):
     default order on a large index.
     """
     document: bool | ListParamsDocumentObject | None = None
-    """This chooses how much of each stored document comes back, and the whole document by default.
+    """This chooses how much of each stored document comes back. By default a listing returns every
+    field apart from the vector fields, which come back only where DocumentProjection or the
+    index asks for them.
     """
 
 
@@ -1984,11 +2002,29 @@ class MemoryStatsResponse(ApiModel):
     """
 
 
+class MultiGetBodyDocumentObject(ApiModel):
+    """The shape of one form of the `document` field of `MultiGetBody`."""
+
+    include: list[str] | None = None
+    """Names the fields to keep, so every field left out of this list is dropped."""
+    exclude: list[str] | None = None
+    """Names the fields to drop, so every other field is kept."""
+    vectors: bool | None = None
+    """Setting this to true returns every vector field, and false leaves every one out, whatever
+    `include` and the index setting say. `include` and `exclude` then apply to the vector fields
+    that this keeps.
+    """
+
+
 class MultiGetBody(ApiModel):
     """The body of `POST /indexes/{name}/documents/_multi-get`."""
 
     doc_ids: list[str] = Field(alias="docIds")
     """The server fetches the documents with these ids."""
+    document: bool | MultiGetBodyDocumentObject | None = None
+    """This chooses how much of each document comes back. Every field apart from the vector fields
+    comes back by default.
+    """
 
 
 class MultiGetResponse(ApiModel):
@@ -2622,6 +2658,7 @@ __all__ = [
     "MemoryStatsResponse",
     "MemoryStatsResponseWorkersItem",
     "MultiGetBody",
+    "MultiGetBodyDocumentObject",
     "MultiGetResponse",
     "NodeMemoryReport",
     "NodeReadiness",

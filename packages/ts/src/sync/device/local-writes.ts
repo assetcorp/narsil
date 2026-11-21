@@ -74,7 +74,7 @@ async function holdsSameDocument(
   documentId: string,
   encoded: Uint8Array | null,
 ): Promise<boolean> {
-  const held = await engine.get(indexName, documentId)
+  const held = await engine.get(indexName, documentId, { document: { vectors: true } })
   if (encoded === null || held === undefined) return encoded === null && held === undefined
   return bytesEqual(requireLoadedMessagePack().encodeDocument(held), encoded)
 }

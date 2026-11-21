@@ -5,7 +5,9 @@ use narsil::{ErrorCode, Map, Narsil, Value};
 use super::common::{engine_call, json_object_body, object};
 use crate::documents::answers::{documents_answer, ordered_documents};
 use crate::documents::batch::{batch_request, run_batch};
-use crate::documents::bodies::{ChosenId, document_of, insert_id_of, multi_get_ids};
+use crate::documents::bodies::{
+    ChosenId, document_of, insert_id_of, multi_get_ids, multi_get_projection, read_projection,
+};
 use crate::errors::{Outcome, ServerError};
 use crate::http::pipeline::RouteContext;
 use crate::http::respond::{HttpResponse, json};
@@ -83,9 +85,10 @@ async fn batch(state: &Arc<ServerState>, context: &RouteContext) -> Outcome<Http
 async fn multi_get(state: &Arc<ServerState>, context: &RouteContext) -> Outcome<HttpResponse> {
     let body = json_object_body(context)?;
     let wanted = multi_get_ids(&body, state.limits.max_fetch_documents)?;
+    let projection = multi_get_projection(&body)?;
     let index = context.param(0).to_string();
     let documents = engine_call(state, move |engine| {
-        let found = engine.get_multiple(&index, &wanted)?;
+        let found = engine.get_multiple_with(&index, &wanted, projection.as_ref())?;
         Ok(ordered_documents(&wanted, found))
     })
     .await?;
@@ -109,10 +112,14 @@ async fn read(
 ) -> Outcome<HttpResponse> {
     let index = context.param(0).to_string();
     let id = context.param(1).to_string();
+    let projection = match route {
+        Route::Get => read_projection(context.query_value("vectors"))?,
+        _ => None,
+    };
     let answer = engine_call(state, move |engine| {
         Ok(match route {
             Route::Get => engine
-                .get(&index, &id)?
+                .get_with(&index, &id, projection.as_ref())?
                 .map(|document| object(vec![("document", Value::Object(document))]))
                 .ok_or_else(|| not_found(&id)),
             Route::Exists => Ok(object(vec![(

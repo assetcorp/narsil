@@ -42,7 +42,7 @@ function tagged(value) {
 }
 
 async function heldDocuments(narsil, index, ids) {
-  const held = await narsil.getMultiple(index, ids)
+  const held = await narsil.getMultiple(index, ids, { document: { vectors: true } })
   const documents = {}
   for (const [id, document] of held) {
     const { id: _ignored, ...fields } = document

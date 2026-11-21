@@ -25,9 +25,10 @@ const defaultTaskPollInterval = 250 * time.Millisecond
 
 // Get returns one document, or nil and no error when the index holds no document under that id. The
 // client encodes the id, so an id that holds a slash, a space, or an accent reaches the document stored
-// under that id.
-func (c *Client) Get(ctx context.Context, name, id string, options ...CallOption) (AnyDocument, error) {
-	answer, err := c.Operations.Get(ctx, name, id, options...)
+// under that id. Set params.Vectors to Ptr("true") to read the vector fields that the index leaves out
+// by default, or to Ptr("false") to leave out the ones that it returns.
+func (c *Client) Get(ctx context.Context, name, id string, params GetParams, options ...CallOption) (AnyDocument, error) {
+	answer, err := c.Operations.Get(ctx, name, id, params, options...)
 	if ErrorCode(err) == codeDocNotFound {
 		return nil, nil
 	}

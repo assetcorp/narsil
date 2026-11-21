@@ -1,5 +1,6 @@
 import type { MemoryStats } from '../../types/memory'
 import type { AnyDocument, BM25Params, InsertOptions, WriteOptions } from '../../types/schema'
+import type { DocumentProjection } from '../../types/search'
 import type { SynonymRule } from '../../types/synonyms'
 
 /** Declarative index configuration accepted over HTTP. Function-valued engine
@@ -64,6 +65,8 @@ export interface DocumentBody {
 export interface MultiGetBody {
   /** The server fetches the documents with these ids. */
   docIds: string[]
+  /** This chooses how much of each document comes back. Every field apart from the vector fields comes back by default. */
+  document?: DocumentProjection
 }
 
 /**
@@ -149,6 +152,8 @@ export interface HttpIndexConfig {
   vectorPromotion?: Record<string, unknown>
   /** Setting this rejects a document carrying a field the schema does not declare. */
   strict?: boolean
+  /** Setting this returns the vector fields on every search, listing, and read of this index, which otherwise leave them out unless the request asks for them. */
+  returnVectors?: boolean
   /** This names a server-registered embedding adapter and the fields it embeds. */
   embedding?: CreateIndexEmbedding
   /** The server rejects a document that omits any of these fields. */

@@ -197,19 +197,32 @@ func (o *Operations) WaitForWrites(ctx context.Context, name string, options ...
 	return decodePointer[OkResponse](answer)
 }
 
+// GetParams holds the query settings of Get.
+type GetParams struct {
+	// Under `true`, the document carries its vector fields, and under `false` it carries none, whatever
+	// the index setting says. One of `true`, `false`.
+	Vectors *string
+}
+
 // Get sends GET /indexes/{name}/documents/{id}: Read one document.
 //
 // Parameters:
 //   - name: The name of the index.
 //   - id: The id of the document.
+//   - params: The query settings, each left out of the URL while it stays nil.
 //
 // Answers:
 //   - HTTP 200: The server answered the request.
-func (o *Operations) Get(ctx context.Context, name string, id string, options ...CallOption) (*DocumentResponse, error) {
+func (o *Operations) Get(ctx context.Context, name string, id string, params GetParams, options ...CallOption) (*DocumentResponse, error) {
 	request := exchange{
 		method: "GET",
 		path:   "/indexes/" + escapePathSegment(name) + "/documents/" + escapePathSegment(id),
 	}
+	query := url.Values{}
+	if params.Vectors != nil {
+		query.Set("vectors", string(*params.Vectors))
+	}
+	request.query = query
 	answer, err := o.transport.exchange(ctx, request, options)
 	if err != nil {
 		return nil, err

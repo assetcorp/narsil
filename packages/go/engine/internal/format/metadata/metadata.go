@@ -63,6 +63,7 @@ type Metadata struct {
 	TrackPositions      model.Optional[bool]
 	TextStorage         model.Optional[string]
 	Strict              model.Optional[bool]
+	ReturnVectors       model.Optional[bool]
 	Required            model.Optional[[]string]
 	VectorPromotion     *indexsettings.VectorPromotion
 	PatternValueLimit   model.Optional[uint32]

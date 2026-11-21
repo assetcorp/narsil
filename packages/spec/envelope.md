@@ -494,6 +494,7 @@ Each index writes a metadata envelope under the key `<indexName>/meta`. It uses 
   track_positions:       boolean              (optional)
   text_storage:          string               (optional; "memory" or "disk", and an absent value means "memory")
   strict:                boolean              (optional)
+  return_vectors:        boolean              (optional; whether a read returns vector fields by default, false where absent)
   required:              List<string>         (optional; field paths every document must supply)
   vector_promotion:      VectorPromotionMeta  (optional)
   pattern_value_limit:   uint32               (optional; the most code points a pattern field value may hold)
@@ -605,7 +606,7 @@ The `analysis_generation` field counts the changes that a caller has made to the
 
 The `bm25_params` field records the setting that [Parameter Levels](algorithms.md#parameter-levels) defines. An earlier revision of this document declared `k1` and `b` as float32, although every writer stored float64, so a reader must accept a MessagePack float of either width. A reader treats an absent `fields` as an empty map, and a writer must leave `fields` out where the setting holds no field.
 
-The `partition_limits`, `default_scoring`, `track_positions`, `strict`, `required`, `vector_promotion`, and `pattern_value_limit` fields record the rest of the index configuration: the partition limits, the scoring mode, position tracking, strict document validation, the required field paths, the vector promotion settings, and the [pattern value limit](algorithms.md#pattern-search). All seven are additive. A writer includes each field only when the index configuration sets it, and a reader treats an absent field as that option's default, so a recovered index behaves exactly as the original did.
+The `partition_limits`, `default_scoring`, `track_positions`, `strict`, `return_vectors`, `required`, `vector_promotion`, and `pattern_value_limit` fields record the rest of the index configuration: the partition limits, the scoring mode, position tracking, strict document validation, whether reads return [vector fields](partitioning.md#vector-fields-in-results), the required field paths, the vector promotion settings, and the [pattern value limit](algorithms.md#pattern-search). All eight are additive. A writer includes each field only when the index configuration sets it, and a reader treats an absent field as that option's default, so a recovered index behaves exactly as the original did.
 
 The `index_uuid` field records the identity a cluster assigned the index when it was created, as [Index Metadata](distribution/cluster.md#index-metadata) defines it. A node running in cluster mode writes the value, and a single engine leaves it absent. A rejoining node compares the recovered value with the one the coordinator holds before it adopts the index, so the node never serves a predecessor's documents from an index created again under the same name; see [Joining the Cluster](distribution/cluster.md#joining-the-cluster). The field is additive, and a reader that finds it absent treats the index as belonging to no cluster.
 
@@ -646,6 +647,7 @@ The payload is a MessagePack map:
   trackPositions:    boolean                      (optional)
   textStorage:       string                       (optional; "memory" or "disk", and an absent value means "memory")
   strict:            boolean                      (optional)
+  returnVectors:     boolean                      (optional; whether a read returns vector fields by default, false where absent)
   required:          List<string>                 (optional; field paths every document must supply)
   vectorPromotion:   VectorSnapshotPromotion      (optional)
   patternValueLimit: uint32                       (optional; the most code points a pattern field value may hold)

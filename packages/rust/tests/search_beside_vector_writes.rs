@@ -1,6 +1,9 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use narsil::{IndexConfig, Map, Narsil, QueryParams, QueryResult, Value, VectorQuery, parse_json};
+use narsil::{
+    DocumentProjection, IndexConfig, Map, Narsil, QueryParams, QueryResult, Value, VectorQuery,
+    parse_json,
+};
 
 const INDEX: &str = "notes";
 const FIELD: &str = "embedding";
@@ -53,6 +56,11 @@ fn engine_with_notes() -> Narsil {
 
 fn every_note_by_vector(term: Option<&str>) -> QueryParams {
     QueryParams {
+        document: Some(DocumentProjection::Fields {
+            include: None,
+            exclude: None,
+            vectors: Some(true),
+        }),
         term: term.map(str::to_string),
         vector: Some(VectorQuery {
             field: FIELD.to_string(),

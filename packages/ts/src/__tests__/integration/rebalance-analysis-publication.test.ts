@@ -98,7 +98,7 @@ it('prepares queued changes against their latest document and replays without ca
         },
         async afterUpdate() {
           if (!replaying) return
-          const document = await engine.get('readings', 'reading')
+          const document = await engine.get('readings', 'reading', { document: { vectors: true } })
           const vector = document?.embedding
           if (!(vector instanceof Float32Array)) throw new Error('A queued document has no vector')
           observed.push({ title: document?.title, vector: Array.from(vector) })
@@ -130,6 +130,7 @@ it('prepares queued changes against their latest document and replays without ca
     }
     const ranked = await engine.query<{ embedding: Float32Array }>('readings', {
       vector: { field: 'embedding', value: [1, 0] },
+      document: { vectors: true },
     })
     expect(ranked.hits).toHaveLength(1)
     expect(Array.from(ranked.hits[0].document?.embedding ?? [])).toEqual([1, 1])

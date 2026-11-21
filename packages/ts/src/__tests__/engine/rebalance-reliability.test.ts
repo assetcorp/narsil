@@ -156,7 +156,7 @@ describe('rebalance write buffering', () => {
       await embedded.insert('articles', { id: 'embedded-during', title: 'buffered embedding subject' })
       await rebalancePromise
 
-      const stored = await embedded.get('articles', 'embedded-during')
+      const stored = await embedded.get('articles', 'embedded-during', { document: { vectors: true } })
       expect(stored).toBeDefined()
       expect(stored?.embedding).toBeInstanceOf(Float32Array)
       expect((stored?.embedding as Float32Array).length).toBe(8)

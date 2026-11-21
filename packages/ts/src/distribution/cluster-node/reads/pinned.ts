@@ -65,7 +65,7 @@ export async function readPinPresence(
   const documents =
     verifiable.length === 0
       ? new Map()
-      : await readDistributedDocuments(deps.config, deps.nodeId, deps.engine, indexName, verifiable, allocation)
+      : await readDistributedDocuments(deps.config, deps.nodeId, deps.engine, indexName, verifiable, allocation, false)
   return { pinnedIds, stored: new Set(documents.keys()), unverifiable }
 }
 

@@ -1,9 +1,10 @@
-use narsil::{ErrorCode, IndexConfig, Map, Value};
+use narsil::{DocumentProjection, ErrorCode, IndexConfig, Map, Value};
 
 pub(crate) use super::index_config::with_given_values;
 use super::index_config::{index_config_of, refusal};
 use crate::errors::{Outcome, ServerError};
 use crate::script_values::{script_text, script_type_name};
+use crate::search::projection;
 
 pub(crate) fn field<'a>(body: &'a Value, key: &str) -> Option<&'a Value> {
     body.as_object().and_then(|body| body.get(key))
@@ -97,6 +98,35 @@ pub(crate) fn insert_id_of(body: &Value, document: &Map) -> ChosenId {
         Value::Null => ChosenId::Absent,
         other => ChosenId::Refused(id_refusal(other)),
     }
+}
+
+pub(crate) fn multi_get_projection(body: &Value) -> Outcome<Option<DocumentProjection>> {
+    field(body, "document")
+        .filter(|document| !document.is_null())
+        .map(projection)
+        .transpose()
+}
+
+pub(crate) fn read_projection(vectors: Option<&str>) -> Outcome<Option<DocumentProjection>> {
+    let vectors = match vectors {
+        None | Some("") => return Ok(None),
+        Some("true") => true,
+        Some("false") => false,
+        Some(other) => {
+            let mut details = Map::new();
+            details.insert("vectors", Value::String(other.to_string()));
+            return Err(ServerError::coded(
+                ErrorCode::SEARCH_INVALID_FIELD.as_str(),
+                "Query parameter \"vectors\" must be true or false",
+            )
+            .with_details(details));
+        }
+    };
+    Ok(Some(DocumentProjection::Fields {
+        include: None,
+        exclude: None,
+        vectors: Some(vectors),
+    }))
 }
 
 pub(crate) fn multi_get_ids(body: &Value, max_fetch_documents: u64) -> Outcome<Vec<String>> {

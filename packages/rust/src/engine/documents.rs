@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -7,7 +6,7 @@ use super::hooked;
 use super::index::IndexState;
 use super::vectors::HeldWrite;
 use super::writes::{BatchFailure, InsertChunk, UpdateChunk};
-use super::{BatchResult, Narsil, QueryParams, QueryResult, query, reads, writes};
+use super::{BatchResult, Narsil, QueryParams, QueryResult, query, writes};
 use crate::error::{NarsilError, Result};
 use crate::value::Map;
 
@@ -334,30 +333,6 @@ impl Narsil {
         }
         hooked::add_refusals(failed, &mut result);
         Ok(result)
-    }
-
-    /// Returns the document stored under `doc_id`, or `None` where the index holds none.
-    pub fn get(&self, index: &str, doc_id: &str) -> Result<Option<Map>> {
-        self.inner
-            .read_index(index, |state| reads::get(state, doc_id))
-    }
-
-    /// Returns the documents stored under each of `doc_ids` that the index holds, keyed by ID.
-    pub fn get_multiple(&self, index: &str, doc_ids: &[String]) -> Result<BTreeMap<String, Map>> {
-        self.inner
-            .read_index(index, |state| reads::get_multiple(state, doc_ids))
-    }
-
-    /// Reports whether the index holds a document under `doc_id`.
-    pub fn has(&self, index: &str, doc_id: &str) -> Result<bool> {
-        self.inner
-            .read_index(index, |state| reads::has(state, doc_id))
-    }
-
-    /// Returns the number of documents in the index.
-    pub fn count_documents(&self, index: &str) -> Result<u64> {
-        self.inner
-            .read_index(index, |state| Ok(state.document_count()))
     }
 
     /// Runs a query against the index and returns a page of hits, best first.

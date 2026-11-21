@@ -5,6 +5,7 @@ use super::constants::DEFAULT_MAX_PER_GROUP;
 use super::documents::{LocatedFields, Location};
 use super::gather::QueryRun;
 use super::params::{GroupConfig, GroupReducer};
+use super::projection::Projection;
 use super::ranked::{Ranked, locate_all};
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::ffi;
@@ -181,8 +182,9 @@ fn fold_reducer<'h>(
         Ok(initial) => initial,
         Err(payload) => return Ok((None, Some(reducer_panic_text(payload, "initialValue")))),
     };
+    let whole = Projection::whole_documents(run.index);
     for hit in hits {
-        let Some(document) = run.document(&hit.id, hit.location)? else {
+        let Some(document) = run.document(&hit.id, hit.location, &whole)? else {
             continue;
         };
         let folded = catch_unwind(AssertUnwindSafe(|| {

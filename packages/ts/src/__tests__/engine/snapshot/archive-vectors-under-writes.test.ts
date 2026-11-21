@@ -81,7 +81,7 @@ async function mismatchesIn(engine: Narsil, indexName: string, history: WrittenH
   const mismatches: string[] = []
   for (let docNumber = 0; docNumber < history.documents; docNumber++) {
     const docId = idOf(docNumber)
-    const restored = await engine.get(indexName, docId)
+    const restored = await engine.get(indexName, docId, { document: { vectors: true } })
     if (restored === undefined) continue
     const restoredVersion = restored.version
     const written = history.versions.get(docId)

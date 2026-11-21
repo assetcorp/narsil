@@ -44,6 +44,7 @@ it.each([false, true])('releases an abandoned reranked HTTP search with worker c
     await server.engine.compactVectors('readings')
     const answer = await postJson<{ hits: Array<{ document: unknown }> }>(server.base, '/indexes/readings/search', {
       term: 'lake',
+      document: { vectors: true },
     })
     expect(answer.status).toBe(200)
     expect(answer.body.hits.map(hit => hit.document)).toEqual([{ title: 'lake', embedding: [0, 1] }])

@@ -168,7 +168,7 @@ async function readState(engine: Narsil): Promise<IndexState> {
   const listed = (await engine.query<Trail>(INDEX, { term: LISTED_WORD, limit: 100 })).hits.map(hit => hit.id).sort()
   const documents: IndexState['documents'] = []
   for (const id of listed) {
-    const stored = await engine.get(INDEX, id)
+    const stored = await engine.get(INDEX, id, { document: { vectors: true } })
     const embedding = stored?.embedding
     documents.push([
       id,

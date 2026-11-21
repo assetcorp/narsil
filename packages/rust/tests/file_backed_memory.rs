@@ -524,9 +524,24 @@ fn refuse_after_embedding(operation: &str) {
         "{operation}"
     );
     assert_eq!(engine.count_documents("embedded").unwrap(), 1);
-    assert_eq!(engine.get("embedded", "original").unwrap(), Some(original));
-    assert!(engine.get(WRITTEN_INDEX, "nested").unwrap().is_some());
-    assert!(engine.get(WRITTEN_INDEX, "refused").unwrap().is_none());
+    assert_eq!(
+        engine
+            .get_with("embedded", "original", Some(&support::WHOLE_DOCUMENT))
+            .unwrap(),
+        Some(original)
+    );
+    assert!(
+        engine
+            .get_with(WRITTEN_INDEX, "nested", Some(&support::WHOLE_DOCUMENT))
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        engine
+            .get_with(WRITTEN_INDEX, "refused", Some(&support::WHOLE_DOCUMENT))
+            .unwrap()
+            .is_none()
+    );
     assert!(!held.lock().unwrap().is_empty());
     engine.shutdown().unwrap();
 }

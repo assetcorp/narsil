@@ -139,6 +139,7 @@ export interface FetchPayload {
   indexName: string
   documentIds: FetchDocumentId[]
   fields: string[] | null
+  vectors?: boolean | null
   highlight: WireHighlightConfig | null
   contextId?: string | null
   releaseContext?: boolean | null
@@ -206,6 +207,7 @@ export interface ListPayload {
   filters: Record<string, unknown> | null
   sort: SortField[] | null
   fields: string[] | null
+  vectors?: boolean | null
 }
 
 export interface ListEntryWire {
