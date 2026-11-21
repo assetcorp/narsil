@@ -1,6 +1,12 @@
 use std::sync::LazyLock;
 
-use narsil::{IndexConfig, Map, Narsil, QueryParams, Value, VectorQuery};
+use narsil::{DocumentProjection, IndexConfig, Map, Narsil, QueryParams, Value, VectorQuery};
+
+const WITH_VECTORS: DocumentProjection = DocumentProjection::Fields {
+    include: None,
+    exclude: None,
+    vectors: Some(true),
+};
 
 const TEXT_INDEX: &str = "articles";
 const VECTOR_INDEX: &str = "articles-with-embeddings";
@@ -160,6 +166,30 @@ fn search_vector_index_by_vector(bencher: divan::Bencher) {
     bencher.bench(|| searched(VECTOR_INDEX, divan::black_box(&params)));
 }
 
+#[divan::bench]
+fn search_text_in_vector_index_with_vectors(bencher: divan::Bencher) {
+    let params = QueryParams {
+        document: Some(WITH_VECTORS),
+        ..text_query()
+    };
+    bencher.bench(|| searched(VECTOR_INDEX, divan::black_box(&params)));
+}
+
+#[divan::bench]
+fn search_vector_index_by_vector_with_vectors(bencher: divan::Bencher) {
+    let params = QueryParams {
+        vector: Some(VectorQuery {
+            field: "embedding".to_string(),
+            value: Some(QUERY_VECTOR.clone()),
+            ..VectorQuery::default()
+        }),
+        limit: Some(PAGE_LIMIT),
+        document: Some(WITH_VECTORS),
+        ..QueryParams::default()
+    };
+    bencher.bench(|| searched(VECTOR_INDEX, divan::black_box(&params)));
+}
+
 fn got(index: &str, id: &str) -> Map {
     ENGINE
         .get(index, id)
@@ -195,6 +225,29 @@ fn get_multiple_from_text_index(bencher: divan::Bencher) {
 fn get_multiple_from_vector_index(bencher: divan::Bencher) {
     let ids = read_ids();
     bencher.bench(|| got_many(VECTOR_INDEX, divan::black_box(&ids)));
+}
+
+#[divan::bench]
+fn get_from_vector_index_with_vectors(bencher: divan::Bencher) {
+    let id = document_id(DOCUMENT_COUNT / 2);
+    bencher.bench(|| {
+        ENGINE
+            .get_with(VECTOR_INDEX, divan::black_box(&id), Some(&WITH_VECTORS))
+            .expect("the read answers")
+            .expect("the document is stored")
+    });
+}
+
+#[divan::bench]
+fn get_multiple_from_vector_index_with_vectors(bencher: divan::Bencher) {
+    let ids = read_ids();
+    bencher.bench(|| {
+        let found = ENGINE
+            .get_multiple_with(VECTOR_INDEX, divan::black_box(&ids), Some(&WITH_VECTORS))
+            .expect("the read answers");
+        assert_eq!(found.len(), ids.len());
+        found.len()
+    });
 }
 
 fn empty_index(name: &str, with_embedding: bool) -> Narsil {
