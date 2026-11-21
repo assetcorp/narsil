@@ -32,6 +32,7 @@ type Configuration struct {
 	TrackPositions     model.Optional[bool]
 	TextStorage        model.Optional[string]
 	Strict             model.Optional[bool]
+	ReturnVectors      model.Optional[bool]
 	Required           model.Optional[[]string]
 	VectorPromotion    *is.VectorPromotion
 	PatternValueLimit  model.Optional[uint32]
@@ -174,7 +175,10 @@ func readFlags(record map[string]any, config *Configuration, reject is.Reject) e
 	if config.TrackPositions, err = readBoolean(record, "trackPositions", reject); err != nil {
 		return err
 	}
-	config.Strict, err = readBoolean(record, "strict", reject)
+	if config.Strict, err = readBoolean(record, "strict", reject); err != nil {
+		return err
+	}
+	config.ReturnVectors, err = readBoolean(record, "returnVectors", reject)
 	return err
 }
 

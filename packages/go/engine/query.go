@@ -4,16 +4,15 @@ import (
 	"context"
 
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index"
-	"github.com/assetcorp/narsil/packages/go/engine/internal/index/projection"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 )
 
 func (entry *indexEntry) attachHitVectors(ctx context.Context, result *model.QueryResult,
 	requested model.DocumentProjection) error {
-	if len(entry.vectorPaths) == 0 {
+	shown := entry.shownVectorFields(requested)
+	if len(shown) == 0 {
 		return nil
 	}
-	shown := projection.Resolve(requested)
 	for _, hit := range result.Hits {
 		if err := entry.attachVectorsUnder(ctx, hit.Document, hit.ID, shown); err != nil {
 			return err
