@@ -10,10 +10,10 @@ import {
   writeTar,
 } from '../../../ts/src/__tests__/e2e/portability/archive-oracle.ts'
 
-const [mode, source, target, original, replacement, encoding] = process.argv.slice(2)
+const [mode, source, target, original, replacement] = process.argv.slice(2)
 const encoder = new TextEncoder()
-const originalBytes = encoding === 'hex' ? Buffer.from(original, 'hex') : encoder.encode(original)
-const replacementBytes = encoding === 'hex' ? Buffer.from(replacement, 'hex') : encoder.encode(replacement)
+const originalBytes = encoder.encode(original)
+const replacementBytes = encoder.encode(replacement)
 if (originalBytes.length !== replacementBytes.length) {
   throw new Error('the replacement must hold as many bytes as the original, so that no offset moves')
 }
