@@ -251,6 +251,17 @@ fn projection_paths(option: &str, given: Option<&Value>) -> Converted<Option<Vec
     Ok(strings_of(given))
 }
 
+fn projection_vectors(given: Option<&Value>) -> Converted<Option<bool>> {
+    match given {
+        None => Ok(None),
+        Some(Value::Bool(vectors)) => Ok(Some(*vectors)),
+        Some(_) => Err(refusal(
+            ErrorCode::SEARCH_INVALID_FIELD,
+            "The \"document.vectors\" option takes true or false",
+        )),
+    }
+}
+
 pub(crate) fn projection(document: &Value) -> Converted<DocumentProjection> {
     match document {
         Value::Bool(true) => Ok(DocumentProjection::All),
@@ -258,6 +269,7 @@ pub(crate) fn projection(document: &Value) -> Converted<DocumentProjection> {
         Value::Object(fields) => Ok(DocumentProjection::Fields {
             include: projection_paths("document.include", fields.get("include"))?,
             exclude: projection_paths("document.exclude", fields.get("exclude"))?,
+            vectors: projection_vectors(fields.get("vectors"))?,
         }),
         _ => Err(refusal(
             ErrorCode::SEARCH_INVALID_FIELD,
