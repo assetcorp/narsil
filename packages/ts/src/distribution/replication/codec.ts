@@ -1,4 +1,4 @@
-import { decode, encode, generateId } from '#platform/storage-host'
+import { decode, ErrorCodes, encode, generateId, NarsilError } from '#platform/storage-host'
 import { WIRE_BATCH_BUDGET } from '../constants'
 import type {
   AckPayload,
@@ -155,12 +155,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
+export function invalidReplicationPayload(message: string): NarsilError {
+  return new NarsilError(ErrorCodes.REPLICATION_ENTRY_INVALID, message)
+}
+
 export function optionalIndexUuid(value: unknown, payloadName: string): string | undefined {
   if (value === undefined || value === null) {
     return undefined
   }
   if (typeof value !== 'string' || value.length === 0) {
-    throw new Error(`Invalid ${payloadName}: "indexUuid" must be a non-empty string or absent`)
+    throw invalidReplicationPayload(`Invalid ${payloadName}: "indexUuid" must be a non-empty string or absent`)
   }
   return value
 }
@@ -170,9 +174,34 @@ function optionalPreviousPrimaryTerm(value: unknown, payloadName: string): numbe
     return undefined
   }
   if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
-    throw new Error(`Invalid ${payloadName}: "previousPrimaryTerm" must be a non-negative integer or absent`)
+    throw invalidReplicationPayload(
+      `Invalid ${payloadName}: "previousPrimaryTerm" must be a non-negative integer or absent`,
+    )
   }
   return value
+}
+
+export function validateForwardOperation(operation: Record<string, unknown>, label: string): void {
+  if (typeof operation.documentId !== 'string' || operation.documentId.length === 0) {
+    throw invalidReplicationPayload(`Invalid ${label}: "documentId" must be a non-empty string`)
+  }
+  if (operation.operation !== 'insert' && operation.operation !== 'remove' && operation.operation !== 'update') {
+    throw invalidReplicationPayload(`Invalid ${label}: "operation" must be "insert", "remove", or "update"`)
+  }
+  operation.document ??= null
+  operation.updateFields ??= null
+  if (operation.document !== null && !(operation.document instanceof Uint8Array)) {
+    throw invalidReplicationPayload(`Invalid ${label}: "document" must be binary or absent`)
+  }
+  if (operation.updateFields !== null && !isPlainObject(operation.updateFields)) {
+    throw invalidReplicationPayload(`Invalid ${label}: "updateFields" must be a map or absent`)
+  }
+  if (operation.operation === 'insert' && operation.document === null) {
+    throw invalidReplicationPayload(`Invalid ${label}: an insert requires a document`)
+  }
+  if (operation.operation === 'update' && operation.document === null && operation.updateFields === null) {
+    throw invalidReplicationPayload(`Invalid ${label}: an update requires a document or updateFields`)
+  }
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -185,39 +214,42 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 export function validateEntryPayload(decoded: unknown): EntryPayload {
   if (!isRecord(decoded) || !isRecord(decoded.entry)) {
-    throw new Error('Invalid EntryPayload: missing or invalid "entry" field')
+    throw invalidReplicationPayload('Invalid EntryPayload: missing or invalid "entry" field')
   }
   const entry = decoded.entry
   if (typeof entry.seqNo !== 'number') {
-    throw new Error('Invalid EntryPayload: "entry.seqNo" must be a number')
+    throw invalidReplicationPayload('Invalid EntryPayload: "entry.seqNo" must be a number')
   }
   if (typeof entry.primaryTerm !== 'number') {
-    throw new Error('Invalid EntryPayload: "entry.primaryTerm" must be a number')
+    throw invalidReplicationPayload('Invalid EntryPayload: "entry.primaryTerm" must be a number')
   }
   if (entry.operation !== 'INDEX' && entry.operation !== 'DELETE') {
-    throw new Error('Invalid EntryPayload: "entry.operation" must be "INDEX" or "DELETE"')
+    throw invalidReplicationPayload('Invalid EntryPayload: "entry.operation" must be "INDEX" or "DELETE"')
   }
   if (typeof entry.partitionId !== 'number') {
-    throw new Error('Invalid EntryPayload: "entry.partitionId" must be a number')
+    throw invalidReplicationPayload('Invalid EntryPayload: "entry.partitionId" must be a number')
   }
   if (typeof entry.indexName !== 'string') {
-    throw new Error('Invalid EntryPayload: "entry.indexName" must be a string')
+    throw invalidReplicationPayload('Invalid EntryPayload: "entry.indexName" must be a string')
   }
   if (typeof entry.documentId !== 'string') {
-    throw new Error('Invalid EntryPayload: "entry.documentId" must be a string')
+    throw invalidReplicationPayload('Invalid EntryPayload: "entry.documentId" must be a string')
   }
+  entry.document ??= null
   if (entry.document !== null && !(entry.document instanceof Uint8Array)) {
-    throw new Error('Invalid EntryPayload: "entry.document" must be Uint8Array or null')
+    throw invalidReplicationPayload('Invalid EntryPayload: "entry.document" must be binary or absent')
   }
   if (
     'previousDocument' in entry &&
     entry.previousDocument !== null &&
     !(entry.previousDocument instanceof Uint8Array)
   ) {
-    throw new Error('Invalid EntryPayload: "entry.previousDocument" must be Uint8Array or null where present')
+    throw invalidReplicationPayload(
+      'Invalid EntryPayload: "entry.previousDocument" must be Uint8Array or null where present',
+    )
   }
   if (typeof entry.checksum !== 'number') {
-    throw new Error('Invalid EntryPayload: "entry.checksum" must be a number')
+    throw invalidReplicationPayload('Invalid EntryPayload: "entry.checksum" must be a number')
   }
   optionalIndexUuid(decoded.indexUuid, 'EntryPayload')
   optionalPreviousPrimaryTerm(decoded.previousPrimaryTerm, 'EntryPayload')
@@ -226,10 +258,10 @@ export function validateEntryPayload(decoded: unknown): EntryPayload {
 
 export function validateEntryBatchPayload(decoded: unknown): EntryBatchPayload {
   if (!isRecord(decoded) || !Array.isArray(decoded.entries)) {
-    throw new Error('Invalid EntryBatchPayload: missing or invalid "entries" field')
+    throw invalidReplicationPayload('Invalid EntryBatchPayload: missing or invalid "entries" field')
   }
   if (decoded.entries.length === 0) {
-    throw new Error('Invalid EntryBatchPayload: "entries" must not be empty')
+    throw invalidReplicationPayload('Invalid EntryBatchPayload: "entries" must not be empty')
   }
 
   const validated = decoded.entries.map(candidate => validateEntryPayload({ entry: candidate }).entry)
@@ -238,13 +270,15 @@ export function validateEntryBatchPayload(decoded: unknown): EntryBatchPayload {
   for (let index = 1; index < validated.length; index++) {
     const entry = validated[index]
     if (entry.indexName !== first.indexName || entry.partitionId !== first.partitionId) {
-      throw new Error('Invalid EntryBatchPayload: entries must belong to one partition of one index')
+      throw invalidReplicationPayload('Invalid EntryBatchPayload: entries must belong to one partition of one index')
     }
     if (entry.primaryTerm !== first.primaryTerm) {
-      throw new Error('Invalid EntryBatchPayload: entries must share one primary term')
+      throw invalidReplicationPayload('Invalid EntryBatchPayload: entries must share one primary term')
     }
     if (entry.seqNo !== validated[index - 1].seqNo + 1) {
-      throw new Error('Invalid EntryBatchPayload: entries must carry contiguous ascending sequence numbers')
+      throw invalidReplicationPayload(
+        'Invalid EntryBatchPayload: entries must carry contiguous ascending sequence numbers',
+      )
     }
   }
 
@@ -258,44 +292,25 @@ export function validateEntryBatchPayload(decoded: unknown): EntryBatchPayload {
 
 export function validateForwardBatchPayload(decoded: unknown): ForwardBatchPayload {
   if (!isRecord(decoded)) {
-    throw new Error('Invalid ForwardBatchPayload: expected an object')
+    throw invalidReplicationPayload('Invalid ForwardBatchPayload: expected an object')
   }
   if (typeof decoded.indexName !== 'string' || decoded.indexName.length === 0) {
-    throw new Error('Invalid ForwardBatchPayload: "indexName" must be a non-empty string')
+    throw invalidReplicationPayload('Invalid ForwardBatchPayload: "indexName" must be a non-empty string')
   }
   if (!Array.isArray(decoded.operations)) {
-    throw new Error('Invalid ForwardBatchPayload: "operations" must be an array')
+    throw invalidReplicationPayload('Invalid ForwardBatchPayload: "operations" must be an array')
   }
-  if (decoded.operations.length === 0) {
-    throw new Error('Invalid ForwardBatchPayload: "operations" must not be empty')
-  }
-  if (decoded.operations.length > MAX_FORWARD_BATCH_OPERATIONS) {
-    throw new Error(
-      `Invalid ForwardBatchPayload: "operations" exceeds maximum length of ${MAX_FORWARD_BATCH_OPERATIONS}`,
+  if (decoded.operations.length === 0 || decoded.operations.length > MAX_FORWARD_BATCH_OPERATIONS) {
+    throw invalidReplicationPayload(
+      `Invalid ForwardBatchPayload: "operations" must hold from 1 to ${MAX_FORWARD_BATCH_OPERATIONS} operations`,
     )
   }
   for (let index = 0; index < decoded.operations.length; index++) {
     const operation = decoded.operations[index]
     if (!isRecord(operation)) {
-      throw new Error(`Invalid ForwardBatchPayload: "operations[${index}]" must be an object`)
+      throw invalidReplicationPayload(`Invalid ForwardBatchPayload: "operations[${index}]" must be an object`)
     }
-    if (typeof operation.documentId !== 'string' || operation.documentId.length === 0) {
-      throw new Error(`Invalid ForwardBatchPayload: "operations[${index}].documentId" must be a non-empty string`)
-    }
-    if (operation.operation !== 'insert' && operation.operation !== 'remove' && operation.operation !== 'update') {
-      throw new Error(
-        `Invalid ForwardBatchPayload: "operations[${index}].operation" must be "insert", "remove", or "update"`,
-      )
-    }
-    if (operation.document !== null && !(operation.document instanceof Uint8Array)) {
-      throw new Error(`Invalid ForwardBatchPayload: "operations[${index}].document" must be Uint8Array or null`)
-    }
-    if (operation.operation === 'insert' && operation.document === null) {
-      throw new Error(`Invalid ForwardBatchPayload: "operations[${index}]" requires a document`)
-    }
-    if (operation.operation === 'update' && operation.document === null && !isRecord(operation.updateFields)) {
-      throw new Error(`Invalid ForwardBatchPayload: "operations[${index}]" requires a document or updateFields`)
-    }
+    validateForwardOperation(operation, `ForwardBatchPayload "operations[${index}]"`)
   }
   optionalIndexUuid(decoded.indexUuid, 'ForwardBatchPayload')
   return decoded as unknown as ForwardBatchPayload
@@ -319,6 +334,8 @@ export function validateForwardBatchResultPayload(decoded: unknown): ForwardBatc
     if (typeof result.success !== 'boolean') {
       throw new Error(`Invalid ForwardBatchResultPayload: "results[${index}].success" must be a boolean`)
     }
+    result.errorCode ??= null
+    result.errorMessage ??= null
     if (result.errorCode !== null && typeof result.errorCode !== 'string') {
       throw new Error(`Invalid ForwardBatchResultPayload: "results[${index}].errorCode" must be a string or null`)
     }

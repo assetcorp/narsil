@@ -1,13 +1,7 @@
 import { MAX_DOC_ID_LENGTH } from '../../../engine/constants'
 import { validateIndexName } from '../../cluster/index-metadata'
 import type { FetchPayload, FetchResultPayload } from '../../transport/types'
-import {
-  MAX_FETCH_DOCUMENT_IDS,
-  MAX_FIELDS_LIST,
-  MAX_HIGHLIGHT_SNIPPET_LENGTH,
-  MAX_HIGHLIGHT_TAG_LENGTH,
-  MAX_SEARCH_CONTEXT_ID_LENGTH,
-} from '../constants'
+import { MAX_FETCH_DOCUMENT_IDS, MAX_FIELDS_LIST, MAX_SEARCH_CONTEXT_ID_LENGTH } from '../constants'
 import {
   CONFIG_INVALID,
   isRecord,
@@ -34,39 +28,6 @@ function validateDocumentId(value: unknown, fieldLabel: string): void {
   validatePartitionId(value.partitionId, `${fieldLabel}.partitionId`, CONFIG_INVALID)
 }
 
-function validateHighlightConfig(value: unknown): void {
-  if (!isRecord(value)) {
-    throwInvalid(CONFIG_INVALID, 'Invalid FetchPayload: "highlight" must be an object or null')
-  }
-  if (value.fields !== null) {
-    validateStringArray(value.fields, 'highlight.fields', MAX_FIELDS_LIST, 255, SEARCH_INVALID_FIELD)
-  }
-  if (typeof value.before !== 'string' || value.before.length > MAX_HIGHLIGHT_TAG_LENGTH) {
-    throwInvalid(
-      CONFIG_INVALID,
-      `Invalid FetchPayload: "highlight.before" must be a string of at most ${MAX_HIGHLIGHT_TAG_LENGTH} characters`,
-    )
-  }
-  if (typeof value.after !== 'string' || value.after.length > MAX_HIGHLIGHT_TAG_LENGTH) {
-    throwInvalid(
-      CONFIG_INVALID,
-      `Invalid FetchPayload: "highlight.after" must be a string of at most ${MAX_HIGHLIGHT_TAG_LENGTH} characters`,
-    )
-  }
-  if (
-    typeof value.maxSnippetLength !== 'number' ||
-    !Number.isFinite(value.maxSnippetLength) ||
-    !Number.isInteger(value.maxSnippetLength) ||
-    value.maxSnippetLength <= 0 ||
-    value.maxSnippetLength > MAX_HIGHLIGHT_SNIPPET_LENGTH
-  ) {
-    throwInvalid(
-      CONFIG_INVALID,
-      `Invalid FetchPayload: "highlight.maxSnippetLength" must be a positive integer at most ${MAX_HIGHLIGHT_SNIPPET_LENGTH}`,
-    )
-  }
-}
-
 export function validateFetchPayload(decoded: unknown): FetchPayload {
   if (!isRecord(decoded)) {
     throwInvalid(CONFIG_INVALID, 'Invalid FetchPayload: expected an object')
@@ -85,14 +46,13 @@ export function validateFetchPayload(decoded: unknown): FetchPayload {
   for (let i = 0; i < decoded.documentIds.length; i++) {
     validateDocumentId(decoded.documentIds[i], `documentIds[${i}]`)
   }
+  decoded.fields ??= null
+  decoded.highlight = null
   if (decoded.fields !== null) {
     validateStringArray(decoded.fields, 'fields', MAX_FIELDS_LIST, 255, SEARCH_INVALID_FIELD)
   }
   if (decoded.vectors !== null && decoded.vectors !== undefined && typeof decoded.vectors !== 'boolean') {
     throwInvalid(CONFIG_INVALID, 'Invalid FetchPayload: "vectors" must be a boolean, or null')
-  }
-  if (decoded.highlight !== null) {
-    validateHighlightConfig(decoded.highlight)
   }
   if (decoded.contextId !== null && decoded.contextId !== undefined) {
     validateStringField(decoded.contextId, 'contextId', MAX_SEARCH_CONTEXT_ID_LENGTH, CONFIG_INVALID)
@@ -123,9 +83,7 @@ export function validateFetchResultPayload(decoded: unknown): FetchResultPayload
     if (!isRecord(doc.document)) {
       throwInvalid(CONFIG_INVALID, `Invalid FetchResultPayload: "documents[${i}].document" must be an object`)
     }
-    if (doc.highlights !== null && !isRecord(doc.highlights)) {
-      throwInvalid(CONFIG_INVALID, `Invalid FetchResultPayload: "documents[${i}].highlights" must be an object or null`)
-    }
+    doc.highlights = null
   }
   return decoded as unknown as FetchResultPayload
 }

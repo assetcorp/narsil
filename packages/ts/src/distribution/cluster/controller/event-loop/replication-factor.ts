@@ -1,9 +1,9 @@
 import { encode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../../../errors'
-import { decode } from '../../../../serialization/msgpack'
 import { MAX_REPLICATION_FACTOR } from '../../../constants'
 import type { ClusterCoordinator } from '../../../coordinator/types'
 import { isRecord, isValidInteger } from '../../../payload-guards'
+import { decodeRequestPayload } from '../../../request-decode'
 import type { ReplicationFactorPayload, RespondFn, TransportMessage } from '../../../transport/types'
 import { ClusterMessageTypes } from '../../../transport/types'
 import { putIndexReplicationFactor } from '../../index-metadata'
@@ -21,12 +21,7 @@ function encodeRefusal(error: unknown): Uint8Array {
 }
 
 function readPayload(message: TransportMessage): ReplicationFactorPayload {
-  let decoded: unknown
-  try {
-    decoded = decode(message.payload)
-  } catch (_) {
-    decoded = null
-  }
+  const decoded = decodeRequestPayload(message.payload, message.type)
   if (!isRecord(decoded) || typeof decoded.indexName !== 'string') {
     throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'A replication factor request must name an index', {})
   }

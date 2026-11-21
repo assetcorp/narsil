@@ -1,8 +1,3 @@
-import { readSortValues } from '../../../search/sort-keys'
-import { normalizeSort, sortModesOf } from '../../../search/sorting'
-import { decode } from '../../../serialization/msgpack'
-import type { AnyDocument } from '../../../types/schema'
-import type { ListParams } from '../../../types/search'
 import {
   createCountResultMessage,
   createListResultMessage,
@@ -13,10 +8,12 @@ import {
   validatePreflightPayload,
   validateSuggestPayload,
 } from '../../query/codec'
-import type { ListEntryWire, RespondFn, TransportMessage } from '../../transport/types'
+import { decodeRequestPayload } from '../../request-decode'
+import type { RespondFn, TransportMessage } from '../../transport/types'
 import { refuseEncodeWithoutRoom } from '../memory/answer-room'
 import { wireParamsToLocal } from '../query-conversion'
 import { localCountAnswer } from '../reads/count-answer'
+import { listLocalPage } from '../reads/local-list-page'
 import type { DataNodeHandlerDeps } from './types'
 
 export async function handleCount(
@@ -24,7 +21,7 @@ export async function handleCount(
   respond: RespondFn,
   deps: DataNodeHandlerDeps,
 ): Promise<void> {
-  const payload = validateCountPayload(decode(message.payload))
+  const payload = validateCountPayload(decodeRequestPayload(message.payload, message.type))
   const answer = await localCountAnswer(deps.engine, payload.indexName, payload.partitionIds)
   await respond(createCountResultMessage(answer, deps.nodeId, message.requestId))
 }
@@ -34,41 +31,10 @@ export async function handleList(
   respond: RespondFn,
   deps: DataNodeHandlerDeps,
 ): Promise<void> {
-  const payload = validateListPayload(decode(message.payload))
-
-  const listParams: ListParams = {
-    cursor: payload.cursor ?? undefined,
-    limit: payload.limit,
-    filters: payload.filters ?? undefined,
-    sort: payload.sort ?? undefined,
-    document: {
-      ...(payload.fields === null ? {} : { include: payload.fields }),
-      vectors: payload.vectors !== false,
-    },
-  }
-
-  const result = await deps.engine.listPartitions(payload.indexName, listParams, payload.partitionIds)
-  const normalizedSort = payload.sort === null ? null : normalizeSort(payload.sort)
-  const sortFields = normalizedSort === null ? null : normalizedSort.map(entry => entry.field)
-  const sortModes = normalizedSort === null ? [] : sortModesOf(normalizedSort)
-
-  const entries: ListEntryWire[] = result.documents.map(listed => ({
-    docId: listed.id,
-    document: listed.document as Record<string, unknown>,
-    sortValues:
-      sortFields === null
-        ? null
-        : readSortValues(listed.document as AnyDocument | undefined, sortFields, sortModes).map(toWireSortValue),
-  }))
-
-  refuseEncodeWithoutRoom(entries.map(entry => entry.document))
-  await respond(
-    createListResultMessage(
-      { entries, total: result.total, hasMore: result.cursor !== null },
-      deps.nodeId,
-      message.requestId,
-    ),
-  )
+  const payload = validateListPayload(decodeRequestPayload(message.payload, message.type))
+  const page = await listLocalPage(deps.engine, payload)
+  refuseEncodeWithoutRoom(page.entries.map(entry => entry.document))
+  await respond(createListResultMessage(page, deps.nodeId, message.requestId))
 }
 
 export async function handleSuggest(
@@ -76,7 +42,7 @@ export async function handleSuggest(
   respond: RespondFn,
   deps: DataNodeHandlerDeps,
 ): Promise<void> {
-  const payload = validateSuggestPayload(decode(message.payload))
+  const payload = validateSuggestPayload(decodeRequestPayload(message.payload, message.type))
   const result = await deps.analysisView.answerAt(payload.indexName, payload.analysisGeneration ?? 0, () =>
     deps.engine.suggestPartitions(
       payload.indexName,
@@ -99,7 +65,7 @@ export async function handlePreflight(
   respond: RespondFn,
   deps: DataNodeHandlerDeps,
 ): Promise<void> {
-  const payload = validatePreflightPayload(decode(message.payload))
+  const payload = validatePreflightPayload(decodeRequestPayload(message.payload, message.type))
   const params = wireParamsToLocal(payload.params)
   const result = await deps.analysisView.answerAt(payload.indexName, payload.params.analysisGeneration ?? 0, () =>
     deps.engine.preflightPartitions(
@@ -117,11 +83,4 @@ export async function handlePreflight(
       message.requestId,
     ),
   )
-}
-
-function toWireSortValue(value: unknown): string | number | boolean | null {
-  if (typeof value === 'string') return value
-  if (typeof value === 'number') return Number.isFinite(value) ? value : null
-  if (typeof value === 'boolean') return value
-  return null
 }
