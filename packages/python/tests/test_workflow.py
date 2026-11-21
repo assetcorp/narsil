@@ -105,3 +105,22 @@ async def test_a_client_runs_the_whole_index_lifecycle_on_a_live_server(
 
         assert (await settle(client.drop_index(index_name))).dropped is True
         await settle(client.drop_index(restored_name))
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("form", CLIENT_FORMS)
+async def test_a_client_reads_vector_fields_only_when_the_read_asks_for_them(
+    form: str, server_url: str, index_name: str
+) -> None:
+    embedding = [0.5, -0.25, 0.125]
+    schema = {"title": "string", "embedding": "vector[3]"}
+    walk = {"title": "Ridge walk"}
+    async with open_client(form, server_url) as client:
+        await settle(client.create_index({"name": index_name, "config": {"schema": schema}}))
+        await settle(client.insert(index_name, {"document": {**walk, "embedding": embedding}, "id": "ridge"}))
+        await settle(client.wait_for_writes(index_name))
+
+        assert await settle(client.get(index_name, "ridge")) == walk
+        assert await settle(client.get(index_name, "ridge", vectors=False)) == walk
+        assert await settle(client.get(index_name, "ridge", vectors=True)) == {**walk, "embedding": embedding}
+        await settle(client.drop_index(index_name))
