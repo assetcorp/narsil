@@ -20,6 +20,20 @@ export interface PutResult {
 }
 
 /**
+ * These options shape one {@link DocumentOperations.get} request.
+ *
+ * @public
+ */
+export interface GetDocumentOptions extends RequestOptions {
+  /**
+   * Setting this to true returns the vector fields, and false leaves them out
+   * even on an index that sets `returnVectors`. The server leaves them out by
+   * default.
+   */
+  vectors?: boolean
+}
+
+/**
  * These methods write and read one document at a time over HTTP.
  *
  * Each one has the name of the {@link Narsil} method it mirrors. Reach for
@@ -53,17 +67,18 @@ export interface DocumentOperations {
     options?: RequestOptions,
   ): Promise<string>
   /**
-   * Reads one stored document back.
+   * Reads one stored document back, without its vector fields unless
+   * `options.vectors` or the index's `returnVectors` setting asks for them.
    *
    * @param indexName - This names the index holding the document.
    * @param docId - This names the document to read.
-   * @param options - This sets the signal, the deadline, and the headers for
-   * this request.
+   * @param options - This chooses whether the vector fields come back, and sets
+   * the signal, the deadline, and the headers for this request.
    * @returns The stored document comes back, and `undefined` says the index
    * holds no such id.
    * @throws A `NarsilError` with `INDEX_NOT_FOUND` for an unknown index.
    */
-  get(indexName: string, docId: string, options?: RequestOptions): Promise<AnyDocument | undefined>
+  get(indexName: string, docId: string, options?: GetDocumentOptions): Promise<AnyDocument | undefined>
   /**
    * Reports whether an index holds a document under an id, without returning
    * the document itself.
@@ -174,7 +189,11 @@ export function createDocumentOperations(transport: Transport): DocumentOperatio
     },
     async get(indexName, docId, options) {
       const path = documentPath(indexName, docId)
-      const payload = await transport.jsonOrNull({ method: 'GET', path, options }, ErrorCodes.DOC_NOT_FOUND)
+      const vectors = options?.vectors
+      const payload = await transport.jsonOrNull(
+        { method: 'GET', path, query: { vectors: vectors === undefined ? undefined : String(vectors) }, options },
+        ErrorCodes.DOC_NOT_FOUND,
+      )
       if (payload === null) return undefined
       return readObject<AnyDocument>(payload, 'document', path)
     },

@@ -12,6 +12,7 @@ The `delali-narsil` crate embeds the engine in a Rust program. Its library is ca
 
 - `Narsil::open(NarsilConfig::default())` keeps every index in memory. Set `durability` to a directory to log every write before the call returns and to find every index again after a restart.
 - Schemas, documents, and filters are JSON values, which `narsil::parse_json` builds from a string. `QueryParams` takes the fields of the TypeScript `query`, written in snake case, and a query that sets both `term` and `vector` returns one hybrid ranking.
+- A read leaves out vector fields. Pass a `DocumentProjection::Fields` whose `vectors` is `Some(true)` to `get_with`, to `get_multiple_with`, or as the `document` of a query or a listing to get them back, or set `return_vectors: Some(true)` in the `IndexConfig`.
 - Every method takes `&self`, and the engine is `Send` and `Sync`, so share one engine across threads through an `Arc`. A search reads the index as it stood when it began, so it never waits for a write.
 - Every fallible method returns a `NarsilError` whose `code()` matches the TypeScript code for the same input, such as `DOC_VALIDATION_FAILED`.
 - Write embedding adapters, rerank adapters, tokenizers, and stop word functions in Rust, register each one with `register_embedding_adapter`, `register_rerank_adapter`, `register_tokenizer`, or `register_stop_words`, and give that name in the index settings.

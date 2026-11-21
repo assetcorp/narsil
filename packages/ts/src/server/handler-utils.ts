@@ -120,7 +120,8 @@ export function badRequest(res: ResponseSink, message: string, details?: Record<
  * disconnected. */
 export function rejectInvalid(ctx: RouteContext, failure: ValidationFailure): void {
   if (ctx.abort.aborted) return
-  badRequest(ctx.res, failure.message, failure.details)
+  if (failure.code === undefined) badRequest(ctx.res, failure.message, failure.details)
+  else sendError(ctx.res, 400, failure.code, failure.message, failure.details)
 }
 
 export function serializeBatchResult(result: BatchResult): BatchResponse {

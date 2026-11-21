@@ -84,7 +84,7 @@ fn search_every_vector_field(narsil: &Narsil, index: &str) -> narsil::Result<()>
     let Some(hit) = sample.hits.first() else {
         return Ok(());
     };
-    let Some(document) = narsil.get(index, &hit.id)? else {
+    let Some(document) = narsil.get_with(index, &hit.id, Some(&support::WHOLE_DOCUMENT))? else {
         return Ok(());
     };
     for status in narsil.vector_maintenance_status(index)? {
@@ -119,7 +119,7 @@ fn held_documents(
     index: &str,
     ids: &[String],
 ) -> narsil::Result<BTreeMap<String, Map>> {
-    let held = narsil.get_multiple(index, ids)?;
+    let held = narsil.get_multiple_with(index, ids, Some(&support::WHOLE_DOCUMENT))?;
     Ok(held
         .into_iter()
         .map(|(id, mut document)| {

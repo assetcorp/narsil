@@ -45,6 +45,7 @@ it.skipIf(!built).each(['success', 'failure', 'timeout'] as const)(
         term: 'river',
         rerank: { adapter: 'reentrant', fields: ['title'] },
         highlight: { fields: ['title'] },
+        document: { vectors: true },
       })
       expect(calls).toBe(1)
       if (outcome === 'success') {
@@ -57,7 +58,10 @@ it.skipIf(!built).each(['success', 'failure', 'timeout'] as const)(
         if (outcome === 'timeout') expect(signal?.aborted).toBe(true)
       }
       await server.engine.compactVectors('readings')
-      const current = await postJson<Answer>(server.base, '/indexes/readings/search', { term: 'lake' })
+      const current = await postJson<Answer>(server.base, '/indexes/readings/search', {
+        term: 'lake',
+        document: { vectors: true },
+      })
       expect(current.status, JSON.stringify(current.body)).toBe(200)
       expect(current.body.hits[0].document).toEqual({ title: 'lake', embedding: [0, 1] })
     } finally {

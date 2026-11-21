@@ -25,7 +25,8 @@ export function createUploader(
 
   async function serverCopyOf(write: QueuedWrite, outcome: RefusedOutcome) {
     if (outcome.serverDocument !== undefined) return outcome.serverDocument
-    return (await client.get(indexName, write.documentId, await context.requestOptions())) ?? null
+    const options = await context.requestOptions()
+    return (await client.get(indexName, write.documentId, { ...options, vectors: true })) ?? null
   }
 
   async function refuse(write: QueuedWrite, outcome: RefusedOutcome): Promise<void> {

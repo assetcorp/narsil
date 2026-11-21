@@ -158,6 +158,7 @@ fn projection(document: &Value) -> DocumentProjection {
         _ => DocumentProjection::Fields {
             include: member(document, "include").map(strings),
             exclude: member(document, "exclude").map(strings),
+            vectors: member(document, "vectors").and_then(Value::as_bool),
         },
     }
 }

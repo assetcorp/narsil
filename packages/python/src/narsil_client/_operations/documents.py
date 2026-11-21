@@ -292,6 +292,7 @@ class DocumentsOperations(SyncOperationsBase):
         name: str,
         id: str,
         *,
+        vectors: Annotated[Literal["true", "false"], OPEN_ENUM] | None = None,
         timeout_ms: int | None = None,
         headers: Mapping[str, str] | None = None,
         max_response_bytes: int | None = None,
@@ -303,6 +304,8 @@ class DocumentsOperations(SyncOperationsBase):
         Args:
             name: The name of the index.
             id: The id of the document.
+            vectors: Under `true`, the document carries its vector fields, and under `false` it
+                carries none, whatever the index setting says.
             timeout_ms: The client waits this many milliseconds for each try of this request, in place of the
                 client's setting, and 0 waits for as long as the server takes.
             headers: The client adds these headers to this request, replacing any of the same name.
@@ -318,6 +321,7 @@ class DocumentsOperations(SyncOperationsBase):
                 Exchange(
                     method="GET",
                     path=f"/indexes/{path_segment(name)}/documents/{path_segment(id)}",
+                    query={"vectors": query_value(vectors)},
                     timeout_ms=timeout_ms,
                     headers=headers,
                     max_response_bytes=max_response_bytes,

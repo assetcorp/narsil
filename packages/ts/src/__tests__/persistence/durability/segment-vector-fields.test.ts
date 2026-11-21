@@ -129,7 +129,7 @@ describe('vector fields in a segmented checkpoint', () => {
     expect(vectorKeys.some(key => key.startsWith('papers/segments/vec-embedding-'))).toBe(true)
 
     const reader = await createNarsil({ durability: { directory: root } })
-    const recovered = await reader.get('papers', 'p3')
+    const recovered = await reader.get('papers', 'p3', { document: { vectors: true } })
     const recoveredEmbedding = recovered?.embedding as Float32Array
     expect(recoveredEmbedding).toBeInstanceOf(Float32Array)
     expect(recoveredEmbedding.buffer.byteLength).toBe(DIMENSION * 4)
@@ -252,7 +252,7 @@ describe('vector fields in a segmented checkpoint', () => {
     await writer.shutdown()
 
     const reader = await createNarsil({ durability: { directory: root } })
-    const recovered = await reader.get('papers', 'p1')
+    const recovered = await reader.get('papers', 'p1', { document: { vectors: true } })
     const recoveredEmbedding = recovered?.embedding as Float32Array
     for (const [i, expected] of embeddingFor(2).entries()) {
       expect(recoveredEmbedding[i]).toBeCloseTo(expected, 5)
@@ -268,13 +268,13 @@ describe('vector fields in a segmented checkpoint', () => {
     await writer.checkpoint('papers')
     await writer.update('papers', 'p1', { title: 'Paper without a vector' })
     await writer.checkpoint('papers')
-    const live = await writer.get('papers', 'p1')
+    const live = await writer.get('papers', 'p1', { document: { vectors: true } })
     await writer.shutdown()
 
     expect(live?.embedding).toBeUndefined()
 
     const reader = await createNarsil({ durability: { directory: root } })
-    const recovered = await reader.get('papers', 'p1')
+    const recovered = await reader.get('papers', 'p1', { document: { vectors: true } })
     expect(recovered?.title).toBe('Paper without a vector')
     expect(recovered?.embedding).toBeUndefined()
     await reader.shutdown()

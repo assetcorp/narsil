@@ -60,7 +60,7 @@ export const BM25_TUNING_CAPABILITY = "indexes.bm25";
 
 // @public
 export interface BulkOperations {
-    getMultiple(indexName: string, docIds: string[], options?: RequestOptions): Promise<Map<string, AnyDocument>>;
+    getMultiple(indexName: string, docIds: string[], options?: GetMultipleOptions): Promise<Map<string, AnyDocument>>;
     importDocuments(indexName: string, source: ImportSource, options?: RequestOptions): Promise<ImportResult>;
     insertBatch(indexName: string, documents: AnyDocument[], insertOptions?: InsertOptions, options?: RequestOptions): Promise<BatchResult>;
     listDocuments<T = AnyDocument>(indexName: string, params?: ListParams, options?: RequestOptions): Promise<ListResult<T>>;
@@ -210,7 +210,7 @@ export const DOCUMENT_EXPORT_CAPABILITY = "indexes.documentExport";
 // @public
 export interface DocumentOperations {
     countDocuments(indexName: string, options?: RequestOptions): Promise<number>;
-    get(indexName: string, docId: string, options?: RequestOptions): Promise<AnyDocument | undefined>;
+    get(indexName: string, docId: string, options?: GetDocumentOptions): Promise<AnyDocument | undefined>;
     has(indexName: string, docId: string, options?: RequestOptions): Promise<boolean>;
     insert(indexName: string, document: AnyDocument, docId?: string, insertOptions?: InsertOptions, options?: RequestOptions): Promise<string>;
     put(indexName: string, docId: string, document: AnyDocument, writeOptions?: WriteOptions, options?: RequestOptions): Promise<PutResult>;
@@ -385,6 +385,16 @@ export interface FollowChangesOptions {
 }
 
 // @public
+export interface GetDocumentOptions extends RequestOptions {
+    vectors?: boolean;
+}
+
+// @public
+export interface GetMultipleOptions extends RequestOptions {
+    document?: DocumentProjection;
+}
+
+// @public
 export interface HttpIndexConfig {
     bm25?: BM25Params;
     defaultScoring?: 'local' | 'dfs' | 'broadcast';
@@ -397,6 +407,7 @@ export interface HttpIndexConfig {
     };
     patternValueLimit?: number;
     required?: string[];
+    returnVectors?: boolean;
     schema: Record<string, unknown>;
     stopWords?: string | string[];
     strict?: boolean;

@@ -93,6 +93,7 @@ func (meta Metadata) Value() codec.OrderedMap {
 	is.PutOptional(&entries, "track_positions", meta.TrackPositions, is.Flag)
 	is.PutOptional(&entries, "text_storage", meta.TextStorage, is.Text)
 	is.PutOptional(&entries, "strict", meta.Strict, is.Flag)
+	is.PutOptional(&entries, "return_vectors", meta.ReturnVectors, is.Flag)
 	is.PutOptional(&entries, "required", meta.Required, is.Texts)
 	if meta.VectorPromotion != nil {
 		is.Put(&entries, "vector_promotion", meta.VectorPromotion.Value(is.Snake))

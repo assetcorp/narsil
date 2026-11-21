@@ -89,6 +89,7 @@ describe.each(['memory', 'disk'] as const)('search state across replacement with
       vector: { field: 'embedding', value: PROBE },
       hybrid: { strategy: 'linear', alpha: 0.5 },
       limit: DOCUMENTS,
+      document: { vectors: true },
       facets: { group: {} },
       group: { fields: ['group'], maxPerGroup: DOCUMENTS },
       highlight: { fields: ['title'] },

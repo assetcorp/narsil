@@ -1,5 +1,6 @@
 import { ErrorCodes, NarsilError } from '../../../errors'
 import type { AnyDocument } from '../../../types/schema'
+import type { GetOptions } from '../../../types/search'
 import type { PartitionAssignment } from '../../coordinator/types'
 import type { ReplicationLogEntry } from '../../replication/types'
 import { acceptedTermOf } from '../led-term'
@@ -79,8 +80,10 @@ export async function writeLocalOnly<T>(
   }
 }
 
+export const WHOLE_DOCUMENT: GetOptions = { document: { vectors: true } }
+
 export async function storedCopyOf(scope: PrimaryWriteScope, documentId: string): Promise<AnyDocument> {
-  const stored = await scope.deps.engine.get(scope.indexName, documentId)
+  const stored = await scope.deps.engine.get(scope.indexName, documentId, WHOLE_DOCUMENT)
   if (stored === undefined) {
     throw new NarsilError(
       ErrorCodes.REPLICATION_ENTRY_INVALID,

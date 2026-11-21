@@ -72,6 +72,8 @@ fn main() -> narsil::Result<()> {
 
 The program prints `1 ronin`, then `heat` and `ronin` with their cosine scores. A query that sets both `term` and `vector` fuses the two rankings into one hybrid ranking.
 
+The documents that a read returns leave out their vector fields, so `engine.get("films", "heat")` answers without `embedding`. To get the vectors back, set `return_vectors: Some(true)` in the `IndexConfig`, or pass a `DocumentProjection::Fields` whose `vectors` is `Some(true)` to `get_with`, to `get_multiple_with`, or as the `document` of a query or a listing.
+
 `Narsil::open` with `NarsilConfig::default()` keeps every index in memory. When you set `durability` to a directory, the engine writes each change to a write-ahead log before the call returns, writes checkpoints in the background, and finds every index again after a restart. Every method that can fail returns a `NarsilError`, and its `code()` is the code that the TypeScript package raises for the same input, such as `DOC_VALIDATION_FAILED` for a malformed document.
 
 ## Share one engine across threads

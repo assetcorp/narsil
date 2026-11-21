@@ -15,6 +15,7 @@ import { routableAllocation } from '../routable-allocation'
 import { restoreVectorValues } from '../vector-bytes'
 import { listLocalPage } from './local-list-page'
 import { type ClusterReadDeps, gatherFromEveryPartition, sendReadRequest } from './scatter'
+import { keepsAnyVectorField } from './vector-reads'
 
 function clampListLimit(limit: number | undefined): number {
   const clamped = Math.max(1, clampLimit(limit))
@@ -57,7 +58,8 @@ export async function listCluster<T = AnyDocument>(
   const normalizedSort = normalizeSort(params.sort)
   const sortFieldNames = normalizedSort.length === 0 ? null : normalizedSort.map(entry => entry.field)
   const directions = normalizedSort.map(entry => entry.direction)
-  const projection = resolveProjection(params.document)
+  const settings = await deps.vectorReads.settingsOf(indexName, allocation)
+  const projection = resolveProjection(params.document, settings)
 
   const wireSort: SortField[] | null = sortFieldNames === null ? null : normalizedSort
   const payload: ListPayload = {
@@ -68,6 +70,7 @@ export async function listCluster<T = AnyDocument>(
     filters: (params.filters as Record<string, unknown> | undefined) ?? null,
     sort: wireSort,
     fields: wireFieldsFor(projection, sortFieldNames ?? []),
+    ...(keepsAnyVectorField(projection, settings) ? {} : { vectors: false }),
   }
 
   const gathered = await gatherFromEveryPartition(allocation, indexName, group => {

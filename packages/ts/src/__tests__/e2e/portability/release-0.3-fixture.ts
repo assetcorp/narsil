@@ -38,7 +38,7 @@ export async function expectFixtureDocuments(
 ): Promise<void> {
   expect(await engine.countDocuments(indexName)).toBe(Object.keys(expected).length)
   for (const [id, document] of Object.entries(expected)) {
-    const stored = await engine.get(indexName, id)
+    const stored = await engine.get(indexName, id, { document: { vectors: true } })
     expect(stored, id).toBeDefined()
     if (stored?.id !== undefined) expect(stored.id).toBe(id)
     if (vectorField === null) {

@@ -15,6 +15,14 @@ pub mod vector_params;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use narsil::DocumentProjection;
+
+pub const WHOLE_DOCUMENT: DocumentProjection = DocumentProjection::Fields {
+    include: None,
+    exclude: None,
+    vectors: Some(true),
+};
+
 static NEXT_DIRECTORY: AtomicU64 = AtomicU64::new(0);
 
 pub fn repository_root() -> PathBuf {

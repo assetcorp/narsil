@@ -3,7 +3,7 @@ import type { RerankConfig } from './rerank'
 import type { AnyDocument, BM25Params, ScoringMode } from './schema'
 import type { HybridConfig, VectorQueryConfig } from './vector-query'
 
-export type { ListParams, SuggestParams } from './reads'
+export type { GetOptions, ListParams, SuggestParams } from './reads'
 export type { RerankConfig } from './rerank'
 export type { HybridConfig, VectorQueryConfig } from './vector-query'
 
@@ -245,7 +245,11 @@ export interface QueryParams {
   includeScores?: boolean
   /** Setting this returns the numbers behind each hit's score, which is what you read when a ranking surprises you. */
   includeScoreComponents?: boolean
-  /** This chooses how much of each stored document comes back, and the whole document by default. */
+  /**
+   * This chooses how much of each stored document comes back. By default a
+   * hit carries every field apart from the vector fields, which come back
+   * only where {@link DocumentProjection} or the index asks for them.
+   */
   document?: DocumentProjection
 }
 
@@ -259,9 +263,14 @@ export interface QueryParams {
  * dots to name a nested field, so `author.name` addresses the `name` inside
  * `author`, and a name that matches no field changes nothing.
  *
- * Drop a vector field on a similarity search, because the engine otherwise
- * reads every hit's vector back out of the index and writes it into the
- * response.
+ * A read leaves every vector field out by default, because a vector of 1,536
+ * dimensions adds about 32 KB of JSON to each result. Set `vectors` to true,
+ * or list the vector field's path in `include`, to get it back on one read, and set
+ * {@link IndexConfig.returnVectors} to get the vectors back on every read of
+ * an index. `vectors: false` leaves them out even on such an index.
+ *
+ * The engine throws `SEARCH_INVALID_FIELD` when `include` or `exclude` is not
+ * a list of strings, or when `vectors` is not a boolean.
  *
  * @public
  */
@@ -272,6 +281,12 @@ export type DocumentProjection =
       include?: string[]
       /** Names the fields to drop, so every other field is kept. */
       exclude?: string[]
+      /**
+       * Setting this to true returns every vector field, and false leaves
+       * every one out, whatever `include` and the index setting say. `include`
+       * and `exclude` then apply to the vector fields that this keeps.
+       */
+      vectors?: boolean
     }
 
 /**

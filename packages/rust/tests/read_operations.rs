@@ -389,15 +389,30 @@ fn strings(paths: &[&str]) -> Vec<Value> {
     paths.iter().map(|path| text(path)).collect()
 }
 
+fn with_vectors() -> Option<DocumentProjection> {
+    Some(DocumentProjection::Fields {
+        include: None,
+        exclude: None,
+        vectors: Some(true),
+    })
+}
+
+fn reference_with_vectors() -> (&'static str, Value) {
+    ("document", object(vec![("vectors", Value::Bool(true))]))
+}
+
 fn listings() -> Vec<(ListParams, Value)> {
-    let limited = |limit: usize| object(vec![("limit", number(limit as f64))]);
     vec![
         (
             ListParams {
                 limit: Some(PAGE_LIMIT),
+                document: with_vectors(),
                 ..ListParams::default()
             },
-            limited(PAGE_LIMIT),
+            object(vec![
+                ("limit", number(PAGE_LIMIT as f64)),
+                reference_with_vectors(),
+            ]),
         ),
         (
             ListParams {
@@ -409,6 +424,7 @@ fn listings() -> Vec<(ListParams, Value)> {
                         "constructor".into(),
                     ]),
                     exclude: None,
+                    vectors: None,
                 }),
                 ..ListParams::default()
             },
@@ -429,6 +445,7 @@ fn listings() -> Vec<(ListParams, Value)> {
                 document: Some(DocumentProjection::Fields {
                     include: None,
                     exclude: Some(vec!["embedding".into(), "body".into(), "meta.tag".into()]),
+                    vectors: None,
                 }),
                 ..ListParams::default()
             },
@@ -595,11 +612,13 @@ fn listing_refuses_hostile_cursors_and_limits_exactly_as_the_reference_does() {
                 ListParams {
                     cursor: Some(cursor.clone()),
                     limit: Some(SMALL_PAGE_LIMIT),
+                    document: with_vectors(),
                     ..ListParams::default()
                 },
                 object(vec![
                     ("cursor", text(&cursor)),
                     ("limit", number(SMALL_PAGE_LIMIT as f64)),
+                    reference_with_vectors(),
                 ]),
             )
         })

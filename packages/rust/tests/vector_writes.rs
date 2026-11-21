@@ -57,7 +57,9 @@ fn document(id: &str, title: &str, vector: Option<Value>) -> Map {
 }
 
 fn stored_vector(engine: &Narsil, id: &str) -> Option<Vec<f32>> {
-    let found = engine.get(INDEX, id).expect("the read succeeds")?;
+    let found = engine
+        .get_with(INDEX, id, Some(&support::WHOLE_DOCUMENT))
+        .expect("the read succeeds")?;
     let Some(Value::Array(items)) = found.get(FIELD) else {
         return None;
     };
@@ -105,6 +107,7 @@ fn config(threshold: u64) -> IndexConfig {
 
 fn vector_query(vector: &[f32], limit: usize) -> QueryParams {
     QueryParams {
+        document: Some(support::WHOLE_DOCUMENT),
         vector: Some(VectorQuery {
             field: FIELD.to_string(),
             value: Some(vector.to_vec()),
@@ -206,7 +209,7 @@ fn a_refused_vector_write_leaves_documents_and_vectors_as_they_were() {
         assert!(refused.is_err(), "the engine refuses the update");
         assert_eq!(stored_vector(&engine, "kept"), Some(kept.clone()));
         let stored = engine
-            .get(INDEX, "kept")
+            .get_with(INDEX, "kept", Some(&support::WHOLE_DOCUMENT))
             .expect("the read succeeds")
             .expect("the document stays");
         assert_eq!(
@@ -352,6 +355,7 @@ fn a_broken_embedding_adapter_refuses_the_write_and_keeps_the_index_whole() {
             Some(vector_of("a good title".len() as u64))
         );
         let text_query = QueryParams {
+            document: Some(support::WHOLE_DOCUMENT),
             vector: Some(VectorQuery {
                 field: FIELD.to_string(),
                 text: Some(title.to_string()),
@@ -515,7 +519,7 @@ fn searches_beside_writes_return_whole_documents_with_correct_scores() {
     });
     for n in 500..1_500u64 {
         let present = engine
-            .get(INDEX, &format!("doc-{n}"))
+            .get_with(INDEX, &format!("doc-{n}"), Some(&support::WHOLE_DOCUMENT))
             .expect("the read succeeds")
             .is_some();
         assert_eq!(present, n % 3 != 0, "doc-{n}");
@@ -627,6 +631,7 @@ fn a_blocked_rerank_adapter_times_out_while_other_searches_go_on() {
         )
         .expect("registered");
     let reranked = |adapter: &str| QueryParams {
+        document: Some(support::WHOLE_DOCUMENT),
         term: Some("water".into()),
         rerank: Some(RerankConfig {
             adapter: adapter.to_string(),

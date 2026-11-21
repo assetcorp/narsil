@@ -7,7 +7,7 @@ import { bindChangesServing, changesServingSourceOf } from '../../server/changes
 import { bindSyncServing, syncServingSourceOf } from '../../server/sync/serving'
 import type { Narsil } from '../../types/engine'
 import type { AnyDocument, BM25Params, IndexConfig, InsertOptions, WriteOptions } from '../../types/schema'
-import type { ListParams, QueryParams, SuggestParams } from '../../types/search'
+import type { GetOptions, ListParams, QueryParams, SuggestParams } from '../../types/search'
 import type { SyncSetting, SyncStatus } from '../../types/sync'
 import type { SynonymRule } from '../../types/synonyms'
 import type { ClusterNode, CreateIndexOptions } from './types'
@@ -167,12 +167,12 @@ export function clusterNodeEngine(node: ClusterNode, options?: ClusterEngineOpti
       return node.query<T>(indexName, params)
     },
 
-    async get(indexName: string, docId: string) {
-      return node.get(indexName, docId)
+    async get(indexName: string, docId: string, options?: GetOptions) {
+      return node.get(indexName, docId, options)
     },
 
-    async getMultiple(indexName: string, docIds: string[]) {
-      return node.getMultiple(indexName, docIds)
+    async getMultiple(indexName: string, docIds: string[], options?: GetOptions) {
+      return node.getMultiple(indexName, docIds, options)
     },
 
     async has(indexName: string, docId: string) {

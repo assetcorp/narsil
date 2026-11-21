@@ -36,11 +36,11 @@ const results = await narsil.query('articles', {
   mode: 'hybrid',
   term: question,
   vector: { field: 'embedding', text: question },
-  document: { exclude: ['embedding'] },
   limit: 5,
 })
 ```
 
+- Every read leaves out vector fields by default, which keeps each hit small. Pass `document: { vectors: true }` on the read that needs them, or create the index with `returnVectors: true`. Read a document with `vectors: true` before you pass it back to `update`, because `update` replaces the whole document.
 - `mode: 'vector'` ranks by meaning alone, while `mode: 'hybrid'` fuses the keyword and vector rankings by reciprocal rank fusion. Prefer hybrid for help articles and product names, where exact words still matter.
 - The engine drops each hit that scores below `vector.similarity`, which is how an app learns that nothing matched. A rank fusion score stays near 0.03 whatever the quality of the match, so read the vector scores from a `mode: 'vector'` query before you choose a floor.
 - `hybrid: { strategy: 'linear', alpha: 0.7 }` blends the two scores directly in place of rank fusion.

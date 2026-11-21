@@ -119,7 +119,7 @@ describe.each(ENGINE_KINDS.map((kind, index) => ({ name: kind.name, index })))('
     expect(second).toEqual({ imported: 40, refusedCount: 0, refused: [] })
     expect(await target.countDocuments('copy')).toBe(41)
     for (const [id, document] of documents) {
-      const stored = await target.get('copy', id)
+      const stored = await target.get('copy', id, { document: { vectors: true } })
       expect({ ...stored, embedding: undefined }).toEqual({ id, ...document, embedding: undefined })
       const embedding = Array.from(stored?.embedding as Float32Array)
       embedding.forEach((value, at) => {

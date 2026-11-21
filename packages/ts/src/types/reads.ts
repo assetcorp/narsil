@@ -14,6 +14,21 @@ export interface SuggestParams {
 }
 
 /**
+ * Everything {@link Narsil.get} and {@link Narsil.getMultiple} accept after
+ * the document IDs.
+ *
+ * @public
+ */
+export interface GetOptions {
+  /**
+   * This chooses how much of each stored document comes back. By default a
+   * read returns every field apart from the vector fields, which come back
+   * only where {@link DocumentProjection} or the index asks for them.
+   */
+  document?: DocumentProjection
+}
+
+/**
  * Everything {@link Narsil.listDocuments} accepts.
  *
  * {@link Narsil.listDocuments} reads the stored documents without ranking them,
@@ -49,6 +64,10 @@ export interface ListParams {
    * so a sorted listing costs more than the default order on a large index.
    */
   sort?: SortSpec
-  /** This chooses how much of each stored document comes back, and the whole document by default. */
+  /**
+   * This chooses how much of each stored document comes back. By default a
+   * listing returns every field apart from the vector fields, which come back
+   * only where {@link DocumentProjection} or the index asks for them.
+   */
   document?: DocumentProjection
 }

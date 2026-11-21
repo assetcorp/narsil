@@ -86,6 +86,8 @@ func run(ctx context.Context, directory string) error {
 
 The program prints `1 ronin`, then `heat` and `ronin` with their cosine scores. With `Durability` set, every acknowledged write goes to a write-ahead log in the directory, and the next `engine.New` on the same directory opens the index with every document. Leave `Durability` out to keep the index in memory alone.
 
+A search hit, `Get`, `GetMultiple`, and `ListDocuments` leave every vector field out of the documents that they return, because a vector of 1,536 dimensions adds about 32 KB of JSON to each result. Pass `engine.ReturnVectors(true)` to `Get` or `GetMultiple`, or set it as `QueryParams.Document` or `ListParams.Document`, when you need the vectors back, and set `ReturnVectors: true` in the `engine.IndexConfig` to return them from every read of that index. `engine.IncludeFields("embedding")` also returns a vector field whose whole path it lists.
+
 Every method that can fail returns an `*engine.Error`, which `engine.AsError` unwraps. Its `Code` is the same code that the TypeScript package raises for the same input, such as `engine.CodeDocValidationFailed` for a malformed document.
 
 ## Building for each platform

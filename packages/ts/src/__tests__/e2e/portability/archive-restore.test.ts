@@ -108,7 +108,7 @@ describe.each(ENGINE_KINDS)('restoring into $name', target => {
     await engine.restore('papers', archive)
 
     for (const [id, embedding] of papers) {
-      const stored = await engine.get('papers', id)
+      const stored = await engine.get('papers', id, { document: { vectors: true } })
       expect(asPlainVector(stored?.embedding)).toEqual(embedding.map(Math.fround))
     }
     const query = { vector: { field: 'embedding', value: vectorOf(41) }, limit: 5 }
@@ -133,7 +133,7 @@ describe.each(ENGINE_KINDS)('restoring into $name', target => {
 
     expect(await engine.countDocuments('products')).toBe(Object.keys(expected).length)
     for (const [id, document] of Object.entries(expected)) {
-      const stored = await engine.get('products', id)
+      const stored = await engine.get('products', id, { document: { vectors: true } })
       const { embedding, ...rest } = document as AnyDocument & { embedding: number[] }
       if (stored?.id !== undefined) expect(stored.id).toBe(id)
       expect({ ...stored, id: undefined, embedding: undefined }).toEqual({
@@ -157,7 +157,7 @@ describe.each(ENGINE_KINDS)('restoring into $name', target => {
     for (const id of [ids[0], ids[Math.floor(ids.length / 2)], ids[ids.length - 1]]) {
       const target = (expected[id] as AnyDocument & { embedding: number[] }).embedding
       const hits = (await engine.query('products', { vector: { field: 'embedding', value: target }, limit: 1 })).hits
-      const nearest = await engine.get('products', hits[0]?.id ?? '')
+      const nearest = await engine.get('products', hits[0]?.id ?? '', { document: { vectors: true } })
       expect(asPlainVector(nearest?.embedding)).toEqual(target.map(Math.fround))
     }
   })
@@ -183,8 +183,9 @@ describe('a release 0.3 snapshot file whose graph keeps one neighbour per node',
     const [id, document] = Object.entries(expected)[0]
     const target = (document as AnyDocument & { embedding: number[] }).embedding
     const hits = (await engine.query('products', { vector: { field: 'embedding', value: target }, limit: 1 })).hits
-    expect(asPlainVector((await engine.get('products', hits[0]?.id ?? ''))?.embedding)).toEqual(
-      asPlainVector((await engine.get('products', id))?.embedding),
+    const withVectors = { document: { vectors: true } }
+    expect(asPlainVector((await engine.get('products', hits[0]?.id ?? '', withVectors))?.embedding)).toEqual(
+      asPlainVector((await engine.get('products', id, withVectors))?.embedding),
     )
   })
 })

@@ -277,7 +277,7 @@ export function createDirectExecutor(
 
       case 'get': {
         const entry = requireIndex(action.indexName)
-        return entry.manager.get(action.docId) as T
+        return entry.manager.get(action.docId, action.projection) as T
       }
 
       case 'has': {

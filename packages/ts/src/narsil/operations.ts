@@ -8,6 +8,7 @@ import {
   updateDocumentBatch,
 } from '#platform/memory-guarded-writes'
 import { countWrite } from '#platform/turn-budget'
+import { resolveProjection } from '../core/projection'
 import { clearEngineIndex } from '../engine/clear-index'
 import type { EngineCore, EventHandler } from '../engine/core'
 import { holdIndex, type IndexHold } from '../engine/index-hold'
@@ -36,7 +37,7 @@ import type {
   VectorMaintenanceResult,
 } from '../types/results'
 import type { AnyDocument, IndexConfig, InsertOptions, PartitionConfig, WriteOptions } from '../types/schema'
-import type { ListParams, QueryParams, SuggestParams } from '../types/search'
+import type { GetOptions, ListParams, QueryParams, SuggestParams } from '../types/search'
 import { loadedVectorCode, loadVectorCode } from '../workers/vector-code'
 import { bm25Operations } from './bm25'
 import { changesOperations } from './changes'
@@ -187,13 +188,22 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
       requireIndex(indexName)
       return orchestrator.awaitWrites(indexName)
     },
-    async get(indexName: string, docId: string): Promise<AnyDocument | undefined> {
-      return withOpenIndex(indexName, () => executor.execute({ type: 'get', indexName, docId, requestId: docId }))
+    async get(indexName: string, docId: string, options?: GetOptions): Promise<AnyDocument | undefined> {
+      return withOpenIndex(indexName, () =>
+        executor.execute({
+          type: 'get',
+          indexName,
+          docId,
+          requestId: docId,
+          projection: resolveProjection(options?.document, requireIndex(indexName).config),
+        }),
+      )
     },
-    async getMultiple(indexName: string, docIds: string[]): Promise<Map<string, AnyDocument>> {
+    async getMultiple(indexName: string, docIds: string[], options?: GetOptions): Promise<Map<string, AnyDocument>> {
       guardShutdown()
       requireIndex(indexName)
       return withOpenIndex(indexName, async () => {
+        const projection = resolveProjection(options?.document, requireIndex(indexName).config)
         const result = new Map<string, AnyDocument>()
         for (const docId of docIds) {
           const doc = await executor.execute<AnyDocument | undefined>({
@@ -201,6 +211,7 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
             indexName,
             docId,
             requestId: docId,
+            projection,
           })
           if (doc !== undefined) result.set(docId, doc)
         }

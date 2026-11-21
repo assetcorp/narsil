@@ -102,6 +102,7 @@ describe.skipIf(!built)('vector scores that request threads answer while writes 
       mode: 'vector',
       vector: { field: 'embedding', value: embedding },
       limit: HITS_PER_SEARCH,
+      document: { vectors: true },
       ...(filtered ? { filters: { fields: { group: { eq: 'even' } } } } : {}),
     }
   }

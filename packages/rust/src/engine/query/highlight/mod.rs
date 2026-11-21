@@ -282,7 +282,7 @@ pub(crate) fn highlight_hits(
     let reads_stored = config
         .fields
         .iter()
-        .any(|field| !projection_keeps_field(projection, field));
+        .any(|field| !projection_keeps_field(&projection.shape, field));
     for hit in hits.iter_mut() {
         let mut highlights: Vec<(String, HighlightMatch)> = Vec::new();
         let mut stored: Option<Option<Arc<Map>>> = None;

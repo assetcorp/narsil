@@ -126,7 +126,7 @@ pub fn fill(narsil: &Narsil, index: &str, documents: &BTreeMap<String, Map>) {
 
 pub fn held_documents(narsil: &Narsil, index: &str, ids: &[String]) -> BTreeMap<String, Map> {
     narsil
-        .get_multiple(index, ids)
+        .get_multiple_with(index, ids, Some(&super::WHOLE_DOCUMENT))
         .expect("the documents read")
         .into_iter()
         .map(|(id, mut document)| {

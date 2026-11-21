@@ -1,12 +1,15 @@
 package projection
 
 import (
+	"slices"
+
 	"github.com/assetcorp/narsil/packages/go/engine/internal/codec"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/model"
 )
 
 type Projection struct {
 	kind        model.DocumentProjectionKind
+	vectors     model.Optional[bool]
 	include     [][]string
 	includeList bool
 	exclude     [][]string
@@ -22,15 +25,18 @@ func Resolve(requested model.DocumentProjection) Projection {
 		return Projection{kind: model.ProjectNoFields}
 	case model.ProjectSelectedFields:
 	default:
-		return Whole()
+		return wholeWithVectors(requested)
 	}
 	include, includeSet := requested.Include()
 	exclude := requested.Exclude()
 	askedInclude := includeSet && len(include) > 0
 	if !askedInclude && len(exclude) == 0 {
-		return Whole()
+		return wholeWithVectors(requested)
 	}
 	resolved := Projection{kind: model.ProjectSelectedFields, exclude: splitPaths(exclude)}
+	if returned, set := requested.Vectors(); set {
+		resolved.vectors = model.Some(returned)
+	}
 	if askedInclude {
 		resolved.include = splitPaths(include)
 		resolved.includeList = true
@@ -50,7 +56,10 @@ func (p Projection) KeepsField(fieldPath string) bool {
 	default:
 		return true
 	}
-	path := splitFieldPath(fieldPath)
+	return p.keepsPath(splitFieldPath(fieldPath))
+}
+
+func (p Projection) keepsPath(path []string) bool {
 	if len(path) == 0 {
 		return false
 	}
@@ -118,12 +127,67 @@ func (p Projection) Failure(document *model.Document) error {
 	return nil
 }
 
-func (p Projection) CopyVectorsInto(document *model.Document, fieldPaths []string,
-	vectorOf func(fieldPath string) ([]float32, bool, error)) error {
-	for _, fieldPath := range fieldPaths {
-		if !p.KeepsField(fieldPath) {
-			continue
+func wholeWithVectors(requested model.DocumentProjection) Projection {
+	whole := Whole()
+	if returned, set := requested.Vectors(); set {
+		whole.vectors = model.Some(returned)
+	}
+	return whole
+}
+
+func (p Projection) includesExactly(path []string) bool {
+	for _, included := range p.include {
+		if slices.Equal(included, path) {
+			return true
 		}
+	}
+	return false
+}
+
+func (p Projection) showsVector(fieldPath string, returnedByDefault bool) bool {
+	switch p.kind {
+	case model.ProjectNoFields:
+		return false
+	case model.ProjectSelectedFields:
+	default:
+		return p.vectors.Or(returnedByDefault)
+	}
+	path := splitFieldPath(fieldPath)
+	if p.includeList && !coveredByAny(p.include, path) {
+		return false
+	}
+	returned, set := p.vectors.Get()
+	if !set {
+		returned = returnedByDefault || (p.includeList && p.includesExactly(path))
+	}
+	return returned && p.keepsPath(path)
+}
+
+func (p Projection) ShownVectorFields(fieldPaths []string, returnedByDefault bool) []string {
+	shownCount := 0
+	for _, fieldPath := range fieldPaths {
+		if p.showsVector(fieldPath, returnedByDefault) {
+			shownCount++
+		}
+	}
+	switch shownCount {
+	case 0:
+		return nil
+	case len(fieldPaths):
+		return fieldPaths
+	}
+	shown := make([]string, 0, shownCount)
+	for _, fieldPath := range fieldPaths {
+		if p.showsVector(fieldPath, returnedByDefault) {
+			shown = append(shown, fieldPath)
+		}
+	}
+	return shown
+}
+
+func CopyVectorsInto(document *model.Document, shownFieldPaths []string,
+	vectorOf func(fieldPath string) ([]float32, bool, error)) error {
+	for _, fieldPath := range shownFieldPaths {
 		vector, held, err := vectorOf(fieldPath)
 		if err != nil {
 			return err

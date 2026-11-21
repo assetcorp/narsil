@@ -103,8 +103,9 @@ describe('react hooks over an in-browser engine', () => {
 
     const expected = withoutTiming(overHttp.current())
     expect(expected.query).toMatchObject({ data: { count: 3 } })
-    expect(expected.document).toEqual({ data: { ...CATALOGUE[1] }, error: undefined })
-    expect(Array.isArray(inBrowser.current().document.data?.shade)).toBe(true)
+    const { shade: _vector, ...withoutVectors } = CATALOGUE[1]
+    expect(expected.document).toEqual({ data: withoutVectors, error: undefined })
+    expect(inBrowser.current().document.data?.shade).toBeUndefined()
     expect(expected.missing).toEqual({ data: undefined, error: undefined })
     expect(expected.unknown).toEqual({ data: undefined, error: ErrorCodes.INDEX_NOT_FOUND })
     expect(withoutTiming(inBrowser.current())).toEqual(expected)

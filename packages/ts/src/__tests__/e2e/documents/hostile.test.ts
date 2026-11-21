@@ -194,12 +194,14 @@ describe('a document request built to break the server', () => {
       } else {
         expect([searched.status, errorCodeOf(searched.body), errorMessageOf(searched.body)], projection).toEqual([
           400,
-          'INVALID_REQUEST',
+          'SEARCH_INVALID_FIELD',
           searchRefusal,
         ])
       }
       const listed = await sendRaw(base, 'POST', `${DOCUMENTS_PATH}/_list`, `{"document":${projection}}`)
-      expect([listed.status, errorCodeOf(listed.body)], projection).toEqual([400, 'SEARCH_INVALID_FIELD'])
+      expect([listed.status, errorCodeOf(listed.body)], projection).toEqual(
+        searchRefusal === null ? [200, null] : [400, 'SEARCH_INVALID_FIELD'],
+      )
     }
 
     const reachesPrototype = await sendRaw(

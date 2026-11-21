@@ -3,7 +3,7 @@ use std::sync::Arc;
 use super::documents::Location;
 use super::gather::QueryRun;
 use super::grouping::GroupDraft;
-use super::projection::{Projection, project_document};
+use super::projection::{Projection, Shape, project_document};
 use super::public_components;
 use super::ranked::Ranked;
 use super::results::{GroupResult, HighlightMatch, Hit};
@@ -16,14 +16,14 @@ fn projected(
     location: Option<Location>,
     projection: &Projection,
 ) -> Result<Option<Map>> {
-    if matches!(projection, Projection::Nothing) {
+    if matches!(projection.shape, Shape::Nothing) {
         return Ok(Some(Map::new()));
     }
     Ok(run
-        .document(id, location)?
-        .map(|document| match projection {
-            Projection::Full => Arc::unwrap_or_clone(document),
-            _ => project_document(&document, projection),
+        .document(id, location, projection)?
+        .map(|document| match projection.shape {
+            Shape::Full => Arc::unwrap_or_clone(document),
+            _ => project_document(&document, &projection.shape),
         }))
 }
 

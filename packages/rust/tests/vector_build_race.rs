@@ -125,6 +125,7 @@ fn durable_config(root: &Path, mode: DurabilityMode) -> NarsilConfig {
 
 fn vector_query(vector: &[f32]) -> QueryParams {
     QueryParams {
+        document: Some(support::WHOLE_DOCUMENT),
         vector: Some(VectorQuery {
             field: FIELD.to_string(),
             value: Some(vector.to_vec()),
@@ -370,6 +371,7 @@ fn checkpoints_taken_while_vectors_arrive_save_graphs_that_reach_every_vector() 
 
 fn exhaustive_query(vector: &[f32]) -> QueryParams {
     QueryParams {
+        document: Some(support::WHOLE_DOCUMENT),
         vector: Some(VectorQuery {
             field: FIELD.to_string(),
             value: Some(vector.to_vec()),
@@ -748,7 +750,7 @@ fn removals_and_updates_during_a_background_build_leave_only_current_vectors() {
     );
     for number in 0..WAVES * WAVE_DOCUMENTS {
         let stored = engine
-            .get(INDEX, &id_of(number))
+            .get_with(INDEX, &id_of(number), Some(&support::WHOLE_DOCUMENT))
             .expect("the read succeeds");
         match live.get(&id_of(number)) {
             None => assert!(stored.is_none(), "doc-{number} survives its removal"),
@@ -970,7 +972,7 @@ fn recovered_live(
     numbers.dedup();
     for number in numbers {
         let stored = engine
-            .get(INDEX, &id_of(number))
+            .get_with(INDEX, &id_of(number), Some(&support::WHOLE_DOCUMENT))
             .expect("the read succeeds")
             .map(|document| vector_in(&document));
         let acknowledged = state.get(&number).copied().flatten().map(vector_of);

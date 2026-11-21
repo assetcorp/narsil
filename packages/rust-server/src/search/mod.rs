@@ -12,7 +12,7 @@ mod suggestions;
 pub(crate) use answer::{Reply, answer_reply};
 pub(crate) use constants::MAX_PREVIEW_LIMIT_DIGITS;
 pub(crate) use encode::{list_answer, preflight_value, query_answer, suggest_value};
-pub(crate) use query::query_params;
+pub(crate) use query::{projection, query_params};
 pub(crate) use reader::Converted;
 pub(crate) use reads::{list_params, suggest_params};
 pub(crate) use regex_policy::{refused_regex, refused_regex_field, regex_refusal_message};

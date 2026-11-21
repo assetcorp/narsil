@@ -143,3 +143,38 @@ jobs:
           mode: simulation
           working-directory: benchmarks/in-process
           run: pnpm bench:regression
+
+  rust-performance:
+    name: Rust engine performance checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      CARGO_CODSPEED_VERSION: 6.0.0
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install the pinned Rust toolchain
+        working-directory: packages/rust
+        run: rustup toolchain install
+
+      - name: Install the CodSpeed Cargo subcommand
+        working-directory: packages/rust
+        run: cargo install cargo-codspeed --version "$CARGO_CODSPEED_VERSION" --locked
+
+      - name: Build the Rust engine benchmarks for CodSpeed
+        working-directory: packages/rust
+        run: cargo codspeed build
+
+      - name: Run the Rust engine benchmarks under CodSpeed's CPU simulation
+        uses: CodSpeedHQ/action@af75f77f17a054769abefaa42fe8dc2975469b5f # v5.6.3
+        with:
+          mode: simulation
+          working-directory: packages/rust
+          run: cargo codspeed run

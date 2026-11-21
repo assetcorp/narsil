@@ -1,4 +1,5 @@
 import { SORT_MODES } from '../core/ordering/sort-values'
+import { ErrorCodes } from '../errors'
 import { isPlainObject, type ValidationFailure } from './validation'
 
 type Shape =
@@ -203,6 +204,7 @@ const QUERY_SHAPE = object([
         object: object([
           ['include', STRINGS],
           ['exclude', STRINGS],
+          ['vectors', BOOLEAN],
         ]),
       },
     },
@@ -347,7 +349,9 @@ export function checkQueryShape<T extends object>(params: T): { query: T } | { f
   if ('mismatch' in walked) {
     const { path, wanted: shape, required } = walked.mismatch
     const verb = required ? 'is required and must be' : 'must be'
-    return { failure: { message: `Field "${path}" ${verb} ${shape}` } }
+    const message = `Field "${path}" ${verb} ${shape}`
+    const projection = path === 'document' || path.startsWith('document.')
+    return { failure: projection ? { message, code: ErrorCodes.SEARCH_INVALID_FIELD } : { message } }
   }
   return { query: walked.value as T }
 }

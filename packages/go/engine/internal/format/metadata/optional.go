@@ -67,6 +67,7 @@ func readOptional(record map[string]any, meta *Metadata) {
 	}
 	meta.TrackPositions = optionalBool(record, "track_positions")
 	meta.Strict = optionalBool(record, "strict")
+	meta.ReturnVectors = optionalBool(record, "return_vectors")
 	meta.Required = optionalStrings(record, "required")
 	if uuid, ok := record["index_uuid"].(string); ok && uuid != "" {
 		meta.IndexUUID = model.Some(uuid)

@@ -1,4 +1,4 @@
-import { applyProjection, resolveProjection } from '../../../core/projection'
+import { applyProjection, resolveProjection, type VectorReadSettings } from '../../../core/projection'
 import { readSortValues } from '../../../search/sort-keys'
 import { normalizeSort, sortModesOf } from '../../../search/sorting'
 import type { AnyDocument } from '../../../types/schema'
@@ -11,6 +11,8 @@ export interface LocalListPage {
   total: number
   hasMore: boolean
 }
+
+const VECTORS_CHOSEN_BY_THE_LIST: VectorReadSettings = { schema: {} }
 
 function toWireSortValue(value: unknown): string | number | boolean | null {
   if (typeof value === 'string') return value
@@ -32,14 +34,16 @@ export async function listLocalPage(engine: ClusterLocalEngine, payload: ListPay
   const sortModes = normalizedSort === null ? [] : sortModesOf(normalizedSort)
   const listedFields = fieldsToList(payload.fields, sortFieldNames)
   const answerProjection =
-    listedFields === payload.fields || payload.fields === null ? null : resolveProjection({ include: payload.fields })
+    listedFields === payload.fields || payload.fields === null
+      ? null
+      : resolveProjection({ include: payload.fields }, VECTORS_CHOSEN_BY_THE_LIST)
 
   const listParams: ListParams = {
     cursor: payload.cursor ?? undefined,
     limit: payload.limit,
     filters: payload.filters ?? undefined,
     sort: payload.sort ?? undefined,
-    document: listedFields === null ? undefined : { include: listedFields },
+    document: { ...(listedFields === null ? {} : { include: listedFields }), vectors: payload.vectors !== false },
   }
   const result = await engine.listPartitions(payload.indexName, listParams, payload.partitionIds)
   const entries: ListEntryWire[] = result.documents.map(listed => {

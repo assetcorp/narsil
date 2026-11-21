@@ -160,7 +160,7 @@ fn restoring_adapter(
 
 fn require_stored(engine: &Narsil, id: &str, title: &str) {
     let mut stored = engine
-        .get(INDEX, id)
+        .get_with(INDEX, id, Some(&support::WHOLE_DOCUMENT))
         .unwrap()
         .unwrap_or_else(|| panic!("document {id} is missing from the restored index"));
     if let Some(Value::String(own_id)) = stored.remove("id") {
@@ -195,7 +195,12 @@ fn require_write_in_the_restored_index(kind: WriteKind) {
     if !written.contains_key(IN_BOTH_INDEXES) {
         require_stored(&target, IN_BOTH_INDEXES, IN_BOTH_INDEXES);
     }
-    assert_eq!(target.get(INDEX, ONLY_IN_REPLACED).unwrap(), None);
+    assert_eq!(
+        target
+            .get_with(INDEX, ONLY_IN_REPLACED, Some(&support::WHOLE_DOCUMENT))
+            .unwrap(),
+        None
+    );
     let added = match written.contains_key(IN_BOTH_INDEXES) {
         true => 0,
         false => written.len() as u64,
@@ -242,7 +247,9 @@ fn require_refusal_after_alternating_adapters(kind: WriteKind) {
     for id in written.keys() {
         if id != IN_BOTH_INDEXES {
             assert_eq!(
-                target.get(INDEX, id).unwrap(),
+                target
+                    .get_with(INDEX, id, Some(&support::WHOLE_DOCUMENT))
+                    .unwrap(),
                 None,
                 "the refused write stored {id}"
             );
