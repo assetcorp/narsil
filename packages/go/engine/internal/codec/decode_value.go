@@ -145,6 +145,45 @@ func (decoder *Decoder) readMapKey() (string, error) {
 	return "", decoder.Errorf("The type of key must be string or number but object")
 }
 
+func (decoder *Decoder) seekLastMapKey(wanted string) (bool, error) {
+	count, err := decoder.ReadMapHeader()
+	if err != nil {
+		return false, err
+	}
+	valueAt := -1
+	for range count {
+		tag, err := decoder.peekTag()
+		if err != nil {
+			return false, err
+		}
+		matches := false
+		if typeOfTag(tag) == TypeString {
+			key, err := decoder.ReadStringBytes()
+			if err != nil {
+				return false, err
+			}
+			matches = string(key) == wanted
+		} else {
+			key, err := decoder.readMapKey()
+			if err != nil {
+				return false, err
+			}
+			matches = key == wanted
+		}
+		if matches {
+			valueAt = decoder.position
+		}
+		if err := decoder.Skip(); err != nil {
+			return false, err
+		}
+	}
+	if valueAt < 0 {
+		return false, nil
+	}
+	decoder.position = valueAt
+	return true, nil
+}
+
 func (decoder *Decoder) readMap(count int, depth int) (map[string]any, error) {
 	if count > decoder.Remaining()/2 {
 		return nil, decoder.insufficient()

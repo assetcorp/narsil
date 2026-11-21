@@ -202,7 +202,10 @@ func readEveryWay(t *testing.T, narsil *engine.Narsil, name string, records map[
 		}
 		requireRecordShown(t, "Get", id, document, read.expected(record))
 	}
-	ids := []string{"alpha", "bravo", "charlie", "missing"}
+	ids := []string{"missing"}
+	for id := range records {
+		ids = append(ids, id)
+	}
 	several, err := narsil.GetMultiple(ctx, name, ids, read.projection)
 	if err != nil || len(several) != len(records) {
 		t.Fatalf("GetMultiple returned %d documents with %s: %v", len(several), codeOrMessage(err), err)
@@ -254,6 +257,23 @@ func TestEveryReadLeavesVectorFieldsOutUnlessItAsksForThem(t *testing.T) {
 	}
 }
 
+func storeNullVectors(t *testing.T, narsil *engine.Narsil, name string, records map[string]map[string]any) {
+	t.Helper()
+	ctx := context.Background()
+	records["delta"] = map[string]any{"id": "delta", "title": "shared title delta", "embedding": nil,
+		"meta": map[string]any{"source": "source delta", "embedding": nil}}
+	if _, err := narsil.Insert(ctx, name, engine.DocumentFromMap(copiedRecord(records["delta"])), "",
+		engine.InsertOptions{}); err != nil {
+		t.Fatalf("the engine refused a document with null vectors with %s: %v", codeOrMessage(err), err)
+	}
+	records["charlie"]["embedding"] = nil
+	records["charlie"]["meta"].(map[string]any)["embedding"] = nil
+	if err := narsil.Update(ctx, name, "charlie", engine.DocumentFromMap(copiedRecord(records["charlie"])),
+		engine.WriteOptions{}); err != nil {
+		t.Fatalf("the engine refused an update to null vectors with %s: %v", codeOrMessage(err), err)
+	}
+}
+
 func TestAnIndexThatReturnsVectorsKeepsDoingSoAfterARestartARestoreAndAnImport(t *testing.T) {
 	ctx := context.Background()
 	directory := t.TempDir()
@@ -263,7 +283,11 @@ func TestAnIndexThatReturnsVectorsKeepsDoingSoAfterARestartARestoreAndAnImport(t
 		t.Fatalf("the engine refused to start with %s: %v", codeOrMessage(err), err)
 	}
 	records := createVectorReadIndex(t, first, "returning", true)
-	createVectorReadIndex(t, first, "leaving", false)
+	storeNullVectors(t, first, "returning", records)
+	storeNullVectors(t, first, "leaving", createVectorReadIndex(t, first, "leaving", false))
+	for _, read := range returningVectorReadCases() {
+		t.Run("before a restart "+read.name, func(t *testing.T) { readEveryWay(t, first, "returning", records, read) })
+	}
 	if err := first.Shutdown(ctx); err != nil {
 		t.Fatalf("the engine refused to shut down with %s: %v", codeOrMessage(err), err)
 	}

@@ -67,7 +67,7 @@ func withNestedValue(entries codec.OrderedMap, segments []string, value any) cod
 
 func withoutNestedValue(entries codec.OrderedMap, segments []string) codec.OrderedMap {
 	position := entryPosition(entries, segments[0])
-	if position < 0 {
+	if position < 0 || (len(segments) == 1 && entries[position].Value == nil) {
 		return entries
 	}
 	copied := make(codec.OrderedMap, len(entries))

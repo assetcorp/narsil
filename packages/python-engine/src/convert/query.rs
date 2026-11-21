@@ -229,12 +229,12 @@ pub(crate) fn projection(
             DocumentProjection::None
         });
     }
-    let mut fields = Fields::of(value, label)?;
+    let invalid_field = recoded(ErrorCode::SEARCH_INVALID_FIELD);
+    let mut fields = Fields::of(value, label).map_err(&invalid_field)?;
     fields.refuse_each_none(
         &["include", "exclude", "vectors"],
         ErrorCode::SEARCH_INVALID_FIELD,
     )?;
-    let invalid_field = recoded(ErrorCode::SEARCH_INVALID_FIELD);
     let projection = DocumentProjection::Fields {
         include: fields.strings("include").map_err(&invalid_field)?,
         exclude: fields.strings("exclude").map_err(&invalid_field)?,

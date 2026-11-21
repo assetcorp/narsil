@@ -59,7 +59,8 @@ function removeFieldAtPath(document: Record<string, unknown>, fieldPath: string)
     if (next === null || typeof next !== 'object' || Array.isArray(next)) return
     current = next as Record<string, unknown>
   }
-  delete current[segments[segments.length - 1]]
+  const leaf = segments[segments.length - 1]
+  if (current[leaf] !== null) delete current[leaf]
 }
 
 export function decodeStoredDocument(bytes: Uint8Array, discardedFields: readonly string[] | undefined): AnyDocument {

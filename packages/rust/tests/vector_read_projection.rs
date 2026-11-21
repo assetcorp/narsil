@@ -63,8 +63,14 @@ fn written(with_null_vectors: bool) -> BTreeMap<String, Map> {
             document.insert("id", text(&id));
             document.insert("title", text(&format!("harbour lantern {seed}")));
             document.insert("meta", Value::Object(meta));
-            if seed % 4 != 3 {
-                document.insert("embedding", vector(seed, 0));
+            match seed % 8 {
+                7 if with_null_vectors => {
+                    document.insert("embedding", Value::Null);
+                }
+                3 | 7 => {}
+                _ => {
+                    document.insert("embedding", vector(seed, 0));
+                }
             }
             (id, document)
         })
@@ -367,16 +373,39 @@ fn every_read_leaves_vectors_out_unless_the_read_or_the_index_asks_for_them() {
     }
 }
 
+fn updated_to_null_vectors(engine: &Narsil, source: &mut BTreeMap<String, Map>) {
+    for id in ["article-00", "article-04"] {
+        let Some(document) = source.get_mut(id) else {
+            continue;
+        };
+        document.insert("embedding", Value::Null);
+        if let Some(Value::Object(meta)) = document.get_mut("meta") {
+            meta.insert("embedding", Value::Null);
+        }
+        engine
+            .update(INDEX, id, document.clone())
+            .expect("the update is written");
+    }
+}
+
 #[test]
-fn the_return_vectors_setting_survives_a_restart_and_a_snapshot_restore() {
-    let source = written(false);
+fn the_return_vectors_setting_and_null_vector_fields_survive_a_restart_and_a_snapshot_restore() {
     for setting in [None, Some(true)] {
         for tier in [Tier::Log, Tier::Snapshot] {
             let scratch = ScratchDirectory::new("vector-read-projection");
             let root = scratch.path().join("data");
             let round = format!("{setting:?} on {tier:?}");
             let engine = with_reranker(tier.open(&root));
+            let mut source = written(true);
             loaded(&engine, setting, &source);
+            updated_to_null_vectors(&engine, &mut source);
+            require_every_read(
+                &engine,
+                INDEX,
+                setting,
+                &format!("{round}, updated"),
+                &source,
+            );
             if matches!(tier, Tier::Snapshot) {
                 engine.checkpoint(INDEX).expect("the checkpoint is written");
             }
