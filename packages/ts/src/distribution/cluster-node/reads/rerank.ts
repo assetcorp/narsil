@@ -18,7 +18,14 @@ export interface ClusterRerankHost extends RuntimeHost {
   applyProjection: typeof applyProjection
 }
 
-type ReadDocuments = (docIds: string[], last: boolean, vectors: boolean) => Promise<Map<string, AnyDocument>>
+interface RerankRead {
+  last: boolean
+  vectors: boolean
+}
+
+type ReadDocuments = (docIds: string[], read: RerankRead) => Promise<Map<string, AnyDocument>>
+
+const TEXT_READ: RerankRead = { last: false, vectors: false }
 
 export async function rerankClusterQuery<T>(
   deps: ClusterReadDeps,
@@ -44,14 +51,14 @@ export async function rerankClusterQuery<T>(
     fusesRankings: request => request.vector !== undefined && (request.term !== undefined || request.mode === 'hybrid'),
     firstStage,
     async texts(docIds, fields) {
-      const documents = await readDocuments(docIds, false, false)
+      const documents = await readDocuments(docIds, TEXT_READ)
       return docIds.map(docId => {
         const document = documents.get(docId)
         return document === undefined ? '' : rerankTextOf(fields.map(field => host.getNestedValue(document, field)))
       })
     },
     async storedPins(docIds) {
-      return new Set((await readDocuments(docIds, false, false)).keys())
+      return new Set((await readDocuments(docIds, TEXT_READ)).keys())
     },
     score: (adapter, query, documents) => rerankOnHost(core, adapter, query, documents),
     async fillDocuments(hits, groups, projection) {
@@ -61,11 +68,10 @@ export async function rerankClusterQuery<T>(
         for (const hit of grouped) hit.document = {}
         return
       }
-      const documents = await readDocuments(
-        [...hits.map(hit => hit.id), ...grouped.map(hit => hit.id)],
-        true,
-        keepsAnyVectorField(projection, settings),
-      )
+      const documents = await readDocuments([...hits.map(hit => hit.id), ...grouped.map(hit => hit.id)], {
+        last: true,
+        vectors: keepsAnyVectorField(projection, settings),
+      })
       const read = (docId: string): AnyDocument => {
         const document = documents.get(docId)
         return document === undefined ? {} : host.applyProjection(document, projection)

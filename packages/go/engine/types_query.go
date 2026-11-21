@@ -64,7 +64,7 @@ type SortField = model.SortField
 // A read leaves every vector field out unless the projection asks for it.
 // WithVectors(true) returns every vector field and WithVectors(false) leaves
 // every one out. When the projection sets neither, a read returns a vector
-// field only when IncludeFields names its whole path or when the index sets
+// field only when IncludeFields lists its whole path or when the index sets
 // ReturnVectors. The include and exclude lists then apply to each vector
 // field that this rule returns.
 type DocumentProjection = model.DocumentProjection

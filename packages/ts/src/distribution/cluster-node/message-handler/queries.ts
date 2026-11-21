@@ -143,7 +143,7 @@ interface FetchedFields {
   vectors: boolean
 }
 
-const FIELDS_ALONE: VectorReadSettings = { schema: {} }
+const VECTORS_CHOSEN_BY_THE_FETCH: VectorReadSettings = { schema: {} }
 
 export async function handleFetch(
   message: TransportMessage,
@@ -198,7 +198,10 @@ function readContextDocuments(
   releaseContext: boolean,
   read: FetchedFields,
 ): FetchedDocument[] {
-  const projection = resolveProjection(read.fields === null ? undefined : { include: read.fields }, FIELDS_ALONE)
+  const projection = resolveProjection(
+    read.fields === null ? undefined : { include: read.fields },
+    VECTORS_CHOSEN_BY_THE_FETCH,
+  )
   const docIds = documentIds.map(docRef => docRef.docId)
   const found = deps.searchContexts?.read(contextId, docIds) ?? null
   if (releaseContext) deps.searchContexts?.release(contextId)

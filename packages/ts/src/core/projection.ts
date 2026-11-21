@@ -158,8 +158,8 @@ function returnsVectorField(
 /**
  * Reads what the caller set under `document` into the form the read path uses,
  * and adds to it every vector field that the read leaves out: the projection's
- * `vectors` decides first, a vector field that `include` names is kept next,
- * and the index's `returnVectors` setting decides the rest.
+ * `vectors` decides first, the read keeps a vector field whose path equals an
+ * `include` entry next, and the index's `returnVectors` setting decides the rest.
  *
  * @param projection - The caller's projection, which may be absent.
  * @param index - The schema and the `returnVectors` setting of the index that

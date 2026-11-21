@@ -98,7 +98,7 @@ fn return_vectors_of(given: Option<&Value>) -> Outcome<Option<bool>> {
         None => Ok(None),
         Some(Value::Bool(return_vectors)) => Ok(Some(*return_vectors)),
         Some(other) => Err(config_refusal(
-            "returnVectors must be a boolean",
+            "returnVectors must be true or false",
             vec![("returnVectors", other.clone())],
         )),
     }

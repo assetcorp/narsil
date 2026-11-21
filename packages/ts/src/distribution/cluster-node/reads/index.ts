@@ -167,7 +167,7 @@ export async function queryCluster<T = AnyDocument>(
           params,
           settings,
           firstStage => searchCluster<T>(deps, search, firstStage, reader, true),
-          (docIds, last, vectors) => reader.read(docIds, { last, fields: null, vectors, requireEveryPartition: true }),
+          (docIds, read) => reader.read(docIds, { ...read, fields: null, requireEveryPartition: true }),
           clusterRerankHost,
         ),
       )
