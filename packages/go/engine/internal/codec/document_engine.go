@@ -51,7 +51,7 @@ func LeaveOutNullsAt(document *Document, paths []string) {
 }
 
 func mayBeStoredAsNumberKey(leaf string) bool {
-	return leaf == "" || leaf[0] == '-' || (leaf[0] >= '0' && leaf[0] <= '9')
+	return leaf == "" || leaf[0] == '-' || (leaf[0] >= '0' && leaf[0] <= '9') || leaf == "NaN" || leaf == "Infinity"
 }
 
 func storedMayHoldNullAt(stored []byte, path string) bool {
