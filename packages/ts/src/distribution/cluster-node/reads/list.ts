@@ -1,17 +1,11 @@
-import {
-  type ComparableSortValue,
-  compareCodePoints,
-  type SortMode,
-  toComparableSortValue,
-} from '../../../core/ordering'
+import { type ComparableSortValue, compareCodePoints, toComparableSortValue } from '../../../core/ordering'
 import { applyProjection, type ResolvedProjection, resolveProjection } from '../../../core/projection'
 import { requireLoadedOptionalReads } from '../../../engine/optional-reads-code'
 import { clampLimit, now } from '../../../engine/validation'
 import { decodePageCursor, encodePageCursor, requireMatchingCursor, sortSignatureOf } from '../../../search/cursor'
 import { listBindingOf } from '../../../search/cursor-binding'
 import { requireWithinResultWindow } from '../../../search/pagination'
-import { readSortValues } from '../../../search/sort-keys'
-import { normalizeSort, sortModesOf } from '../../../search/sorting'
+import { normalizeSort } from '../../../search/sorting'
 import type { ListedDocument, ListResult } from '../../../types/results'
 import type { AnyDocument } from '../../../types/schema'
 import type { ListParams } from '../../../types/search'
@@ -19,6 +13,7 @@ import { createListMessage, validateListResultPayload } from '../../query/codec'
 import type { ListEntryWire, ListPayload, SortField } from '../../transport/types'
 import { routableAllocation } from '../routable-allocation'
 import { restoreVectorValues } from '../vector-bytes'
+import { listLocalPage } from './local-list-page'
 import { type ClusterReadDeps, gatherFromEveryPartition, sendReadRequest } from './scatter'
 
 function clampListLimit(limit: number | undefined): number {
@@ -39,40 +34,6 @@ function wireFieldsFor(projection: ResolvedProjection, sortFieldNames: string[])
     fields.add(sortField)
   }
   return Array.from(fields)
-}
-
-function toWireSortValue(value: unknown): string | number | boolean | null {
-  if (typeof value === 'string') return value
-  if (typeof value === 'number') return Number.isFinite(value) ? value : null
-  if (typeof value === 'boolean') return value
-  return null
-}
-
-async function gatherLocalPage(
-  deps: ClusterReadDeps,
-  indexName: string,
-  payload: ListPayload,
-  partitionIds: number[],
-  sortFieldNames: string[] | null,
-  sortModes: readonly SortMode[],
-): Promise<{ entries: ListEntryWire[]; total: number; hasMore: boolean }> {
-  const listParams: ListParams = {
-    cursor: payload.cursor ?? undefined,
-    limit: payload.limit,
-    filters: payload.filters ?? undefined,
-    sort: payload.sort ?? undefined,
-    document: payload.fields === null ? undefined : { include: payload.fields },
-  }
-  const result = await deps.engine.listPartitions(indexName, listParams, partitionIds)
-  const entries: ListEntryWire[] = result.documents.map(listed => ({
-    docId: listed.id,
-    document: listed.document as Record<string, unknown>,
-    sortValues:
-      sortFieldNames === null
-        ? null
-        : readSortValues(listed.document as AnyDocument | undefined, sortFieldNames, sortModes).map(toWireSortValue),
-  }))
-  return { entries, total: result.total, hasMore: result.cursor !== null }
 }
 
 export async function listCluster<T = AnyDocument>(
@@ -111,14 +72,7 @@ export async function listCluster<T = AnyDocument>(
 
   const gathered = await gatherFromEveryPartition(allocation, indexName, group => {
     if (group.nodeId === deps.nodeId) {
-      return gatherLocalPage(
-        deps,
-        indexName,
-        { ...payload, partitionIds: group.partitionIds },
-        group.partitionIds,
-        sortFieldNames,
-        sortModesOf(normalizedSort),
-      )
+      return listLocalPage(deps.engine, { ...payload, partitionIds: group.partitionIds })
     }
     const message = createListMessage({ ...payload, partitionIds: group.partitionIds }, deps.nodeId)
     return sendReadRequest(deps, group.nodeId, message, indexName, validateListResultPayload, true)

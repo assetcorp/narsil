@@ -2,7 +2,7 @@
 
 This document defines the `NodeTransport` adapter contract and the messages that travel between nodes in a cluster. One transport adapter carries both replication traffic, meaning log entries and snapshots, and query traffic, meaning search and fetch requests.
 
-Structure definitions use a language-neutral notation. `List<T>` is an ordered collection of `T`, `Map<K, V>` a mapping from keys to values, and `T or absent` a value that may be missing, encoded as MessagePack nil on the wire. Width-tagged names such as `uint32` describe the value range, not a fixed encoding; see [Wire Format](#wire-format).
+Structure definitions use a language-neutral notation. `List<T>` is an ordered collection of `T`, `Map<K, V>` a mapping from keys to values, and `T or absent` a value that may be missing, which [Wire Format](#wire-format) encodes. Width-tagged names such as `uint32` describe the value range, not a fixed encoding; see [Wire Format](#wire-format).
 
 ---
 
@@ -31,7 +31,8 @@ NodeTransport {
 
 - Sends a request and receives a streamed response, calling `handler` once per chunk.
 - It carries snapshot transfer during recovery, where the snapshot can be large enough that buffering it whole in memory is unacceptable.
-- The transport handles chunking and reassembly. Chunk boundaries are the transport's own business and must never change the meaning of what arrives.
+- Each chunk that `handler` receives is the payload of one `respond` call on the receiving node, whole and in order. The chunk carries no `type`, `sourceId`, or `requestId`, so a receiver tells the kinds of chunk apart by the keys that each payload holds, and a transport must never split one payload or join two.
+- A stream ends once the responding handler has finished. A handler that fails must send its failure as a last chunk whose payload is the error payload that [Transport Messages](#transport-messages) defines, so that the receiver finds `error: true` in it, and each carrier below defines how a stream ends when the listener itself fails.
 
 ### listen(handler)
 
@@ -80,6 +81,18 @@ A node whose handler fails a request must answer with a message whose `type` is 
   abandonedWrite: AbandonedWrite or absent   (on a replication.forward refusal alone; see replication.forward)
 }
 ```
+
+A node that answers a `send` with success must give the answer the type that this table lists for the request, or the request's own type where the table lists none:
+
+| Request | Answer type |
+|---------|-------------|
+| `replication.entry`, `replication.entry_batch` | `replication.ack` |
+| `replication.term_start` | `replication.term_start_ack` |
+| `replication.insync_add`, `replication.insync_remove`, `replication.primary_resign` | `replication.insync_confirm` |
+| `query.search`, `query.fetch`, `query.stats`, `query.count`, `query.list`, `query.suggest`, `query.preflight` | The request's type followed by `_result` |
+| `cluster.ping` | `cluster.pong` |
+
+A node that reads an answer must treat it as a failure where its type ends in `.error`, where its type is `error`, or where its payload holds `error: true`. A node must answer a request whose payload breaks the shape of its type with an error reply, and never with a success reply. On every type, the node must use `TRANSPORT_DECODE_FAILED` where the payload is not valid MessagePack, except on a `replication.sync_request`, which the primary refuses with `SNAPSHOT_SYNC_REQUEST_INVALID`. Where the payload decodes but breaks the shape, the node must use the code that the type's section gives for that fault, and where the section gives none, it must use `REPLICATION_ENTRY_INVALID` for a `replication.forward`, a `replication.forward_batch`, a `replication.entry`, a `replication.entry_batch`, or a `replication.term_start`, and `CONFIG_INVALID` for every other type.
 
 A primary sets `abandonedWrite` on a `replication.forward.error` where `code` is `REPLICATION_OUTCOME_UNKNOWN` with the reason `term_ended` for an update or a remove whose document held a write record. The forwarding node uses `abandonedWrite` to send the write again with its condition fields, as [Retry After an Ended Term](replication.md#retry-after-an-ended-term) defines, and it must never pass `abandonedWrite` to the client.
 
@@ -194,7 +207,16 @@ AbandonedWrite {
 
 The five condition fields, `ifSeqNo`, `ifPrimaryTerm`, `abandonedSeqNo`, `abandonedPrimaryTerm`, and `compensationSeqNo`, travel together or not at all. A sender sets them only on an `update` or a `remove` that it sends again as [Retry After an Ended Term](replication.md#retry-after-an-ended-term) defines, taking `ifSeqNo` and `ifPrimaryTerm` from the `previousSeqNo` and `previousPrimaryTerm` of the `AbandonedWrite` that the earlier primary answered, and the other three from its `seqNo`, `primaryTerm`, and `compensationSeqNo`. A primary that receives them decides the write under the rules of that section. A primary must refuse with `REPLICATION_ENTRY_INVALID` a forward that carries some of the five fields but not all of them, and one that carries them on an `insert`.
 
-The primary handles each operation differently. An `insert` generates the embeddings when the index configures them and then writes an `INDEX` entry. An `update` reads the existing document, merges `updateFields`, generates any embeddings that changed, and writes an `INDEX` entry. An `update` whose `document` is present and whose `updateFields` is absent replaces the stored document whole. A `remove` writes a `DELETE` entry.
+A primary that applies the write must answer with this payload:
+
+```text
+{
+  documentId: string   (the ID of the document that the write stored or removed)
+  success:    true
+}
+```
+
+The primary handles each operation differently. An `insert` generates the embeddings when the index configures them and then writes an `INDEX` entry. An `update` whose `document` is present replaces the stored document whole and ignores `updateFields`. An `update` that carries `updateFields` alone reads the stored document, sets each top-level key of `updateFields` on it in place of the value that the key held, generates any embeddings that changed, and writes an `INDEX` entry, and the primary must refuse it with `DOC_NOT_FOUND` where it stores no document under `documentId`. A primary must refuse with `REPLICATION_ENTRY_INVALID` an `insert` without a `document` and an `update` with neither field. A `remove` writes a `DELETE` entry.
 
 A receiver that holds its copy of the partition under an `indexUuid` other than the one a request carries must refuse the request, because the name now belongs to another index: a forward with `PARTITION_NOT_PRIMARY`, a replication entry or batch with `INDEX_NOT_FOUND`, and a sync request with `SNAPSHOT_SYNC_INDEX_NOT_FOUND`. Where the request carries no `indexUuid`, the receiver skips this check. A forward refusal of this kind must carry `heldIndexUuid`, the `indexUuid` of the copy that the receiver holds, in its details.
 
@@ -220,7 +242,7 @@ Many client mutations forwarded in one message to a node that is primary for the
 }
 ```
 
-A sender must keep one message under 1,000 operations and under 8 MB of document bytes, and it must split a larger batch across several messages. An operation whose partition the receiver is not primary for fails in the results rather than failing the message.
+A sender must put between 1 and 1,000 operations in one message, and it must split a larger batch across several messages so that the documents of one message hold at most 8,388,608 bytes, unless one document alone holds more. A primary must refuse with `REPLICATION_ENTRY_INVALID` a message that holds no operation or more than 1,000. An operation whose partition the receiver is not primary for fails in the results, and the other operations of the message proceed.
 
 The response carries one result per operation, in operation order:
 
@@ -314,6 +336,37 @@ A new primary sends this to every other copy in the in-sync set, as [Starting a 
 
 A replica opens a sync with a request that carries no `syncSession`. Once it has applied that sync, it reports its new position in a second request that carries the `syncSession` of the sync that it applied, as [Catch-Up Feed](replication.md#catch-up-feed) defines.
 
+A primary must answer a `replication.sync_request` through `stream` with the payloads of one of these two sequences:
+
+```text
+incremental catch-up:
+  one or more replication.sync_entries
+full snapshot:
+  replication.snapshot_start
+  zero or more replication.snapshot_chunk
+  replication.snapshot_end
+  one or more replication.sync_entries
+```
+
+The primary must send the entries of one answer in sequence-number order with no gap, from the request's `lastSeqNo` + 1 for an incremental catch-up and from the snapshot header's `lastSeqNo` + 1 after a snapshot. The primary must split those entries into batches that each fit within the [Maximum Message Size](#maximum-message-size), and it must set `isLast` to true on the last batch alone.
+
+A replica must tell the payloads of one answer apart by their keys: a payload with `error: true` is an error reply, a payload with `entries` or `isLast` is a `replication.sync_entries`, the first other payload is the `replication.snapshot_start`, a payload with `offset` and `data` is a `replication.snapshot_chunk`, and a payload with `totalBytes` and `checksum` is the `replication.snapshot_end`.
+
+A primary that refuses or abandons a sync must send an error reply as the last payload of the answer, with one of these codes:
+
+| Code | Sent when |
+|------|-----------|
+| `SNAPSHOT_SYNC_REQUEST_INVALID` | The request is malformed, or its `lastPrimaryTerm` is above the primary's term |
+| `SNAPSHOT_SYNC_ALLOCATION_UNAVAILABLE` | The primary could not read the allocation table |
+| `SNAPSHOT_SYNC_UNAUTHORIZED` | The index has no allocation, the receiving node is not the partition's primary, or the sender holds no copy of the partition |
+| `SNAPSHOT_SYNC_NOT_ASSIGNED` | The partition has no assignment, or each copy of the index that the sender holds is in a state other than `ACTIVE`, `INITIALISING`, or `MIGRATING` |
+| `SNAPSHOT_SYNC_INDEX_NOT_FOUND` | The primary holds no copy of the index, or holds one under another `indexUuid` |
+| `SNAPSHOT_SYNC_CAPACITY_EXHAUSTED` | The primary is sending as many snapshots as its limits allow |
+| `SNAPSHOT_SYNC_SNAPSHOT_FAILED` | The primary could not build the snapshot |
+| `REPLICATION_SYNC_FAILED` | The request reports a sync that is not the sender's current one |
+
+A replica may send the request again after `SNAPSHOT_SYNC_ALLOCATION_UNAVAILABLE`, `SNAPSHOT_SYNC_CAPACITY_EXHAUSTED`, `SNAPSHOT_SYNC_SNAPSHOT_FAILED`, or `REPLICATION_SYNC_FAILED`, and it must end the sync on every other code.
+
 ### replication.sync_entries
 
 ```text
@@ -329,7 +382,7 @@ A replica opens a sync with a request that carries no `syncSession`. Once it has
 ```text
 {
   header:      ReplicationSnapshotHeader   (see replication.md)
-  totalBytes:  uint64                      (the expected total, for progress reporting)
+  totalBytes:  uint64                      (the size of the snapshot archive in bytes)
   syncSession: string                      (the session that the primary opened for this sync)
 }
 ```
@@ -345,7 +398,7 @@ A replica opens a sync with a request that carries no `syncSession`. Once it has
 }
 ```
 
-The sender delivers chunks through `stream`, and the receiver rebuilds the [snapshot archive](../durability.md#snapshot-archive) by writing each chunk at its offset.
+The sender delivers chunks through `stream`, and the receiver rebuilds the [snapshot archive](../durability.md#snapshot-archive) by writing each chunk at its offset. The sender must put at most 65,536 bytes in each chunk, must start the first chunk at offset 0, and must start each later chunk at the offset where the chunk before it ended. A receiver must refuse a chunk that breaks one of these rules or that would carry the archive past `totalBytes`.
 
 ### replication.snapshot_end
 
@@ -358,7 +411,7 @@ The sender delivers chunks through `stream`, and the receiver rebuilds the [snap
 }
 ```
 
-The sender sends this message after the last chunk. The receiver checks that `totalBytes` matches what it accumulated and verifies the checksum before it applies the archive.
+The sender sends this message after the last chunk, with the `totalBytes` of the `replication.snapshot_start` and the `checksum` of its header. Before it applies the archive, the receiver must check that both values match the start message and that it received exactly `totalBytes` bytes whose CRC32 equals `checksum`.
 
 ### replication.insync_add
 
@@ -484,7 +537,7 @@ The response is:
 }
 ```
 
-The node answers from the `held_partitions` field of its own index metadata, which [Index Metadata Payload](../envelope.md#index-metadata-payload) defines. A partition the node holds appears in the list even where that partition holds no document. A node that adopted no copy of the index answers with an absent `indexUuid` and an empty list.
+The node must list each partition in the `held_partitions` field of its index metadata, which [Index Metadata Payload](../envelope.md#index-metadata-payload) defines, and each partition whose copy holds a document, in ascending order, so that a partition that holds no document appears and a copy written before `held_partitions` existed stays recoverable. It must leave out a partition whose copy failed until that copy reloads cleanly from the node's checkpoint and log. A node that adopted no copy of the index answers with an absent `indexUuid` and an empty list.
 
 ### cluster.replication_factor
 
@@ -517,9 +570,11 @@ A node that holds no copy under that `indexUuid` answers with an empty list, so 
 {
   indexName:         string
   rebuiltPartitions: List<uint32>   (the copies that it rebuilt, leaving out each copy that was already current)
-  generation:   uint64 or absent                  (a pending change; an absent value asks for a revision rebuild)
+  generation:   uint64 or absent    (the generation of the request, absent where the request carried none)
 }
 ```
+
+A node must refuse with `CONFIG_INVALID` a request whose `generation` is present and below 1.
 
 ### cluster.rebalance
 
@@ -607,9 +662,11 @@ The primary answers once every write that it accepted before a `block` has finis
 {
   jobId:       string
   partitionId: uint32
-  lastSeqNo:   uint64
+  lastSeqNo:   uint64   (the primary's forwardable end after a block, and 0 after a lift)
 }
 ```
+
+A primary must refuse with `ALLOCATION_FAILED` a `block` whose `jobId` differs from the job of the rebalance record of `indexName`, or that arrives where `indexName` holds no such record.
 
 ### cluster.reshard_purge
 
@@ -661,7 +718,7 @@ A node sends this to the active controller to [restore a backup](backups.md#rest
 {
   backupName:        string
   indexName:         string
-  replicationFactor: uint32 or absent   (the backup's factor where absent)
+  replicationFactor: uint8 or absent    (the backup's factor where absent)
   constraints:       AllocationConstraints or absent   (the backup's constraints where absent)
 }
 ```
@@ -712,6 +769,10 @@ BackupPartitionResult {
 }
 ```
 
+A primary keys each task by `jobId`, `indexName`, and `partitionId`. It must start the task on the first request for that key, answer `running` until the task ends, and keep a `done` answer for 600,000 ms after the task ends. It must forget a failed task once it has answered `failed`, so that the next request starts the task again.
+
+The controller must send the request again every 500 ms while the answer is `running`. It must also send it again, for up to 120,000 ms after its first request or after the last `running` answer, after a refusal with `QUERY_NO_ACTIVE_REPLICA`, `PARTITION_NOT_PRIMARY`, `NODE_NOT_READY`, or `NODE_NOT_JOINED`, and it must fail the partition on any other refusal.
+
 ### cluster.restore_partition
 
 The controller sends this to the primary of one partition of the generation that a restore creates, and again to learn the partition's state.
@@ -733,8 +794,8 @@ A node sends this to each node that holds a partition of an index once it replac
 
 ```text
 {
-  indexName: string
-  indexUuid: string   (the identity of the index whose synonym set changed)
+  indexName: string   (the generation that serves the index)
+  indexUuid: string   (the identity of that generation, whose synonym set changed)
 }
 ```
 
@@ -755,27 +816,27 @@ A node sends this to the primary of one partition to read the entries that it se
 
 ```text
 {
-  indexName:   string
-  indexUuid:   string
+  indexName:   string   (the generation that serves the index)
+  indexUuid:   string   (the identity of that generation)
   partitionId: uint32
   afterSeqNo:  uint64
-  maxBytes:    uint32
+  maxBytes:    uint32   (at least 1)
 }
 ```
 
-The primary answers with the entries above `afterSeqNo`, up to its commit point and up to `maxBytes` of entries, where it always sends at least one entry that is due:
+The primary answers with the entries above `afterSeqNo`, up to `head` and up to `maxBytes` of entries, where it always sends at least one entry that is due:
 
 ```text
 {
   entries:      List<ReplicationLogEntry>
-  head:         uint64   (the partition's commit point)
-  highestSeqNo: uint64   (the highest seqNo that the primary holds)
-  oldestSeqNo:  uint64   (as Sending Entries in sync.md defines)
+  head:         uint64   (the lower of the partition's commit point and the highest seqNo in the primary's write-ahead log)
+  highestSeqNo: uint64   (the higher of the highest seqNo in its write-ahead log and the end of its replication log)
+  oldestSeqNo:  uint64   (as Sending Entries in sync.md defines, and at least afterSeqNo + 2 where the entries above afterSeqNo left the log during the read)
   bytesBehind:  uint64
 }
 ```
 
-A node that no longer leads the partition refuses with `PARTITION_NOT_PRIMARY`, and one whose copy carries another `indexUuid` refuses with `INDEX_NOT_FOUND`.
+The primary must send the entries in ascending `seqNo` order, each above `afterSeqNo`, at most `head`, and of the requested partition, and a reader must refuse a reply that breaks one of these rules. A node refuses a malformed request with `CONFIG_INVALID`. A node that no longer leads the partition refuses with `PARTITION_NOT_PRIMARY`, one whose copy carries another `indexUuid` refuses with `INDEX_NOT_FOUND`, and one that keeps no write-ahead log refuses with `SYNC_DURABILITY_REQUIRED`.
 
 ### suggestions.counts
 
@@ -920,7 +981,68 @@ A sender writes every member, encoding an absent value as nil, and a reader rest
 
 The enclosing `QueryParams.limit` sets the top-k count for vector search, so `VectorQueryParams` carries no limit of its own and there is one source of truth.
 
-`FilterExpression` is implementation-defined and matches the filter form of the Narsil query API.
+[FilterExpression](#filterexpression) defines `filters`.
+
+### FilterExpression
+
+The `filters` of a query, a listing, and a [change feed](../changes.md#filters) take this form:
+
+```text
+FilterExpression {
+  fields: Map<string, FieldFilter> or absent   (1 to 256 fields)
+  and:    List<FilterExpression> or absent     (1 to 256 expressions)
+  or:     List<FilterExpression> or absent     (1 to 256 expressions)
+  not:    FilterExpression or absent
+}
+
+FieldFilter {                                  (1 to 256 operators)
+  eq, ne:                  string or float64 or boolean
+  gt, gte, lt, lte:        float64 or string
+  between:                 [float64, float64] or [string, string]
+  in, nin:                 List<string>
+  startsWith, endsWith:    string
+  contains, wildcard, regex: string
+  caseFold:                boolean
+  tolerance:               0 or 1 or 2 or 'auto'
+  containsAll, matchesAny: List<string or float64 or boolean>
+  size:                    FieldFilter   (eq, ne, gt, gte, lt, lte, and between alone, with numbers)
+  exists, notExists:       boolean
+  isEmpty, isNotEmpty:     boolean
+  radius:  { lat: float64, lon: float64, distance: float64, unit: 'km' or 'mi' or 'm', inside: boolean or absent, highPrecision: boolean or absent }
+  polygon: { points: List<{ lat: float64, lon: float64 }>, inside: boolean or absent }
+}
+```
+
+An expression must hold at least one key. A document matches an expression where it matches every key: each field's `FieldFilter`, every member of `and`, at least one member of `or`, and not `not`. A document matches a `FieldFilter` where it passes every operator in it. A document holds a field where the field's value is present and not nil, and a `string`, `verbatim`, or list field that holds `""` or `[]` holds that field. A list field passes a test where one of its elements passes, except under `ne` and `nin`, which pass a document that holds the field and whose every element differs from the operand.
+
+| Operator | Field types | A document passes when |
+|----------|-------------|------------------------|
+| `eq` | A field whose values have the operand's kind; a string operand needs an `enum`, `enum[]`, or pattern field | a value equals the operand, comparing strings exactly, with no case folding and no Unicode normalisation |
+| `ne` | As `eq` | it holds the field and no value equals the operand |
+| `gt`, `gte`, `lt`, `lte` | `number` or `number[]`; a string operand needs a `string` or `verbatim` field whose type includes `sortable` | a value lies past the bound, comparing strings as [Sort Value Order](../algorithms.md#sort-value-order) defines |
+| `between` | As `gt` | one value lies from the first bound to the second, both included |
+| `in` | As a string `eq` | a value equals a member of the list |
+| `nin` | As a string `eq` | it holds the field and no value equals a member of the list |
+| `startsWith`, `endsWith` | As a string `eq` | a value starts or ends with the operand |
+| `contains`, `wildcard`, `regex` | A pattern field | a value passes the test that [Pattern Search](../algorithms.md#pattern-search) defines |
+| `caseFold` | A pattern field | `eq`, `ne`, `in`, `nin`, `startsWith`, `endsWith`, `contains`, `wildcard`, and `regex` compare as [Folded Tests](../algorithms.md#folded-tests) defines |
+| `tolerance` | A pattern field with a string `eq` | the `eq` matches as [Typo Test](../algorithms.md#typo-test) defines |
+| `containsAll` | A list field whose elements have the operands' kind; strings need a pattern field | it holds the field and every operand equals an element, so an empty list passes every document that holds the field |
+| `matchesAny` | As `containsAll` | an operand equals an element, so an empty list passes no document |
+| `size` | A list field | the list's length passes every operator in it |
+| `exists`, `notExists` | Any field | `exists: true` and `notExists: false` pass a document that holds the field, and `exists: false` and `notExists: true` pass one that does not |
+| `isEmpty`, `isNotEmpty` | Any field | `isNotEmpty: true` passes a document that holds the field with a length other than 0, and `isEmpty: true` passes every other document, with `false` reversing either |
+| `radius` | `geopoint` | the point lies at most `distance` from `lat` and `lon`, in kilometres, miles of 1,609.344 metres, or metres, by [Haversine](../algorithms.md#haversine-distance) on a sphere of radius 6,371,008.8 metres, or by [Vincenty](../algorithms.md#vincenty-distance) where `highPrecision` is true |
+| `polygon` | `geopoint` | [ray casting](../algorithms.md#point-in-polygon-ray-casting) places the point inside the ring of `points` |
+
+Under `radius` and `polygon`, an absent `inside` means true, and `inside: false` passes a document that holds the field and whose point lies outside.
+
+A node must refuse with `SEARCH_INVALID_FIELD` a filter on a field that the schema does not declare, and with `SEARCH_INVALID_FILTER` a filter that breaks this section, that pairs an operator with another field type, or that breaks any of these limits:
+
+- An expression nests at most 30 levels, where the root is level 0 and each `and`, `or`, and `not` adds one level.
+- A filter holds at most 1,024 tests, where `caseFold` and `tolerance` count none, `size` counts one for each of its operators, every other operator counts one, and each `FieldFilter` counts at least one.
+- A string operand holds at most 1,024 code points, a list operand holds at most 65,536 items, and a number operand is finite.
+- `lat` lies from -90 to 90, `lon` from -180 to 180, `distance` is at least 0, and `points` holds 3 to 65,536 points.
 
 ### GlobalStatistics
 
@@ -991,7 +1113,7 @@ GroupEntry {
 
 A response carries at most 65,536 groups, so a query whose matches group more finely than that must set `group.limit`.
 
-`sortValues` carries the raw values of the sort fields, one per field in sort order, each a string, a number, a boolean, or nil, read from the document before any folding. The coordinator merges sorted results with the [sort value order](../algorithms.md#sort-value-order), so a data node must never send pre-folded or pre-transformed values.
+`sortValues` carries one value per sort field, in sort order. A data node must send for each field the value that the field's mode selects from the document, as [Where Each Order Applies](../algorithms.md#where-each-order-applies) defines: the element that `min` or `max` picks from an array, the mean or median of its numbers under `avg` or `median`, and a string cut to its first 512 code points. It must send that value as a string, a finite number, or a boolean, send nil where the document holds no such value, and never fold the case of a string, because the coordinator merges sorted results with the [sort value order](../algorithms.md#sort-value-order).
 
 For a sorted query without grouping or `includeScores`, the node omits `score` from its reply. A sorted grouped query must preserve raw relevance scores in its grouped replies for [group ordering and reducers](query-routing.md#distributed-grouping), even where the caller omits `includeScores` or sets it to false. The coordinator may request `includeScores` internally to retain those scores, but it must honour the caller's setting when assembling the public response. Sorted entry merging always uses sort values and document ID, independently of score presence. [String Ordering](../algorithms.md#string-ordering) defines when the node must compute scores.
 
@@ -1009,7 +1131,7 @@ A present relevance score may be finite, positive infinity, negative infinity, o
     partitionId: uint32
   }>
   fields:      List<string> or absent   (field projection; absent means every field)
-  highlight:   HighlightConfig or absent
+  highlight:   HighlightConfig or absent   (reserved: a coordinator must send nil, and a node must ignore it)
   contextId:   string or absent         (the search context to read; absent means the current documents)
   releaseContext: bool or absent        (whether the node frees the context after this read; absent means true)
 }
@@ -1024,10 +1146,12 @@ A node that receives `contextId` must read every named document from that [searc
   documents: List<{
     docId:      string
     document:   Map<string, value>
-    highlights: Map<string, List<string>> or absent
+    highlights: Map<string, List<string>> or absent   (reserved: a node must send nil)
   }>
 }
 ```
+
+A node must answer with one entry for each named document that it stores, or that the search context holds where the request carries `contextId`, in the order that the request names them, and it must leave out every other document.
 
 ### query.stats
 
@@ -1035,7 +1159,7 @@ A node that receives `contextId` must read every named document from that [searc
 {
   indexName:    string
   partitionIds: List<uint32>
-  terms:        List<string>                (the query terms to collect frequencies for)
+  terms:        List<string>                (the query terms to collect frequencies for, which the node analyses)
   expansion:    StatsExpansion or absent    (the query's matching options; absent counts the terms and the synonyms that the copy's synonym set adds, with no other expansion)
   tokens:       List<string> or absent      (tokens to count as given, with no analysis or expansion)
   analysisGeneration: uint64 or absent            (the generation that the coordinator read; an absent value means 0)
@@ -1050,6 +1174,8 @@ StatsExpansion {
   fields:       List<string> or absent
 }
 ```
+
+A coordinator must fill `terms` with the non-empty pieces of the query's `term`, split at each run of the Unicode `White_Space` characters other than U+0085 and of U+FEFF, and it must send an empty `terms` where the query has no `term`.
 
 ### query.stats_result
 
@@ -1121,7 +1247,7 @@ In the stats of an index, the coordinator must report as the saved size the sum 
 }
 ```
 
-The node lists from the named partitions alone, in the order the request names, and returns up to `limit` entries past the cursor. The coordinator merges the pages, by document id in code point order or by the [sort value order](../algorithms.md#sort-value-order) when the request sorts, truncates to the client's limit, sums `total` across responses, and encodes the next cursor from the last merged entry. The listing continues while the merge dropped entries past the client's limit or any node reported `hasMore`.
+The node lists from the named partitions alone, in the order the request names, and returns up to `limit` entries past the cursor. It must fill `sortValues` as [query.search_result](#querysearch_result) defines, from the stored document whatever `fields` the request projects. The coordinator merges the pages, by document id in code point order or by the [sort value order](../algorithms.md#sort-value-order) when the request sorts, truncates to the client's limit, sums `total` across responses, and encodes the next cursor from the last merged entry. The listing continues while the merge dropped entries past the client's limit or any node reported `hasMore`.
 
 ### query.suggest
 
@@ -1176,15 +1302,19 @@ The node counts matches in the named partitions alone, and the coordinator sums 
 
 Every transport message is serialised as MessagePack under these rules:
 
-- An integer uses the smallest MessagePack encoding that holds the value, whether positive fixint, uint8, uint16, uint32, or uint64.
-- A string is UTF-8.
+- An integer uses the smallest MessagePack encoding that holds the value, whether positive fixint, uint8, uint16, uint32, or uint64, and a negative integer uses the smallest signed encoding.
+- An integer must lie between -(2^53 - 1) and 2^53 - 1, because a reader that holds numbers as float64 cannot hold a larger one exactly.
+- A number that is not a whole number uses float64. A writer may encode a float-typed value that holds a whole number, such as a boost of 1, as an integer, so a reader must accept an integer wherever a structure declares a float.
+- A writer that sends a document holding -0 must encode every number as float64, so that the sign survives: every number of the encoded document where the document travels as `bin`, and every number of the whole payload where documents travel as maps, as in `query.search_result`, `query.fetch_result`, and `query.list_result`. A reader must therefore accept a float64 that holds a whole number wherever a structure declares an integer.
+- A string is UTF-8, and every string header, binary header, map header, and array header uses the smallest MessagePack encoding that holds its length.
 - A map keeps insertion order, so one implementation encodes the same message the same way every time. Field ordering need not match across languages, and every decoder must accept any key order.
-- Binary data, meaning document bodies and snapshot chunks, uses MessagePack's `bin` format.
-- An absent value is MessagePack nil.
+- Binary data uses MessagePack's `bin` format. That covers an encoded document in a write or a replication entry, a snapshot chunk, and the value of a vector field inside a document map, which holds the vector's float32 values in little-endian byte order.
+- An absent value is MessagePack nil, and a writer may leave its key out instead. A reader must treat a missing key exactly as nil, except where a structure gives the two different meanings, as `previousDocument` does in [Log Entry Format](replication.md#log-entry-format), and except in the members of `QueryParams` itself, which a writer must always send as [QueryParams](#queryparams) defines.
+- A reader must ignore every key that a structure does not define, so that a node can add a member without breaking a node on an earlier specification version.
 
 ### Maximum Message Size
 
-A transport message, a snapshot chunk included, must not exceed 64 MB, which stops a sender from forcing an unbounded allocation on the receiver. A sender whose response would exceed the limit, such as a fetch result carrying many large documents, must split it across several messages or return an error.
+A transport message, a snapshot chunk included, must not exceed 64 MiB, which is 67,108,864 bytes, so that a sender cannot force an unbounded allocation on the receiver. The TCP carrier counts the bytes of the frame map that follows the length prefix, and the gRPC carrier counts the bytes of the encoded `TransportMessage`. A sender whose response would exceed the limit, such as a fetch result carrying many large documents, must split it across several messages or return an error.
 
 ---
 
@@ -1202,8 +1332,8 @@ TransportConfig {
 | Parameter | Default | Meaning |
 |-----------|---------|---------|
 | `connectTimeout` | 5,000 ms | The longest wait to open a connection to a peer node |
-| `requestTimeout` | 30,000 ms | The longest wait for a query request and its response |
-| `replicationTimeout` | 10,000 ms | The longest wait for a replication entry acknowledgement or for the answer to a `replication.term_start` |
+| `requestTimeout` | 30,000 ms | The longest wait for the answer to every `send` that `replicationTimeout` does not cover, `replication.forward` and every `cluster.*` message included |
+| `replicationTimeout` | 10,000 ms | The longest wait for the answer to a `replication.entry`, a `replication.entry_batch`, or a `replication.term_start` |
 | `snapshotTimeout` | 300,000 ms | The longest wait for the next chunk of a snapshot transfer, so that a transfer of any size can finish while the sender keeps sending chunks |
 
 ---
@@ -1216,9 +1346,37 @@ TransportConfig {
 | GrpcTransport | gRPC over HTTP/2, per [transport.proto](transport.proto) | Server to server, where gRPC tooling and infrastructure already exist |
 | InMemoryTransport | Direct function calls | Testing and single-process development |
 
+Every node of a cluster must use the same carrier, because a TCP node and a gRPC node cannot exchange a message. A node's registered `address` is `host:port`, where `host` is a DNS name, an IPv4 address, or an IPv6 address in square brackets, and the port is the one that the node's carrier listens on, 9300 by default for TCP and 9301 for gRPC.
+
+Where a carrier is configured with TLS, every connection must use mutual TLS: the server must require a client certificate that chains to the configured authority, and the client must check the server's certificate against the host in the target address. No carrier ties a certificate to a `nodeId`, so a receiver takes the sender's identity from the `sourceId` that the sender declares, and only TLS stops a host outside the cluster from declaring one.
+
+A carrier answers a request that its listener cannot handle with a `TransportMessage` whose `type` is `error`, whose `sourceId` is empty, and whose `payload` holds the failure's message as UTF-8 text, not as MessagePack. The `requestId` is the request's, or empty where the request could not be decoded. A receiver must check for this `type` before it decodes a payload as MessagePack.
+
+### TCP Carrier
+
+The TCP carrier sends frames over one connection per peer address, which many requests share. Each frame is a 4-byte big-endian length followed by that many bytes, which hold a MessagePack map:
+
+```text
+Frame {
+  frameType: uint8    (1 = request, 2 = response, 3 = stream chunk, 4 = stream end)
+  requestId: string   (the requestId of the request that the frame belongs to)
+  data:      bytes
+}
+```
+
+- A request frame holds one encoded `TransportMessage` in `data`, for `send` and for `stream` alike, and the message `type` alone tells the receiver whether to answer once or to stream.
+- The receiver must send every frame of the answer back on the connection that carried the request. The first `respond` goes out as a response frame holding the whole encoded `TransportMessage`, and each later `respond` goes out as a stream chunk frame holding only the payload.
+- Once its handler finishes, the receiver must send a stream end frame with empty `data` after any handler that responded at least once, and a caller that used `send` ignores that frame.
+- A `stream` caller passes the payload of the response frame, and the `data` of each stream chunk frame, to its handler in order, and it finishes at the stream end frame.
+- Where the listener itself fails, the receiver sends the carrier's `error` message as a response frame and sends no stream end frame.
+- A receiver must close a connection that sends a frame longer than 67,108,864 bytes or a frame that it cannot decode, with no answer, and it must ignore any frame on an inbound connection that is not a request frame.
+- A receiver accepts at most 256 inbound connections and closes each one beyond that.
+
 ### gRPC Carrier
 
-The gRPC adapter implements the `narsil.transport.v1.NodeTransport` service defined in [transport.proto](transport.proto). A `Send` request and its response each carry one MessagePack-serialised `TransportMessage` in the `Envelope.message` field, so the envelope encoding in [Wire Format](#wire-format) stays the contract and gRPC only frames it. An `OpenStream` request carries its message the same way, and each `Chunk.data` in the reply stream is one chunk for the caller's handler, in order. A listener error travels as an `Envelope` reply whose message has type `error`, which keeps gRPC statuses for transport faults alone.
+The gRPC adapter implements the `narsil.transport.v1.NodeTransport` service defined in [transport.proto](transport.proto). A `Send` request and its response each carry one MessagePack-serialised `TransportMessage` in the `Envelope.message` field, so the envelope encoding in [Wire Format](#wire-format) stays the contract and gRPC only frames it. An `OpenStream` request carries its message the same way, and each `Chunk.data` in the reply stream is the payload of one `respond` call, in order. A listener error on `Send` travels as the carrier's `error` message in the reply `Envelope`, which keeps gRPC statuses for transport faults alone. `OpenStream` cannot carry that message, so a server must end the stream with status `UNAVAILABLE` where no listener is registered, `INVALID_ARGUMENT` where it cannot decode the request, and `UNKNOWN` where the listener fails or finishes without a chunk.
+
+Every channel must accept messages of up to 67,109,888 bytes in each direction, which is the message limit plus 1,024 bytes for the `Envelope`. A client must send keepalive pings every 30,000 ms with a 10,000 ms timeout, even with no call open, so a server must permit pings at that interval with no call open. A client must set a deadline on each `Send` equal to the request's timeout, and it must time an `OpenStream` by the wait for each chunk, as [Transport Timeouts](#transport-timeouts) defines for a snapshot.
 
 ### Community Adapter Guidelines
 

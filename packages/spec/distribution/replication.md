@@ -2,7 +2,7 @@
 
 This document defines the replication protocol for a distributed cluster. It covers the replication log format, the sync protocol for a new or recovering node, failover, write durability, and in-sync replica tracking.
 
-Structure definitions use a language-neutral notation. `List<T>` is an ordered collection of `T`, `Map<K, V>` a mapping from keys to values, `T or absent` a value that may be missing, and width-tagged names such as `uint64` describe exact byte widths on the wire.
+Structure definitions use a language-neutral notation. `List<T>` is an ordered collection of `T`, `Map<K, V>` a mapping from keys to values, `T or absent` a value that may be missing, and width-tagged names such as `uint64` describe the value range. Every value takes the smallest encoding that [Wire Format](transport.md#wire-format) defines, because the [checksum](#checksum) covers the encoded bytes.
 
 ---
 
@@ -250,9 +250,10 @@ The fast path runs when the primary's log still holds every entry the replica mi
    lastSeqNo + 1 onward.
 4. When it does:
    a. The primary streams every log entry from lastSeqNo + 1 to
-      the current head.
+      the current head, in batches.
    b. The replica applies each entry to its local partition.
-   c. The replica acknowledges each batch.
+   c. The replica reports its new position in a second
+      replication.sync_request.
    d. Once caught up, the replica moves to steady-state
       replication and receives new entries as they are written.
 ```

@@ -79,7 +79,11 @@ function normaliseAssignments(entries: unknown[]): Map<number, PartitionAssignme
         ? storedCommitPoint
         : 0
     const lastHolders = normaliseLastHolders(candidate)
-    const normalised: PartitionAssignment = { ...(assignment as PartitionAssignment), commitPoint }
+    const normalised: PartitionAssignment = {
+      ...(assignment as PartitionAssignment),
+      primary: candidate.primary ?? null,
+      commitPoint,
+    }
     if (lastHolders.length > 0) {
       normalised.lastHolders = lastHolders
     } else {

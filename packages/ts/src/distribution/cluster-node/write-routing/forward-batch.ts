@@ -1,5 +1,4 @@
 import { ErrorCodes, NarsilError } from '../../../errors'
-import { decode } from '../../../serialization/msgpack'
 import type { BatchResult } from '../../../types/results'
 import type { AnyDocument } from '../../../types/schema'
 import type { AllocationTable, PartitionAssignment } from '../../coordinator/types'
@@ -14,6 +13,7 @@ import { findWriteBlock } from '../memory/write-block'
 import { estimateForwardedBytes } from '../memory/write-pressure'
 import { abandonedWriteOf } from './abandoned-write'
 import { requireAssignedPrimary, resolvePartitionId } from './assignment'
+import { decodeForwardedDocument } from './forwarded-document'
 import {
   applyPrimaryInsertBatch,
   applyPrimaryRemoveBatch,
@@ -255,21 +255,17 @@ function decodeOperationDocument(
   if (wire.document === null) {
     results[index] = failureResult(
       wire.documentId,
-      new NarsilError(ErrorCodes.CONFIG_INVALID, 'A forwarded insert requires a document', {
+      new NarsilError(ErrorCodes.REPLICATION_ENTRY_INVALID, 'A forwarded insert requires a document', {
         documentId: wire.documentId,
       }),
     )
     return null
   }
   try {
-    return decode(wire.document) as AnyDocument
+    return decodeForwardedDocument(wire.document, wire.documentId)
   } catch (err) {
-    results[index] = failureResult(
-      wire.documentId,
-      new NarsilError(ErrorCodes.DOC_VALIDATION_FAILED, `Forwarded document could not be decoded: ${String(err)}`, {
-        documentId: wire.documentId,
-      }),
-    )
+    const error = err instanceof NarsilError ? err : new NarsilError(ErrorCodes.DOC_VALIDATION_FAILED, String(err))
+    results[index] = failureResult(wire.documentId, error)
     return null
   }
 }

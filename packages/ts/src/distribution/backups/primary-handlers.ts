@@ -1,11 +1,11 @@
 import { encode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../errors'
-import { decode } from '../../serialization/msgpack'
 import { getClusterIndexConfig, getIndexMetadata } from '../cluster/index-metadata'
 import type { DataNodeHandlerDeps } from '../cluster-node/message-handler/types'
 import { MAX_PARTITION_COUNT } from '../constants'
 import type { PartitionAssignment } from '../coordinator/types'
 import { isRecord, isValidInteger } from '../payload-guards'
+import { decodeRequestPayload } from '../request-decode'
 import type { BackupPartitionResult, PartitionTaskPayload } from '../transport/backup-payloads'
 import type { RespondFn, TransportMessage } from '../transport/types'
 import { BACKUP_FILES_AT_ONCE } from './constants'
@@ -37,12 +37,7 @@ function invalid(what: string): NarsilError {
 }
 
 function readPayload(message: TransportMessage): PartitionTaskPayload {
-  let decoded: unknown
-  try {
-    decoded = decode(message.payload)
-  } catch (_) {
-    decoded = null
-  }
+  const decoded = decodeRequestPayload(message.payload, message.type)
   if (!isRecord(decoded)) throw invalid('expected an object')
   const { jobId, indexName, partitionId } = decoded
   if (typeof jobId !== 'string' || jobId.length === 0) throw invalid('"jobId" must be a non-empty string')

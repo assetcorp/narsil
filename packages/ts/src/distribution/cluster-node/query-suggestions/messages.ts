@@ -3,10 +3,10 @@ import { ErrorCodes, NarsilError } from '../../../errors'
 import { historyStreamChunks } from '../../../query-suggestions/counts-stream'
 import type { HistoryFiles } from '../../../query-suggestions/history-files'
 import type { QuerySuggestionsRuntime } from '../../../query-suggestions/runtime'
-import { decode } from '../../../serialization/msgpack'
 import { validateIndexName } from '../../cluster/index-metadata'
 import { encodeRebalanceRefusal } from '../../cluster/rebalance/reply'
 import { isRecord } from '../../payload-guards'
+import { decodeRequestPayload } from '../../request-decode'
 import { type RespondFn, SuggestionMessageTypes, type TransportMessage } from '../../transport/types'
 import { encodeErrorReplyFrom } from '../error-reply'
 
@@ -25,12 +25,7 @@ export interface BuildAnswerDeps {
 }
 
 function indexNameOf(message: TransportMessage): string {
-  let decoded: unknown
-  try {
-    decoded = decode(message.payload)
-  } catch {
-    decoded = null
-  }
+  const decoded = decodeRequestPayload(message.payload, message.type)
   if (!isRecord(decoded) || typeof decoded.indexName !== 'string') {
     throw new NarsilError(ErrorCodes.CONFIG_INVALID, `A ${message.type} request needs "indexName" as a string`)
   }

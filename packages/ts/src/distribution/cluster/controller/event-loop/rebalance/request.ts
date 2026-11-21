@@ -1,10 +1,10 @@
 import { encode } from '@msgpack/msgpack'
 import { generateId } from '../../../../../core/id-generator'
 import { ErrorCodes, NarsilError } from '../../../../../errors'
-import { decode } from '../../../../../serialization/msgpack'
 import { MAX_PARTITION_COUNT } from '../../../../constants'
 import type { ClusterCoordinator } from '../../../../coordinator/types'
 import { isRecord, isValidInteger } from '../../../../payload-guards'
+import { decodeRequestPayload } from '../../../../request-decode'
 import type { RebalancePayload, RebalanceResultPayload } from '../../../../transport/reshard-payloads'
 import type { RespondFn, TransportMessage } from '../../../../transport/types'
 import { ClusterMessageTypes } from '../../../../transport/types'
@@ -30,12 +30,7 @@ export interface RebalanceRequestContext {
 }
 
 function readPayload(message: TransportMessage): RebalancePayload {
-  let decoded: unknown
-  try {
-    decoded = decode(message.payload)
-  } catch (_) {
-    decoded = null
-  }
+  const decoded = decodeRequestPayload(message.payload, message.type)
   if (!isRecord(decoded) || typeof decoded.indexName !== 'string' || decoded.indexName.length === 0) {
     throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'A partition count change must name an index', {})
   }
