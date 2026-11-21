@@ -226,6 +226,22 @@ async fn send_holds_a_call_that_gets_no_answer_until_the_callers_deadline_and_no
 }
 
 #[tokio::test]
+async fn a_listener_that_panics_before_returning_its_future_sends_a_carrier_error() {
+    let handler: ListenHandler = std::sync::Arc::new(|_, _| panic!("listener failed"));
+    let (transport, address) = listening_node(handler).await;
+    let request = grpc_frame(&envelope("test.panic", "panic", &[]));
+
+    let answer = call(&address, SEND_PATH, request, None).await;
+
+    assert_eq!(answer.grpc_status, GRPC_OK);
+    let carrier = decode(&answer.messages[0]);
+    assert_eq!(carrier.text("type"), "error");
+    assert_eq!(carrier.text("requestId"), "panic");
+    assert_eq!(carrier.text("sourceId"), "");
+    transport.shutdown().await;
+}
+
+#[tokio::test]
 async fn a_message_past_the_size_limit_is_refused_as_resource_exhausted() {
     let (transport, address) = listening_node(not_ready_handler(NODE_ID)).await;
     let oversized = vec![0u8; support::MAX_MESSAGE_SIZE_BYTES + GRPC_ENVELOPE_OVERHEAD_BYTES];
