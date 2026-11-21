@@ -75,20 +75,19 @@ export function isSafeFileKey(key: unknown): key is string {
 }
 
 export function readAllocationConstraints(value: unknown): AllocationConstraints | null {
+  if (!isRecord(value)) return null
+  const zoneAwareness = value.zoneAwareness ?? false
+  const zoneAttribute = value.zoneAttribute ?? 'zone'
+  const maxShardsPerNode = value.maxShardsPerNode ?? null
   if (
-    !isRecord(value) ||
-    typeof value.zoneAwareness !== 'boolean' ||
-    typeof value.zoneAttribute !== 'string' ||
-    value.zoneAttribute.length === 0 ||
-    !(value.maxShardsPerNode === null || (isValidInteger(value.maxShardsPerNode) && value.maxShardsPerNode > 0))
+    typeof zoneAwareness !== 'boolean' ||
+    typeof zoneAttribute !== 'string' ||
+    zoneAttribute.length === 0 ||
+    !(maxShardsPerNode === null || (isValidInteger(maxShardsPerNode) && maxShardsPerNode > 0))
   ) {
     return null
   }
-  return {
-    zoneAwareness: value.zoneAwareness,
-    zoneAttribute: value.zoneAttribute,
-    maxShardsPerNode: value.maxShardsPerNode,
-  }
+  return { zoneAwareness, zoneAttribute, maxShardsPerNode }
 }
 
 export function readStoredFile(value: unknown, backupName: string): StoredFile {
@@ -142,8 +141,8 @@ function validateManifest(raw: unknown, backupName: string): BackupManifest {
     raw.replicationFactor > MAX_REPLICATION_FACTOR ||
     !Array.isArray(raw.partitions) ||
     raw.partitions.length !== raw.partitionCount ||
-    (raw.syncEpoch !== undefined && !isSyncEpoch(raw.syncEpoch)) ||
-    !(raw.takenBy === undefined || typeof raw.takenBy === 'string')
+    (raw.syncEpoch !== undefined && raw.syncEpoch !== null && !isSyncEpoch(raw.syncEpoch)) ||
+    !(raw.takenBy === undefined || raw.takenBy === null || typeof raw.takenBy === 'string')
   ) {
     throw damaged(backupName, 'holds a malformed header')
   }
@@ -172,7 +171,7 @@ function validateManifest(raw: unknown, backupName: string): BackupManifest {
 }
 
 function readQueryHistory(value: unknown, backupName: string): Pick<BackupManifest, 'queryHistory'> {
-  if (value === undefined) return {}
+  if (value === undefined || value === null) return {}
   if (!Array.isArray(value) || value.length > MAX_BACKUP_HISTORY_FILES) {
     throw damaged(backupName, 'holds a malformed query history list')
   }

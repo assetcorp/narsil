@@ -1,4 +1,5 @@
 import type { ClusterCoordinator, NodeEvent, SchemaEvent } from '../../../coordinator/types'
+import { answerPing } from '../../../ping'
 import type { NodeTransport, RespondFn, TransportMessage } from '../../../transport/types'
 import { ClusterMessageTypes, ReplicationMessageTypes } from '../../../transport/types'
 import type { ControllerMessageHandler } from '../types'
@@ -71,6 +72,10 @@ export async function startEventLoop(
     })
 
     state.unwatchTransport = await transport.listen((message: TransportMessage, respond: RespondFn) => {
+      if (message.type === ClusterMessageTypes.PING) {
+        answerPing(message, respond, nodeId).catch(() => {})
+        return
+      }
       if (message.type === ClusterMessageTypes.REPLICATION_FACTOR) {
         handleReplicationFactorMessage(state, message, respond, coordinator, nodeId, isActive, onError)
         return

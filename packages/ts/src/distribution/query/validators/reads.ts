@@ -23,8 +23,10 @@ import {
 } from '../constants'
 import {
   CONFIG_INVALID,
+  dropNilMember,
   isInteger,
   isRecord,
+  restoreMissingAsNil,
   SEARCH_INVALID_FIELD,
   SEARCH_INVALID_MODE,
   throwInvalid,
@@ -53,6 +55,7 @@ export function validateCountPayload(decoded: unknown): CountPayload {
 }
 
 const STORED_SIZE_FIELDS = ['savedBytes', 'vectorSavedBytes', 'logBytes'] as const
+const LIST_OPTIONAL_MEMBERS = ['cursor', 'filters', 'sort', 'fields'] as const
 
 export function validateCountResultPayload(decoded: unknown): CountResultPayload {
   if (!isRecord(decoded)) {
@@ -75,6 +78,7 @@ export function validateCountResultPayload(decoded: unknown): CountResultPayload
       CONFIG_INVALID,
     )
     for (const figure of STORED_SIZE_FIELDS) {
+      dropNilMember(entry, figure)
       if (entry[figure] === undefined) continue
       validateNonNegativeInteger(entry[figure], `partitions[${i}].${figure}`, MAX_COUNT_VALUE, CONFIG_INVALID)
     }
@@ -99,6 +103,7 @@ function validateListSort(value: unknown): void {
       throwInvalid(CONFIG_INVALID, `Invalid ListPayload: "sort[${i}]" must be an object`)
     }
     validateFieldName(entry.field, `sort[${i}].field`, SEARCH_INVALID_FIELD)
+    dropNilMember(entry, 'mode')
     if (entry.direction !== 'asc' && entry.direction !== 'desc') {
       throwInvalid(SEARCH_INVALID_MODE, `Invalid ListPayload: "sort[${i}].direction" must be "asc" or "desc"`)
     }
@@ -117,6 +122,7 @@ export function validateListPayload(decoded: unknown): ListPayload {
   }
   validateIndexNameField(decoded, 'ListPayload')
   validatePartitionIdsArray(decoded.partitionIds, 'partitionIds', CONFIG_INVALID)
+  restoreMissingAsNil(decoded, LIST_OPTIONAL_MEMBERS)
   if (decoded.cursor !== null) {
     validateStringField(decoded.cursor, 'cursor', MAX_LIST_CURSOR_LENGTH, CONFIG_INVALID)
   }
@@ -177,6 +183,7 @@ export function validateListResultPayload(decoded: unknown): ListResultPayload {
     if (!isRecord(entry.document)) {
       throwInvalid(CONFIG_INVALID, `Invalid ListResultPayload: "entries[${i}].document" must be an object`)
     }
+    entry.sortValues ??= null
     if (entry.sortValues !== null) {
       validateSortValues(entry.sortValues, `entries[${i}].sortValues`)
     }

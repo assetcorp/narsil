@@ -20,6 +20,16 @@ export function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value)
 }
 
+export function restoreMissingAsNil(record: Record<string, unknown>, members: readonly string[]): void {
+  for (const member of members) {
+    if (!Object.hasOwn(record, member)) record[member] = null
+  }
+}
+
+export function dropNilMember(record: Record<string, unknown>, member: string): void {
+  if (record[member] === null) delete record[member]
+}
+
 export function validateStringField(
   value: unknown,
   fieldLabel: string,
