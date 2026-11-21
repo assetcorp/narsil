@@ -1,7 +1,8 @@
 import { encode } from '@msgpack/msgpack'
-import { decode } from '../../../serialization/msgpack'
+import { ErrorCodes, NarsilError } from '../../../errors'
 import type { ClusterCoordinator, PartitionAssignment } from '../../coordinator/types'
 import { isRecord, isValidInteger } from '../../payload-guards'
+import { decodeRequestPayload } from '../../request-decode'
 import type {
   BootstrapCompletePayload,
   BootstrapCompleteResultPayload,
@@ -11,6 +12,7 @@ import type {
 import { ClusterMessageTypes } from '../../transport/types'
 import { BOOTSTRAP_CAS_ATTEMPTS } from '../constants'
 import { putAllocationOver } from '../in-sync-version'
+import { encodeRebalanceRefusal } from '../rebalance/reply'
 import { rewriteForCurrentIndex } from '../table-identity'
 
 /**
@@ -64,6 +66,29 @@ async function sendRejection(
   await respond(response)
 }
 
+async function readBootstrapCompleteOrRefuse(
+  message: TransportMessage,
+  respond: RespondFn,
+  controllerNodeId: string,
+): Promise<BootstrapCompletePayload | null> {
+  try {
+    const payload = validateBootstrapCompletePayload(decodeRequestPayload(message.payload, message.type))
+    if (payload !== null) return payload
+    throw new NarsilError(
+      ErrorCodes.CONFIG_INVALID,
+      'Invalid BootstrapCompletePayload: it needs an indexName, a partitionId, a nodeId, and a primaryTerm',
+    )
+  } catch (error) {
+    await respond({
+      type: `${message.type}.error`,
+      sourceId: controllerNodeId,
+      requestId: message.requestId,
+      payload: encodeRebalanceRefusal(error),
+    })
+    return null
+  }
+}
+
 /**
  * Rejects a bootstrap completion report without reading the allocation table.
  *
@@ -80,18 +105,8 @@ export async function rejectBootstrapComplete(
   respond: RespondFn,
   controllerNodeId: string,
 ): Promise<void> {
-  let decoded: unknown
-  try {
-    decoded = decode(message.payload)
-  } catch (_) {
-    await sendRejection(respond, controllerNodeId, message.requestId, '', -1)
-    return
-  }
-  const payload = validateBootstrapCompletePayload(decoded)
-  if (payload === null) {
-    await sendRejection(respond, controllerNodeId, message.requestId, '', -1)
-    return
-  }
+  const payload = await readBootstrapCompleteOrRefuse(message, respond, controllerNodeId)
+  if (payload === null) return
   await sendRejection(respond, controllerNodeId, message.requestId, payload.indexName, payload.partitionId)
 }
 
@@ -115,19 +130,8 @@ export async function handleBootstrapCompleteMessage(
   coordinator: ClusterCoordinator,
   controllerNodeId: string,
 ): Promise<void> {
-  let decoded: unknown
-  try {
-    decoded = decode(message.payload)
-  } catch (_) {
-    await sendRejection(respond, controllerNodeId, message.requestId, '', -1)
-    return
-  }
-
-  const payload = validateBootstrapCompletePayload(decoded)
-  if (payload === null) {
-    await sendRejection(respond, controllerNodeId, message.requestId, '', -1)
-    return
-  }
+  const payload = await readBootstrapCompleteOrRefuse(message, respond, controllerNodeId)
+  if (payload === null) return
 
   if (message.sourceId !== payload.nodeId) {
     await sendRejection(respond, controllerNodeId, message.requestId, payload.indexName, payload.partitionId)

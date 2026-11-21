@@ -1,8 +1,9 @@
-import { decode } from '../../../../serialization/msgpack'
+import { ErrorCodes, NarsilError } from '../../../../errors'
 import type { ClusterCoordinator } from '../../../coordinator/types'
 import { isRecord, isValidInteger } from '../../../payload-guards'
 import { createInsyncConfirmMessage } from '../../../replication/codec'
 import { handleInsyncAdmission, handleInsyncRemoval } from '../../../replication/insync'
+import { decodeRequestPayload } from '../../../request-decode'
 import type {
   InsyncAddPayload,
   InsyncConfirmPayload,
@@ -10,11 +11,10 @@ import type {
   RespondFn,
   TransportMessage,
 } from '../../../transport/types'
+import { encodeRebalanceRefusal } from '../../rebalance/reply'
 import { handleBootstrapCompleteMessage, rejectBootstrapComplete } from '../bootstrap-handler'
 import { scheduleDebouncedAllocation } from './allocation'
 import type { EventLoopState } from './state'
-
-const UNKNOWN_PARTITION_ID = -1
 
 /**
  * Reads an in-sync removal request out of a decoded payload, and reports a malformed one as `null`.
@@ -81,21 +81,28 @@ export function validateInsyncAddPayload(decoded: unknown): InsyncAddPayload | n
   }
 }
 
-export function decodeMessage(message: TransportMessage): unknown | null {
+export function readRequestOrRefuse<T>(
+  message: TransportMessage,
+  respond: RespondFn,
+  nodeId: string,
+  validate: (decoded: unknown) => T | null,
+  payloadName: string,
+): T | null {
   try {
-    return decode(message.payload)
-  } catch (_) {
+    const payload = validate(decodeRequestPayload(message.payload, message.type))
+    if (payload !== null) return payload
+    throw new NarsilError(
+      ErrorCodes.CONFIG_INVALID,
+      `Invalid ${payloadName}: a member is missing or holds a value of the wrong type`,
+    )
+  } catch (error) {
+    respond({
+      type: `${message.type}.error`,
+      sourceId: nodeId,
+      requestId: message.requestId,
+      payload: encodeRebalanceRefusal(error),
+    }).catch(() => {})
     return null
-  }
-}
-
-export function describeRequest(decoded: unknown): { indexName: string; partitionId: number } {
-  if (!isRecord(decoded)) {
-    return { indexName: '', partitionId: UNKNOWN_PARTITION_ID }
-  }
-  return {
-    indexName: typeof decoded.indexName === 'string' ? decoded.indexName : '',
-    partitionId: isValidInteger(decoded.partitionId) ? decoded.partitionId : UNKNOWN_PARTITION_ID,
   }
 }
 
@@ -169,12 +176,8 @@ export function handleInsyncRemoveMessage(
   nodeId: string,
   isActive: () => boolean,
 ): void {
-  const decoded = decodeMessage(message)
-  const payload = validateInsyncRemovePayload(decoded)
-  if (payload === null) {
-    void respondRefusal(respond, describeRequest(decoded), nodeId, message.requestId)
-    return
-  }
+  const payload = readRequestOrRefuse(message, respond, nodeId, validateInsyncRemovePayload, 'InsyncRemovePayload')
+  if (payload === null) return
 
   enqueue(state, async () => {
     const mayRemove = await assertSenderMayRemove(coordinator, payload, message.sourceId)
@@ -212,12 +215,8 @@ export function handleInsyncAddMessage(
   isActive: () => boolean,
   onError?: (indexName: string, error: unknown) => void,
 ): void {
-  const decoded = decodeMessage(message)
-  const payload = validateInsyncAddPayload(decoded)
-  if (payload === null) {
-    void respondRefusal(respond, describeRequest(decoded), nodeId, message.requestId)
-    return
-  }
+  const payload = readRequestOrRefuse(message, respond, nodeId, validateInsyncAddPayload, 'InsyncAddPayload')
+  if (payload === null) return
 
   enqueue(state, async () => {
     const leadsPartition = await assertSenderLeadsPartition(

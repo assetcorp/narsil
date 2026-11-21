@@ -6,10 +6,10 @@ import { oversampledShardSize } from '../../../search/oversample'
 import { readSortValues } from '../../../search/sort-keys'
 import { normalizeSort, sortModesOf } from '../../../search/sorting'
 import { encodeDocumentReply } from '../../../serialization/document-encoding'
-import { decode } from '../../../serialization/msgpack'
 import type { QueryResult } from '../../../types/results'
 import type { AnyDocument } from '../../../types/schema'
 import { validateFetchPayload, validateSearchPayload, validateStatsPayload } from '../../query/codec'
+import { decodeRequestPayload } from '../../request-decode'
 import type {
   FetchDocumentId,
   FetchedDocument,
@@ -32,8 +32,7 @@ export async function handleSearch(
   respond: RespondFn,
   deps: DataNodeHandlerDeps,
 ): Promise<void> {
-  const decoded = decode(message.payload) as unknown
-  const payload = validateSearchPayload(decoded)
+  const payload = validateSearchPayload(decodeRequestPayload(message.payload, message.type))
 
   const queryParams = wireParamsToLocal(payload.params, payload.facetShardSize)
   if (queryParams.group?.limit !== undefined) {
@@ -142,8 +141,7 @@ export async function handleFetch(
   respond: RespondFn,
   deps: DataNodeHandlerDeps,
 ): Promise<void> {
-  const decoded = decode(message.payload) as unknown
-  const payload = validateFetchPayload(decoded)
+  const payload = validateFetchPayload(decodeRequestPayload(message.payload, message.type))
 
   const projection = resolveProjection(payload.fields === null ? undefined : { include: payload.fields })
 
@@ -232,8 +230,7 @@ export async function handleStats(
   respond: RespondFn,
   deps: DataNodeHandlerDeps,
 ): Promise<void> {
-  const decoded = decode(message.payload) as unknown
-  const payload = validateStatsPayload(decoded)
+  const payload = validateStatsPayload(decodeRequestPayload(message.payload, message.type))
 
   const resultPayload: StatsResultPayload = await deps.analysisView.answerAt(
     payload.indexName,

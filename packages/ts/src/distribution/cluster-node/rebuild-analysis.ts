@@ -6,6 +6,7 @@ import { getIndexMetadata, readIndexMetadataSnapshot } from '../cluster/index-me
 import type { ClusterCoordinator } from '../coordinator/types'
 import { isRecord } from '../payload-guards'
 import { copyHoldersOf } from '../query/selection'
+import { decodeRequestPayload } from '../request-decode'
 import type {
   RebuildAnalysisPayload,
   RebuildAnalysisResultPayload,
@@ -31,7 +32,9 @@ function validateRebuildPayload(decoded: unknown): RebuildAnalysisPayload {
     decoded.indexName.length === 0 ||
     typeof decoded.indexUuid !== 'string' ||
     decoded.indexUuid.length === 0 ||
-    (decoded.generation !== undefined && (!Number.isSafeInteger(decoded.generation) || Number(decoded.generation) < 1))
+    (decoded.generation !== undefined &&
+      decoded.generation !== null &&
+      (!Number.isSafeInteger(decoded.generation) || Number(decoded.generation) < 1))
   ) {
     throw new NarsilError(
       ErrorCodes.CONFIG_INVALID,
@@ -113,7 +116,7 @@ export async function handleRebuildAnalysis(
   respond: RespondFn,
   deps: { nodeId: string; engine: ClusterLocalEngine; coordinator: ClusterCoordinator },
 ): Promise<void> {
-  const payload = validateRebuildPayload(decode(message.payload))
+  const payload = validateRebuildPayload(decodeRequestPayload(message.payload, message.type))
   const result =
     payload.generation === undefined
       ? await rebuildLocalCopies(deps.engine, payload)

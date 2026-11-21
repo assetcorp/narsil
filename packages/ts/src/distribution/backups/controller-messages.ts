@@ -1,11 +1,11 @@
 import { encode } from '@msgpack/msgpack'
 import { generateId } from '../../core/id-generator'
 import { ErrorCodes, NarsilError } from '../../errors'
-import { decode } from '../../serialization/msgpack'
 import type { ControllerMessageHandler } from '../cluster/controller/types'
 import { encodeRebalanceRefusal } from '../cluster/rebalance/reply'
 import type { ClusterNodeConfig } from '../cluster-node/types'
 import { isRecord } from '../payload-guards'
+import { decodeRequestPayload } from '../request-decode'
 import type { BackupRequestResultPayload } from '../transport/backup-payloads'
 import type { RespondFn, TransportMessage } from '../transport/types'
 import { ClusterMessageTypes } from '../transport/types'
@@ -45,12 +45,7 @@ function malformed(kind: BackupJobKind, reason: string): NarsilError {
 }
 
 function decodeRequest(kind: BackupJobKind, message: TransportMessage): Record<string, unknown> {
-  let decoded: unknown
-  try {
-    decoded = decode(message.payload)
-  } catch (_) {
-    throw malformed(kind, 'the payload is not MessagePack')
-  }
+  const decoded = decodeRequestPayload(message.payload, message.type)
   if (!isRecord(decoded)) throw malformed(kind, 'expected an object')
   return decoded
 }
@@ -127,7 +122,7 @@ async function startJob(
 }
 
 function takenByOf(request: Record<string, unknown>): BackupTaker | undefined {
-  if (request.takenBy === undefined) return undefined
+  if (request.takenBy === undefined || request.takenBy === null) return undefined
   if (!isBackupTaker(request.takenBy)) {
     throw malformed('backup', `"takenBy" must be "${SYNC_BACKUP_TAKER}" or "${CHANGES_BACKUP_TAKER}"`)
   }
@@ -135,7 +130,7 @@ function takenByOf(request: Record<string, unknown>): BackupTaker | undefined {
 }
 
 function queryHistoryOf(request: Record<string, unknown>): boolean {
-  if (request.queryHistory === undefined) return false
+  if (request.queryHistory === undefined || request.queryHistory === null) return false
   if (typeof request.queryHistory !== 'boolean') throw malformed('backup', '"queryHistory" must be a boolean')
   return request.queryHistory
 }

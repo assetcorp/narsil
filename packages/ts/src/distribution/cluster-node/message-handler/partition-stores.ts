@@ -1,5 +1,6 @@
-import { decode } from '../../../serialization/msgpack'
+import { ErrorCodes, NarsilError } from '../../../errors'
 import { createPartitionStoresResultMessage, validatePartitionStoresPayload } from '../../cluster/partition-stores'
+import { decodeRequestPayload } from '../../request-decode'
 import type { PartitionStoresResultPayload, RespondFn, TransportMessage } from '../../transport/types'
 import type { ClusterLocalEngine } from '../local-engine'
 import type { DataNodeHandlerDeps } from './types'
@@ -48,9 +49,14 @@ export async function handlePartitionStores(
   respond: RespondFn,
   deps: DataNodeHandlerDeps,
 ): Promise<void> {
-  const payload = validatePartitionStoresPayload(decode(message.payload))
-  const result: PartitionStoresResultPayload =
-    payload === null ? { indexName: '', indexUuid: null, partitionIds: [] } : describeLocalCopy(deps, payload.indexName)
+  const payload = validatePartitionStoresPayload(decodeRequestPayload(message.payload, message.type))
+  if (payload === null) {
+    throw new NarsilError(
+      ErrorCodes.CONFIG_INVALID,
+      'Invalid PartitionStoresPayload: it needs an indexName that is a non-empty string',
+    )
+  }
+  const result = describeLocalCopy(deps, payload.indexName)
 
   await respond(createPartitionStoresResultMessage(result, deps.nodeId, message.requestId))
 }

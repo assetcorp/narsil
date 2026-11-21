@@ -6,6 +6,7 @@ import { servingNameOf } from '../../cluster-node/generation-routing'
 import { isRecord, isValidInteger } from '../../payload-guards'
 import type { BackupPartitionResult } from '../../transport/backup-payloads'
 import { ClusterMessageTypes } from '../../transport/types'
+import { agreedConfigOf } from '../config-agreement'
 import { BACKUP_PARTITIONS_AT_ONCE } from '../constants'
 import { assertStillDriving, type BackupDriverContext, jobIndexNameOf, reportJobProgress } from '../driver-context'
 import { firstUnstoredFile } from '../files'
@@ -15,7 +16,6 @@ import {
   encodeBackupManifest,
   readBackupPartition,
   readStoredFile,
-  type StoredFile,
   storedFilesOf,
 } from '../manifest'
 import { drivePartitionTask, forEachPartition } from '../partition-exchange'
@@ -47,18 +47,6 @@ function readPartitionResult(
   } catch (_) {
     throw unreadableResult(backupName, partitionId)
   }
-}
-
-function sameConfigOf(results: readonly BackupPartitionResult[], indexName: string): StoredFile {
-  const [first] = results
-  if (first === undefined || results.some(result => result.config.sha256 !== first.config.sha256)) {
-    throw new NarsilError(
-      ErrorCodes.ANALYSIS_CHANGE_NOT_READY,
-      `The settings of index '${indexName}' changed while its partitions were backed up, so the backup stores no manifest`,
-      { indexName },
-    )
-  }
-  return first.config
 }
 
 async function backUpEveryPartition(
@@ -112,7 +100,7 @@ export async function runBackupCreation(context: BackupDriverContext, request: B
   const partitions: BackupPartition[] = results.map(result => result.partition)
   const config = await configWithSuggestionState(
     context,
-    sameConfigOf(results, indexName),
+    await agreedConfigOf(store, results, indexName, job.backupName),
     suggestionStateOfSettings(named),
   )
   const queryHistory = request.queryHistory ? await backUpQueryHistory(context, indexName) : undefined

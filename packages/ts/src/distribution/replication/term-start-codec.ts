@@ -1,9 +1,10 @@
 import { encode } from '@msgpack/msgpack'
 import { generateId } from '../../core/id-generator'
 import { decode } from '../../serialization/msgpack'
+import { decodeRequestPayload } from '../request-decode'
 import type { TransportMessage } from '../transport/types'
 import { ReplicationMessageTypes } from '../transport/types'
-import { optionalIndexUuid } from './codec'
+import { invalidReplicationPayload, optionalIndexUuid } from './codec'
 
 export interface TermStartPayload {
   indexName: string
@@ -28,14 +29,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function requireCount(record: Record<string, unknown>, field: string, payloadName: string): number {
   const value = record[field]
   if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
-    throw new Error(`Invalid ${payloadName}: "${field}" must be a non-negative integer`)
+    throw invalidReplicationPayload(`Invalid ${payloadName}: "${field}" must be a non-negative integer`)
   }
   return value
 }
 
 function requireIndexName(record: Record<string, unknown>, payloadName: string): string {
   if (typeof record.indexName !== 'string' || record.indexName.length === 0) {
-    throw new Error(`Invalid ${payloadName}: "indexName" must be a non-empty string`)
+    throw invalidReplicationPayload(`Invalid ${payloadName}: "indexName" must be a non-empty string`)
   }
   return record.indexName
 }
@@ -63,9 +64,9 @@ export function createTermStartAckMessage(
 }
 
 export function validateTermStartPayload(payload: Uint8Array): TermStartPayload {
-  const decoded = decode(payload)
+  const decoded = decodeRequestPayload(payload, ReplicationMessageTypes.TERM_START)
   if (!isRecord(decoded)) {
-    throw new Error('Invalid TermStartPayload: expected an object')
+    throw invalidReplicationPayload('Invalid TermStartPayload: expected an object')
   }
   const validated: TermStartPayload = {
     indexName: requireIndexName(decoded, 'TermStartPayload'),
