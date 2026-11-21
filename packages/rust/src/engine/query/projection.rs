@@ -126,7 +126,7 @@ pub(crate) fn resolve_projection(
                     *by_setting.get_or_insert_with(|| index.config().return_vectors == Some(true))
                 }
             };
-            returned && keeps_path(&shape, &path)
+            returned && keeps_vector_path(&shape, &path)
         })
         .collect();
     Projection {
@@ -137,6 +137,18 @@ pub(crate) fn resolve_projection(
 
 fn overlaps(one: &[String], other: &[String]) -> bool {
     one.iter().zip(other).all(|(left, right)| left == right)
+}
+
+fn keeps_vector_path(shape: &Shape, path: &[String]) -> bool {
+    if let Shape::Fields {
+        include: Some(include),
+        ..
+    } = shape
+        && !include.iter().any(|included| covers(included, path))
+    {
+        return false;
+    }
+    keeps_path(shape, path)
 }
 
 fn covers(outer: &[String], inner: &[String]) -> bool {
