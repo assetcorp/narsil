@@ -114,6 +114,13 @@ pub(crate) fn resolve_projection(
         };
     }
     let asked = asked_vectors(projection);
+    if let Shape::Full = shape {
+        let returned = asked.unwrap_or_else(|| index.config().return_vectors == Some(true));
+        return Projection {
+            shape,
+            returned_vectors: vec![returned; fields.len()],
+        };
+    }
     let mut by_setting = None;
     let returned_vectors = fields
         .iter()
