@@ -9,10 +9,10 @@ import (
 
 type Projection struct {
 	kind        model.DocumentProjectionKind
+	vectors     model.Optional[bool]
 	include     [][]string
 	includeList bool
 	exclude     [][]string
-	vectors     model.Optional[bool]
 }
 
 func Whole() Projection {

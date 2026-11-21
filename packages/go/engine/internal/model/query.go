@@ -74,9 +74,9 @@ const (
 
 type DocumentProjection struct {
 	kind    DocumentProjectionKind
+	vectors Optional[bool]
 	include Optional[[]string]
 	exclude []string
-	vectors Optional[bool]
 }
 
 func NoDocumentFields() DocumentProjection {
