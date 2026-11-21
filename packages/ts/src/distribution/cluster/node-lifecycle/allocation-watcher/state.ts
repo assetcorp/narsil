@@ -12,6 +12,7 @@ export interface AllocationWatcherState {
   restartWaiters: Map<ReturnType<typeof setTimeout>, () => void>
   unfedReplicaTimer: ReturnType<typeof setInterval> | null
   unfedResyncs: Set<string>
+  awaitedAdmissions: Map<string, AwaitedAdmission>
   retainedPartitions: Set<string>
   indexesSeededFromRecord: Set<string>
   indexUuids: Map<string, string>
@@ -27,8 +28,23 @@ export interface TrackedPartition {
   inSync: boolean
 }
 
+export interface AwaitedAdmission {
+  primaryNodeId: string
+  primaryTerm: number
+  timer: ReturnType<typeof setTimeout>
+}
+
 export function partitionKey(indexName: string, partitionId: number): string {
   return `${indexName}:${partitionId}`
+}
+
+export function forgetAwaitedAdmission(state: AllocationWatcherState, key: string): void {
+  const awaited = state.awaitedAdmissions.get(key)
+  if (awaited === undefined) {
+    return
+  }
+  clearTimeout(awaited.timer)
+  state.awaitedAdmissions.delete(key)
 }
 
 /**
@@ -48,6 +64,7 @@ export function createAllocationWatcherState(): AllocationWatcherState {
     restartWaiters: new Map(),
     unfedReplicaTimer: null,
     unfedResyncs: new Set(),
+    awaitedAdmissions: new Map(),
     retainedPartitions: new Set(),
     indexesSeededFromRecord: new Set(),
     indexUuids: new Map(),
@@ -81,6 +98,10 @@ export function stopAllocationWatcher(state: AllocationWatcherState): void {
     state.unfedReplicaTimer = null
   }
   state.unfedResyncs.clear()
+
+  for (const key of [...state.awaitedAdmissions.keys()]) {
+    forgetAwaitedAdmission(state, key)
+  }
 
   for (const [timer, resolve] of state.restartWaiters) {
     clearTimeout(timer)
