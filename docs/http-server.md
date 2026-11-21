@@ -57,11 +57,11 @@ The full surface:
 | `POST /indexes/{name}/_clear` | The endpoint removes every document but keeps the index. |
 | `POST /indexes/{name}/_open`, `POST /indexes/{name}/_close` | The endpoints load an index into memory and release it back to disk. See [Index lifecycle](persistence-and-durability.md#index-lifecycle). |
 | `POST /indexes/{name}/documents` | The endpoint inserts one document, and `options.wait` in the body makes it return only once every worker copy has applied the write. |
-| `GET`, `PUT`, `PATCH`, `DELETE /indexes/{name}/documents/{id}` | The endpoints read, upsert, update, and remove one document. `PUT` and `PATCH` take `options.wait` in the body, and `DELETE` takes `?wait=true`. |
+| `GET`, `PUT`, `PATCH`, `DELETE /indexes/{name}/documents/{id}` | The endpoints read, upsert, update, and remove one document. `GET` takes `?vectors=true` to return the document's vector fields and `?vectors=false` to leave them out, `PUT` and `PATCH` take `options.wait` in the body, and `DELETE` takes `?wait=true`. |
 | `POST /indexes/{name}/_wait-for-writes` | The endpoint answers once every worker copy of the index has applied every write that returned before the request. See [Writes and the copies](partitions-and-workers.md#writes-and-the-copies). |
 | `GET /indexes/{name}/documents/{id}/_exists` | The endpoint reports whether the id exists. |
 | `POST /indexes/{name}/documents/_batch` | The endpoint runs a batch insert, update, or delete with partial results, and `options.wait` applies to the whole batch. |
-| `POST /indexes/{name}/documents/_multi-get` | The endpoint fetches many documents by id. |
+| `POST /indexes/{name}/documents/_multi-get` | The endpoint fetches many documents by id, and a `document` projection in the body shapes each one, as it does for a search. |
 | `POST /indexes/{name}/documents/_list` | The endpoint pages through every stored document, in document-id order or in an order the body names. See [Listing documents](#listing-documents). |
 | `POST /indexes/{name}/documents/_import` | The endpoint streams an NDJSON corpus in bounded batches, and `?async=true` runs it as a task instead. See [Tasks](#tasks). |
 | `POST /indexes/{name}/search`, `POST /indexes/{name}/search/preflight`, `POST /indexes/{name}/suggest` | The endpoints run queries, match counts, and autocomplete. Each response carries `analysisStale: true` while the index holds terms an earlier analysis produced. See [Analysis revisions](language-support.md#analysis-revisions). |
@@ -314,7 +314,7 @@ Scrape every node, because each one reports the lag and the commit point only fo
 
 ## Listing documents
 
-`POST /indexes/{name}/documents/_list` pages through the stored documents without searching, in document-id order until the body names a `sort`. The body takes `cursor`, `limit`, `filters`, `sort`, and `document`, which are the parameters [`listDocuments`](indexes-and-documents.md#list) takes. It takes a body because `filters`, `sort`, and `document` are nested objects.
+`POST /indexes/{name}/documents/_list` pages through the stored documents without searching, in document-id order until the body names a `sort`. The body takes `cursor`, `limit`, `filters`, `sort`, and `document`, which are the parameters [`listDocuments`](indexes-and-documents.md#list) takes. It takes a body because `filters`, `sort`, and `document` are nested objects. Every document route, like every search, leaves out vector fields unless the request or the index's `returnVectors` setting asks for them; see [Choosing what comes back](full-text-search.md#choosing-what-comes-back).
 
 ```bash skip
 curl -X POST localhost:9876/indexes/movies/documents/_list \
