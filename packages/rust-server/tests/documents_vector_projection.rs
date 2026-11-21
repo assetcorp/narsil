@@ -268,10 +268,15 @@ async fn malformed_vector_options_are_refused_on_every_route() {
             ("document", projection),
         ]);
         let (status, answer) = posted(port, "notes", "search", search).await;
-        let refused = status == 400 && error_code(&answer).is_some();
-        assert!(
-            refused || (hostile.is_null() && status == 200),
-            "search with vectors {hostile:?}: {status} {answer:?}"
+        let expected = if hostile.is_null() {
+            (200, None)
+        } else {
+            (400, Some("SEARCH_INVALID_FIELD"))
+        };
+        assert_eq!(
+            (status, error_code(&answer)),
+            expected,
+            "search with vectors {hostile:?}: {answer:?}"
         );
         if status == 200 {
             for (id, document) in by_id(&answer, "hits", "document") {
@@ -291,6 +296,26 @@ async fn malformed_vector_options_are_refused_on_every_route() {
             (400, Some("SEARCH_INVALID_FIELD")),
             "multi-get with document {hostile}"
         );
+    }
+    for document in [
+        "5",
+        "\"all\"",
+        "[]",
+        r#"{"include":5}"#,
+        r#"{"include":[1]}"#,
+        r#"{"exclude":"title"}"#,
+        r#"{"exclude":[true]}"#,
+        r#"{"vectors":"true"}"#,
+    ] {
+        for route in ["search", "search/preflight"] {
+            let body = format!(r#"{{"term":"harbor","document":{document}}}"#);
+            let (status, answer) = posted(port, "notes", route, parsed(&body)).await;
+            assert_eq!(
+                (status, error_code(&answer)),
+                (400, Some("SEARCH_INVALID_FIELD")),
+                "{route} with document {document}: {answer:?}"
+            );
+        }
     }
     for hostile in HOSTILE_QUERY_FLAGS {
         let (status, answer) = read_one(port, "notes", "a", &format!("?vectors={hostile}")).await;

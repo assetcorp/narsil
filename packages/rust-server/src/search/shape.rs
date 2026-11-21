@@ -1,4 +1,4 @@
-use narsil::{Map, Value};
+use narsil::{ErrorCode, Map, Value};
 
 use crate::errors::{Outcome, ServerError};
 
@@ -377,10 +377,13 @@ pub(crate) fn shaped_query(params: Map) -> Outcome<Map> {
             } else {
                 "must be"
             };
-            Err(ServerError::invalid(format!(
-                "Field \"{}\" {verb} {}",
-                missed.path, missed.wanted
-            )))
+            let message = format!("Field \"{}\" {verb} {}", missed.path, missed.wanted);
+            let projection = missed.path == "document" || missed.path.starts_with("document.");
+            Err(if projection {
+                ServerError::coded(ErrorCode::SEARCH_INVALID_FIELD.as_str(), message)
+            } else {
+                ServerError::invalid(message)
+            })
         }
     }
 }

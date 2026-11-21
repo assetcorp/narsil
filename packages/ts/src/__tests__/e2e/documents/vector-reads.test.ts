@@ -91,22 +91,18 @@ describe('vector fields in documents read over HTTP', () => {
     for (const vectors of ['true', 1, null, [true], {}]) {
       const document = JSON.stringify({ vectors })
       const searchTakesNullAsAbsent = vectors === null
-      for (const [path, body, code] of [
+      for (const [path, body] of [
         ...(searchTakesNullAsAbsent
           ? []
           : [
-              ['/indexes/plain/search', `{"term":"harbour","document":${document}}`, 'INVALID_REQUEST'],
-              ['/indexes/plain/search/preflight', `{"term":"harbour","document":${document}}`, 'INVALID_REQUEST'],
+              ['/indexes/plain/search', `{"term":"harbour","document":${document}}`],
+              ['/indexes/plain/search/preflight', `{"term":"harbour","document":${document}}`],
             ]),
-        ['/indexes/plain/documents/_list', `{"document":${document}}`, 'SEARCH_INVALID_FIELD'],
-        [
-          '/indexes/plain/documents/_multi-get',
-          `{"docIds":["${BOOK.id}"],"document":${document}}`,
-          'SEARCH_INVALID_FIELD',
-        ],
+        ['/indexes/plain/documents/_list', `{"document":${document}}`],
+        ['/indexes/plain/documents/_multi-get', `{"docIds":["${BOOK.id}"],"document":${document}}`],
       ]) {
         const answer = await sendRaw(base, 'POST', path, body)
-        expect([answer.status, errorCodeOf(answer.body)], `${path} ${document}`).toEqual([400, code])
+        expect([answer.status, errorCodeOf(answer.body)], `${path} ${document}`).toEqual([400, 'SEARCH_INVALID_FIELD'])
       }
       const created = await sendRaw(
         base,
@@ -118,5 +114,24 @@ describe('vector fields in documents read over HTTP', () => {
     }
     const indexes = await sendRaw(base, 'GET', '/indexes')
     expect(JSON.stringify(indexes.body)).not.toContain('refused')
+  })
+
+  it('refuses a search projection that is not true, false, or an object of field path lists', async () => {
+    const base = await serveBooks()
+    for (const document of [
+      '5',
+      '"all"',
+      '[]',
+      '{"include":5}',
+      '{"include":[1]}',
+      '{"exclude":"title"}',
+      '{"exclude":[true]}',
+      '{"vectors":"true"}',
+    ]) {
+      for (const path of ['/indexes/plain/search', '/indexes/plain/search/preflight']) {
+        const answer = await sendRaw(base, 'POST', path, `{"term":"harbour","document":${document}}`)
+        expect([answer.status, errorCodeOf(answer.body)], `${path} ${document}`).toEqual([400, 'SEARCH_INVALID_FIELD'])
+      }
+    }
   })
 })

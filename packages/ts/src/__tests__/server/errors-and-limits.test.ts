@@ -156,7 +156,7 @@ describe('Narsil HTTP server search option types', () => {
           path,
           body,
           status: 400,
-          error: { code: 'INVALID_REQUEST', message },
+          error: { code: 'document' in body ? 'SEARCH_INVALID_FIELD' : 'INVALID_REQUEST', message },
         })
       }
     }

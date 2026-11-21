@@ -194,7 +194,7 @@ describe('a document request built to break the server', () => {
       } else {
         expect([searched.status, errorCodeOf(searched.body), errorMessageOf(searched.body)], projection).toEqual([
           400,
-          'INVALID_REQUEST',
+          'SEARCH_INVALID_FIELD',
           searchRefusal,
         ])
       }
