@@ -159,6 +159,20 @@ def test_a_vectors_option_that_is_not_a_bool_is_refused_on_every_read(index_name
             assert refused(call, *args) == "SEARCH_INVALID_FIELD", f"{call.__name__} with {args[-1]!r}"
 
 
+@pytest.mark.parametrize("hostile", [5, 0.5, "all", "", [], ["title"], ("title",)])
+def test_a_projection_that_is_not_a_bool_or_a_dict_is_refused_on_every_read(index_name: str, hostile: Any) -> None:
+    with Narsil(WORKERS_OFF) as engine:
+        created(engine, index_name, None)
+        calls: list[tuple[Callable[..., Any], tuple[Any, ...]]] = [
+            (engine.get, (index_name, "a", hostile)),
+            (engine.get_multiple, (index_name, ["a"], hostile)),
+            (engine.list_documents, (index_name, {"document": hostile})),
+            (engine.query, (index_name, {"term": "harbor", "document": hostile})),
+        ]
+        for call, args in calls:
+            assert refused(call, *args) == "SEARCH_INVALID_FIELD", f"{call.__name__} with {hostile!r}"
+
+
 def test_the_return_vectors_setting_survives_a_restart_and_a_snapshot_restore(tmp_path: Path) -> None:
     durable = {"durability": {"directory": str(tmp_path / "data")}, **WORKERS_OFF}
     with Narsil(durable) as engine:
