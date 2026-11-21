@@ -18,7 +18,7 @@ import {
   ETCD_MAX_RESPONSE_BYTES,
 } from './constants'
 import { createEndpointBreaker } from './endpoint-breaker'
-import { coordinatorKeys, extractSuffix } from './keys'
+import { coordinatorKeys, recordName } from './keys'
 import { leaseHeldFor, recordLeaseRenewal } from './lease-validity'
 import { LeaseManager } from './leases'
 import { loadEtcd3Module } from './loader'
@@ -178,7 +178,7 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
       const nodes: NodeRegistration[] = []
       for (const key of Object.keys(result)) {
         const buf = result[key]
-        if (buf !== undefined) {
+        if (buf !== undefined && recordName(key, prefix) !== null) {
           nodes.push(deserializeNodeRegistration(buf))
         }
       }
@@ -190,11 +190,13 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
       const prefix = keys.nodePrefix()
       return watchPrefix(watchContext, prefix, {
         put(kv: IKeyValue) {
+          if (recordName(kv.key.toString(), prefix) === null) return
           const registration = deserializeNodeRegistration(kv.value)
           handler({ type: 'node_joined', nodeId: registration.nodeId, registration })
         },
         delete(fullKey: string) {
-          handler({ type: 'node_left', nodeId: extractSuffix(fullKey, prefix), registration: null })
+          const nodeId = recordName(fullKey, prefix)
+          if (nodeId !== null) handler({ type: 'node_left', nodeId, registration: null })
         },
       })
     },
@@ -266,8 +268,10 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
 
     async watchAllocation(handler: (event: AllocationEvent) => void): Promise<() => void> {
       assertNotShutdown()
-      return watchPrefix(watchContext, keys.allocationPrefix(), {
+      const prefix = keys.allocationPrefix()
+      return watchPrefix(watchContext, prefix, {
         put(kv: IKeyValue) {
+          if (recordName(kv.key.toString(), prefix) === null) return
           const table = deserializeAllocationTable(kv.value)
           handler({ indexName: table.indexName, table })
         },

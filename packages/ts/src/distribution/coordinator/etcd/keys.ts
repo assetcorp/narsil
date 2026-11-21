@@ -41,6 +41,8 @@ export function coordinatorKeys(config: EtcdCoordinatorConfig): CoordinatorKeys 
   }
 }
 
-export function extractSuffix(fullKey: string, prefix: string): string {
-  return fullKey.slice(prefix.length)
+export function recordName(fullKey: string, prefix: string): string | null {
+  if (!fullKey.startsWith(prefix)) return null
+  const name = fullKey.slice(prefix.length)
+  return name.length === 0 || name.includes('/') ? null : name
 }
