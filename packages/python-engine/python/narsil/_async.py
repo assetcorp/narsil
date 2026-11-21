@@ -171,11 +171,13 @@ class AsyncNarsil:
     async def remove_batch(self, index: str, doc_ids: Iterable[str]) -> BatchResult:
         return await _off_loop(self._engine.remove_batch, index, doc_ids)
 
-    async def get(self, index: str, doc_id: str) -> Document | None:
-        return await _off_loop(self._engine.get, index, doc_id)
+    async def get(self, index: str, doc_id: str, document: Settings | bool | None = None) -> Document | None:
+        return await _off_loop(self._engine.get, index, doc_id, document)
 
-    async def get_multiple(self, index: str, doc_ids: Iterable[str]) -> dict[str, Document]:
-        return await _off_loop(self._engine.get_multiple, index, doc_ids)
+    async def get_multiple(
+        self, index: str, doc_ids: Iterable[str], document: Settings | bool | None = None
+    ) -> dict[str, Document]:
+        return await _off_loop(self._engine.get_multiple, index, doc_ids, document)
 
     async def has(self, index: str, doc_id: str) -> bool:
         return await _off_loop(self._engine.has, index, doc_id)

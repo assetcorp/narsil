@@ -172,6 +172,7 @@ pub(crate) fn index_config(
             .map(vector_promotion)
             .transpose()?,
         strict: fields.boolean("strict")?,
+        return_vectors: fields.boolean("returnVectors")?,
         embedding: fields
             .fields("embedding")
             .and_then(|embedding_fields| {

@@ -1,9 +1,10 @@
-use narsil::{BatchFailure, BatchResult, ErrorCode, Map, NarsilError};
+use narsil::{BatchFailure, BatchResult, DocumentProjection, ErrorCode, Map, NarsilError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyMapping, PyString};
 
 use super::PyNarsil;
 use crate::convert::fields::{Fields, items_of, string_of, strings_of};
+use crate::convert::query::projection;
 use crate::convert::results::batch_result;
 use crate::convert::value::{ValueSource, map_to_py, to_map};
 use crate::errors::{invalid, recoded, to_py_err};
@@ -133,6 +134,14 @@ fn removals_of(doc_ids: &Bound<'_, PyAny>) -> Result<Converted<String>, NarsilEr
     Ok(converted)
 }
 
+fn read_projection(document: Option<&Bound<'_, PyAny>>) -> PyResult<Option<DocumentProjection>> {
+    document
+        .filter(|document| !document.is_none())
+        .map(|document| projection(document, "document"))
+        .transpose()
+        .map_err(to_py_err)
+}
+
 #[pymethods]
 impl PyNarsil {
     #[pyo3(signature = (index, document, doc_id = None))]
@@ -213,27 +222,35 @@ impl PyNarsil {
         batch_result(py, converted.merged(result))
     }
 
+    #[pyo3(signature = (index, doc_id, document = None))]
     fn get<'py>(
         &self,
         py: Python<'py>,
         index: &str,
         doc_id: &str,
+        document: Option<&Bound<'py, PyAny>>,
     ) -> PyResult<Option<Bound<'py, PyDict>>> {
+        let projection = read_projection(document)?;
         let engine = self.handle.engine()?;
-        let found = py.detach(|| engine.get(index, doc_id)).map_err(to_py_err)?;
+        let found = py
+            .detach(|| engine.get_with(index, doc_id, projection.as_ref()))
+            .map_err(to_py_err)?;
         found.map(|document| map_to_py(py, &document)).transpose()
     }
 
+    #[pyo3(signature = (index, doc_ids, document = None))]
     fn get_multiple<'py>(
         &self,
         py: Python<'py>,
         index: &str,
         doc_ids: &Bound<'py, PyAny>,
+        document: Option<&Bound<'py, PyAny>>,
     ) -> PyResult<Bound<'py, PyDict>> {
         let doc_ids = ids_of(doc_ids)?;
+        let projection = read_projection(document)?;
         let engine = self.handle.engine()?;
         let found = py
-            .detach(|| engine.get_multiple(index, &doc_ids))
+            .detach(|| engine.get_multiple_with(index, &doc_ids, projection.as_ref()))
             .map_err(to_py_err)?;
         let dict = PyDict::new(py);
         for (doc_id, document) in &found {

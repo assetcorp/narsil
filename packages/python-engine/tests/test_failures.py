@@ -73,7 +73,8 @@ def test_an_exception_inside_an_embedding_adapter_reaches_the_caller_and_the_ind
         engine.insert(index_name, {"body": "fine"}, "second")
         assert engine.count_documents(index_name) == 2
         assert not engine.has(index_name, "lost")
-        assert engine.get(index_name, "kept") == {"body": "a calm note", "embedding": [3.0, 2.0, 2.0]}
+        whole = engine.get(index_name, "kept", {"vectors": True})
+        assert whole == {"body": "a calm note", "embedding": [3.0, 2.0, 2.0]}
         found = engine.query(index_name, {"vector": {"field": "embedding", "text": "calm"}, "limit": 5})
         assert {hit["id"] for hit in found["hits"]} == {"kept", "second"}
 
