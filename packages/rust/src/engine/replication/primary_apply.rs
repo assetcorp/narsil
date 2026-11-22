@@ -1,13 +1,15 @@
+use std::collections::HashMap;
+
 use super::copy_state::ReplicatedCopy;
+use super::primary_room::PrimaryRoom;
 use super::{
     CopyPosition, EntryOperation, PrimaryLimits, PrimaryRefusal, PrimaryWrite, PrimaryWritten,
     PriorDocument, ReplicatedEntry, WriteRecord,
 };
 use crate::engine::EngineInner;
 use crate::engine::index::IndexState;
-use crate::engine::memory::reserve_for_document;
 use crate::engine::writes::{
-    check_primary_insert, check_primary_update, replay_delete, replay_index,
+    apply_primary_insert, apply_primary_remove, apply_primary_update, replay_delete, replay_index,
 };
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::value::{MAX_SAFE_INTEGER, Map, Value, decode_document, encode_document};
@@ -19,6 +21,8 @@ pub(super) struct Candidate {
     pub(super) document: Option<Map>,
     pub(super) inserts: bool,
 }
+
+type Outcome = std::result::Result<PrimaryWritten, PrimaryRefusal>;
 
 impl EngineInner {
     pub(super) fn refuse_while_memory_full_for(
@@ -53,7 +57,7 @@ pub(super) struct PrimaryTurn<'a> {
     partition: u32,
     limits: PrimaryLimits,
     position: CopyPosition,
-    written_records: std::collections::HashMap<String, WriteRecord>,
+    written_records: HashMap<String, WriteRecord>,
 }
 
 impl<'a> PrimaryTurn<'a> {
@@ -71,7 +75,7 @@ impl<'a> PrimaryTurn<'a> {
             partition,
             limits,
             position: CopyPosition::default(),
-            written_records: std::collections::HashMap::new(),
+            written_records: HashMap::new(),
         }
     }
 
@@ -97,6 +101,30 @@ impl<'a> PrimaryTurn<'a> {
         Ok(())
     }
 
+    /// Applies each write that passes its checks and has room in memory, and returns one outcome for each write.
+    pub(super) fn apply_all(
+        &mut self,
+        writes: Vec<std::result::Result<Candidate, PrimaryRefusal>>,
+    ) -> Vec<Outcome> {
+        let mut writes: Vec<Option<_>> = writes.into_iter().map(Some).collect();
+        let memory = &self.engine.memory;
+        let mut room = PrimaryRoom::new(memory, self.index, &writes);
+        let full = memory.refuse_while_full(&self.index.name).err();
+        let mut outcomes = Vec::with_capacity(writes.len());
+        for at in 0..writes.len() {
+            let room_made = match (&full, &writes[at]) {
+                (Some(error), Some(Ok(candidate))) if candidate.document.is_some() => {
+                    Err(PrimaryRefusal::Refused(error.clone()))
+                }
+                _ => room.reserve(at, &writes),
+            };
+            if let Some(checked) = writes[at].take() {
+                outcomes.push(room_made.and(checked).and_then(|write| self.apply(write)));
+            }
+        }
+        outcomes
+    }
+
     fn record_of(&self, id: &str) -> Result<Option<WriteRecord>> {
         match self.written_records.get(id) {
             Some(record) => Ok(Some(*record)),
@@ -107,14 +135,21 @@ impl<'a> PrimaryTurn<'a> {
         }
     }
 
+    fn prior_of(&self, id: &str) -> Result<Option<PriorDocument>> {
+        let Some(held) = self.index.full_document(id)? else {
+            return Ok(None);
+        };
+        Ok(Some(PriorDocument {
+            document: encode_document(&held)?,
+            record: self.record_of(id)?,
+        }))
+    }
+
     fn entry_bytes(&self, id: &str, document: usize, previous: usize) -> u64 {
         ENTRY_FIXED_BYTES + (self.index.name.len() + id.len() + document + previous) as u64
     }
 
-    pub(super) fn apply(
-        &mut self,
-        candidate: Candidate,
-    ) -> std::result::Result<PrimaryWritten, PrimaryRefusal> {
+    fn apply(&mut self, candidate: Candidate) -> Outcome {
         let Candidate {
             id,
             document,
@@ -135,40 +170,8 @@ impl<'a> PrimaryTurn<'a> {
             )
             .into());
         }
-        let _reserved = match &document {
-            Some(document) => {
-                if inserts {
-                    check_primary_insert(
-                        index,
-                        &partitions,
-                        self.partition as usize,
-                        &id,
-                        document,
-                    )?;
-                } else {
-                    check_primary_update(index, &partitions, &id, document)?;
-                }
-                let memory = &self.engine.memory;
-                memory.refuse_while_full(&index.name)?;
-                let replaced = (!inserts).then_some(id.as_str());
-                Some(reserve_for_document(memory, index, document, replaced)?)
-            }
-            None if index.locate(&partitions, &id)?.is_none() => {
-                return Err(index.not_found(&id).into());
-            }
-            None => None,
-        };
         let encoded = document.as_ref().map(encode_document).transpose()?;
-        let prior = match inserts {
-            true => None,
-            false => match index.full_document(&id)? {
-                Some(held) => Some(PriorDocument {
-                    document: encode_document(&held)?,
-                    record: self.record_of(&id)?,
-                }),
-                None => None,
-            },
-        };
+        let prior = if inserts { None } else { self.prior_of(&id)? };
         let previous_document = self
             .limits
             .records_previous_documents
@@ -186,11 +189,15 @@ impl<'a> PrimaryTurn<'a> {
         }
         let operation = match document {
             Some(document) => {
-                replay_index(index, &id, document)?;
+                if inserts {
+                    apply_primary_insert(index, &partitions, &id, document)?;
+                } else {
+                    apply_primary_update(index, &partitions, &id, document)?;
+                }
                 EntryOperation::Index
             }
             None => {
-                replay_delete(index, &id)?;
+                apply_primary_remove(index, &partitions, &id)?;
                 EntryOperation::Delete
             }
         };
