@@ -62,12 +62,23 @@ impl TypescriptNode {
         node_id: &str,
         roles: &str,
     ) -> TypescriptNode {
+        TypescriptNode::start_with_heartbeat_ttl(endpoint, key_prefix, node_id, roles, None).await
+    }
+
+    pub async fn start_with_heartbeat_ttl(
+        endpoint: &str,
+        key_prefix: &str,
+        node_id: &str,
+        roles: &str,
+        heartbeat_ttl_seconds: Option<u64>,
+    ) -> TypescriptNode {
         let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
         let port = free_port();
         let mut child = Command::new("node")
             .arg(manifest.join("tests/support/typescript_node.mjs"))
             .arg(manifest.join("../.."))
             .args([endpoint, key_prefix, node_id, roles, &port.to_string()])
+            .args(heartbeat_ttl_seconds.map(|seconds| seconds.to_string()))
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .kill_on_drop(true)
@@ -236,6 +247,13 @@ impl TypescriptNode {
                 (number("partitionId") as u32, number("documentCount") as u64)
             })
             .collect()
+    }
+
+    pub async fn kill(mut self) {
+        self.child
+            .kill()
+            .await
+            .expect("the TypeScript node's process is killed");
     }
 
     pub async fn shutdown(mut self) {

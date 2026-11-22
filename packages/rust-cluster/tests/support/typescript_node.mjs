@@ -2,14 +2,18 @@ import { join } from 'node:path'
 import { createInterface } from 'node:readline'
 import { pathToFileURL } from 'node:url'
 
-const [repositoryRoot, endpoint, keyPrefix, nodeId, roleList, port] = process.argv.slice(2)
+const [repositoryRoot, endpoint, keyPrefix, nodeId, roleList, port, heartbeatTtlSeconds] = process.argv.slice(2)
 const dist = join(repositoryRoot, 'packages/ts/dist')
 const load = path => import(pathToFileURL(join(dist, path)).href)
 const { createClusterNode } = await load('distribution.mjs')
 const { createEtcdCoordinator } = await load('distribution/coordinator/etcd.mjs')
 const { createTcpTransport } = await load('distribution/transport/tcp.mjs')
 
-const coordinator = await createEtcdCoordinator({ endpoints: [endpoint], keyPrefix })
+const coordinator = await createEtcdCoordinator({
+  endpoints: [endpoint],
+  keyPrefix,
+  ...(heartbeatTtlSeconds === undefined ? {} : { nodeHeartbeatTtlSeconds: Number(heartbeatTtlSeconds) }),
+})
 const transport = createTcpTransport(nodeId, { host: '127.0.0.1', port: Number(port) })
 const node = await createClusterNode({
   coordinator,
