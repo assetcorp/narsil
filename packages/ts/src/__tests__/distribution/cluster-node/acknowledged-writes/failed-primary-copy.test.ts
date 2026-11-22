@@ -17,8 +17,6 @@ const SEGMENT_NAME_DIGITS = 16
 const SEGMENT_NAME = /^\d{16}$/
 const NO_CHECKPOINT_MS = 3_600_000
 const NO_CHECKPOINT_MUTATIONS = 1_000_000
-const CLEANUP_RETRIES = 10
-const CLEANUP_RETRY_MS = 100
 
 interface Answer {
   code: string
@@ -49,7 +47,7 @@ describe('a primary whose copy fails while it writes', () => {
     await cluster?.dispose()
     cluster = undefined
     if (directory !== undefined) {
-      await rm(directory, { recursive: true, force: true, maxRetries: CLEANUP_RETRIES, retryDelay: CLEANUP_RETRY_MS })
+      await rm(directory, { recursive: true, force: true })
     }
     directory = undefined
   })

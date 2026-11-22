@@ -6,11 +6,11 @@ import { holdsLastCopy, lastHoldersOf } from '../cluster/last-holders'
 import type { AllocationTable, PartitionAssignment } from '../coordinator/types'
 import { createPrimaryResignMessage, validateInsyncConfirmPayload } from '../replication/codec'
 import { COPY_FAILURE_ATTEMPTS, COPY_FAILURE_RETRY_DELAY_MS } from './constants'
+import { type CopyDiskWork, createCopyDiskWork } from './copy-disk-work'
 import type { ClusterLocalEngine } from './local-engine'
 import { sendThroughTargets } from './transport-failure'
 import { resolveNodeTargets } from './write-routing/assignment'
 import { requestInsyncRemovalWithTargets } from './write-routing/insync-removal'
-import { enqueuePartitionWrite } from './write-routing/partition-queue'
 import type { WriteRoutingDeps } from './write-routing/types'
 
 export interface CopyFailureDeps {
@@ -27,7 +27,10 @@ export interface CopyFailures {
   isFailed(indexName: string, partitionId: number): boolean
   isUnlisted(indexName: string, partitionId: number): boolean
   awaitReset(indexName: string, partitionId: number): Promise<boolean>
+  settled(): Promise<void>
 }
+
+type RecoveryDeps = CopyFailureDeps & { diskWork: CopyDiskWork }
 
 type Step = 'reset' | 'kept' | 'retry'
 
@@ -87,21 +90,20 @@ async function removeSelf(
   await requestInsyncRemovalWithTargets(indexName, partitionId, nodeId, primaryTerm, controller, deps.writeDeps)
 }
 
-function emptyCopy(deps: CopyFailureDeps, round: FailedCopy): Promise<void> {
+async function emptyCopy(deps: RecoveryDeps, round: FailedCopy): Promise<void> {
   const { indexName, partitionId, missing } = round
-  if (missing) return Promise.resolve()
-  return enqueuePartitionWrite(deps.writeDeps.partitionWriteQueues, indexName, partitionId, async () => {
+  if (missing) return
+  await deps.diskWork.run(indexName, partitionId, async () => {
     await deps.engine.emptyPartitionCopy(indexName, partitionId)
     deps.forgetPartitionLog(indexName, partitionId)
   })
 }
 
-async function reloadFromDisk(deps: CopyFailureDeps, indexName: string, partitionId: number): Promise<boolean> {
+async function reloadFromDisk(deps: RecoveryDeps, indexName: string, partitionId: number): Promise<boolean> {
   try {
-    await enqueuePartitionWrite(deps.writeDeps.partitionWriteQueues, indexName, partitionId, () =>
+    return await deps.diskWork.run(indexName, partitionId, () =>
       deps.engine.reloadPartitionCopy(indexName, partitionId),
     )
-    return true
   } catch (err) {
     const cause = err instanceof Error ? err.message : String(err)
     deps.onError(
@@ -125,7 +127,7 @@ function reportMissingCopy(deps: CopyFailureDeps, indexName: string, partitionId
   )
 }
 
-async function reloadOnce(deps: CopyFailureDeps, round: FailedCopy, indexName: string, partitionId: number) {
+async function reloadOnce(deps: RecoveryDeps, round: FailedCopy, indexName: string, partitionId: number) {
   if (round.missing) return false
   round.reloaded ??= await reloadFromDisk(deps, indexName, partitionId)
   return round.reloaded
@@ -136,7 +138,7 @@ function holdsOtherInSyncCopy(assignment: PartitionAssignment, nodeId: string): 
 }
 
 async function stepFor(
-  deps: CopyFailureDeps,
+  deps: RecoveryDeps,
   round: FailedCopy,
   table: AllocationTable | null,
   indexName: string,
@@ -171,7 +173,7 @@ async function stepFor(
   return 'reset'
 }
 
-async function recover(deps: CopyFailureDeps, round: FailedCopy): Promise<boolean> {
+async function recover(deps: RecoveryDeps, round: FailedCopy): Promise<boolean> {
   const { indexName, partitionId } = round
   round.reloaded = null
   round.resignedTerm = null
@@ -207,9 +209,11 @@ function newFailedCopy(indexName: string, partitionId: number, missing: boolean)
 export function createCopyFailures(deps: CopyFailureDeps): CopyFailures {
   const failed = new Map<string, FailedCopy>()
   const keyOf = (indexName: string, partitionId: number) => `${indexName}:${partitionId}`
+  const diskWork = createCopyDiskWork(deps.writeDeps.partitionWriteQueues, deps.isShutdown)
+  const recoveryDeps: RecoveryDeps = { ...deps, diskWork }
 
   function startRecovery(key: string, copy: FailedCopy): Promise<boolean> {
-    const recovery = recover(deps, copy).then(reset => {
+    const recovery = recover(recoveryDeps, copy).then(reset => {
       if (reset && failed.get(key) === copy) failed.delete(key)
       copy.recovery = null
       return reset
@@ -248,5 +252,6 @@ export function createCopyFailures(deps: CopyFailureDeps): CopyFailures {
       if (copy === undefined) return true
       return copy.recovery ?? startRecovery(key, copy)
     },
+    settled: () => diskWork.settled(),
   }
 }
