@@ -44,18 +44,22 @@ impl WriteRouter {
                 condition: None,
             });
         }
-        let deadline = Instant::now() + Duration::from_millis(PRIMARY_CHANGE_RETRY_WINDOW_MS);
         let turns = Arc::new(Semaphore::new(PARTITION_WRITE_CONCURRENCY));
-        let mut running: JoinSet<ClusterResult<Vec<Answered>>> = JoinSet::new();
+        let mut running: JoinSet<Vec<Answered>> = JoinSet::new();
         for (_, group) in groups {
             let router = Arc::clone(self);
             let serving_name = Arc::clone(&serving_name);
             let turns = Arc::clone(&turns);
             running.spawn(async move {
-                let _turn = turns
-                    .acquire_owned()
-                    .await
-                    .map_err(|_| stopped_before_answering(&serving_name))?;
+                let Ok(_turn) = turns.acquire_owned().await else {
+                    let stopped = stopped_before_answering(&serving_name);
+                    return group
+                        .iter()
+                        .map(|write| (write.position, Err(stopped.clone())))
+                        .collect();
+                };
+                let deadline =
+                    Instant::now() + Duration::from_millis(PRIMARY_CHANGE_RETRY_WINDOW_MS);
                 router
                     .retry_group(serving_name, group, deadline, settles_as_equal, batch)
                     .await
@@ -63,27 +67,15 @@ impl WriteRouter {
         }
         let mut answered: Vec<Option<Result<(), ClusterError>>> =
             (0..count).map(|_| None).collect();
-        let mut failure = None;
         while let Some(joined) = running.join_next().await {
-            let outcomes = match joined {
-                Ok(Ok(outcomes)) => outcomes,
-                Ok(Err(error)) => {
-                    failure.get_or_insert(error);
-                    continue;
-                }
-                Err(_) => {
-                    failure.get_or_insert_with(|| stopped_before_answering(index_name));
-                    continue;
-                }
+            let Ok(outcomes) = joined else {
+                continue;
             };
             for (position, outcome) in outcomes {
                 if let Some(slot) = answered.get_mut(position) {
                     *slot = Some(outcome);
                 }
             }
-        }
-        if let Some(error) = failure {
-            return Err(error);
         }
         Ok(answered
             .into_iter()

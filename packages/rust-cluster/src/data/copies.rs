@@ -37,6 +37,7 @@ impl LocalCopies {
             stop_words,
             embedding_adapters,
             rerank_adapters,
+            log_retention_bytes: _,
         } = config;
         let engine = Narsil::open_with(engine, move |engine| {
             for (name, tokenizer) in tokenizers {

@@ -10,7 +10,6 @@ use super::condition::{AppliedResend, Resends, Verdict};
 use super::errors::{failed_copy_outcome, no_longer_leads};
 use super::partition::QueueTurn;
 use super::scope::{Outcome, Scope};
-use crate::constants::DEFAULT_LOG_RETENTION_BYTES;
 use crate::controller::lock;
 use crate::error::{ClusterError, ClusterResult, codes};
 use crate::payload::forward::{ForwardKind, ForwardOperation, WriteFailure};
@@ -68,22 +67,26 @@ pub(super) fn decoded_document(bytes: &[u8], document_id: &str) -> ClusterResult
     }
 }
 
-fn log_full(scope: &Scope, bytes: u64) -> ClusterError {
+fn log_full(scope: &Scope, bytes: u64, retention_bytes: u64) -> ClusterError {
     ClusterError::new(
         codes::REPLICATION_LOG_FULL,
         format!(
-            "Replication log entry of {bytes} bytes exceeds the log retention limit of {DEFAULT_LOG_RETENTION_BYTES} bytes and cannot be buffered"
+            "Replication log entry of {bytes} bytes exceeds the log retention limit of {retention_bytes} bytes and cannot be buffered"
         ),
     )
     .with_detail("partitionId", Value::from(scope.partition_id))
     .with_detail("entrySize", Value::from(bytes))
-    .with_detail("retentionBytes", Value::from(DEFAULT_LOG_RETENTION_BYTES))
+    .with_detail("retentionBytes", Value::from(retention_bytes))
 }
 
-pub(super) fn refusal_of(scope: &Scope, refusal: PrimaryRefusal) -> ClusterError {
+pub(super) fn refusal_of(
+    scope: &Scope,
+    refusal: PrimaryRefusal,
+    limits: &PrimaryLimits,
+) -> ClusterError {
     match refusal {
         PrimaryRefusal::Refused(error) => error.into(),
-        PrimaryRefusal::EntryTooLarge { bytes } => log_full(scope, bytes),
+        PrimaryRefusal::EntryTooLarge { bytes } => log_full(scope, bytes, limits.max_entry_bytes),
     }
 }
 
@@ -107,7 +110,7 @@ impl PrimaryWrites {
 
     pub(super) fn note_appended(&self, scope: &Scope, entries: &[ReplicatedEntry]) {
         let partition = self.partitions.of(&scope.index_name, scope.partition_id);
-        lock(&partition.log).append(&scope.index_name, entries);
+        lock(&partition.log).append(&scope.index_name, entries, self.log_retention_bytes);
     }
 
     pub(super) fn note_copy_failure(
@@ -162,7 +165,10 @@ impl PrimaryWrites {
                 Err(PrimaryRefusal::Refused(error)) if run.failure.as_ref() == Some(&error) => {
                     state.fail(held.position, failed_copy_outcome(scope, &error.into()));
                 }
-                Err(refusal) => state.fail(held.position, refusal_of(scope, refusal)),
+                Err(refusal) => {
+                    let error = refusal_of(scope, refusal, &state.limits);
+                    state.fail(held.position, error);
+                }
             }
         }
         self.note_appended(scope, &state.entries[from..]);
@@ -302,7 +308,7 @@ impl PrimaryWrites {
                 .view
                 .records_previous_documents(&scope.index_name)
                 .await,
-            max_entry_bytes: DEFAULT_LOG_RETENTION_BYTES,
+            max_entry_bytes: self.log_retention_bytes,
         };
         let mut state = RunState {
             kind,

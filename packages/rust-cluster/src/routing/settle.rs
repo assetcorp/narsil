@@ -5,19 +5,14 @@ use narsil::{Map, Value};
 use super::WriteRouter;
 use super::sent_fields::stored_copy_matches_sent;
 use super::write::{PendingWrite, Refused};
+use crate::constants::MAX_FETCH_DOCUMENT_IDS;
 use crate::controller::stored_index_metadata;
 use crate::data::routed_partition;
 use crate::error::{ClusterError, ClusterResult, codes};
 use crate::message::message_types;
 use crate::payload::client::{decode_answer, encode_fetch_request, fetched_documents};
 
-#[derive(Default)]
-pub(super) struct Settlement {
-    pub(super) settled: HashSet<usize>,
-    pub(super) unverified: HashSet<usize>,
-}
-
-pub(super) fn equal_insert_candidates<'a>(
+fn equal_insert_candidates<'a>(
     failures: &[(&'a PendingWrite, &Refused)],
     acknowledged: &HashSet<String>,
 ) -> Vec<&'a PendingWrite> {
@@ -114,10 +109,12 @@ impl WriteRouter {
                     }
                 }
                 _ => {
-                    for (document_id, copy) in
-                        self.fetch_from(serving_name, &primary, &documents).await?
-                    {
-                        copies.insert(document_id, copy);
+                    for group in documents.chunks(MAX_FETCH_DOCUMENT_IDS) {
+                        for (document_id, copy) in
+                            self.fetch_from(serving_name, &primary, group).await?
+                        {
+                            copies.insert(document_id, copy);
+                        }
                     }
                 }
             }
@@ -130,11 +127,11 @@ impl WriteRouter {
         serving_name: &str,
         failures: &[(&PendingWrite, &Refused)],
         acknowledged: &HashSet<String>,
-    ) -> Settlement {
+    ) -> HashSet<usize> {
         let existing = equal_insert_candidates(failures, acknowledged);
-        let mut settlement = Settlement::default();
+        let mut settled = HashSet::new();
         if existing.is_empty() {
-            return settlement;
+            return settled;
         }
         let mut document_ids: Vec<&str> =
             existing.iter().map(|write| write.document_id()).collect();
@@ -148,8 +145,7 @@ impl WriteRouter {
             Err(error) => Err(error),
         };
         let Ok((stored, derived)) = read else {
-            settlement.unverified = existing.iter().map(|write| write.position).collect();
-            return settlement;
+            return settled;
         };
         let mut settled_ids = HashSet::new();
         for write in existing {
@@ -158,7 +154,6 @@ impl WriteRouter {
                 continue;
             }
             let Some(copy) = stored.get(document_id) else {
-                settlement.unverified.insert(write.position);
                 continue;
             };
             let Some(sent) = &write.write.sent else {
@@ -174,10 +169,10 @@ impl WriteRouter {
                 stored_copy_matches_sent(sent, copy, &derived)
             };
             if matched {
-                settlement.settled.insert(write.position);
+                settled.insert(write.position);
                 settled_ids.insert(document_id.to_string());
             }
         }
-        settlement
+        settled
     }
 }

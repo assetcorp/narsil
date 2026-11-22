@@ -130,7 +130,9 @@ impl PrimaryWrites {
                     state.fail(item.position, failed_copy_outcome(scope, &error.into()));
                 }
                 Err(refusal) => {
-                    let text = refusal_of(scope, refusal).message().to_string();
+                    let text = refusal_of(scope, refusal, &state.limits)
+                        .message()
+                        .to_string();
                     let error = rollback_failed(
                         state.kind,
                         scope,

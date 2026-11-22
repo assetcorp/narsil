@@ -1,11 +1,12 @@
 use std::collections::HashMap;
 use std::future::Future;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex};
 
 use narsil::Value;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
+use crate::controller::lock;
 use crate::error::{ClusterError, ClusterResult, codes};
 
 pub(crate) trait PeerLink: Clone + Send + Sync + 'static {
@@ -43,12 +44,6 @@ impl<L: PeerLink> Table<L> {
 pub(crate) struct Peers<L> {
     table: Arc<Mutex<Table<L>>>,
     shut_down_message: &'static str,
-}
-
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 fn shut_down_error(message: &str, target: &str) -> ClusterError {

@@ -4,14 +4,15 @@ use std::sync::Arc;
 use narsil::replication::PartitionCopies;
 use narsil::{IndexConfig, Map, Narsil, Value};
 use narsil_cluster::coordinator::AllocationTable;
-use narsil_cluster::coordinator::etcd::EtcdCoordinator;
+use narsil_cluster::coordinator::etcd::{EtcdCoordinator, EtcdCoordinatorConfig};
 use narsil_cluster::message::TransportMessage;
 use narsil_cluster::transport::NodeTransport;
 use narsil_cluster::transport::tcp::{TcpTransport, TcpTransportConfig};
 
+use crate::child_node::{ChildNode, registered_address};
 use crate::data_node::{
-    DataNode, Scratch, cluster_coordinator, create_cluster_index, engine_config, eventually,
-    title_schema,
+    DataNode, Scratch, cluster_coordinator, coordinator_at, create_cluster_index, engine_config,
+    etcd_endpoint, eventually, title_schema, unique_key_prefix,
 };
 use crate::support::{Decoded, decode, write_binary, write_map_header, write_text};
 
@@ -27,6 +28,8 @@ const TERM_START: &str = "replication.term_start";
 const ACK: &str = "replication.ack";
 const TERM_START_ACK: &str = "replication.term_start_ack";
 const CRC32_POLYNOMIAL: u32 = 0xedb8_8320;
+const HOSTILE_NIL_ENTRIES: u32 = 60_000_000;
+const ADDRESS_SPACE_HEADROOM_BYTES: u64 = 3 * 1_024 * 1_024 * 1_024;
 
 fn write_count(out: &mut Vec<u8>, number: u64) {
     match number {
@@ -474,5 +477,75 @@ async fn a_rust_replica_applies_entries_in_log_order_and_refuses_what_breaks_the
     );
 
     replica.stop().await;
+    coordinator.shutdown().await;
+}
+
+fn entry_batch_of_nils(nil_entries: u32) -> Vec<u8> {
+    let mut out = Vec::with_capacity(nil_entries as usize + 64);
+    write_map_header(&mut out, 2);
+    write_text(&mut out, "entries");
+    out.push(0xdd);
+    out.extend_from_slice(&nil_entries.to_be_bytes());
+    out.resize(out.len() + nil_entries as usize, 0xc0);
+    write_text(&mut out, "indexUuid");
+    write_text(&mut out, LEDGER_UUID);
+    out
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_rust_replica_refuses_an_entry_batch_of_millions_of_nils_within_a_bounded_address_space()
+{
+    let Some(endpoint) = etcd_endpoint() else {
+        return;
+    };
+    let key_prefix = unique_key_prefix();
+    let ttl = EtcdCoordinatorConfig::default().node_heartbeat_ttl_seconds;
+    let coordinator = coordinator_at(endpoint.clone(), key_prefix.clone(), ttl).await;
+    let scratch = Scratch::new();
+    store_empty_replica_copy(scratch.path());
+    create_cluster_index(&coordinator, LEDGER, LEDGER_UUID, 1, 1).await;
+    store_table(&coordinator, 1.0, PRIMARY_TERM).await;
+    let mut replica = ChildNode::spawn(&endpoint, &key_prefix, REPLICA, &scratch);
+    eventually("the replica's process registers its node", || async {
+        registered_address(&coordinator, REPLICA).await.is_some()
+    })
+    .await;
+    let address = registered_address(&coordinator, REPLICA)
+        .await
+        .expect("the replica is registered");
+    let primary = TestPrimary::new(&address);
+    eventually("the replica accepts the term", || async {
+        primary.term_start(PRIMARY_TERM).await.0 == TERM_START_ACK
+    })
+    .await;
+    primary
+        .acknowledged(&[Entry::index(1, "invoice-1", "before the limit")], None)
+        .await;
+    replica.limit_address_space_to_current_plus(ADDRESS_SPACE_HEADROOM_BYTES);
+
+    let (message_type, answer) = primary
+        .send_as(
+            PRIMARY,
+            ENTRY_BATCH,
+            entry_batch_of_nils(HOSTILE_NIL_ENTRIES),
+        )
+        .await;
+
+    assert_eq!(
+        refusal_of(&message_type, answer).0,
+        "REPLICATION_ENTRY_INVALID"
+    );
+    primary
+        .acknowledged(
+            &[Entry::index(2, "invoice-2", "after the hostile batch")],
+            Some(PRIMARY_TERM),
+        )
+        .await;
+    let (message_type, held_end) = primary.term_start(PRIMARY_TERM).await;
+    assert_eq!(message_type, TERM_START_ACK, "{held_end:?}");
+    assert_eq!(held_end.unsigned("lastSeqNo"), 2);
+    assert!(!replica.has_exited(), "the replica's process keeps running");
+    primary.transport.shutdown().await;
+    replica.kill();
     coordinator.shutdown().await;
 }
