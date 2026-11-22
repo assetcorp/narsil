@@ -1,5 +1,6 @@
 import { deserializePartition } from '../../core/partition/serialization'
 import type { EngineCore } from '../../engine/core'
+import { requireVectorReloadMemory } from '../../engine/snapshot/memory-budget'
 import { emptySerializablePartition } from '../../engine/worker-resync'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { PartitionManager } from '../../partitioning/manager'
@@ -11,6 +12,7 @@ import { loadPartitionSegments } from '../../persistence/durability/segment/load
 import type { SegmentManifest } from '../../persistence/durability/segment/manifest'
 import { type CheckpointStore, directoryCheckpointStore } from '../../persistence/durability/segment/store'
 import { readVectorFile } from '../../persistence/durability/segment/vector-load'
+import { reservedHeapBytes, reserveHeapBytes } from '../../runtime/thread-heap'
 import { isDead } from '../../vector/vector-index/dead-bits'
 import { bytesToVectors } from '../../vector/vector-index/payload'
 import { publishPartitionCopy } from './partition-publication'
@@ -88,6 +90,7 @@ async function loadPartitionVectors(
   store: CheckpointStore,
   manifest: SegmentManifest,
   manager: PartitionManager,
+  indexName: string,
   partitionId: number,
 ): Promise<void> {
   const partition = manager.getPartition(partitionId)
@@ -95,15 +98,22 @@ async function loadPartitionVectors(
     const vectorIndex = manager.getVectorIndexes().get(field.fieldPath)
     if (vectorIndex === undefined) continue
     for (const file of field.files) {
-      const { payload } = await readVectorFile(store, file, field.fieldPath)
-      const vectors = bytesToVectors(payload.vectors)
-      for (let i = 0; i < payload.docIds.length; i++) {
-        if (isDead(file.dead, i) || !partition.has(payload.docIds[i])) continue
-        vectorIndex.insert(
-          payload.docIds[i],
-          vectors.slice(i * payload.dimension, (i + 1) * payload.dimension),
-          partitionId,
-        )
+      const reservation = reserveHeapBytes(
+        requireVectorReloadMemory(indexName, partitionId, file.bytes, reservedHeapBytes()),
+      )
+      try {
+        const { payload } = await readVectorFile(store, file, field.fieldPath)
+        const vectors = bytesToVectors(payload.vectors)
+        for (let i = 0; i < payload.docIds.length; i++) {
+          if (isDead(file.dead, i) || !partition.has(payload.docIds[i])) continue
+          vectorIndex.insert(
+            payload.docIds[i],
+            vectors.slice(i * payload.dimension, (i + 1) * payload.dimension),
+            partitionId,
+          )
+        }
+      } finally {
+        reservation.release()
       }
     }
   }
@@ -144,7 +154,7 @@ export async function reloadPartitionCopy(
           decodesEveryDocument: true,
           writeRecords,
         })
-        await loadPartitionVectors(store, manifest, manager, partitionId)
+        await loadPartitionVectors(store, manifest, manager, indexName, partitionId)
       }
       const checkpoint = manifest?.checkpoint ?? []
       writeRecords.loadTermHistory(
