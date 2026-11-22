@@ -1,6 +1,7 @@
 import { ErrorCodes, NarsilError } from '../../../errors'
 import { decodeRequestPayload } from '../../request-decode'
 import { type RespondFn, SyncMessageTypes, type TransportMessage } from '../../transport/types'
+import { refuseUnservedRead } from '../message-handler/read-refusal'
 import type { DataNodeHandlerDeps } from '../message-handler/types'
 import { leadingAssignment } from '../reshard/leadership'
 import { encodeSyncReadReply, type SyncReadReply, type SyncReadRequest, validateSyncReadRequest } from './read-message'
@@ -10,6 +11,7 @@ export type SyncReadDeps = Pick<DataNodeHandlerDeps, 'nodeId' | 'engine' | 'writ
 export async function answerSyncRead(deps: SyncReadDeps, request: SyncReadRequest): Promise<SyncReadReply> {
   const { indexName, indexUuid, partitionId, afterSeqNo, maxBytes } = request
   await leadingAssignment(deps.writeDeps, indexName, partitionId)
+  await refuseUnservedRead(deps, indexName, [partitionId], 'partition-read')
   if (deps.engine.indexUuidOf(indexName) !== indexUuid) {
     throw new NarsilError(ErrorCodes.INDEX_NOT_FOUND, `Node '${deps.nodeId}' holds no copy of index '${indexName}'`, {
       indexName,
