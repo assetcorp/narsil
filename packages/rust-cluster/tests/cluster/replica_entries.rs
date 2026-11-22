@@ -381,15 +381,6 @@ async fn a_rust_replica_applies_entries_in_log_order_and_refuses_what_breaks_the
     let rewritten = Entry::index(3, "invoice-1", "a different third entry");
     let (code, answer) = primary.refused(&[rewritten], Some(PRIMARY_TERM)).await;
     assert_eq!(code, "REPLICATION_ENTRY_INVALID", "{answer:?}");
-    let gap = Entry::index(5, "invoice-5", "after a gap");
-    let (code, answer) = primary.refused(&[gap], Some(PRIMARY_TERM)).await;
-    assert_eq!(code, "REPLICATION_ENTRY_INVALID");
-    assert_eq!(
-        answer
-            .field("details")
-            .map(|details| details.unsigned("expectedSeqNo")),
-        Some(4)
-    );
     let garbled = Entry::index(4, "invoice-4", "garbled").garbled();
     let (code, _) = primary.refused(&[garbled], Some(PRIMARY_TERM)).await;
     assert_eq!(code, "REPLICATION_ENTRY_CORRUPT");
@@ -402,6 +393,29 @@ async fn a_rust_replica_applies_entries_in_log_order_and_refuses_what_breaks_the
         .field("details")
         .expect("the refusal carries details");
     assert_eq!(details.unsigned("heldPrimaryTerm"), PRIMARY_TERM);
+    let gap = Entry::index(5, "invoice-5", "after a gap");
+    let (code, answer) = primary.refused(&[gap], Some(PRIMARY_TERM)).await;
+    assert_eq!(code, "REPLICATION_ENTRY_INVALID");
+    assert_eq!(
+        answer
+            .field("details")
+            .map(|details| details.unsigned("expectedSeqNo")),
+        Some(4)
+    );
+    let (code, answer) = primary
+        .refused(
+            &[Entry::index(
+                4,
+                "invoice-4",
+                "after the gap failed the copy",
+            )],
+            Some(PRIMARY_TERM),
+        )
+        .await;
+    assert_eq!(
+        code, "REPLICATION_ENTRY_INVALID",
+        "a copy that a gap failed takes no entry until it syncs again: {answer:?}"
+    );
     let newer_than_table = Entry::index(4, "invoice-4", "from the future").under(PRIMARY_TERM + 1);
     let (code, _) = primary
         .refused(&[newer_than_table], Some(PRIMARY_TERM))

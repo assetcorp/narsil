@@ -7,7 +7,6 @@ use super::state::Feed;
 use crate::controller::lock;
 use crate::data::writes::PrimaryWrites;
 use crate::data::writes::partition::Partition;
-use crate::data::writes::replicate::chunked;
 use crate::data::writes::scope::Scope;
 use crate::error::ClusterResult;
 
@@ -43,16 +42,16 @@ impl PrimaryWrites {
 
     pub(super) fn next_batch(
         partition: &Partition,
+        index_name: &str,
         from_seq_no: u64,
-    ) -> (Vec<ReplicatedEntry>, usize) {
-        let missing = lock(&partition.log)
-            .entries_from(from_seq_no)
-            .unwrap_or_default();
-        let batch = chunked(&missing)
-            .first()
-            .map(|chunk| chunk.to_vec())
-            .unwrap_or_default();
-        (batch, missing.len())
+    ) -> (Vec<ReplicatedEntry>, bool) {
+        let log = lock(&partition.log);
+        let Some(log_end) = log.newest_seq_no() else {
+            return (Vec::new(), false);
+        };
+        let batch = log.batch_from(index_name, from_seq_no, log_end);
+        let reaches_log_end = batch.last().is_some_and(|last| last.seq_no == log_end);
+        (batch, reaches_log_end)
     }
 
     pub(super) async fn send_batch(
@@ -110,7 +109,7 @@ impl PrimaryWrites {
                 if applied >= log_end {
                     break;
                 }
-                let (batch, _) = Self::next_batch(partition, applied + 1);
+                let (batch, _) = Self::next_batch(partition, &scope.index_name, applied + 1);
                 if self.is_stopping() || feed.is_cancelled() || batch.is_empty() {
                     return None;
                 }

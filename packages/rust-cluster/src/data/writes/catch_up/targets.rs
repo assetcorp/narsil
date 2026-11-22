@@ -23,7 +23,11 @@ struct Failures {
     fenced: Vec<(String, Fenced)>,
 }
 
-fn in_sync_targets_with(assignment: &Assignment, node_id: &str, extra: &[String]) -> Vec<String> {
+pub(in crate::data::writes) fn in_sync_targets_with(
+    assignment: &Assignment,
+    node_id: &str,
+    extra: &[String],
+) -> Vec<String> {
     let mut targets: Vec<String> = Vec::new();
     for replica in assignment.in_sync_set.iter().chain(extra) {
         if replica != node_id && assignment.holds_replica(replica) && !targets.contains(replica) {

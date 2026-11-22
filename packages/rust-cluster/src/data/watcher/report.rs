@@ -4,17 +4,14 @@ use super::WatcherContext;
 use super::state::PartitionKey;
 use crate::allocator::{INITIALISING, Table};
 use crate::constants::CONTROLLER_LEASE_KEY;
+use crate::controller::stored_table;
 use crate::error::{ClusterError, ClusterResult, codes};
 use crate::message::{TransportMessage, message_types};
 use crate::node::generate_node_id;
 
 impl WatcherContext {
     pub(super) async fn live_table(&self, index_name: &str) -> ClusterResult<Option<Table>> {
-        Ok(self
-            .coordinator
-            .allocation(index_name)
-            .await?
-            .map(|stored| Table::from_stored(&stored)))
+        stored_table(&self.coordinator, index_name).await
     }
 
     pub(super) async fn awaits_bootstrap_report(&self, key: &PartitionKey) -> bool {

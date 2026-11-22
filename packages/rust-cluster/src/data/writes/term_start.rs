@@ -7,7 +7,7 @@ use tokio::task::JoinSet;
 use super::PrimaryWrites;
 use super::errors::lost_term;
 use super::partition::Partition;
-use super::replicate::{chunked, in_sync_targets};
+use super::replicate::in_sync_targets;
 use super::scope::Scope;
 use crate::constants::{
     OUT_OF_STEP_REMOVAL_RETRY_DELAY_CAP_MS, OUT_OF_STEP_REMOVAL_RETRY_INITIAL_DELAY_MS,
@@ -199,18 +199,26 @@ impl PrimaryWrites {
         held_seq_no: u64,
     ) -> bool {
         let partition = self.partitions.of(&scope.index_name, scope.partition_id);
-        let missing = lock(&partition.log).entries_from(held_seq_no + 1);
-        let Some(missing) = missing else {
+        let mut next = held_seq_no + 1;
+        let Some(log_end) = lock(&partition.log).newest_seq_no() else {
             return false;
         };
         let target = [copy.to_string()];
-        for chunk in chunked(&missing) {
-            match self.send_entries(scope, chunk, &target).await {
+        while next <= log_end {
+            let batch = lock(&partition.log).batch_from(&scope.index_name, next, log_end);
+            let (Some(first), Some(last)) = (batch.first(), batch.last()) else {
+                return false;
+            };
+            if first.seq_no != next {
+                return false;
+            }
+            next = last.seq_no + 1;
+            match self.send_entries(scope, &batch, &target).await {
                 Ok(sent) if sent.iter().all(|(_, acknowledged)| *acknowledged) => {}
                 _ => return false,
             }
         }
-        true
+        next > held_seq_no + 1
     }
 
     fn out_of_step_abandoned(&self, scope: &Scope) -> bool {

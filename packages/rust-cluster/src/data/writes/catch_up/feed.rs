@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use narsil::replication::ReplicatedEntry;
+use tokio::sync::{Semaphore, SemaphorePermit};
 
 use super::state::{Feed, Registered};
 use crate::allocator::Assignment;
@@ -15,15 +15,10 @@ use crate::data::writes::partition::{Partition, PartitionKey};
 use crate::data::writes::scope::Scope;
 use crate::error::ClusterResult;
 
-pub(in crate::data::writes) struct Reserved<'a> {
-    bytes: u64,
-    total: &'a AtomicU64,
-}
+pub(in crate::data::writes) type Reserved<'a> = SemaphorePermit<'a>;
 
-impl Drop for Reserved<'_> {
-    fn drop(&mut self) {
-        self.total.fetch_sub(self.bytes, Ordering::AcqRel);
-    }
+pub(in crate::data::writes) fn catch_up_budget() -> Semaphore {
+    Semaphore::new(MAX_CATCH_UP_IN_FLIGHT_BYTES as usize)
 }
 
 pub(in crate::data::writes) fn run_bytes(index_name: &str, entries: &[ReplicatedEntry]) -> u64 {
@@ -49,17 +44,16 @@ pub(in crate::data::writes) fn scope_of(
 
 impl PrimaryWrites {
     pub(in crate::data::writes) fn reserve(&self, bytes: u64) -> Option<Reserved<'_>> {
-        let total = &self.catch_up_bytes;
-        let mut held = total.load(Ordering::Acquire);
-        loop {
-            let after = held
-                .checked_add(bytes)
-                .filter(|after| *after <= MAX_CATCH_UP_IN_FLIGHT_BYTES)?;
-            match total.compare_exchange_weak(held, after, Ordering::AcqRel, Ordering::Acquire) {
-                Ok(_) => return Some(Reserved { bytes, total }),
-                Err(current) => held = current,
-            }
-        }
+        let bytes = u32::try_from(bytes).ok()?;
+        self.catch_up_bytes.try_acquire_many(bytes).ok()
+    }
+
+    pub(in crate::data::writes) async fn reserve_when_free(
+        &self,
+        bytes: u64,
+    ) -> Option<Reserved<'_>> {
+        let bytes = u32::try_from(bytes.min(MAX_CATCH_UP_IN_FLIGHT_BYTES)).ok()?;
+        self.catch_up_bytes.acquire_many(bytes).await.ok()
     }
 
     pub(in crate::data::writes) async fn registered_nodes(&self) -> Registered {
@@ -268,11 +262,12 @@ impl PrimaryWrites {
             if Instant::now() >= deadline {
                 return;
             }
-            let (batch, missing) = Self::next_batch(partition, applied + 1);
+            let (batch, reaches_log_end) =
+                Self::next_batch(partition, &scope.index_name, applied + 1);
             if batch.is_empty() {
                 return;
             }
-            if answered && batch.len() == missing {
+            if answered && reaches_log_end {
                 self.close_gap_in_queue(partition, scope, replica_node_id, feed)
                     .await;
                 return;

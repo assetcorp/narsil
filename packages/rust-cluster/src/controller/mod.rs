@@ -35,7 +35,7 @@ pub(crate) use self::metadata::{
     IndexMetadata, index_metadata, records_previous_documents, stored_index_metadata,
 };
 pub(crate) use self::settings::{previous_documents_recorded, stored_settings_readable};
-pub(crate) use self::table::belongs_to_another_index;
+pub(crate) use self::table::{belongs_to_another_index, stored_table};
 
 pub(crate) type ControllerErrorHandler = Arc<dyn Fn(&str, &ClusterError) + Send + Sync>;
 

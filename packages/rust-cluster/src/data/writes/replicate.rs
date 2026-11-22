@@ -5,40 +5,16 @@ use narsil::replication::{HeldTerm, ReplicatedEntry};
 use tokio::task::JoinSet;
 
 use super::PrimaryWrites;
+use super::catch_up::in_sync_targets_with;
 use super::errors::{authority_changed, insync_removal_failed, lost_term, superseded_by};
 use super::scope::Scope;
 use crate::allocator::Assignment;
-use crate::constants::{
-    CONTROLLER_LEASE_KEY, MAX_FORWARD_BATCH_OPERATIONS, MAX_WIRE_BATCH_BYTES,
-    WIRE_BATCH_OVERHEAD_BYTES,
-};
+use crate::constants::CONTROLLER_LEASE_KEY;
 use crate::controller::lock;
 use crate::error::{ClusterError, ClusterResult, codes};
 use crate::message::{TransportMessage, message_types};
 use crate::payload::ack::{acknowledged_seq_no, encode_insync_remove, insync_confirmed};
 use crate::payload::entry::{WireEntry, encode_entry_run};
-
-pub(super) fn chunked(entries: &[ReplicatedEntry]) -> Vec<&[ReplicatedEntry]> {
-    let mut chunks = Vec::new();
-    let mut start = 0;
-    let mut bytes = 0;
-    for (at, entry) in entries.iter().enumerate() {
-        let entry_bytes = entry.document.as_ref().map_or(0, Vec::len) + WIRE_BATCH_OVERHEAD_BYTES;
-        let breaks_run = at > start && entry.seq_no != entries[at - 1].seq_no + 1;
-        let overflows = at - start >= MAX_FORWARD_BATCH_OPERATIONS
-            || (at > start && bytes + entry_bytes > MAX_WIRE_BATCH_BYTES);
-        if breaks_run || overflows {
-            chunks.push(&entries[start..at]);
-            start = at;
-            bytes = 0;
-        }
-        bytes += entry_bytes;
-    }
-    if start < entries.len() {
-        chunks.push(&entries[start..]);
-    }
-    chunks
-}
 
 pub(super) fn acknowledges(
     answer: &TransportMessage,
@@ -51,13 +27,7 @@ pub(super) fn acknowledges(
 }
 
 pub(super) fn in_sync_targets(assignment: &Assignment, node_id: &str) -> Vec<String> {
-    let mut targets: Vec<String> = Vec::new();
-    for replica in &assignment.in_sync_set {
-        if replica != node_id && assignment.holds_replica(replica) && !targets.contains(replica) {
-            targets.push(replica.clone());
-        }
-    }
-    targets
+    in_sync_targets_with(assignment, node_id, &[])
 }
 
 impl PrimaryWrites {
@@ -352,10 +322,19 @@ impl PrimaryWrites {
         };
         let partition = self.partitions.of(&scope.index_name, scope.partition_id);
         let targets = self.replica_targets(&partition, scope, assignment);
+        let epochs = lock(&partition.catch_up).sync_epochs(&targets.replicas);
         let sent = tokio::select! {
             sent = self.send_entries(scope, entries, &targets.replicas) => sent?,
             superseded = self.superseded(scope) => return Err(superseded),
         };
+        {
+            let mut catch_up = lock(&partition.catch_up);
+            for (replica, sync_epoch) in &epochs {
+                if sent.contains(&(replica.clone(), true)) {
+                    catch_up.raise_acknowledged(replica, *sync_epoch, last.seq_no);
+                }
+            }
+        }
         let failed: Vec<String> = sent
             .into_iter()
             .filter(|(_, acknowledged)| !acknowledged)

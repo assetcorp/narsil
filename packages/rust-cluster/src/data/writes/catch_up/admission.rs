@@ -21,6 +21,10 @@ struct Claim {
     replica_node_id: String,
     claim: u64,
     proposed_epoch: u64,
+}
+
+#[derive(Clone, Copy)]
+struct ClaimedPosition {
     applied_seq_no: u64,
     commit_point: u64,
 }
@@ -105,11 +109,11 @@ impl PrimaryWrites {
             let epoch = catch_up
                 .cursors
                 .get(replica_node_id)
-                .map(|cursor| (cursor.sync_epoch, cursor.applied_seq_no));
+                .map(|cursor| cursor.sync_epoch);
             match (catch_up.pending.get_mut(replica_node_id), epoch) {
-                (Some(pending), Some((epoch, applied))) if pending.claim == claim => {
+                (Some(pending), Some(epoch)) if pending.claim == claim => {
                     pending.answer = Some(answered);
-                    Some((epoch, applied))
+                    Some(epoch)
                 }
                 _ => None,
             }
@@ -120,7 +124,7 @@ impl PrimaryWrites {
             claim,
             answer,
         };
-        let Some((proposed_epoch, applied_seq_no)) = claimed else {
+        let Some(proposed_epoch) = claimed else {
             return;
         };
         let Ok(Some(controller)) = self.coordinator.lease_holder(CONTROLLER_LEASE_KEY).await else {
@@ -130,8 +134,6 @@ impl PrimaryWrites {
             replica_node_id: replica_node_id.to_string(),
             claim,
             proposed_epoch,
-            applied_seq_no,
-            commit_point: lock(&partition.log).commit_point(),
         };
         let initial_version = scope.assignment.in_sync_version_of() as u64;
         let (answer, version) = self
@@ -168,6 +170,19 @@ impl PrimaryWrites {
         }
     }
 
+    fn claimed_position(partition: &Partition, request: &Claim) -> Option<ClaimedPosition> {
+        let commit_point = lock(&partition.log).commit_point();
+        let catch_up = lock(&partition.catch_up);
+        let cursor = catch_up
+            .cursors
+            .get(&request.replica_node_id)
+            .filter(|cursor| cursor.sync_epoch == request.proposed_epoch && cursor.confirmed)?;
+        Some(ClaimedPosition {
+            applied_seq_no: cursor.applied_seq_no,
+            commit_point,
+        })
+    }
+
     fn claim_holds(&self, partition: &Partition, request: &Claim) -> bool {
         let catch_up = lock(&partition.catch_up);
         let pending_holds = catch_up
@@ -195,12 +210,15 @@ impl PrimaryWrites {
             else {
                 break;
             };
+            let Some(position) = Self::claimed_position(partition, request) else {
+                break;
+            };
             if !self
                 .prove_position(
                     partition,
                     scope,
                     &request.replica_node_id,
-                    request.applied_seq_no,
+                    position.applied_seq_no,
                 )
                 .await
                 || !self.claim_holds(partition, request)
@@ -212,8 +230,8 @@ impl PrimaryWrites {
                 partition_id: scope.partition_id,
                 replica_node_id: &request.replica_node_id,
                 primary_term: scope.primary_term,
-                applied_seq_no: request.applied_seq_no,
-                commit_point: request.commit_point,
+                applied_seq_no: position.applied_seq_no,
+                commit_point: position.commit_point,
                 in_sync_version: version,
                 replica_started_at: &started_at,
             };
@@ -228,7 +246,10 @@ impl PrimaryWrites {
             {
                 return (answer, version);
             }
-            let Some(changed) = self.changed_in_sync_version(scope, request, version).await else {
+            let changed = self
+                .changed_in_sync_version(scope, request, position, version)
+                .await;
+            let Some(changed) = changed else {
                 return (answer, version);
             };
             version = changed;
@@ -303,6 +324,7 @@ impl PrimaryWrites {
         &self,
         scope: &Scope,
         request: &Claim,
+        position: ClaimedPosition,
         version: u64,
     ) -> Option<u64> {
         let table = self.view.read_live(&scope.index_name).await.ok()??;
@@ -315,7 +337,7 @@ impl PrimaryWrites {
             && assignment.state == ACTIVE
             && assignment.holds_replica(replica)
             && !assignment.holds_in_sync(replica)
-            && request.applied_seq_no as f64 >= assignment.commit_point;
+            && position.applied_seq_no as f64 >= assignment.commit_point;
         qualifies.then_some(current)
     }
 }
