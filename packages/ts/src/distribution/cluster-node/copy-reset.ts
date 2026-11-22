@@ -1,6 +1,6 @@
 import { deserializePartition } from '../../core/partition/serialization'
 import type { EngineCore } from '../../engine/core'
-import { requireVectorReloadMemory } from '../../engine/snapshot/memory-budget'
+import { requireReloadMemory } from '../../engine/snapshot/memory-budget'
 import { emptySerializablePartition } from '../../engine/worker-resync'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { PartitionManager } from '../../partitioning/manager'
@@ -12,6 +12,7 @@ import { loadPartitionSegments } from '../../persistence/durability/segment/load
 import type { SegmentManifest } from '../../persistence/durability/segment/manifest'
 import { type CheckpointStore, directoryCheckpointStore } from '../../persistence/durability/segment/store'
 import { readVectorFile } from '../../persistence/durability/segment/vector-load'
+import { bytesThatPartitionSegmentsHoldInMemory } from '../../persistence/paged/segment-scan'
 import { reservedHeapBytes, reserveHeapBytes } from '../../runtime/thread-heap'
 import { isDead } from '../../vector/vector-index/dead-bits'
 import { bytesToVectors } from '../../vector/vector-index/payload'
@@ -98,9 +99,7 @@ async function loadPartitionVectors(
     const vectorIndex = manager.getVectorIndexes().get(field.fieldPath)
     if (vectorIndex === undefined) continue
     for (const file of field.files) {
-      const reservation = reserveHeapBytes(
-        requireVectorReloadMemory(indexName, partitionId, file.bytes, reservedHeapBytes()),
-      )
+      const reservation = reserveHeapBytes(requireReloadMemory(indexName, partitionId, file.bytes, reservedHeapBytes()))
       try {
         const { payload } = await readVectorFile(store, file, field.fieldPath)
         const vectors = bytesToVectors(payload.vectors)
@@ -149,11 +148,19 @@ export async function reloadPartitionCopy(
       const manifest = decoded?.manifest ?? null
       const listed = manifest?.partitions.find(entry => entry.partitionId === partitionId)
       if (manifest !== null && listed !== undefined) {
-        await loadPartitionSegments(store, listed, manager, {
-          schema: manifest.schema,
-          decodesEveryDocument: true,
-          writeRecords,
-        })
+        const segmentBytes = await bytesThatPartitionSegmentsHoldInMemory(registry.directory, listed)
+        const reservation = reserveHeapBytes(
+          requireReloadMemory(indexName, partitionId, segmentBytes, reservedHeapBytes()),
+        )
+        try {
+          await loadPartitionSegments(store, listed, manager, {
+            schema: manifest.schema,
+            decodesEveryDocument: true,
+            writeRecords,
+          })
+        } finally {
+          reservation.release()
+        }
         await loadPartitionVectors(store, manifest, manager, indexName, partitionId)
       }
       const checkpoint = manifest?.checkpoint ?? []

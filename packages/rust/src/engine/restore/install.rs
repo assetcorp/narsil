@@ -6,9 +6,10 @@ use crate::durability::checkpoint_store::{AdapterStore, CheckpointStore};
 use crate::durability::persistence::MemoryPersistence;
 use crate::durability::restore::RestoreStaging;
 use crate::engine::EngineInner;
-use crate::engine::durable::load::{holds_paged_text, load_current_checkpoint};
-use crate::engine::durable::load_source::{CheckpointSource, StagedSource};
+use crate::engine::durable::load::load_current_checkpoint;
+use crate::engine::durable::load_source::StagedSource;
 use crate::engine::durable::metadata::metadata_of;
+use crate::engine::durable::reload::segment_bytes_held;
 use crate::engine::durable::saved_size::SavedSize;
 use crate::engine::index::IndexState;
 use crate::engine::memory::constants::LOAD_PROCESS_BYTES_PER_STORED_BYTE;
@@ -21,7 +22,6 @@ use crate::error::{ErrorCode, NarsilError, Result};
 use crate::format::manifest::SegmentManifest;
 use crate::format::metadata::IndexMetadata;
 use crate::index::constants::ARRAY_POSITION_GAP;
-use crate::index::paged::{PagedListing, resident_section_bytes};
 use crate::schema::BaseType;
 
 /// Where a restore keeps the files that it reads from its source until the index takes them: the engine's store,
@@ -96,21 +96,7 @@ fn bytes_held_in_memory(
     let mut bytes = 0u64;
     for partition in &manifest.partitions {
         for segment in &partition.segments {
-            let file = &segment.file;
-            let paged_path = match holds_paged_text(source, index, &file.key)? {
-                true => source.paged_path_of(&file.key)?,
-                false => None,
-            };
-            let held = match paged_path {
-                Some(path) => resident_section_bytes(&PagedListing {
-                    key: file.key.clone(),
-                    path,
-                    bytes: file.bytes,
-                    checksum: file.checksum,
-                })?,
-                None => file.bytes,
-            };
-            bytes = bytes.saturating_add(held);
+            bytes = bytes.saturating_add(segment_bytes_held(source, index, &segment.file)?);
         }
     }
     for field in &manifest.vectors {

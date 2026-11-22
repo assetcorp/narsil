@@ -109,6 +109,7 @@ type EngineNames = Pick<
   | 'validateRequiredFieldsInSchema'
   | 'validateSchema'
   | 'validateTextStorage'
+  | 'validateVectorDimensions'
   | 'validateVectorPromotion'
   | 'validateVectorStorage'
   | 'waitOutsideCountedWrite'
@@ -229,6 +230,7 @@ export let validatePatternValueLimit: EngineNames['validatePatternValueLimit']
 export let validateRequiredFieldsInSchema: EngineNames['validateRequiredFieldsInSchema']
 export let validateSchema: EngineNames['validateSchema']
 export let validateTextStorage: EngineNames['validateTextStorage']
+export let validateVectorDimensions: EngineNames['validateVectorDimensions']
 export let validateVectorPromotion: EngineNames['validateVectorPromotion']
 export let validateVectorStorage: EngineNames['validateVectorStorage']
 export let waitOutsideCountedWrite: EngineNames['waitOutsideCountedWrite']
@@ -347,6 +349,7 @@ export function bindEngineNames(host: EngineNames): void {
     validateRequiredFieldsInSchema,
     validateSchema,
     validateTextStorage,
+    validateVectorDimensions,
     validateVectorPromotion,
     validateVectorStorage,
     waitOutsideCountedWrite,
