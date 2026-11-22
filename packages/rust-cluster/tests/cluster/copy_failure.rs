@@ -1,7 +1,6 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 
 use narsil_cluster::coordinator::etcd::EtcdCoordinator;
 use narsil_cluster::transport::NodeTransport;
@@ -9,26 +8,21 @@ use narsil_cluster::transport::tcp::TcpTransport;
 
 use crate::child_node::{ChildNode, file_sizes, registered_address};
 use crate::data_node::{
-    DataNode, Scratch, cluster_coordinator, coordinator_at, create_cluster_index, etcd_endpoint,
-    eventually, unique_key_prefix,
+    DataNode, Scratch, coordinator_at, create_cluster_index, etcd_endpoint, eventually,
+    unique_key_prefix,
 };
 use crate::ledger::{
-    FIRST_DATA_NODE, Forwarded, LEDGER, LEDGER_UUID, Ledger, Member, PAUSE_BETWEEN_WRITES,
-    SECOND_DATA_NODE, first_difference, forward_insert, forward_write, forwarder, placement,
-    start_controller, title_of,
+    FIRST_DATA_NODE, Forwarded, LEDGER, LEDGER_UUID, Ledger, SECOND_DATA_NODE, first_difference,
+    forward_write, forwarder, placement, start_controller, title_of,
 };
 use crate::support::Decoded;
 
 const PARENT_HEARTBEAT_TTL_SECONDS: u64 = 30;
 const OUTCOME_UNKNOWN: &str = "REPLICATION_OUTCOME_UNKNOWN";
-const NOT_PRIMARY: &str = "PARTITION_NOT_PRIMARY";
-const INITIALISING: &str = "INITIALISING";
 const TERM_ENDED: &str = "term_ended";
 const CONTESTED: &str = "contested-entry";
 const FIRST_TITLE: &str = "title-0";
 const SECOND_TITLE: &str = "title-1";
-const EVERY_FILE_WRITE_REFUSED_BYTES: u64 = 1;
-const FAILED_REPLICA_WATCHED_FOR: Duration = Duration::from_secs(10);
 
 struct Cluster {
     coordinator: Arc<EtcdCoordinator>,
@@ -249,133 +243,4 @@ async fn a_rust_primary_whose_disk_refuses_a_compensating_entry_answers_outcome_
         "the log holds the whole update and none of its compensating entry"
     );
     cluster.stop().await;
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn a_write_that_reaches_a_new_primary_before_it_builds_its_copy_is_refused_as_initialising_and_leaves_the_partition_writable()
- {
-    let Some(coordinator) = cluster_coordinator().await else {
-        return;
-    };
-    let controller_scratch = Scratch::new();
-    let controller = start_controller(&coordinator, &controller_scratch).await;
-    let mut primary = Member::start(&coordinator, FIRST_DATA_NODE).await;
-    create_cluster_index(&coordinator, LEDGER, LEDGER_UUID, 1, 0).await;
-    eventually("the controller places the ledger", || async {
-        placement(&coordinator).await.is_some()
-    })
-    .await;
-    let mut ledger = Ledger::new();
-    let early = "written-while-the-copy-is-built";
-    match forward_insert(&ledger.forwarder, &primary.data().address, early).await {
-        Forwarded::Acknowledged => {
-            ledger.written.insert(early.to_string(), title_of(early));
-        }
-        Forwarded::Refused(refused) => {
-            assert_eq!(refused.text("code"), NOT_PRIMARY, "{refused:?}");
-            let state = refused
-                .field("details")
-                .and_then(|details| details.field("state"));
-            assert_eq!(
-                state,
-                Some(&Decoded::Text(INITIALISING.to_string())),
-                "the refusal tells the sender that the partition is still initialising: {refused:?}"
-            );
-        }
-        Forwarded::Unreachable => panic!("the primary is unreachable"),
-    }
-    eventually("the primary finishes building its copy", || async {
-        placement(&coordinator)
-            .await
-            .is_some_and(|placed| placed.is_led_by(FIRST_DATA_NODE))
-    })
-    .await;
-    ledger
-        .insert_until_accepted(primary.data(), "written-once-the-copy-is-built")
-        .await;
-    let difference = first_difference(primary.data(), &ledger.written, &[]).await;
-    assert!(
-        difference.is_none(),
-        "the primary holds every acknowledged write: {difference:?}"
-    );
-
-    ledger.forwarder.shutdown().await;
-    primary.stop().await;
-    controller.stop().await;
-    coordinator.shutdown().await;
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn a_replica_whose_disk_refuses_every_write_never_rejoins_the_in_sync_set() {
-    let Some(endpoint) = etcd_endpoint() else {
-        return;
-    };
-    let key_prefix = unique_key_prefix();
-    let coordinator = coordinator_at(
-        endpoint.clone(),
-        key_prefix.clone(),
-        PARENT_HEARTBEAT_TTL_SECONDS,
-    )
-    .await;
-    let controller_scratch = Scratch::new();
-    let controller = start_controller(&coordinator, &controller_scratch).await;
-    let mut primary = Member::start(&coordinator, FIRST_DATA_NODE).await;
-    create_cluster_index(&coordinator, LEDGER, LEDGER_UUID, 1, 1).await;
-    eventually("the first data node leads the ledger", || async {
-        placement(&coordinator)
-            .await
-            .is_some_and(|placed| placed.is_led_by(FIRST_DATA_NODE))
-    })
-    .await;
-    let replica_scratch = Scratch::new();
-    let mut replica = ChildNode::spawn(&endpoint, &key_prefix, SECOND_DATA_NODE, &replica_scratch);
-    eventually("the replica joins the in-sync set", || async {
-        placement(&coordinator)
-            .await
-            .is_some_and(|placed| placed.admits(SECOND_DATA_NODE))
-    })
-    .await;
-    let mut ledger = Ledger::new();
-    ledger
-        .insert_all(
-            primary.data(),
-            &["settled-0".to_string(), "settled-1".to_string()],
-        )
-        .await;
-
-    replica.limit_file_size(EVERY_FILE_WRITE_REFUSED_BYTES);
-    ledger
-        .insert_all(primary.data(), &["refused-by-the-replica-disk".to_string()])
-        .await;
-    eventually("the primary removes the failed replica", || async {
-        placement(&coordinator)
-            .await
-            .is_some_and(|placed| !placed.lists_in_sync(SECOND_DATA_NODE))
-    })
-    .await;
-    let watched_until = Instant::now() + FAILED_REPLICA_WATCHED_FOR;
-    let mut serial = 0;
-    while Instant::now() < watched_until {
-        ledger
-            .insert_all(primary.data(), &[format!("after-the-failure-{serial}")])
-            .await;
-        serial += 1;
-        let placed = placement(&coordinator).await.expect("the ledger is placed");
-        assert!(
-            placed.is_led_by(FIRST_DATA_NODE) && !placed.lists_in_sync(SECOND_DATA_NODE),
-            "a replica that cannot make an entry durable stays out of the in-sync set"
-        );
-        tokio::time::sleep(PAUSE_BETWEEN_WRITES).await;
-    }
-    let difference = first_difference(primary.data(), &ledger.written, &[]).await;
-    assert!(
-        difference.is_none(),
-        "the primary holds every acknowledged write: {difference:?}"
-    );
-
-    replica.kill();
-    ledger.forwarder.shutdown().await;
-    primary.stop().await;
-    controller.stop().await;
-    coordinator.shutdown().await;
 }

@@ -88,12 +88,22 @@ impl LocalCopies {
     pub(super) fn reload_partition(
         &self,
         index_name: &str,
+        index_uuid: &str,
         partition_id: u32,
-    ) -> ClusterResult<()> {
-        Ok(PartitionCopies::new(&self.engine).reload_partition(index_name, partition_id)?)
+    ) -> ClusterResult<bool> {
+        self.on_copy_of(index_name, index_uuid, |copies| {
+            copies.reload_partition(index_name, partition_id)
+        })
     }
 
-    pub(super) fn empty_partition(&self, index_name: &str, partition_id: u32) -> ClusterResult<()> {
-        Ok(PartitionCopies::new(&self.engine).empty_partition(index_name, partition_id)?)
+    pub(super) fn empty_partition(
+        &self,
+        index_name: &str,
+        index_uuid: &str,
+        partition_id: u32,
+    ) -> ClusterResult<bool> {
+        self.on_copy_of(index_name, index_uuid, |copies| {
+            copies.empty_partition(index_name, partition_id)
+        })
     }
 }

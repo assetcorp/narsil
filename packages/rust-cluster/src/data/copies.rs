@@ -13,7 +13,7 @@ pub(super) struct LocalCopies {
     pub(super) engine: Narsil,
     orphaned: Mutex<HashSet<String>>,
     unreadable: Mutex<HashSet<String>>,
-    explicit_drop: Mutex<()>,
+    index_lifecycle: Mutex<()>,
     held_record: Mutex<()>,
 }
 
@@ -59,7 +59,7 @@ impl LocalCopies {
             engine,
             orphaned: Mutex::new(HashSet::new()),
             unreadable: Mutex::new(HashSet::new()),
-            explicit_drop: Mutex::new(()),
+            index_lifecycle: Mutex::new(()),
             held_record: Mutex::new(()),
         })
     }
@@ -89,6 +89,7 @@ impl LocalCopies {
         partition_count: u32,
     ) -> ClusterResult<()> {
         self.refuse_orphaned(index_name)?;
+        let _turn = lock(&self.index_lifecycle);
         let created = PartitionCopies::new(&self.engine).create_index(
             index_name,
             config,
@@ -124,6 +125,7 @@ impl LocalCopies {
     }
 
     pub(super) fn drop_copy_of(&self, index_name: &str, index_uuid: &str) -> ClusterResult<()> {
+        let _turn = lock(&self.index_lifecycle);
         if self.is_orphaned(index_name)
             || self.local_uuid(index_name)?.as_deref() != Some(index_uuid)
         {
@@ -279,7 +281,22 @@ impl LocalCopies {
     }
 
     pub(super) fn drop_superseded(&self, index_name: &str) -> ClusterResult<()> {
+        let _turn = lock(&self.index_lifecycle);
         Ok(self.engine.drop_index(index_name)?)
+    }
+
+    pub(super) fn on_copy_of(
+        &self,
+        index_name: &str,
+        index_uuid: &str,
+        work: impl FnOnce(&PartitionCopies<'_>) -> narsil::Result<()>,
+    ) -> ClusterResult<bool> {
+        let _turn = lock(&self.index_lifecycle);
+        if self.local_uuid(index_name)?.as_deref() != Some(index_uuid) {
+            return Ok(false);
+        }
+        work(&PartitionCopies::new(&self.engine))?;
+        Ok(true)
     }
 
     pub(super) fn mark_orphaned(&self, index_name: &str, unreadable: bool) {
@@ -333,7 +350,7 @@ impl LocalCopies {
     }
 
     pub(super) fn drop_orphaned(&self, index_name: &str) -> ClusterResult<()> {
-        let _turn = lock(&self.explicit_drop);
+        let _turn = lock(&self.index_lifecycle);
         if !self.is_orphaned(index_name) {
             let node_id = &self.node_id;
             return Err(ClusterError::new(

@@ -3,7 +3,6 @@ use std::sync::Arc;
 use narsil::Value;
 use narsil::replication::{CopyPosition, HeldTerm};
 
-use super::feed::run_bytes;
 use crate::allocator::{ACTIVE, Assignment, INITIALISING, MIGRATING, Table};
 use crate::controller::lock;
 use crate::data::writes::PrimaryWrites;
@@ -249,10 +248,18 @@ impl PrimaryWrites {
         let index_name = request.index_name.as_str();
         let mut next = from;
         loop {
+            let planned_bytes = if next > log_end {
+                0
+            } else {
+                lock(&partition.log).batch_bytes(index_name, next, log_end)
+            };
+            let Some(_reserved) = self.reserve_when_free(planned_bytes).await else {
+                return Ok(());
+            };
             let batch = if next > log_end {
                 Vec::new()
             } else {
-                lock(&partition.log).batch_from(index_name, next, log_end)
+                lock(&partition.log).batch_within(index_name, next, log_end, planned_bytes)
             };
             let first = batch.first().map(|entry| entry.seq_no);
             if next <= log_end && first != Some(next) {
@@ -265,10 +272,6 @@ impl PrimaryWrites {
                     ),
                 ));
             }
-            let Some(_reserved) = self.reserve_when_free(run_bytes(index_name, &batch)).await
-            else {
-                return Ok(());
-            };
             next = batch.last().map_or(next, |last| last.seq_no + 1);
             let wire: Vec<WireEntry> = batch
                 .into_iter()
