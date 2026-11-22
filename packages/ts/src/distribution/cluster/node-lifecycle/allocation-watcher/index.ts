@@ -12,8 +12,8 @@ export { processInitialAllocations } from './table'
 /**
  * Starts following the allocation table, so that this node bootstraps every partition the controller gives it.
  *
- * A burst of allocation changes collapses into one pass over the table, because each event replaces the timer the
- * previous one set. A table whose version does not rise above the pending one, or whose index uuid differs from the
+ * The changes that arrive within the debounce window of the first one collapse into one pass over the tables, and
+ * the window starts at that first change, so a steady stream of changes can delay a pass by one window at most. A table whose version does not rise above the pending one, or whose index uuid differs from the
  * pending table's, comes from an index that was dropped and created again under the same name, so the watcher first
  * processes the pending table of the dropped index, which releases every partition that the dropped index held on
  * this node.
@@ -50,7 +50,7 @@ function scheduleProcessAllocation(
   state.pendingTables.set(table.indexName, table)
 
   if (state.debounceTimer !== null) {
-    clearTimeout(state.debounceTimer)
+    return
   }
 
   state.debounceTimer = setTimeout(() => {
