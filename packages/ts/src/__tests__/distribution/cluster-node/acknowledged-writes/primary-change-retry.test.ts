@@ -123,9 +123,12 @@ describe('a write in flight while its partition changes primary', () => {
     const inserted = await insertion
     expect([...removed.succeeded].sort()).toEqual([...unchangedIds].sort())
     expect(removed.failed.map(failure => failure.docId)).toEqual([changedId])
-    expect(removed.failed[0]?.error).toMatchObject({
-      code: 'REPLICATION_OUTCOME_UNKNOWN',
-      details: { indexName: INDEX, reason: 'term_ended' },
+    expect(removed.failed[0]?.error.code).toBe('REPLICATION_WRITE_CONFLICT')
+    expect(removed.failed[0]?.error.details).toEqual({
+      indexName: INDEX,
+      partitionId: 0,
+      documentId: changedId,
+      primaryNodeId: newPrimary,
     })
     for (const docId of unchangedIds) ledger.delete(docId)
     expect(inserted.failed).toEqual([])
@@ -225,9 +228,13 @@ describe('a write in flight while its partition changes primary', () => {
       await cluster.node(newPrimary).update(INDEX, 'transfer-3', entry('second client', 3))
       held.release()
 
-      expect(await write).toMatchObject({
-        code: 'REPLICATION_OUTCOME_UNKNOWN',
-        details: { indexName: INDEX, reason: 'term_ended' },
+      const failure = await write
+      expect(failure?.code).toBe('REPLICATION_WRITE_CONFLICT')
+      expect(failure?.details).toEqual({
+        indexName: INDEX,
+        partitionId: 0,
+        documentId: 'transfer-3',
+        primaryNodeId: newPrimary,
       })
       await expectEveryCopyHolds(cluster, new Map([['transfer-3', entry('second client', 3)]]))
     }, 90_000)

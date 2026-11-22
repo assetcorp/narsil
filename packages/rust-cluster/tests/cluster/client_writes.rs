@@ -14,7 +14,7 @@ use tokio::sync::Notify;
 use crate::data_node::{DataNode, Scratch, cluster_coordinator, create_cluster_index};
 use crate::ledger::{FORWARDER, forwarder, start_controller, title_document};
 use crate::spread::{Expected, copy_difference, fnv1a_partition, settled_holders, titled};
-use crate::support::{Decoded, decode, write_binary, write_map_header, write_text};
+use crate::support::{Decoded, decode, write_binary, write_map_header, write_text, write_unsigned};
 
 const INDEX: &str = "client-ledger";
 const INDEX_UUID: &str = "uuid-of-the-client-ledger";
@@ -304,6 +304,9 @@ const TERM_ENDED: &str = "term_ended";
 const FORWARD_WINDOW_ENDED: &str = "forward_window_ended";
 const NOT_PRIMARY: &str = "PARTITION_NOT_PRIMARY";
 const ALREADY_EXISTS: &str = "DOC_ALREADY_EXISTS";
+const WRITE_CONFLICT: &str = "REPLICATION_WRITE_CONFLICT";
+const ABANDONED_SEQ_NO: u64 = 7;
+const PREVIOUS_SEQ_NO: u64 = 3;
 const ROUTING_FAILED: &str = "QUERY_ROUTING_FAILED";
 const SPEC_FORWARD_WINDOW: Duration = Duration::from_secs(30);
 const LATE_CHUNK_WAIT: Duration = Duration::from_secs(3);
@@ -573,6 +576,88 @@ async fn a_write_whose_term_ended_answers_that_refusal_when_the_next_primary_ref
     assert_eq!(reason_of(&error), Some(TERM_ENDED), "{error:?}");
     assert_eq!(first.received(FORWARD).len(), 1);
     assert_eq!(successor.received(FORWARD).len(), 1);
+    stop_routing(router, vec![first, successor], coordinator).await;
+}
+
+fn ended_term_with_abandoned_write(request: &TransportMessage) -> TransportMessage {
+    let mut out = Vec::new();
+    write_map_header(&mut out, 5);
+    write_text(&mut out, "error");
+    out.push(0xc3);
+    write_text(&mut out, "code");
+    write_text(&mut out, OUTCOME_UNKNOWN);
+    write_text(&mut out, "message");
+    write_text(&mut out, "The scripted primary's term ended");
+    write_text(&mut out, "details");
+    write_map_header(&mut out, 1);
+    write_text(&mut out, "reason");
+    write_text(&mut out, TERM_ENDED);
+    write_text(&mut out, "abandonedWrite");
+    write_map_header(&mut out, 5);
+    for (field, value) in [
+        ("seqNo", ABANDONED_SEQ_NO),
+        ("primaryTerm", 1),
+        ("compensationSeqNo", ABANDONED_SEQ_NO + 1),
+        ("previousSeqNo", PREVIOUS_SEQ_NO),
+        ("previousPrimaryTerm", 1),
+    ] {
+        write_text(&mut out, field);
+        write_unsigned(&mut out, value);
+    }
+    reply(request, &format!("{FORWARD}.error"), out)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_update_whose_term_ended_answers_the_write_conflict_that_the_next_primary_decides() {
+    let Some(coordinator) = cluster_coordinator().await else {
+        return;
+    };
+    create_cluster_index(&coordinator, ROUTED, ROUTED_UUID, 1, 0).await;
+    let successor =
+        ScriptedPrimary::start(
+            |request| async move { Some(refusal(&request, WRITE_CONFLICT, None)) },
+        )
+        .await;
+    let handing_over = Arc::clone(&coordinator);
+    let successor_id = successor.node_id.clone();
+    let first = ScriptedPrimary::start(move |request| {
+        let coordinator = Arc::clone(&handing_over);
+        let successor_id = successor_id.clone();
+        async move {
+            store_routed_table(&coordinator, 2.0, &[(&successor_id, 2)]).await;
+            Some(ended_term_with_abandoned_write(&request))
+        }
+    })
+    .await;
+    store_routed_table(&coordinator, 1.0, &[(&first.node_id, 1)]).await;
+    let scratch = Scratch::new();
+    let router = start_router(&coordinator, &scratch).await;
+
+    let error = router
+        .node
+        .update(ROUTED, "contested", titled("first client"))
+        .await
+        .expect_err("the next primary refused the update");
+
+    assert_eq!(error.code(), WRITE_CONFLICT, "{error:?}");
+    assert_eq!(first.received(FORWARD).len(), 1);
+    let resent = successor.received(FORWARD);
+    assert_eq!(resent.len(), 1);
+    let condition = decode(&resent[0].payload);
+    assert!(
+        matches!(
+            condition.field("abandonedSeqNo"),
+            Some(Decoded::Unsigned(ABANDONED_SEQ_NO))
+        ),
+        "{condition:?}"
+    );
+    assert!(
+        matches!(
+            condition.field("ifSeqNo"),
+            Some(Decoded::Unsigned(PREVIOUS_SEQ_NO))
+        ),
+        "{condition:?}"
+    );
     stop_routing(router, vec![first, successor], coordinator).await;
 }
 
