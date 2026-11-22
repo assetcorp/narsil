@@ -167,12 +167,17 @@ pub(crate) fn decode_answer(
     answer: &TransportMessage,
     index_name: &str,
 ) -> Result<Map, WriteFailure> {
+    if answer.message_type == CARRIER_ERROR_TYPE {
+        let failure = answer
+            .failure()
+            .unwrap_or_else(|| malformed("carrier error"));
+        return Err(WriteFailure::from(failure));
+    }
     let decoded = match decode_msgpack(&answer.payload) {
         Ok(Value::Object(fields)) => fields,
         _ => return Err(WriteFailure::from(malformed("answer"))),
     };
     let refused = answer.message_type.ends_with(ERROR_TYPE_SUFFIX)
-        || answer.message_type == CARRIER_ERROR_TYPE
         || decoded.get("error") == Some(&Value::Bool(true));
     if !refused {
         return Ok(decoded);

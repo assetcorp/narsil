@@ -220,7 +220,7 @@ pub(crate) fn decode_entry_batch_payload(payload: &[u8]) -> ClusterResult<EntryR
     let items = entries.items().ok_or_else(|| {
         invalid_entry(ENTRY_BATCH_PAYLOAD, "missing or invalid \"entries\" field")
     })?;
-    let mut decoded = Vec::with_capacity(items.len());
+    let mut decoded = Vec::new();
     for raw in items {
         decoded.push(decode_entry(raw, ENTRY_BATCH_PAYLOAD)?);
     }

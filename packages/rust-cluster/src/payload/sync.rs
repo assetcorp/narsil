@@ -203,7 +203,7 @@ pub(crate) fn decode_sync_frame(frame: &[u8]) -> ClusterResult<SyncFrame> {
                 "Invalid SyncEntriesPayload: syncSession must be a non-empty string or absent",
             )
         })?;
-    let mut decoded = Vec::with_capacity(items.len());
+    let mut decoded = Vec::new();
     for raw in items {
         decoded.push(decode_entry(raw, SYNC_ENTRIES_PAYLOAD)?);
     }

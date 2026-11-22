@@ -128,6 +128,16 @@ pub(crate) fn validate_config(config: &ClusterNodeConfig) -> ClusterResult<()> {
         };
         return Err(invalid(message).with_detail("role", Value::String(DATA_ROLE.to_string())));
     }
+    if config
+        .data
+        .as_ref()
+        .is_some_and(|data| data.log_retention_bytes == 0)
+    {
+        return Err(invalid(
+            "ClusterNodeConfig.data.log_retention_bytes must be a positive number of bytes",
+        )
+        .with_detail("data.log_retention_bytes", Value::Number(0.0)));
+    }
     require_positive(config.controller.lease_ttl_ms, "controller.lease_ttl_ms")?;
     require_positive(
         config.controller.standby_retry_ms,

@@ -1,42 +1,35 @@
 use std::collections::HashMap;
 
 use narsil::Value;
+use tokio::time::Instant;
 
 use super::WriteRouter;
 use super::rules::{
     forward_interrupted, forward_unsent, retriable, transport_failure, unsent_after,
+    window_ended_outcome,
 };
 use super::write::{Attempted, PendingWrite, Refused};
-use crate::constants::{
-    MAX_FORWARD_BATCH_OPERATIONS, MAX_WIRE_BATCH_BYTES, WIRE_BATCH_OVERHEAD_BYTES,
-};
 use crate::error::{ClusterError, ClusterResult, codes};
-use crate::message::{TransportMessage, message_types};
+use crate::message::{CARRIER_ERROR_TYPE, TransportMessage, message_types};
 use crate::node::generate_node_id;
 use crate::payload::client::{
     decode_answer, encode_forward_batch_request, encode_forward_request, forwarded_batch_results,
     forwarded_document_id,
 };
 use crate::payload::forward::{ForwardKind, WriteFailure};
+use crate::wire_size::wire_batches;
 
-fn chunks(writes: &[PendingWrite]) -> Vec<&[PendingWrite]> {
-    let mut chunks = Vec::new();
-    let (mut start, mut bytes) = (0, 0);
-    for (at, write) in writes.iter().enumerate() {
-        let size = write.wire_bytes() + WIRE_BATCH_OVERHEAD_BYTES;
-        let count = at - start;
-        if count >= MAX_FORWARD_BATCH_OPERATIONS
-            || (count > 0 && bytes + size > MAX_WIRE_BATCH_BYTES)
-        {
-            chunks.push(&writes[start..at]);
-            (start, bytes) = (at, 0);
-        }
-        bytes += size;
-    }
-    if start < writes.len() {
-        chunks.push(&writes[start..]);
-    }
-    chunks
+pub(super) fn unsent_after_window(
+    serving_name: &str,
+    writes: &[PendingWrite],
+) -> Vec<(usize, Attempted)> {
+    writes
+        .iter()
+        .map(|write| {
+            let ended = window_ended_outcome(serving_name, write.document_id());
+            (write.position, Err(Refused::of(ended)))
+        })
+        .collect()
 }
 
 impl WriteRouter {
@@ -69,6 +62,10 @@ impl WriteRouter {
         let mut failure = None;
         for target in self.view.targets(primary) {
             match self.transport.send(&target, message.clone()).await {
+                Ok(answer) if answer.message_type == CARRIER_ERROR_TYPE => {
+                    failure = answer.failure();
+                    break;
+                }
                 Ok(answer) => return Ok(answer),
                 Err(error) => {
                     let unsent = error.code() == codes::TRANSPORT_CONNECT_FAILED;
@@ -167,7 +164,11 @@ impl WriteRouter {
         index_uuid: Option<&str>,
         primary: &str,
         writes: &[PendingWrite],
+        deadline: Instant,
     ) -> Vec<(usize, Attempted)> {
+        if Instant::now() >= deadline {
+            return unsent_after_window(serving_name, writes);
+        }
         if let [only] = writes {
             let attempted = self
                 .forward_one(serving_name, index_uuid, primary, only)
@@ -180,7 +181,11 @@ impl WriteRouter {
         let mut outcomes = Vec::with_capacity(writes.len());
         let mut awaiting_retry: HashMap<String, Box<Refused>> = HashMap::new();
         let mut undelivered: Option<ClusterError> = None;
-        for planned in chunks(writes) {
+        for planned in wire_batches(writes, PendingWrite::wire_bytes, |_, _| true) {
+            if Instant::now() >= deadline {
+                outcomes.extend(unsent_after_window(serving_name, planned));
+                continue;
+            }
             if let Some(error) = &undelivered {
                 outcomes.extend(
                     planned

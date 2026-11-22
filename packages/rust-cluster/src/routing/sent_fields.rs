@@ -2,6 +2,8 @@ use std::collections::HashSet;
 
 use narsil::{Map, Value};
 
+const FLOAT32_BYTES: usize = 4;
+
 fn same_number(sent: f64, stored: f64) -> bool {
     sent == stored || (sent.is_nan() && stored.is_nan())
 }
@@ -17,6 +19,22 @@ fn numbers_of(value: &Value) -> Option<Vec<f64>> {
             _ => None,
         })
         .collect()
+}
+
+fn stored_vector_of(value: &Value) -> Option<Vec<f64>> {
+    let Value::Bytes(bytes) = value else {
+        return numbers_of(value);
+    };
+    let (values, rest) = bytes.as_chunks::<FLOAT32_BYTES>();
+    if !rest.is_empty() {
+        return None;
+    }
+    Some(
+        values
+            .iter()
+            .map(|value| f64::from(f32::from_le_bytes(*value)))
+            .collect(),
+    )
 }
 
 fn same_vector(sent: &[f64], stored: &[f64]) -> bool {
@@ -51,7 +69,7 @@ fn matches_record(sent: &Map, stored: &Map, path: &str, derived: &HashSet<String
 }
 
 fn matches_sent(sent: &Value, stored: &Value, path: &str, derived: &HashSet<String>) -> bool {
-    if let (Some(sent), Some(stored)) = (numbers_of(sent), numbers_of(stored)) {
+    if let (Some(sent), Some(stored)) = (numbers_of(sent), stored_vector_of(stored)) {
         return same_vector(&sent, &stored);
     }
     match (sent, stored) {

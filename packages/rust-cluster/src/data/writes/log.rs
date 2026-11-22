@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 
 use narsil::replication::ReplicatedEntry;
 
-use crate::constants::{DEFAULT_LOG_RETENTION_BYTES, REPLICATION_ENTRY_FIXED_OVERHEAD_BYTES};
+use crate::constants::REPLICATION_ENTRY_FIXED_OVERHEAD_BYTES;
 
 pub(super) fn entry_bytes(index_name: &str, entry: &ReplicatedEntry) -> u64 {
     let previous = match &entry.previous_document {
@@ -29,6 +29,7 @@ impl ReplicationLog {
         &mut self,
         index_name: &str,
         entries: impl IntoIterator<Item = &'e ReplicatedEntry>,
+        retention_bytes: u64,
     ) {
         for entry in entries {
             let follows = self
@@ -42,7 +43,7 @@ impl ReplicationLog {
             self.bytes += bytes;
             self.entries.push_back((entry.clone(), bytes));
         }
-        while self.bytes > DEFAULT_LOG_RETENTION_BYTES {
+        while self.bytes > retention_bytes {
             let Some((_, bytes)) = self.entries.pop_front() else {
                 break;
             };

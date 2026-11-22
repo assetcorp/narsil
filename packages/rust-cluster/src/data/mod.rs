@@ -14,4 +14,6 @@ mod writes;
 
 pub use config::DataNodeConfig;
 pub(crate) use role::DataRole;
-pub(crate) use writes::{AllocationView, PrimaryWrites, routed_partition};
+pub(crate) use writes::{
+    AllocationView, PrimaryWrites, abandoned_with_term, routed_partition, unassigned,
+};

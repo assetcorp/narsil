@@ -193,17 +193,19 @@ impl ClusterNode {
     /// Adds many documents to a cluster index, routing each to the primary of its partition, and reports each
     /// document's outcome in the order of `documents`.
     ///
-    /// Each document takes its own non-empty string `id` field as its id, or a new UUID version 7. Documents bound
-    /// for one remote primary travel together, at most 1,000 to a message and about 8 MiB of documents to a
-    /// message, and the node retries each refused document on its own.
+    /// Each document takes its own non-empty string `id` field as its id, or a new UUID version 7. The node sends
+    /// the documents of each partition to that partition's primary in messages of their own, at most 1,000
+    /// documents and about 8 MiB of documents to a message, so a primary of several partitions receives at least
+    /// one message for each of them. The node retries each refused document on its own, and each partition's
+    /// documents wait at most 30 seconds from their first attempt.
     ///
     /// # Errors
     ///
     /// Fails with `NODE_NOT_JOINED` before the node joins, with `INDEX_ORPHANED` where this node keeps an orphaned
     /// copy under that name, with `INDEX_NOT_FOUND` where the cluster holds no such index, and with
-    /// `QUERY_ROUTING_FAILED` where the cluster has yet to allocate it, or where the node finds it gone when it routes
-    /// the batch again after a primary change. Every other failure is a document's own, in
-    /// [`WriteBatchResult::failed`].
+    /// `QUERY_ROUTING_FAILED` where the cluster has yet to allocate it. Every other failure is a document's own, in
+    /// [`WriteBatchResult::failed`], which holds `QUERY_ROUTING_FAILED` for the documents of a partition whose
+    /// index the node finds gone when it routes them again after a primary change.
     pub async fn insert_batch(
         &self,
         index_name: &str,

@@ -8,36 +8,20 @@ use super::PrimaryWrites;
 use super::errors::{authority_changed, insync_removal_failed, lost_term, superseded_by};
 use super::scope::Scope;
 use crate::allocator::Assignment;
-use crate::constants::{
-    CONTROLLER_LEASE_KEY, MAX_FORWARD_BATCH_OPERATIONS, MAX_WIRE_BATCH_BYTES,
-    WIRE_BATCH_OVERHEAD_BYTES,
-};
+use crate::constants::CONTROLLER_LEASE_KEY;
 use crate::controller::lock;
 use crate::error::{ClusterError, ClusterResult, codes};
 use crate::message::{TransportMessage, message_types};
 use crate::payload::ack::{acknowledged_seq_no, encode_insync_remove, insync_confirmed};
 use crate::payload::entry::{WireEntry, encode_entry_run};
+use crate::wire_size::wire_batches;
 
 pub(super) fn chunked(entries: &[ReplicatedEntry]) -> Vec<&[ReplicatedEntry]> {
-    let mut chunks = Vec::new();
-    let mut start = 0;
-    let mut bytes = 0;
-    for (at, entry) in entries.iter().enumerate() {
-        let entry_bytes = entry.document.as_ref().map_or(0, Vec::len) + WIRE_BATCH_OVERHEAD_BYTES;
-        let breaks_run = at > start && entry.seq_no != entries[at - 1].seq_no + 1;
-        let overflows = at - start >= MAX_FORWARD_BATCH_OPERATIONS
-            || (at > start && bytes + entry_bytes > MAX_WIRE_BATCH_BYTES);
-        if breaks_run || overflows {
-            chunks.push(&entries[start..at]);
-            start = at;
-            bytes = 0;
-        }
-        bytes += entry_bytes;
-    }
-    if start < entries.len() {
-        chunks.push(&entries[start..]);
-    }
-    chunks
+    wire_batches(
+        entries,
+        |entry| entry.document.as_ref().map_or(0, Vec::len),
+        |previous, entry| entry.seq_no == previous.seq_no + 1,
+    )
 }
 
 pub(super) fn acknowledges(

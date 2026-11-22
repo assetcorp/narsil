@@ -69,7 +69,7 @@ fn leads(table: Option<&Table>, document_id: &str, node_id: &str) -> bool {
     })
 }
 
-fn unassigned(index_name: &str, partition_id: u32) -> ClusterError {
+pub(crate) fn unassigned(index_name: &str, partition_id: u32) -> ClusterError {
     ClusterError::new(
         codes::PARTITION_UNASSIGNED,
         format!("No primary assigned for partition {partition_id} of index '{index_name}'"),
