@@ -30,6 +30,7 @@ const TERM_START_ACK: &str = "replication.term_start_ack";
 const CRC32_POLYNOMIAL: u32 = 0xedb8_8320;
 const HOSTILE_NIL_ENTRIES: u32 = 60_000_000;
 const ADDRESS_SPACE_HEADROOM_BYTES: u64 = 3 * 1_024 * 1_024 * 1_024;
+const EVERY_FILE_WRITE_REFUSED_BYTES: u64 = 1;
 
 fn write_count(out: &mut Vec<u8>, number: u64) {
     match number {
@@ -558,6 +559,65 @@ async fn a_rust_replica_refuses_an_entry_batch_of_millions_of_nils_within_a_boun
     let (message_type, held_end) = primary.term_start(PRIMARY_TERM).await;
     assert_eq!(message_type, TERM_START_ACK, "{held_end:?}");
     assert_eq!(held_end.unsigned("lastSeqNo"), 2);
+    assert!(!replica.has_exited(), "the replica's process keeps running");
+    primary.transport.shutdown().await;
+    replica.kill();
+    coordinator.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_rust_replica_whose_disk_refuses_an_entry_acknowledges_no_resend_until_it_syncs_again() {
+    let Some(endpoint) = etcd_endpoint() else {
+        return;
+    };
+    let key_prefix = unique_key_prefix();
+    let ttl = EtcdCoordinatorConfig::default().node_heartbeat_ttl_seconds;
+    let coordinator = coordinator_at(endpoint.clone(), key_prefix.clone(), ttl).await;
+    let scratch = Scratch::new();
+    store_empty_replica_copy(scratch.path());
+    create_cluster_index(&coordinator, LEDGER, LEDGER_UUID, 1, 1).await;
+    store_table(&coordinator, 1.0, PRIMARY_TERM).await;
+    let mut replica = ChildNode::spawn(&endpoint, &key_prefix, REPLICA, &scratch);
+    eventually("the replica's process registers its node", || async {
+        registered_address(&coordinator, REPLICA).await.is_some()
+    })
+    .await;
+    let address = registered_address(&coordinator, REPLICA)
+        .await
+        .expect("the replica is registered");
+    let primary = TestPrimary::new(&address);
+    eventually("the replica accepts the term", || async {
+        primary.term_start(PRIMARY_TERM).await.0 == TERM_START_ACK
+    })
+    .await;
+    let durable = Entry::index(1, "invoice-1", "written before the disk filled");
+    primary
+        .acknowledged(std::slice::from_ref(&durable), None)
+        .await;
+    replica.limit_file_size(EVERY_FILE_WRITE_REFUSED_BYTES);
+
+    let refused_by_the_disk = Entry::index(2, "invoice-2", "refused by the disk");
+    primary
+        .refused(
+            std::slice::from_ref(&refused_by_the_disk),
+            Some(PRIMARY_TERM),
+        )
+        .await;
+    let (code, answer) = primary
+        .refused(
+            std::slice::from_ref(&refused_by_the_disk),
+            Some(PRIMARY_TERM),
+        )
+        .await;
+    assert_eq!(
+        code, "REPLICATION_ENTRY_INVALID",
+        "the replica acknowledges no resend of an entry that its disk refused: {answer:?}"
+    );
+    let (code, answer) = primary.refused(&[durable], None).await;
+    assert_eq!(
+        code, "REPLICATION_ENTRY_INVALID",
+        "a failed copy acknowledges no entry until it syncs again: {answer:?}"
+    );
     assert!(!replica.has_exited(), "the replica's process keeps running");
     primary.transport.shutdown().await;
     replica.kill();
