@@ -64,7 +64,7 @@ function runSeed(seed) {
       detached: true,
     })
     let timedOut = false
-    const finished = false
+    let finished = false
     let forceTimer = null
     const timer = setTimeout(() => {
       timedOut = true
