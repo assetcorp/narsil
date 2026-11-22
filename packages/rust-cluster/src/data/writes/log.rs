@@ -76,12 +76,18 @@ impl ReplicationLog {
         )
     }
 
-    pub(super) fn term_at(&self, seq_no: u64) -> Option<u64> {
+    pub(super) fn entry_at(&self, seq_no: u64) -> Option<&ReplicatedEntry> {
         let (first, _) = self.entries.front()?;
         let offset = usize::try_from(seq_no.checked_sub(first.seq_no)?).ok()?;
-        self.entries
-            .get(offset)
-            .map(|(entry, _)| entry.primary_term)
+        self.entries.get(offset).map(|(entry, _)| entry)
+    }
+
+    pub(super) fn term_at(&self, seq_no: u64) -> Option<u64> {
+        self.entry_at(seq_no).map(|entry| entry.primary_term)
+    }
+
+    pub(super) fn oldest_seq_no(&self) -> Option<u64> {
+        self.entries.front().map(|(entry, _)| entry.seq_no)
     }
 
     pub(super) fn advance_commit_point(&mut self, seq_no: u64) {

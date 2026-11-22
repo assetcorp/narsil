@@ -127,6 +127,9 @@ impl DataRole {
             message_types::CLUSTER_PARTITION_STORES
                 | message_types::REPLICATION_FORWARD
                 | message_types::REPLICATION_FORWARD_BATCH
+                | message_types::REPLICATION_ENTRY
+                | message_types::REPLICATION_ENTRY_BATCH
+                | message_types::REPLICATION_TERM_START
         )
     }
 
@@ -138,6 +141,16 @@ impl DataRole {
             },
             message_types::REPLICATION_FORWARD_BATCH => match self.primary_writes() {
                 Ok(writes) => writes.answer_forward_batch(&message).await,
+                Err(error) => refusal(&message, &self.node_id, &error),
+            },
+            message_types::REPLICATION_ENTRY | message_types::REPLICATION_ENTRY_BATCH => {
+                match self.primary_writes() {
+                    Ok(writes) => writes.answer_entries(&message).await,
+                    Err(error) => refusal(&message, &self.node_id, &error),
+                }
+            }
+            message_types::REPLICATION_TERM_START => match self.primary_writes() {
+                Ok(writes) => writes.answer_term_start(&message).await,
                 Err(error) => refusal(&message, &self.node_id, &error),
             },
             _ => match self.answer_partition_stores(&message).await {

@@ -1,5 +1,6 @@
 use narsil::replication::{
-    CopyPosition, HeldTerm, PartitionCopies, PrimaryLimits, PrimaryRun, PrimaryWrite, WriteRecord,
+    AppliedRun, CopyPosition, HeldTerm, PartitionCopies, PrimaryLimits, PrimaryRun, PrimaryWrite,
+    ReplicatedEntry, WriteRecord,
 };
 use narsil::{Map, NarsilError};
 
@@ -23,6 +24,19 @@ impl LocalCopies {
             writes,
             limits,
         )?)
+    }
+
+    pub(super) fn replica_append(
+        &self,
+        index_name: &str,
+        partition_id: u32,
+        entries: &[ReplicatedEntry],
+    ) -> ClusterResult<(AppliedRun, Option<NarsilError>)> {
+        self.refuse_orphaned(index_name)?;
+        let copies = PartitionCopies::new(&self.engine);
+        let applied = copies.append(index_name, partition_id, entries)?;
+        let failure = copies.failure(index_name, partition_id)?;
+        Ok((applied, failure))
     }
 
     pub(super) fn held_term(

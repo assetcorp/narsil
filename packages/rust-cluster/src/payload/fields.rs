@@ -27,6 +27,10 @@ pub(crate) fn fields_of<'a, const N: usize>(
 }
 
 impl<'a> Field<'a> {
+    pub(crate) fn has_key(self) -> bool {
+        self.raw.is_some()
+    }
+
     pub(crate) fn present(self) -> Option<&'a [u8]> {
         self.raw.filter(|raw| *raw != NIL)
     }

@@ -2,6 +2,7 @@ pub(crate) mod ack;
 pub(crate) mod entry;
 pub(crate) mod fields;
 pub(crate) mod forward;
+pub(crate) mod replica;
 pub(crate) mod term_start;
 
 use narsil::Value;
