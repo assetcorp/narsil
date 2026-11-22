@@ -40,22 +40,28 @@ pub(super) fn lost_every_attempt(index_name: &str) -> ClusterError {
 
 impl Inner {
     pub(super) fn schedule_allocation(self: &Arc<Self>, delay_ms: u64) {
+        let due = tokio::time::Instant::now() + Duration::from_millis(delay_ms);
         let sequence = self.next_sequence();
         let inner = Arc::clone(self);
         let mut state = lock(&self.state);
+        if state.debounce.is_some() && state.debounce_due.is_some_and(|pending| pending <= due) {
+            return;
+        }
         if let Some((_, previous)) = state.debounce.take() {
             previous.abort();
         }
+        state.debounce_due = Some(due);
         state.debounce = Some((
             sequence,
             tokio::spawn(async move {
-                tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+                tokio::time::sleep_until(due).await;
                 {
                     let mut state = lock(&inner.state);
                     if state.debounce.as_ref().map(|(queued, _)| *queued) != Some(sequence) {
                         return;
                     }
                     state.debounce = None;
+                    state.debounce_due = None;
                 }
                 tokio::spawn(inner.run_all_indexes_task());
             }),

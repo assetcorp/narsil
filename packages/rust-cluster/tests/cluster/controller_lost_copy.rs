@@ -20,7 +20,7 @@ const NEWER_MAJOR_VERSION: &str = "2.0";
 const STANDBY_RETRY_MS: u64 = 100;
 const NOTHING_CHANGES_FOR: Duration = Duration::from_secs(4);
 
-fn active_assignment(primary: &str) -> Map {
+pub(crate) fn active_assignment(primary: &str) -> Map {
     let mut assignment = Map::new();
     assignment.insert("primary", Value::from(primary));
     assignment.insert("replicas", Value::Array(Vec::new()));
@@ -47,7 +47,7 @@ async fn store_ledger_led_by_a_departed_node(coordinator: &EtcdCoordinator) {
         .expect("etcd takes the table");
 }
 
-fn registration(node_id: &str, roles: &[&str], version: &str) -> NodeRegistration {
+pub(crate) fn registration(node_id: &str, roles: &[&str], version: &str) -> NodeRegistration {
     NodeRegistration {
         node_id: node_id.to_string(),
         address: "127.0.0.1:9".to_string(),
@@ -59,13 +59,13 @@ fn registration(node_id: &str, roles: &[&str], version: &str) -> NodeRegistratio
     }
 }
 
-struct Controller {
-    node: ClusterNode,
-    transport: Arc<TcpTransport>,
+pub(crate) struct Controller {
+    pub(crate) node: ClusterNode,
+    pub(crate) transport: Arc<TcpTransport>,
     reported: Arc<Mutex<Vec<ClusterError>>>,
 }
 
-async fn start_controller(coordinator: &Arc<EtcdCoordinator>) -> Controller {
+pub(crate) async fn start_controller(coordinator: &Arc<EtcdCoordinator>) -> Controller {
     let transport = Arc::new(
         TcpTransport::new(
             CONTROLLER,
