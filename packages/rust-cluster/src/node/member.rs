@@ -18,7 +18,7 @@ use crate::coordinator::NodeRegistration;
 use crate::coordinator::etcd::EtcdCoordinator;
 use crate::data::DataRole;
 use crate::error::{ClusterError, ClusterResult, codes};
-use crate::message::{TransportMessage, message_types, refusal};
+use crate::message::{TransportMessage, is_specified_message_type, message_types, refusal};
 use crate::node::NodeErrorHandler;
 use crate::routing::WriteRouter;
 use crate::transport::{BoxFuture, Listening, NodeTransport, Respond, listen_handler};
@@ -192,10 +192,10 @@ impl NodeInner {
                 }
             };
         }
-        let recognised = DataRole::answers(&message.message_type);
+        let answered = DataRole::answers(&message.message_type);
         match &self.data {
-            Some(data) if joined && recognised => data.answer(message, respond).await,
-            _ if joined && !recognised => {}
+            Some(data) if joined && answered => data.answer(message, respond).await,
+            _ if joined && !is_specified_message_type(&message.message_type) => {}
             _ => {
                 respond
                     .send(refusal(&message, node_id, &not_ready(node_id)))

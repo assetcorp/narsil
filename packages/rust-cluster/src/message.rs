@@ -12,6 +12,63 @@ pub const CARRIER_ERROR_TYPE: &str = "error";
 /// The suffix that a node adds to a request's `type` to name its refusal of that request.
 pub const ERROR_TYPE_SUFFIX: &str = ".error";
 
+const SPECIFIED_MESSAGE_TYPES: [&str; 50] = [
+    "cluster.backup",
+    "cluster.backup_delete",
+    "cluster.backup_partition",
+    "cluster.backup_restore",
+    "cluster.bootstrap_complete",
+    "cluster.index_settings",
+    "cluster.partition_stores",
+    "cluster.ping",
+    "cluster.pong",
+    "cluster.rebalance",
+    "cluster.rebuild_analysis",
+    "cluster.replication_factor",
+    "cluster.reshard_cutover",
+    "cluster.reshard_forward",
+    "cluster.reshard_purge",
+    "cluster.reshard_start",
+    "cluster.restore_partition",
+    "query.count",
+    "query.count_result",
+    "query.fetch",
+    "query.fetch_result",
+    "query.list",
+    "query.list_result",
+    "query.preflight",
+    "query.preflight_result",
+    "query.search",
+    "query.search_result",
+    "query.stats",
+    "query.stats_result",
+    "query.suggest",
+    "query.suggest_result",
+    "replication.ack",
+    "replication.entry",
+    "replication.entry_batch",
+    "replication.forward",
+    "replication.forward_batch",
+    "replication.insync_add",
+    "replication.insync_confirm",
+    "replication.insync_remove",
+    "replication.primary_resign",
+    "replication.snapshot_chunk",
+    "replication.snapshot_end",
+    "replication.snapshot_start",
+    "replication.sync_entries",
+    "replication.sync_request",
+    "replication.term_start",
+    "replication.term_start_ack",
+    "suggestions.build",
+    "suggestions.counts",
+    "sync.read",
+];
+
+pub(crate) fn is_specified_message_type(message_type: &str) -> bool {
+    SPECIFIED_MESSAGE_TYPES.contains(&message_type)
+}
+
 /// The message types of `packages/spec/distribution/transport.md` that a node of this crate sends or answers.
 pub mod message_types {
     /// A health check, which any node answers with a `cluster.pong`.
