@@ -49,11 +49,10 @@ export function emptyHistory(): AttemptHistory {
 }
 
 export function recordAttempt(history: AttemptHistory, error: unknown): void {
+  const endedTermFirst = !history.interrupted && history.abandonedAttempt === undefined
+  if (endedTermFirst && error instanceof NarsilError && abandonedWithTerm(error)) history.abandonedAttempt = error
   history.interrupted ||= forwardInterrupted(error)
   history.mayHaveApplied ||= !cannotHaveApplied(error)
-  if (history.abandonedAttempt === undefined && error instanceof NarsilError && abandonedWithTerm(error)) {
-    history.abandonedAttempt = error
-  }
 }
 
 export function finalError<E>(
@@ -62,5 +61,6 @@ export function finalError<E>(
   docId: string,
   error: E,
 ): E | NarsilError {
+  if (history?.abandonedAttempt !== undefined) return history.abandonedAttempt
   return history?.interrupted === true ? interruptedOutcome(indexName, docId, error) : error
 }
