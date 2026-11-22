@@ -32,7 +32,7 @@ jobs:
         run: cargo clippy --all-targets --locked -- -D warnings
 
   test:
-    name: Test on ${{ matrix.label }}
+    name: Test on ${{ matrix.label }}, part ${{ matrix.shard }} of ${{ matrix.parts }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 10
     strategy:
@@ -40,12 +40,18 @@ jobs:
       matrix:
         include: >-
           ${{ fromJSON(github.event_name == 'push' && '[
-          {"label": "linux-x64", "runner": "ubuntu-latest"},
-          {"label": "win32-x64", "runner": "windows-latest"}
+          {"label": "linux-x64", "runner": "ubuntu-latest", "parts": 1, "shard": 1},
+          {"label": "win32-x64", "runner": "windows-latest", "parts": 4, "shard": 1},
+          {"label": "win32-x64", "runner": "windows-latest", "parts": 4, "shard": 2},
+          {"label": "win32-x64", "runner": "windows-latest", "parts": 4, "shard": 3},
+          {"label": "win32-x64", "runner": "windows-latest", "parts": 4, "shard": 4}
           ]' || '[
-          {"label": "linux-x64", "runner": "ubuntu-latest"},
-          {"label": "darwin-arm64", "runner": "macos-15"},
-          {"label": "win32-x64", "runner": "windows-latest"}
+          {"label": "linux-x64", "runner": "ubuntu-latest", "parts": 1, "shard": 1},
+          {"label": "darwin-arm64", "runner": "macos-15", "parts": 1, "shard": 1},
+          {"label": "win32-x64", "runner": "windows-latest", "parts": 4, "shard": 1},
+          {"label": "win32-x64", "runner": "windows-latest", "parts": 4, "shard": 2},
+          {"label": "win32-x64", "runner": "windows-latest", "parts": 4, "shard": 3},
+          {"label": "win32-x64", "runner": "windows-latest", "parts": 4, "shard": 4}
           ]') }}
     services:
       etcd:
@@ -61,6 +67,17 @@ jobs:
           --initial-cluster node1=http://127.0.0.1:2380
         ports:
           - 2379:2379
+
+    env:
+      PART_1_TESTS: >-
+        admission_under_writes chained_resend client_writes controller_election_recovery controller_lost_copy
+        copy_failure data_node_adopted_settings data_node_allocation data_node_local_copies
+      PART_2_TESTS: >-
+        etcd_endpoints etcd_lease_lifetime etcd_prefixes etcd_revoked_registration etcd_shutdown
+        etcd_watch_cancellation etcd_watch_stop grpc_goaway_drain grpc_hostile_peers
+      PART_3_TESTS: >-
+        killed_batch killed_primary lost_copy_wait mixed_catch_up mixed_failover mixed_settings mixed_writes
+        not_primary_details primary_writes
 
     steps:
       - name: Checkout
@@ -92,10 +109,49 @@ jobs:
         run: rustup toolchain install
 
       - name: Test against the TypeScript transports and etcd
+        if: matrix.parts == 1
         working-directory: packages/rust-cluster
         env:
           NARSIL_ETCD_ENDPOINT: ${{ matrix.label == 'linux-x64' && 'http://127.0.0.1:2379' || '' }}
         run: cargo test --locked --no-fail-fast
+
+      - name: Test part ${{ matrix.shard }} of ${{ matrix.parts }} against the TypeScript transports
+        if: matrix.parts != 1
+        working-directory: packages/rust-cluster
+        shell: bash
+        env:
+          PART: ${{ matrix.shard }}
+          PARTS: ${{ matrix.parts }}
+        run: |
+          case "$PARTS/$PART" in
+            4/1) selection=listed names="$PART_1_TESTS" ;;
+            4/2) selection=listed names="$PART_2_TESTS" ;;
+            4/3) selection=listed names="$PART_3_TESTS" ;;
+            4/4) selection=unlisted names="$PART_1_TESTS $PART_2_TESTS $PART_3_TESTS" ;;
+            *) echo "The workflow selects no tests for part $PART of $PARTS" >&2; exit 1 ;;
+          esac
+          if [ "$selection" = listed ]; then
+            read -ra targets <<< "$names"
+          else
+            listed=" $names "
+            declared="$(cargo metadata --locked --no-deps --format-version 1 | node -e 'const chunks = []; process.stdin.on("data", chunk => chunks.push(chunk)).on("end", () => { for (const target of JSON.parse(Buffer.concat(chunks).toString("utf8")).packages.flatMap(entry => entry.targets)) if (target.kind.includes("test")) console.log(target.name) })' | tr -d '\r')"
+            targets=()
+            while read -r target; do
+              [ -z "$target" ] || [[ "$listed" == *" $target "* ]] || targets+=("$target")
+            done <<< "$declared"
+          fi
+          if [ "${#targets[@]}" -eq 0 ]; then
+            echo "Part $PART of $PARTS selects no test target" >&2
+            exit 1
+          fi
+          arguments=()
+          for target in "${targets[@]}"; do arguments+=(--test "$target"); done
+          if [ "$PART" = "$PARTS" ]; then
+            cargo test --locked --no-fail-fast --lib "${arguments[@]}"
+            cargo test --locked --no-fail-fast --doc
+          else
+            cargo test --locked --no-fail-fast "${arguments[@]}"
+          fi
 
   mixed-cluster:
     name: A Rust node beside a TypeScript node
