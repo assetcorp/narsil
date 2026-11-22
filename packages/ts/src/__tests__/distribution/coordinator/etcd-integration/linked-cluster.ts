@@ -14,13 +14,21 @@ import { type LinkProxy, startLinkProxy } from './link-proxy'
 export interface LinkedMember {
   node: ClusterNode
   peerLink: LinkProxy
+  coordinatorLink: LinkProxy
   errors: NarsilError[]
+  started: Promise<void>
   stop(): Promise<void>
+}
+
+export interface MemberStorage {
+  storage?: string | null
 }
 
 export interface LinkedCluster {
   observer: ClusterCoordinator
-  start(nodeId: string, roles: ClusterNode['roles']): Promise<LinkedMember>
+  start(nodeId: string, roles: ClusterNode['roles'], storage?: MemberStorage): Promise<LinkedMember>
+  launch(nodeId: string, roles: ClusterNode['roles'], storage?: MemberStorage): Promise<LinkedMember>
+  directoryOf(storage: string): string
   waitForPartitions(
     indexName: string,
     accepts: (assignment: PartitionAssignment) => boolean,
@@ -36,12 +44,23 @@ export async function createLinkedCluster(endpoint: string): Promise<LinkedClust
   const directory = await mkdtemp(join(tmpdir(), 'narsil-linked-cluster-'))
   const members: LinkedMember[] = []
 
-  async function start(nodeId: string, roles: ClusterNode['roles']): Promise<LinkedMember> {
+  function directoryOf(storage: string): string {
+    return join(directory, storage)
+  }
+
+  async function launch(
+    nodeId: string,
+    roles: ClusterNode['roles'],
+    { storage }: MemberStorage = {},
+  ): Promise<LinkedMember> {
     const port = await getAvailablePort()
     const peerLink = await startLinkProxy(new URL(`http://127.0.0.1:${port}`))
-    const coordinator = await createEtcdCoordinator({ endpoints: [endpoint], keyPrefix })
+    const coordinatorLink = await startLinkProxy(new URL(endpoint))
+    const coordinator = await createEtcdCoordinator({ endpoints: [coordinatorLink.endpoint], keyPrefix })
     const transport = createTcpTransport(nodeId, { host: '127.0.0.1', port })
     const errors: NarsilError[] = []
+    const durability =
+      storage === null ? {} : { durability: { directory: directoryOf(storage ?? nodeId), mode: 'sync' as const } }
     const node = await createClusterNode({
       coordinator,
       transport,
@@ -49,7 +68,7 @@ export async function createLinkedCluster(endpoint: string): Promise<LinkedClust
       address: new URL(peerLink.endpoint).host,
       roles: [...roles],
       controller: { nodeLeftDelayMs: 0 },
-      engine: { workers: { enabled: false }, durability: { directory: join(directory, nodeId), mode: 'sync' } },
+      engine: { workers: { enabled: false }, ...durability },
       onError: error => {
         if (error instanceof NarsilError) errors.push(error)
       },
@@ -60,24 +79,36 @@ export async function createLinkedCluster(endpoint: string): Promise<LinkedClust
       await transport.shutdown()
       await coordinator.shutdown()
       await peerLink.close()
+      await coordinatorLink.close()
     }
+    const started = node.start()
+    started.catch(() => undefined)
     const member: LinkedMember = {
       node,
       peerLink,
+      coordinatorLink,
       errors,
+      started,
       stop() {
         stopping ??= release()
         return stopping
       },
     }
     members.push(member)
-    await node.start()
+    return member
+  }
+
+  async function start(nodeId: string, roles: ClusterNode['roles'], storage?: MemberStorage): Promise<LinkedMember> {
+    const member = await launch(nodeId, roles, storage)
+    await member.started
     return member
   }
 
   return {
     observer,
     start,
+    launch,
+    directoryOf,
     async waitForPartitions(indexName, accepts, timeoutMs, description) {
       let assignments: PartitionAssignment[] = []
       await eventually(

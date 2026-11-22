@@ -111,7 +111,10 @@ export async function startEventLoop(
     for (const indexName of await coordinator.listSchemas()) {
       state.knownIndexes.add(indexName)
     }
-  } catch (_) {}
+    state.schemasListed = true
+  } catch (_) {
+    state.schemasListed = false
+  }
 
   scheduleDebouncedAllocation(state, coordinator, isActive, onError)
   resumeRebalances({ state, coordinator, nodeId, isActive, onError }).catch(error => onError?.('', error))

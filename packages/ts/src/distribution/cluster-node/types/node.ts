@@ -368,6 +368,12 @@ export interface ClusterNode extends ClusterNodeSearchSettings, ClusterNodeSyncS
    * The start fails with `NODE_VERSION_INCOMPATIBLE` where the active controller follows a specification version
    * with another major version, because nodes on different major versions cannot share a cluster. A node that finds
    * no active controller joins, and a later controller on another major version gives it no partition.
+   *
+   * Where the node lacks a copy that the allocation table assigns to it as the primary or as an in-sync replica, the
+   * node reports `NODE_COPY_MISSING` to `onError` for that copy and waits until the controller fails the copy over,
+   * so that an empty copy never replaces the data that the cluster acknowledged. A node with the `controller` role
+   * stands for election while it waits. {@link ClusterNode.shutdown} ends the wait, and the start then rejects with
+   * `NODE_NOT_JOINED`.
    */
   start(): Promise<void>
   /**

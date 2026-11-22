@@ -21,6 +21,9 @@ export interface EventLoopState {
   rebalanceEpoch: number
   unwatchMetadata: (() => void) | null
   analysisDrivers: Map<string, { again: boolean }>
+  schemasListed: boolean
+  indexesAwaitingHolders: Set<string>
+  holderRetryTimer: ReturnType<typeof setTimeout> | null
 }
 
 /**
@@ -54,6 +57,9 @@ export function createEventLoopState(
     rebalanceEpoch: 0,
     unwatchMetadata: null,
     analysisDrivers: new Map(),
+    schemasListed: false,
+    indexesAwaitingHolders: new Set(),
+    holderRetryTimer: null,
   }
 }
 
@@ -98,6 +104,12 @@ export function clearEventLoopWatchers(state: EventLoopState): void {
   state.unwatchMetadata?.()
   state.unwatchMetadata = null
   state.analysisDrivers.clear()
+  if (state.holderRetryTimer !== null) {
+    clearTimeout(state.holderRetryTimer)
+    state.holderRetryTimer = null
+  }
+  state.indexesAwaitingHolders.clear()
+  state.schemasListed = false
 }
 
 export function inSchemaQueue(state: EventLoopState, indexName: string, task: () => Promise<void>): Promise<void> {

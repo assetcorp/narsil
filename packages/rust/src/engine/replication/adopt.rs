@@ -104,11 +104,7 @@ impl PartitionCopies<'_> {
             metadata.set_index_uuid(uuid);
             log.write_recorded(metadata)?;
         }
-        state.attach_replicated_copy(ReplicatedCopy::new(
-            uuid.to_string(),
-            Vec::new(),
-            partitions,
-        ));
+        state.attach_replicated_copy(ReplicatedCopy::new(uuid.to_string(), None, partitions));
         Ok(())
     }
 
@@ -127,7 +123,7 @@ impl PartitionCopies<'_> {
                 format!("Index \"{index}\" cannot hold a partition that it lacks"),
             ));
         }
-        if held == copy.held() {
+        if copy.held().as_ref() == Some(&held) {
             return Ok(());
         }
         if let Some(log) = state.log() {

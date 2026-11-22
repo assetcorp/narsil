@@ -4,9 +4,9 @@ use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use narsil::{DurabilityConfig, DurabilityMode, Map, NarsilConfig};
+use narsil::{DurabilityConfig, DurabilityMode, Map, NarsilConfig, Value};
 use narsil_cluster::SPEC_VERSION;
 use narsil_cluster::coordinator::etcd::{EtcdCoordinator, EtcdCoordinatorConfig};
 use narsil_cluster::coordinator::{NodeCapacity, NodeRegistration};
@@ -16,6 +16,9 @@ use narsil_cluster::transport::NodeTransport;
 use narsil_cluster::transport::tcp::{TcpTransport, TcpTransportConfig};
 
 use crate::support::{write_map_header, write_text, write_unsigned};
+
+const SETTLE_WAIT: Duration = Duration::from_secs(30);
+const SETTLE_POLL: Duration = Duration::from_millis(50);
 
 static NEXT_SERIAL: AtomicU64 = AtomicU64::new(0);
 
@@ -100,6 +103,66 @@ pub fn metadata_record(
     out
 }
 
+pub fn title_schema() -> Value {
+    let mut fields = Map::new();
+    fields.insert("title", Value::from("string"));
+    Value::Object(fields)
+}
+
+pub async fn create_cluster_index(
+    coordinator: &EtcdCoordinator,
+    index: &str,
+    uuid: &str,
+    partitions: u64,
+    replication_factor: u64,
+) {
+    let record = metadata_record(index, uuid, partitions, replication_factor);
+    assert!(
+        coordinator
+            .compare_and_set(&metadata_key(index), None, &record)
+            .await
+            .expect("etcd takes the metadata")
+    );
+    coordinator
+        .put_schema(index, &title_schema())
+        .await
+        .expect("etcd takes the schema");
+}
+
+pub async fn eventually<F, Fut>(what: &str, mut check: F)
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = bool>,
+{
+    let deadline = Instant::now() + SETTLE_WAIT;
+    while !check().await {
+        assert!(Instant::now() < deadline, "timed out waiting until {what}");
+        tokio::time::sleep(SETTLE_POLL).await;
+    }
+}
+
+pub async fn is_served_by(
+    coordinator: &EtcdCoordinator,
+    index: &str,
+    uuid: &str,
+    partitions: usize,
+    primary: &str,
+) -> bool {
+    let Some(table) = coordinator
+        .allocation(index)
+        .await
+        .expect("etcd answers for the table")
+    else {
+        return false;
+    };
+    table.index_uuid.as_deref() == Some(uuid)
+        && table.assignments.len() == partitions
+        && table.assignments.iter().all(|(_, assignment)| {
+            assignment.get("state").and_then(Value::as_str) == Some("ACTIVE")
+                && assignment.get("primary").and_then(Value::as_str) == Some(primary)
+        })
+}
+
 fn free_port() -> u16 {
     TcpListener::bind(("127.0.0.1", 0))
         .and_then(|listener| listener.local_addr())
@@ -120,6 +183,15 @@ impl DataNode {
         node_id: &str,
         directory: &Path,
     ) -> DataNode {
+        DataNode::start_with_roles(coordinator, node_id, directory, &["data"]).await
+    }
+
+    pub async fn start_with_roles(
+        coordinator: &Arc<EtcdCoordinator>,
+        node_id: &str,
+        directory: &Path,
+        roles: &[&str],
+    ) -> DataNode {
         let port = free_port();
         let address = format!("127.0.0.1:{port}");
         let transport = Arc::new(
@@ -139,7 +211,7 @@ impl DataNode {
             NodeRegistration {
                 node_id: node_id.to_string(),
                 address: address.clone(),
-                roles: vec!["data".to_string()],
+                roles: roles.iter().map(|role| role.to_string()).collect(),
                 capacity: NodeCapacity::default(),
                 started_at: next_started_at(),
                 version: SPEC_VERSION.to_string(),

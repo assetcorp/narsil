@@ -11,11 +11,13 @@ import { applyStoredSynonyms } from './synonym-sets'
  * `adopted` means the cluster owns this copy, `superseded` means the cluster
  * replaced it under the same name and the node dropped it, and `orphaned`
  * means the coordinator knows nothing about the name, so the node keeps the
- * data and serves none of it.
+ * data and serves none of it. `unreadable` means a read from the coordinator
+ * failed, so the node treats the copy as orphaned and settles it again while it
+ * waits to register.
  *
  * @public
  */
-export type LocalIndexDisposition = 'adopted' | 'superseded' | 'orphaned'
+export type LocalIndexDisposition = 'adopted' | 'superseded' | 'orphaned' | 'unreadable'
 
 /**
  * The pieces a join-time reconciliation reads and changes.
@@ -68,11 +70,39 @@ export async function settleLocalIndexes(
   deps: LocalIndexReconcileDeps,
   orphaned: Set<string>,
   settleAdopted: (indexName: string) => Promise<unknown>,
-): Promise<void> {
+): Promise<Set<string>> {
+  const unreadable = new Set<string>()
   for (const [indexName, disposition] of await reconcileLocalIndexes(deps)) {
-    if (disposition === 'orphaned') orphaned.add(indexName)
-    else if (disposition === 'adopted') await settleAdopted(indexName)
+    if (disposition === 'adopted') await settleAdopted(indexName)
+    if (disposition === 'orphaned' || disposition === 'unreadable') orphaned.add(indexName)
+    if (disposition === 'unreadable') unreadable.add(indexName)
   }
+  return unreadable
+}
+
+export async function settleUnreadableIndexes(
+  deps: LocalIndexReconcileDeps,
+  orphaned: Set<string>,
+  unreadable: Set<string>,
+  settleAdopted: (indexName: string) => Promise<unknown>,
+): Promise<void> {
+  let failure: { error: unknown } | null = null
+  for (const indexName of [...unreadable]) {
+    try {
+      if (!deps.engine.listIndexes().some(index => index.name === indexName)) {
+        unreadable.delete(indexName)
+        continue
+      }
+      const disposition = await reconcileOne({ ...deps, onError: undefined }, indexName)
+      if (disposition === 'unreadable') continue
+      if (disposition === 'adopted') await settleAdopted(indexName)
+      if (disposition !== 'orphaned') orphaned.delete(indexName)
+      unreadable.delete(indexName)
+    } catch (error) {
+      failure ??= { error }
+    }
+  }
+  if (failure !== null) throw failure.error
 }
 
 /**
@@ -143,12 +173,12 @@ async function reconcileOne(deps: LocalIndexReconcileDeps, indexName: string): P
   try {
     clusterUuid = (await getIndexMetadata(deps.coordinator, indexName))?.indexUuid ?? null
   } catch (error) {
-    report(deps, indexName, `its metadata could not be read: ${describeError(error)}`)
-    return 'orphaned'
+    reportUnreadable(deps, indexName, `its metadata could not be read: ${describeError(error)}`)
+    return 'unreadable'
   }
 
   if (clusterUuid === null) {
-    report(deps, indexName, 'the coordinator holds no metadata for that name')
+    reportUnclaimed(deps, indexName)
     return 'orphaned'
   }
 
@@ -162,8 +192,8 @@ async function reconcileOne(deps: LocalIndexReconcileDeps, indexName: string): P
   try {
     await applyStoredSynonyms(deps.engine, deps.coordinator, indexName, clusterUuid)
   } catch (error) {
-    report(deps, indexName, `its synonym set could not be read: ${describeError(error)}`)
-    return 'orphaned'
+    reportUnreadable(deps, indexName, `its synonym set could not be read: ${describeError(error)}`)
+    return 'unreadable'
   }
   try {
     const stored = await readIndexMetadataSnapshot(deps.coordinator, indexName)
@@ -171,21 +201,31 @@ async function reconcileOne(deps: LocalIndexReconcileDeps, indexName: string): P
       await deps.engine.applyStoredBm25(indexName, () => ({ bm25: stored.settings?.bm25 }))
     }
   } catch (error) {
-    report(deps, indexName, `its BM25 setting could not be read: ${describeError(error)}`)
-    return 'orphaned'
+    reportUnreadable(deps, indexName, `its BM25 setting could not be read: ${describeError(error)}`)
+    return 'unreadable'
   }
   return 'adopted'
 }
 
-function report(deps: LocalIndexReconcileDeps, indexName: string, reason: string): void {
+function reportUnclaimed(deps: LocalIndexReconcileDeps, indexName: string): void {
+  reportOrphaned(
+    deps,
+    indexName,
+    `Node '${deps.nodeId}' holds a local copy of index '${indexName}' the cluster does not claim, because the coordinator holds no metadata for that name. The node keeps the data and serves none of it until an operator drops it.`,
+  )
+}
+
+function reportUnreadable(deps: LocalIndexReconcileDeps, indexName: string, reason: string): void {
+  reportOrphaned(
+    deps,
+    indexName,
+    `Node '${deps.nodeId}' can't confirm that the cluster claims its local copy of index '${indexName}', because ${reason}. The node keeps the data and serves none of it until it settles the copy before it registers or at a later start, so keep the copy.`,
+  )
+}
+
+function reportOrphaned(deps: LocalIndexReconcileDeps, indexName: string, message: string): void {
   if (deps.onError === undefined) {
     return
   }
-  deps.onError(
-    new NarsilError(
-      ErrorCodes.INDEX_ORPHANED,
-      `Node '${deps.nodeId}' holds a local copy of index '${indexName}' the cluster does not claim, because ${reason}. The node keeps the data and serves none of it until an operator drops it.`,
-      { indexName, nodeId: deps.nodeId },
-    ),
-  )
+  deps.onError(new NarsilError(ErrorCodes.INDEX_ORPHANED, message, { indexName, nodeId: deps.nodeId }))
 }

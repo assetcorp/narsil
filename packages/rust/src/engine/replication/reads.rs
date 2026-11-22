@@ -14,13 +14,11 @@ impl PartitionCopies<'_> {
         Ok(self.engine.open_index(index)?.partitions().len())
     }
 
-    /// Returns the partitions that the node recorded as held, in ascending order.
-    pub fn held_partitions(&self, index: &str) -> Result<Vec<u32>> {
+    /// Returns the partitions that the node recorded as held, in ascending order, or `None` where the index
+    /// records no such list, which differs from a list that holds no partition.
+    pub fn held_partitions(&self, index: &str) -> Result<Option<Vec<u32>>> {
         let state = self.engine.open_index(index)?;
-        Ok(state
-            .replicated_copy()
-            .map(|copy| copy.held())
-            .unwrap_or_default())
+        Ok(state.replicated_copy().and_then(|copy| copy.held()))
     }
 
     /// Returns the partitions that hold a document or an entry, in ascending order.

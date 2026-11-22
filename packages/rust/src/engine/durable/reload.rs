@@ -59,7 +59,7 @@ pub(crate) fn stored_partition(
         None => Vec::new(),
     };
     let uuid = metadata.index_uuid().unwrap_or_default().to_string();
-    let copy = ReplicatedCopy::loaded(&stored, uuid, Vec::new(), &checkpoint)?;
+    let copy = ReplicatedCopy::loaded(&stored, uuid, None, &checkpoint)?;
     if let Some(store) = log.log_store() {
         let _writer = stored.write_lock();
         let mut visit = |entry: LogEntry| {

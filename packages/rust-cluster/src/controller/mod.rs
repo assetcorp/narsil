@@ -3,6 +3,7 @@ mod bootstrap;
 mod departures;
 mod election;
 mod event_loop;
+mod holder_retry;
 mod insync;
 mod messages;
 mod metadata;
@@ -14,6 +15,7 @@ mod settings;
 mod state;
 mod table;
 mod teardown;
+mod unplaceable_index;
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};

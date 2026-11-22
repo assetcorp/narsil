@@ -80,7 +80,7 @@ impl PartitionCopy {
 /// and the position, term history, and write records of each partition. A standalone index holds none of it.
 pub(crate) struct ReplicatedCopy {
     pub(crate) uuid: String,
-    held: Mutex<Vec<u32>>,
+    held: Mutex<Option<Vec<u32>>>,
     partitions: Vec<Mutex<PartitionCopy>>,
 }
 
@@ -135,7 +135,11 @@ fn saved_record(entry: &SegmentEntry, ordinal: u32) -> Result<Option<WriteRecord
 }
 
 impl ReplicatedCopy {
-    pub(crate) fn new(uuid: String, held: Vec<u32>, partitions: Vec<PartitionCopy>) -> Self {
+    pub(crate) fn new(
+        uuid: String,
+        held: Option<Vec<u32>>,
+        partitions: Vec<PartitionCopy>,
+    ) -> Self {
         ReplicatedCopy {
             uuid,
             held: Mutex::new(held),
@@ -148,7 +152,7 @@ impl ReplicatedCopy {
     pub(crate) fn loaded(
         index: &IndexState,
         uuid: String,
-        held: Vec<u32>,
+        held: Option<Vec<u32>>,
         checkpoint: &[PartitionCheckpoint],
     ) -> Result<ReplicatedCopy> {
         let partitions = index.partitions();
@@ -195,12 +199,12 @@ impl ReplicatedCopy {
         self.partitions.len()
     }
 
-    pub(crate) fn held(&self) -> Vec<u32> {
+    pub(crate) fn held(&self) -> Option<Vec<u32>> {
         guarded(&self.held).clone()
     }
 
     pub(crate) fn hold(&self, held: Vec<u32>) {
-        *guarded(&self.held) = held;
+        *guarded(&self.held) = Some(held);
     }
 
     pub(crate) fn replayed(&self, partition: u32, entry: &LogEntry) {
