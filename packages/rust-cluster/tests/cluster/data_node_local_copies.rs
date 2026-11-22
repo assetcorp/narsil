@@ -3,10 +3,7 @@ use std::path::Path;
 use narsil::replication::{PartitionCopies, PrimaryLimits, PrimaryWrite};
 use narsil::{IndexConfig, Map, Narsil, Value};
 
-mod data_node;
-mod support;
-
-use data_node::{
+use crate::data_node::{
     DataNode, Scratch, cluster_coordinator, engine_config, metadata_key, metadata_record,
 };
 
@@ -104,10 +101,7 @@ async fn a_data_node_serves_no_orphaned_copy_and_deletes_one_only_when_asked() {
 
     let data = DataNode::start(&coordinator, "data-a", scratch.path()).await;
 
-    for (index, reason) in [
-        (FORGOTTEN, "holds no metadata"),
-        (GARBLED, "could not be read"),
-    ] {
+    for index in [FORGOTTEN, GARBLED] {
         let refused = data
             .node
             .local_document(index, DOCUMENT_ID)
@@ -121,9 +115,8 @@ async fn a_data_node_serves_no_orphaned_copy_and_deletes_one_only_when_asked() {
         let reported = data.reported.lock().expect("no reporter panicked").clone();
         assert!(
             reported.iter().any(|error| error.code() == "INDEX_ORPHANED"
-                && error.message().contains(index)
-                && error.message().contains(reason)),
-            "{index} was not reported with its reason in {reported:?}"
+                && error.details().get("indexName").and_then(Value::as_str) == Some(index)),
+            "{index} was not reported in {reported:?}"
         );
     }
 

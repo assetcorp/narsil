@@ -10,10 +10,7 @@ use narsil_cluster::node::{ClusterNode, ClusterNodeConfig};
 use narsil_cluster::transport::NodeTransport;
 use narsil_cluster::transport::tcp::{TcpTransport, TcpTransportConfig};
 
-mod data_node;
-mod support;
-
-use data_node::{cluster_coordinator, create_cluster_index, eventually};
+use crate::data_node::{cluster_coordinator, create_cluster_index, eventually};
 
 const LEDGER: &str = "ledger";
 const LEDGER_UUID: &str = "uuid-of-the-ledger";

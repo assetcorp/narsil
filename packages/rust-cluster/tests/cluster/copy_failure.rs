@@ -6,35 +6,23 @@ use narsil_cluster::coordinator::etcd::EtcdCoordinator;
 use narsil_cluster::transport::NodeTransport;
 use narsil_cluster::transport::tcp::TcpTransport;
 
-mod child_node;
-mod data_node;
-mod ledger;
-mod support;
-
-use child_node::{ChildNode, file_sizes, registered_address, serve_until_killed};
-use data_node::{
+use crate::child_node::{ChildNode, file_sizes, registered_address};
+use crate::data_node::{
     DataNode, Scratch, coordinator_at, create_cluster_index, etcd_endpoint, eventually,
     unique_key_prefix,
 };
-use ledger::{
+use crate::ledger::{
     FIRST_DATA_NODE, Forwarded, LEDGER, LEDGER_UUID, Ledger, SECOND_DATA_NODE, first_difference,
     forward_write, forwarder, placement, start_controller, title_of,
 };
-use support::Decoded;
+use crate::support::Decoded;
 
-const CHILD_TEST: &str = "a_data_node_that_serves_until_its_disk_refuses_writes";
 const PARENT_HEARTBEAT_TTL_SECONDS: u64 = 30;
 const OUTCOME_UNKNOWN: &str = "REPLICATION_OUTCOME_UNKNOWN";
 const TERM_ENDED: &str = "term_ended";
 const CONTESTED: &str = "contested-entry";
 const FIRST_TITLE: &str = "title-0";
 const SECOND_TITLE: &str = "title-1";
-
-#[tokio::test(flavor = "multi_thread")]
-#[ignore = "the copy-failure tests start this as a separate process and limit its file sizes"]
-async fn a_data_node_that_serves_until_its_disk_refuses_writes() {
-    serve_until_killed().await;
-}
 
 struct Cluster {
     coordinator: Arc<EtcdCoordinator>,
@@ -62,13 +50,7 @@ impl Cluster {
         let controller_scratch = Scratch::new();
         let controller = start_controller(&coordinator, &controller_scratch).await;
         let primary_scratch = Scratch::new();
-        let primary = ChildNode::spawn(
-            CHILD_TEST,
-            &endpoint,
-            &key_prefix,
-            FIRST_DATA_NODE,
-            &primary_scratch,
-        );
+        let primary = ChildNode::spawn(&endpoint, &key_prefix, FIRST_DATA_NODE, &primary_scratch);
         eventually("the primary's process registers its node", || async {
             registered_address(&coordinator, FIRST_DATA_NODE)
                 .await

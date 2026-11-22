@@ -40,24 +40,14 @@ jobs:
       matrix:
         include: >-
           ${{ fromJSON(github.event_name == 'push' && '[
-          {"label": "linux-x64", "runner": "ubuntu-latest", "parts": 4, "shard": 1},
-          {"label": "linux-x64", "runner": "ubuntu-latest", "parts": 4, "shard": 2},
-          {"label": "linux-x64", "runner": "ubuntu-latest", "parts": 4, "shard": 3},
-          {"label": "linux-x64", "runner": "ubuntu-latest", "parts": 4, "shard": 4},
-          {"label": "win32-x64", "runner": "windows-latest", "parts": 4, "shard": 1},
-          {"label": "win32-x64", "runner": "windows-latest", "parts": 4, "shard": 2},
-          {"label": "win32-x64", "runner": "windows-latest", "parts": 4, "shard": 3},
-          {"label": "win32-x64", "runner": "windows-latest", "parts": 4, "shard": 4}
+          {"label": "linux-x64", "runner": "ubuntu-latest", "parts": 1, "shard": 1},
+          {"label": "win32-x64", "runner": "windows-latest", "parts": 2, "shard": 1},
+          {"label": "win32-x64", "runner": "windows-latest", "parts": 2, "shard": 2}
           ]' || '[
-          {"label": "linux-x64", "runner": "ubuntu-latest", "parts": 4, "shard": 1},
-          {"label": "linux-x64", "runner": "ubuntu-latest", "parts": 4, "shard": 2},
-          {"label": "linux-x64", "runner": "ubuntu-latest", "parts": 4, "shard": 3},
-          {"label": "linux-x64", "runner": "ubuntu-latest", "parts": 4, "shard": 4},
+          {"label": "linux-x64", "runner": "ubuntu-latest", "parts": 1, "shard": 1},
           {"label": "darwin-arm64", "runner": "macos-15", "parts": 1, "shard": 1},
-          {"label": "win32-x64", "runner": "windows-latest", "parts": 4, "shard": 1},
-          {"label": "win32-x64", "runner": "windows-latest", "parts": 4, "shard": 2},
-          {"label": "win32-x64", "runner": "windows-latest", "parts": 4, "shard": 3},
-          {"label": "win32-x64", "runner": "windows-latest", "parts": 4, "shard": 4}
+          {"label": "win32-x64", "runner": "windows-latest", "parts": 2, "shard": 1},
+          {"label": "win32-x64", "runner": "windows-latest", "parts": 2, "shard": 2}
           ]') }}
     services:
       etcd:
@@ -75,15 +65,7 @@ jobs:
           - 2379:2379
 
     env:
-      PART_1_TESTS: >-
-        admission_under_writes chained_resend client_writes controller_election_recovery controller_lost_copy
-        copy_failure data_node_adopted_settings data_node_allocation data_node_local_copies
-      PART_2_TESTS: >-
-        etcd_endpoints etcd_lease_lifetime etcd_prefixes etcd_revoked_registration etcd_shutdown
-        etcd_watch_cancellation etcd_watch_stop grpc_goaway_drain grpc_hostile_peers
-      PART_3_TESTS: >-
-        killed_batch killed_primary lost_copy_wait mixed_catch_up mixed_failover mixed_settings mixed_writes
-        not_primary_details primary_writes
+      PART_1_TESTS: cluster
 
     steps:
       - name: Checkout
@@ -131,10 +113,8 @@ jobs:
           PARTS: ${{ matrix.parts }}
         run: |
           case "$PARTS/$PART" in
-            4/1) selection=listed names="$PART_1_TESTS" ;;
-            4/2) selection=listed names="$PART_2_TESTS" ;;
-            4/3) selection=listed names="$PART_3_TESTS" ;;
-            4/4) selection=unlisted names="$PART_1_TESTS $PART_2_TESTS $PART_3_TESTS" ;;
+            2/1) selection=listed names="$PART_1_TESTS" ;;
+            2/2) selection=unlisted names="$PART_1_TESTS" ;;
             *) echo "The workflow selects no tests for part $PART of $PARTS" >&2; exit 1 ;;
           esac
           if [ "$selection" = listed ]; then

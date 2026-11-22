@@ -1,11 +1,7 @@
 use narsil_cluster::transport::NodeTransport;
 
-mod data_node;
-mod ledger;
-mod support;
-
-use data_node::{Scratch, cluster_coordinator, create_cluster_index, eventually};
-use ledger::{
+use crate::data_node::{Scratch, cluster_coordinator, create_cluster_index, eventually};
+use crate::ledger::{
     FIRST_DATA_NODE, LEDGER, LEDGER_UUID, Ledger, Member, SECOND_DATA_NODE, document_ids,
     first_difference, placement, start_controller,
 };

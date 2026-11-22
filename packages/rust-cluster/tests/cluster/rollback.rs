@@ -2,12 +2,8 @@ use std::time::Duration;
 
 use narsil_cluster::transport::NodeTransport;
 
-mod data_node;
-mod ledger;
-mod support;
-
-use data_node::{Scratch, cluster_coordinator};
-use ledger::{
+use crate::data_node::{Scratch, cluster_coordinator};
+use crate::ledger::{
     Forwarded, Ledger, document_ids, first_difference, forward_insert, placement, start_cluster,
 };
 
@@ -34,7 +30,7 @@ async fn a_rust_primary_rolls_back_a_write_that_it_could_not_replicate_once_its_
     controller.stop().await;
     members[replica_at].stop().await;
     let primary_address = members[primary_at].data().address.clone();
-    let forwarder = ledger::forwarder();
+    let forwarder = crate::ledger::forwarder();
     let write = tokio::spawn(async move {
         let forwarded = forward_insert(&forwarder, &primary_address, ROLLED_BACK).await;
         forwarder.shutdown().await;

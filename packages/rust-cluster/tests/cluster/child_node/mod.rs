@@ -16,12 +16,19 @@ const CHILD_NODE_ID: &str = "NARSIL_CHILD_NODE_ID";
 const CHILD_HEARTBEAT_TTL_SECONDS: u64 = 2;
 const CHILD_HEARTBEAT_INTERVAL_MS: u64 = 500;
 const START_WITH_OVERSIZED_WRITES_IGNORED: &str = "trap '' XFSZ; exec \"$0\" \"$@\"";
+const CHILD_TEST: &str = "child_node::a_data_node_that_serves_until_its_process_is_killed";
 
 fn beat_often(settings: &mut ClusterNodeConfig) {
     settings.heartbeat_interval_ms = CHILD_HEARTBEAT_INTERVAL_MS;
 }
 
-pub async fn serve_until_killed() {
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "the tests that kill a data node or limit its file sizes start this as a separate process"]
+async fn a_data_node_that_serves_until_its_process_is_killed() {
+    serve_until_killed().await;
+}
+
+async fn serve_until_killed() {
     let (Ok(endpoint), Ok(key_prefix), Ok(directory), Ok(node_id)) = (
         std::env::var(CHILD_ENDPOINT),
         std::env::var(CHILD_KEY_PREFIX),
@@ -48,7 +55,6 @@ pub struct ChildNode {
 
 impl ChildNode {
     pub fn spawn(
-        child_test: &str,
         endpoint: &str,
         key_prefix: &str,
         node_id: &str,
@@ -59,7 +65,7 @@ impl ChildNode {
             .arg("-c")
             .arg(START_WITH_OVERSIZED_WRITES_IGNORED)
             .arg(test_binary)
-            .args([child_test, "--exact", "--ignored", "--test-threads=1"])
+            .args([CHILD_TEST, "--exact", "--ignored", "--test-threads=1"])
             .env(CHILD_ENDPOINT, endpoint)
             .env(CHILD_KEY_PREFIX, key_prefix)
             .env(CHILD_DIRECTORY, directory.path())

@@ -22,6 +22,7 @@ pub struct Outcomes {
     acknowledged: BTreeMap<String, String>,
     unsettled: Vec<(String, ClusterError)>,
     rounds_after_the_kill: Vec<WriteBatchResult>,
+    singles_after_the_kill: Vec<(String, Result<(), ClusterError>)>,
 }
 
 fn round_of(round: usize) -> Vec<Map> {
@@ -76,28 +77,81 @@ async fn write_rounds_past_the_kill(
     }
 }
 
+async fn write_singly_past_the_kill(
+    router: &DataNode,
+    writer: usize,
+    outcomes: &Mutex<Outcomes>,
+    killed: &AtomicBool,
+) {
+    for serial in 0.. {
+        let started_after_the_kill = killed.load(Ordering::Acquire);
+        let document_id = format!("single-{writer}-{serial}");
+        let mut document = Map::new();
+        document.insert("title", Value::from(title_of(&document_id)));
+        let answer = router
+            .node
+            .insert(LEDGER, document, Some(&document_id))
+            .await
+            .map(|_| ());
+        let mut outcomes = outcomes.lock().expect("no writer panicked");
+        match &answer {
+            Ok(()) => {
+                let title = title_of(&document_id);
+                outcomes.acknowledged.insert(document_id.clone(), title);
+            }
+            Err(error) => outcomes
+                .unsettled
+                .push((document_id.clone(), error.clone())),
+        }
+        if started_after_the_kill {
+            outcomes.singles_after_the_kill.push((document_id, answer));
+            return;
+        }
+    }
+}
+
+async fn kill_once_acknowledged(
+    outcomes: &Mutex<Outcomes>,
+    killed: &AtomicBool,
+    kill: impl Future<Output = ()>,
+) {
+    eventually("the primary acknowledges the first writes", || async {
+        outcomes
+            .lock()
+            .expect("no writer panicked")
+            .acknowledged
+            .len()
+            >= ACKNOWLEDGED_BEFORE_THE_KILL
+    })
+    .await;
+    killed.store(true, Ordering::Release);
+    kill.await;
+}
+
 pub async fn write_rounds_across_a_kill(
     router: &DataNode,
     kill: impl Future<Output = ()>,
 ) -> Outcomes {
     let outcomes = Mutex::new(Outcomes::default());
     let killed = AtomicBool::new(false);
-    let kill_mid_round = async {
-        eventually("the primary acknowledges the first rounds", || async {
-            outcomes
-                .lock()
-                .expect("no writer panicked")
-                .acknowledged
-                .len()
-                >= ACKNOWLEDGED_BEFORE_THE_KILL
-        })
-        .await;
-        killed.store(true, Ordering::Release);
-        kill.await;
-    };
     tokio::join!(
         write_rounds_past_the_kill(router, &outcomes, &killed),
-        kill_mid_round
+        kill_once_acknowledged(&outcomes, &killed, kill)
+    );
+    outcomes.into_inner().expect("no writer panicked")
+}
+
+pub async fn write_rounds_and_single_writes_across_a_kill(
+    router: &DataNode,
+    kill: impl Future<Output = ()>,
+) -> Outcomes {
+    let outcomes = Mutex::new(Outcomes::default());
+    let killed = AtomicBool::new(false);
+    tokio::join!(
+        write_rounds_past_the_kill(router, &outcomes, &killed),
+        write_singly_past_the_kill(router, 0, &outcomes, &killed),
+        write_singly_past_the_kill(router, 1, &outcomes, &killed),
+        kill_once_acknowledged(&outcomes, &killed, kill)
     );
     outcomes.into_inner().expect("no writer panicked")
 }
@@ -130,5 +184,11 @@ impl Outcomes {
             after_the_kill[0].failed.first()
         );
         assert_eq!(after_the_kill[0].succeeded.len(), BATCH_SIZE);
+        for (document_id, answer) in &self.singles_after_the_kill {
+            assert!(
+                answer.is_ok(),
+                "a single write sent after the kill reaches the promoted replica: {document_id} {answer:?}"
+            );
+        }
     }
 }

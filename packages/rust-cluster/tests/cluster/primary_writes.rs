@@ -6,13 +6,10 @@ use narsil_cluster::message::TransportMessage;
 use narsil_cluster::transport::NodeTransport;
 use narsil_cluster::transport::tcp::{TcpTransport, TcpTransportConfig};
 
-mod data_node;
-mod support;
-
-use data_node::{
+use crate::data_node::{
     DataNode, Scratch, cluster_coordinator, eventually, is_served_by, metadata_key, metadata_record,
 };
-use support::{Decoded, decode, write_binary, write_map_header, write_text, write_unsigned};
+use crate::support::{Decoded, decode, write_binary, write_map_header, write_text, write_unsigned};
 
 const NODE_ID: &str = "primary-a";
 const RUST_FORWARDER: &str = "rust-test-forwarder";

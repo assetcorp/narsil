@@ -1,68 +1,20 @@
-use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
-
-use narsil_cluster::transport::NodeTransport;
-use narsil_cluster::transport::tcp::TcpTransport;
-
-mod child_node;
-mod data_node;
-mod ledger;
-mod support;
-
-use child_node::{ChildNode, registered_address, serve_until_killed};
-use data_node::{
+use crate::child_node::{ChildNode, registered_address};
+use crate::data_node::{
     DataNode, Scratch, coordinator_at, create_cluster_index, etcd_endpoint, eventually,
     unique_key_prefix,
 };
-use ledger::{
-    FIRST_DATA_NODE, Forwarded, LEDGER, LEDGER_UUID, Ledger, SECOND_DATA_NODE, first_difference,
-    forward_insert, forwarder, placement, start_controller, title_of,
+use crate::ledger::{
+    FIRST_DATA_NODE, LEDGER, LEDGER_UUID, SECOND_DATA_NODE, first_difference, placement,
+    start_controller,
 };
+use crate::rounds::write_rounds_and_single_writes_across_a_kill;
 
-const CHILD_TEST: &str = "a_data_node_that_serves_until_its_process_is_killed";
 const PARENT_HEARTBEAT_TTL_SECONDS: u64 = 30;
-const WRITERS: usize = 4;
-const ACKNOWLEDGED_BEFORE_THE_KILL: usize = 40;
-
-type Acknowledged = Arc<Mutex<BTreeMap<String, String>>>;
+const ROUTER: &str = "ledger-router";
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "the killed-primary test starts this as a separate process and kills it"]
-async fn a_data_node_that_serves_until_its_process_is_killed() {
-    serve_until_killed().await;
-}
-
-async fn write_until_cut_off(
-    forwarder: Arc<TcpTransport>,
-    address: String,
-    writer: usize,
-    acknowledged: Acknowledged,
-    killed: Arc<AtomicBool>,
-) {
-    for serial in 0.. {
-        let document_id = format!("writer-{writer}-{serial}");
-        match forward_insert(&forwarder, &address, &document_id).await {
-            Forwarded::Acknowledged => {
-                acknowledged
-                    .lock()
-                    .expect("no writer panicked")
-                    .insert(document_id.clone(), title_of(&document_id));
-            }
-            Forwarded::Refused(refused) => {
-                assert!(
-                    killed.load(Ordering::Acquire),
-                    "the primary refused {document_id} before it was killed: {refused:?}"
-                );
-                return;
-            }
-            Forwarded::Unreachable => return,
-        }
-    }
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn every_write_that_a_killed_rust_primary_acknowledged_survives_on_the_promoted_replica() {
+async fn every_single_and_batched_write_that_the_router_acknowledged_survives_a_killed_rust_primary()
+ {
     let Some(endpoint) = etcd_endpoint() else {
         return;
     };
@@ -76,13 +28,7 @@ async fn every_write_that_a_killed_rust_primary_acknowledged_survives_on_the_pro
     let controller_scratch = Scratch::new();
     let controller = start_controller(&coordinator, &controller_scratch).await;
     let primary_scratch = Scratch::new();
-    let mut primary = ChildNode::spawn(
-        CHILD_TEST,
-        &endpoint,
-        &key_prefix,
-        FIRST_DATA_NODE,
-        &primary_scratch,
-    );
+    let mut primary = ChildNode::spawn(&endpoint, &key_prefix, FIRST_DATA_NODE, &primary_scratch);
     eventually("the primary's process registers its node", || async {
         registered_address(&coordinator, FIRST_DATA_NODE)
             .await
@@ -104,59 +50,33 @@ async fn every_write_that_a_killed_rust_primary_acknowledged_survives_on_the_pro
             .is_some_and(|placed| placed.admits(SECOND_DATA_NODE))
     })
     .await;
-
-    let address = registered_address(&coordinator, FIRST_DATA_NODE)
-        .await
-        .expect("the primary is registered");
-    let shared_forwarder = Arc::new(forwarder());
-    let acknowledged: Acknowledged = Arc::new(Mutex::new(BTreeMap::new()));
-    let killed = Arc::new(AtomicBool::new(false));
-    let writers: Vec<_> = (0..WRITERS)
-        .map(|writer| {
-            tokio::spawn(write_until_cut_off(
-                Arc::clone(&shared_forwarder),
-                address.clone(),
-                writer,
-                Arc::clone(&acknowledged),
-                Arc::clone(&killed),
-            ))
-        })
-        .collect();
-    eventually("the primary acknowledges the first writes", || async {
-        acknowledged.lock().expect("no writer panicked").len() >= ACKNOWLEDGED_BEFORE_THE_KILL
-    })
+    let router_scratch = Scratch::new();
+    let router = DataNode::start_with_roles(
+        &coordinator,
+        ROUTER,
+        router_scratch.path(),
+        &["coordinator"],
+    )
     .await;
-    killed.store(true, Ordering::Release);
-    primary.kill();
-    for writer in writers {
-        writer.await.expect("the writer ends without a panic");
-    }
 
+    let outcomes =
+        write_rounds_and_single_writes_across_a_kill(&router, async { primary.kill() }).await;
     eventually("the controller promotes the in-sync replica", || async {
         placement(&coordinator)
             .await
             .is_some_and(|placed| placed.is_led_by(SECOND_DATA_NODE))
     })
     .await;
-    let acknowledged = acknowledged.lock().expect("no writer panicked").clone();
-    let difference = first_difference(&replica, &acknowledged, &[]).await;
+    let must_be_held = outcomes.must_be_held();
+    let difference = first_difference(&replica, &must_be_held, &[]).await;
     assert!(
         difference.is_none(),
         "the promoted replica holds all {} acknowledged writes: {difference:?}",
-        acknowledged.len()
+        outcomes.acknowledged()
     );
-    let mut ledger = Ledger::new();
-    ledger
-        .insert_until_accepted(&replica, "after-the-kill")
-        .await;
-    assert!(
-        first_difference(&replica, &ledger.written, &[])
-            .await
-            .is_none()
-    );
+    outcomes.assert_one_clean_round_after_the_kill();
 
-    ledger.forwarder.shutdown().await;
-    shared_forwarder.shutdown().await;
+    router.stop().await;
     replica.stop().await;
     controller.stop().await;
     coordinator.shutdown().await;
