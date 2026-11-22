@@ -36,6 +36,7 @@ export interface QuietWrite {
 }
 
 export interface Workload {
+  rest(): Promise<void>
   stop(): Promise<void>
   searchFailures(): readonly string[]
   searches(): number
@@ -173,6 +174,16 @@ export function startWorkload(options: {
   const failures: string[] = []
   const quiet: QuietWrite[] = []
   const unansweredQuiet: string[] = []
+  const inFlight = new Set<Promise<unknown>>()
+
+  async function track<T>(request: Promise<T>): Promise<T> {
+    inFlight.add(request)
+    try {
+      return await request
+    } finally {
+      inFlight.delete(request)
+    }
+  }
 
   function quietThroughout(generationAtStart: number, describedAtStart: string): boolean {
     return describedAtStart === NO_FAULT && faults.generation === generationAtStart && faults.describe() === NO_FAULT
@@ -194,7 +205,7 @@ export function startWorkload(options: {
         const generationAtStart = faults.generation
         const describedAtStart = faults.describe()
         const startedAt = performance.now()
-        const { reply, timedOut } = await writeOnce(fleet, slot, indexName, docId, current, next)
+        const { reply, timedOut } = await track(writeOnce(fleet, slot, indexName, docId, current, next))
         const durationMs = performance.now() - startedAt
         if (quietThroughout(generationAtStart, describedAtStart)) {
           if (timedOut) {
@@ -220,7 +231,7 @@ export function startWorkload(options: {
       }
       const startedOn = faults.startedOn[slot] ?? 0
       const during = faults.describe()
-      const { reply, failure } = await searchAsAClient(fleet.nodes[slot]?.base ?? '', indexName)
+      const { reply, failure } = await track(searchAsAClient(fleet.nodes[slot]?.base ?? '', indexName))
       searchCount += 1
       const faultedMeanwhile = (faults.startedOn[slot] ?? 0) !== startedOn || !(fleet.nodes[slot]?.running() ?? false)
       if (!faultedMeanwhile && (reply === null || reply.status !== 200)) {
@@ -238,6 +249,10 @@ export function startWorkload(options: {
   ]
 
   return {
+    async rest() {
+      faults.resting = true
+      await Promise.all(inFlight)
+    },
     async stop() {
       stopping = true
       await Promise.all(running)
