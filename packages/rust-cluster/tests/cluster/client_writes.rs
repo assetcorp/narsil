@@ -68,13 +68,25 @@ async fn the_rust_write_api_routes_each_write_by_its_id_and_refuses_hostile_inpu
     };
     let controller_scratch = Scratch::new();
     let controller = start_controller(&coordinator, &controller_scratch).await;
-    let scratches = [Scratch::new(), Scratch::new()];
+    let scratches = [Scratch::new(), Scratch::new(), Scratch::new()];
     let data = [
         DataNode::start(&coordinator, "client-data-a", scratches[0].path()).await,
         DataNode::start(&coordinator, "client-data-b", scratches[1].path()).await,
+        DataNode::start(&coordinator, "client-data-c", scratches[2].path()).await,
     ];
     create_cluster_index(&coordinator, INDEX, INDEX_UUID, u64::from(PARTITIONS), 1).await;
     let holders = settled_holders(&coordinator, INDEX, PARTITIONS).await;
+    assert!(
+        data.iter().any(|member| {
+            let node_id = member.node.node_id();
+            holders
+                .values()
+                .filter(|holding| holding.iter().any(|holder| holder == node_id))
+                .count()
+                == 1
+        }),
+        "a data node holds one partition alone, so a document routed to the other partition shows up: {holders:?}"
+    );
     let router_scratch = Scratch::new();
     let router = DataNode::start_with_roles(
         &coordinator,

@@ -8,8 +8,6 @@ use narsil::{Map, Value, parse_plain_json, write_plain_json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 
-use crate::data_node::free_port;
-
 const START_WAIT: Duration = Duration::from_secs(60);
 const ANSWER_WAIT: Duration = Duration::from_secs(90);
 const SHUTDOWN_WAIT: Duration = Duration::from_secs(30);
@@ -72,13 +70,44 @@ impl TypescriptNode {
         roles: &str,
         heartbeat_ttl_seconds: Option<u64>,
     ) -> TypescriptNode {
+        TypescriptNode::launch(
+            endpoint,
+            key_prefix,
+            node_id,
+            roles,
+            heartbeat_ttl_seconds,
+            None,
+        )
+        .await
+    }
+
+    pub async fn start_durable(
+        endpoint: &str,
+        key_prefix: &str,
+        node_id: &str,
+        roles: &str,
+        directory: &Path,
+    ) -> TypescriptNode {
+        TypescriptNode::launch(endpoint, key_prefix, node_id, roles, None, Some(directory)).await
+    }
+
+    async fn launch(
+        endpoint: &str,
+        key_prefix: &str,
+        node_id: &str,
+        roles: &str,
+        heartbeat_ttl_seconds: Option<u64>,
+        directory: Option<&Path>,
+    ) -> TypescriptNode {
         let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let port = free_port();
+        let heartbeat_ttl_seconds = heartbeat_ttl_seconds
+            .map(|seconds| seconds.to_string())
+            .unwrap_or_default();
         let mut child = Command::new("node")
             .arg(manifest.join("tests/support/typescript_node.mjs"))
             .arg(manifest.join("../.."))
-            .args([endpoint, key_prefix, node_id, roles, &port.to_string()])
-            .args(heartbeat_ttl_seconds.map(|seconds| seconds.to_string()))
+            .args([endpoint, key_prefix, node_id, roles, &heartbeat_ttl_seconds])
+            .arg(directory.map(Path::as_os_str).unwrap_or_default())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .kill_on_drop(true)
@@ -92,14 +121,12 @@ impl TypescriptNode {
             .expect("the TypeScript node joined in time")
             .expect("the node's stdout is readable")
             .expect("the node printed a line before it exited; build packages/ts first");
-        assert_eq!(
-            ready.trim(),
-            "READY",
-            "the TypeScript node announces that it joined"
-        );
+        let Some(address) = ready.trim().strip_prefix("READY ") else {
+            panic!("the TypeScript node announces that it joined and where it listens: {ready}");
+        };
         TypescriptNode {
             node_id: node_id.to_string(),
-            address: format!("127.0.0.1:{port}"),
+            address: address.to_string(),
             child,
             stdin: Some(stdin),
             lines,

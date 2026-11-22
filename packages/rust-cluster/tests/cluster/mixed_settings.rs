@@ -23,6 +23,7 @@ const WRITES_WHILE_REFUSED: usize = 10;
 const CAPACITY: u64 = 4;
 const SCORE_TOLERANCE: f64 = 1e-9;
 const CAPACITY_EXCEEDED: &str = "PARTITION_CAPACITY_EXCEEDED";
+const RESTORE_FAILED: &str = "SNAPSHOT_SYNC_RESTORE_FAILED";
 
 fn object<const N: usize>(entries: [(&str, Value); N]) -> Value {
     Value::Object(fields(entries))
@@ -397,24 +398,16 @@ async fn a_rust_node_without_a_named_stop_word_set_refuses_that_copy_and_the_clu
         with_named_analysis_except_stop_words,
     )
     .await;
-    let engine_refusal =
-        format!("Stop word set \"{STOP_WORDS_NAME}\" is not registered on this engine");
     eventually(
-        "the unequipped node reports the name that it lacks",
+        "the unequipped node reports that it cannot build the copy",
         || async {
-            unequipped
-                .reported
-                .lock()
-                .expect("no reporter panicked")
-                .iter()
-                .any(|error| {
-                    error.code() == "NODE_BOOTSTRAP_FAILED"
-                        && error
-                            .details()
-                            .get("cause")
-                            .and_then(Value::as_str)
-                            .is_some_and(|cause| cause.contains(&engine_refusal))
-                })
+            let reported = unequipped.reported.lock().expect("no reporter panicked");
+            reported.iter().any(|error| {
+                error.code() == "NODE_BOOTSTRAP_FAILED"
+                    && error.details().get("indexName").and_then(Value::as_str) == Some(NAMED_STOPS)
+                    && error.details().get("innerCode").and_then(Value::as_str)
+                        == Some(RESTORE_FAILED)
+            })
         },
     )
     .await;

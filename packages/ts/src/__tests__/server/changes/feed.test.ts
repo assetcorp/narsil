@@ -121,6 +121,12 @@ describe.each([
         laterInserts.map(at => ({ id: `p${at}`, ...product(at) })),
       )
       expect(appended.failed).toEqual([])
+      const singleInsert = laterInserts.length + 30
+      expected.set(`p${singleInsert}`, product(singleInsert))
+      expect(await client.insert('shop', product(singleInsert), `p${singleInsert}`)).toBe(`p${singleInsert}`)
+      const singleUpdate = firstInserts.find(at => at % 3 !== 0 && at % 5 !== 1) ?? 0
+      expected.set(`p${singleUpdate}`, product(singleUpdate + 1000))
+      await client.update('shop', `p${singleUpdate}`, product(singleUpdate + 1000))
       await client.checkpoint('shop')
 
       const reader = createNarsilClient({ url: server.base })
