@@ -85,12 +85,13 @@ export class TcpServer {
                 ca: tlsConfig.ca,
                 requestCert: true,
                 rejectUnauthorized: tlsConfig.rejectUnauthorized ?? true,
+                noDelay: true,
               },
               clientSocket => {
                 this.handleClient(clientSocket)
               },
             )
-          : createServer(clientSocket => {
+          : createServer({ noDelay: true }, clientSocket => {
               this.handleClient(clientSocket)
             })
 

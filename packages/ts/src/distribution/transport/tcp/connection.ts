@@ -164,6 +164,7 @@ export class TcpConnectionPool {
               rejectUnauthorized: tlsConfig.rejectUnauthorized ?? true,
             })
           : connect({ host, port })
+      socket.setNoDelay(true)
 
       const connectEvent = tlsConfig !== undefined ? 'secureConnect' : 'connect'
 
