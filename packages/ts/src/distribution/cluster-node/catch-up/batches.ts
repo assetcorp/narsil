@@ -1,43 +1,42 @@
-import { chunkLogEntries } from '../../replication/entry-batches'
+import { LOG_ENTRY_BATCH_BUDGET } from '../../replication/entry-batches'
 import { entryByteEstimate } from '../../replication/entry-checksum'
 import { previousTermOf, replicateBatchToReplicas } from '../../replication/primary'
-import type { ReplicationLogEntry } from '../../replication/types'
+import type { ReplicationLog, ReplicationLogEntry } from '../../replication/types'
 import { MAX_CATCH_UP_IN_FLIGHT_BYTES } from '../constants'
 import type { WriteRoutingDeps } from '../write-routing/types'
 import { type CatchUpFeed, untilCancelled } from './feed'
 import { releaseInFlightBytes } from './in-flight-bytes'
 import type { CatchUpState, ReplicaCursor } from './state'
 
-function batchBytes(entries: ReplicationLogEntry[]): number {
-  let total = 0
-  for (const entry of entries) {
-    total += entryByteEstimate(entry)
-  }
-  return total
+export interface ReservedBatch {
+  entries: ReplicationLogEntry[]
+  reservedBytes: number
 }
 
-export function nextWireBatch(state: CatchUpState, pending: ReplicationLogEntry[]): ReplicationLogEntry[] {
-  const chunks = chunkLogEntries(pending, entry => entry)
-  const batch = chunks[0] ?? []
-  if (batch.length === 0) {
-    return []
+export function reserveNextBatch(state: CatchUpState, log: ReplicationLog, fromSeqNo: number): ReservedBatch | null {
+  const throughSeqNo = log.localLogEnd
+  const plannedBytes = log.getEntryBatchBytes(fromSeqNo, throughSeqNo, LOG_ENTRY_BATCH_BUDGET)
+  if (plannedBytes === 0 || plannedBytes > MAX_CATCH_UP_IN_FLIGHT_BYTES - state.inFlightBytes) {
+    return null
   }
-
-  const available = MAX_CATCH_UP_IN_FLIGHT_BYTES - state.inFlightBytes
-  return batchBytes(batch) > available ? [] : batch
+  state.inFlightBytes += plannedBytes
+  const entries = log.getEntryBatch(fromSeqNo, throughSeqNo, LOG_ENTRY_BATCH_BUDGET)
+  if (entries.length === 0) {
+    releaseInFlightBytes(state, plannedBytes)
+    return null
+  }
+  return { entries, reservedBytes: plannedBytes }
 }
 
 export async function sendBatch(
   state: CatchUpState,
   deps: WriteRoutingDeps,
-  batch: ReplicationLogEntry[],
+  { entries: batch, reservedBytes }: ReservedBatch,
   replicaNodeId: string,
   cursor: ReplicaCursor,
   feed: CatchUpFeed,
 ): Promise<boolean> {
-  const reservedBytes = batchBytes(batch)
   const sendingEpoch = cursor.syncEpoch
-  state.inFlightBytes += reservedBytes
   const delivery = (async () => {
     const first = batch[0]
     const indexName = first?.indexName
