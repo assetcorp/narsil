@@ -70,9 +70,12 @@ impl PartitionCopies<'_> {
     ) -> Result<Option<WriteRecord>> {
         let state = self.engine.open_index(index)?;
         let copy = super::copy_of(&state)?;
-        Ok(copy
-            .partition(&state.name, partition)?
-            .record_of(document_id))
+        let held = copy.partition(&state.name, partition)?;
+        let partitions = state.partitions();
+        let Some(target) = partitions.get(partition as usize) else {
+            return Err(super::copy_state::no_such_partition(&state.name, partition));
+        };
+        held.record_of(document_id, &target.snapshot())
     }
 
     /// Returns the document with every stored field and vector, as an index entry carries it.

@@ -10,8 +10,8 @@ use narsil::replication::{
     ReplicatedEntry, WriteRecord,
 };
 use narsil::{
-    DurabilityConfig, DurabilityMode, ErrorCode, IndexConfig, Map, Narsil, NarsilConfig, Storage,
-    Value, decode_msgpack,
+    DurabilityConfig, DurabilityMode, ErrorCode, IndexConfig, Map, Narsil, NarsilConfig,
+    Quantization, Storage, Value, VectorPromotion, decode_msgpack,
 };
 use support::{ScratchDirectory, WHOLE_DOCUMENT};
 
@@ -570,4 +570,175 @@ fn a_reload_after_a_torn_append_keeps_every_acknowledged_write_across_a_restart(
         .get_with(INDEX, &other, Some(&WHOLE_DOCUMENT))
         .expect("the read answers");
     assert_eq!(stored, Some(order(&other, 1)));
+}
+
+fn saved_records(copy: &Copy, partition: u32, ids: &[String]) -> Vec<Option<WriteRecord>> {
+    ids.iter()
+        .map(|id| {
+            copy.copies()
+                .write_record(INDEX, partition, id)
+                .expect("the record is read")
+        })
+        .collect()
+}
+
+#[test]
+fn write_records_that_only_saved_segments_hold_answer_after_checkpoints_and_restarts() {
+    for text in [Storage::Memory, Storage::Disk] {
+        let mut copy = Copy::new("assigned-saved-records", text);
+        let partition = partition_of("order-1");
+        let ids: Vec<String> = (0..200)
+            .map(|number| format!("order-{number}"))
+            .filter(|id| partition_of(id) == partition)
+            .take(3)
+            .collect();
+        let record = |seq_no: u64, primary_term: u64| {
+            Some(WriteRecord {
+                seq_no,
+                primary_term,
+            })
+        };
+        let run: Vec<ReplicatedEntry> = (1..)
+            .zip(&ids)
+            .map(|(seq_no, id)| entry(id, seq_no, 2, Some(encoded(&order(id, seq_no)))))
+            .collect();
+        let applied = copy.copies().append(INDEX, partition, &run).unwrap();
+        assert_eq!((applied.applied, applied.failure), (3, None));
+        copy.engine()
+            .checkpoint(INDEX)
+            .expect("the checkpoint commits");
+        copy.restart();
+        let written = vec![record(1, 2), record(2, 2), record(3, 2)];
+        assert_eq!(saved_records(&copy, partition, &ids), written);
+
+        let limits = PrimaryLimits {
+            records_previous_documents: false,
+            max_entry_bytes: 1 << 20,
+        };
+        let writes = vec![
+            PrimaryWrite::Update {
+                document_id: ids[1].clone(),
+                document: order(&ids[1], 40),
+            },
+            PrimaryWrite::Remove {
+                document_id: ids[2].clone(),
+            },
+        ];
+        let run = copy
+            .copies()
+            .write(INDEX, partition, 5, writes, limits)
+            .expect("the primary takes the writes");
+        assert_eq!(run.failure, None);
+        let priors: Vec<Option<WriteRecord>> = run
+            .outcomes
+            .iter()
+            .map(|outcome| {
+                outcome
+                    .as_ref()
+                    .expect("each write applies")
+                    .prior
+                    .as_ref()
+                    .and_then(|prior| prior.record)
+            })
+            .collect();
+        assert_eq!(priors, vec![record(2, 2), record(3, 2)]);
+        let current = vec![record(1, 2), record(4, 5), None];
+        assert_eq!(saved_records(&copy, partition, &ids), current);
+        assert_ne!(current[1], written[1], "the stale record no longer matches");
+
+        copy.restart();
+        assert_eq!(saved_records(&copy, partition, &ids), current);
+        copy.engine()
+            .checkpoint(INDEX)
+            .expect("the checkpoint commits");
+        copy.restart();
+        assert_eq!(saved_records(&copy, partition, &ids), current);
+        assert_eq!(
+            copy.engine()
+                .get_with(INDEX, &ids[1], Some(&WHOLE_DOCUMENT))
+                .unwrap(),
+            Some(order(&ids[1], 40))
+        );
+    }
+}
+
+fn promoted_vectors(storage: Storage, quantization: Quantization) -> Option<VectorPromotion> {
+    Some(VectorPromotion {
+        threshold: Some(2),
+        storage: Some(storage),
+        quantization: Some(quantization),
+        ..VectorPromotion::default()
+    })
+}
+
+#[test]
+fn a_partition_reloads_its_checkpointed_vectors_in_every_vector_layout() {
+    let layouts = [
+        None,
+        promoted_vectors(Storage::Disk, Quantization::None),
+        promoted_vectors(Storage::Memory, Quantization::Osq8),
+    ];
+    for promotion in layouts {
+        let root = ScratchDirectory::new("assigned-reload-vectors");
+        let mut engine = small_segment_engine(root.path());
+        let config = IndexConfig {
+            vector_promotion: promotion,
+            ..index_config(Storage::Memory)
+        };
+        PartitionCopies::new(&engine)
+            .create_index(INDEX, config, UUID, PARTITIONS)
+            .expect("the copy is created");
+        let mut held: BTreeMap<String, Map> = BTreeMap::new();
+        let mut reached = vec![0_u64; PARTITIONS as usize];
+        let mut send = |engine: &Narsil, id: &str, document: Option<Map>| {
+            let partition = partition_of(id);
+            let seq_no = &mut reached[partition as usize];
+            *seq_no += 1;
+            let sent = entry(id, *seq_no, 2, document.as_ref().map(encoded));
+            let applied = PartitionCopies::new(engine)
+                .append(INDEX, partition, &[sent])
+                .expect("the entry applies");
+            assert_eq!((applied.applied, applied.failure), (1, None));
+        };
+        for number in 0..20 {
+            let id = format!("order-{number}");
+            send(&engine, &id, Some(order(&id, number)));
+            held.insert(id.clone(), order(&id, number));
+        }
+        engine.checkpoint(INDEX).expect("the checkpoint commits");
+        let partition = partition_of("order-1");
+        let mut ids = held
+            .keys()
+            .filter(|id| partition_of(id) == partition)
+            .cloned();
+        let updated = ids.next().expect("the partition holds an order");
+        let removed = ids.next().expect("the partition holds two orders");
+        send(&engine, &updated, Some(order(&updated, 70)));
+        held.insert(updated.clone(), order(&updated, 70));
+        send(&engine, &removed, None);
+        held.remove(&removed);
+
+        PartitionCopies::new(&engine)
+            .reload_partition(INDEX, partition)
+            .expect("the partition reloads");
+        for restarted in [false, true] {
+            if restarted {
+                engine.shutdown().expect("the engine shuts down");
+                drop(engine);
+                engine = small_segment_engine(root.path());
+            }
+            for number in 0..20 {
+                let id = format!("order-{number}");
+                let stored = engine
+                    .get_with(INDEX, &id, Some(&WHOLE_DOCUMENT))
+                    .expect("the read answers");
+                assert_eq!(
+                    stored.as_ref(),
+                    held.get(&id),
+                    "{id} after a restart: {restarted}"
+                );
+            }
+        }
+        engine.shutdown().expect("the engine shuts down");
+    }
 }

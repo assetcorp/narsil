@@ -150,10 +150,17 @@ impl<'a> PrimaryTurn<'a> {
     fn record_of(&self, id: &str) -> Result<Option<WriteRecord>> {
         match self.written_records.get(id) {
             Some(record) => Ok(Some(*record)),
-            None => Ok(self
-                .copy
-                .partition(&self.index.name, self.partition)?
-                .record_of(id)),
+            None => {
+                let held = self.copy.partition(&self.index.name, self.partition)?;
+                let partitions = self.index.partitions();
+                let Some(target) = partitions.get(self.partition as usize) else {
+                    return Err(super::copy_state::no_such_partition(
+                        &self.index.name,
+                        self.partition,
+                    ));
+                };
+                held.record_of(id, &target.snapshot())
+            }
         }
     }
 
