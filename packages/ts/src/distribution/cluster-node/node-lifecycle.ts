@@ -72,5 +72,14 @@ export function createNodeLifecycle(deps: NodeLifecycleDeps): DataNodeHandle {
       const removedIndexUuid = engine.indexUuidOf(indexName)
       void releaseTornDownIndex(indexName, { ...cleanupDeps, removedIndexUuid })
     },
+    onError: reportWithoutThrowing(cleanupDeps.onError),
   })
+}
+
+function reportWithoutThrowing(report: ((error: unknown) => void) | undefined): (error: unknown) => void {
+  return error => {
+    try {
+      report?.(error)
+    } catch (_) {}
+  }
 }

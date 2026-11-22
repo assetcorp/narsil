@@ -2,6 +2,7 @@ import { connect, createServer, type Server, type Socket } from 'node:net'
 
 export interface LinkProxy {
   endpoint: string
+  refusedConnections(): number
   cut(): void
   restore(): void
   close(): Promise<void>
@@ -10,6 +11,7 @@ export interface LinkProxy {
 export async function startLinkProxy(target: URL): Promise<LinkProxy> {
   const sockets = new Set<Socket>()
   let linkUp = true
+  let refused = 0
 
   function track(socket: Socket): void {
     sockets.add(socket)
@@ -20,6 +22,7 @@ export async function startLinkProxy(target: URL): Promise<LinkProxy> {
   const server: Server = createServer(client => {
     track(client)
     if (!linkUp) {
+      refused += 1
       client.destroy()
       return
     }
@@ -42,6 +45,7 @@ export async function startLinkProxy(target: URL): Promise<LinkProxy> {
 
   return {
     endpoint: `http://127.0.0.1:${port}`,
+    refusedConnections: () => refused,
     cut() {
       linkUp = false
       for (const socket of sockets) socket.destroy()
