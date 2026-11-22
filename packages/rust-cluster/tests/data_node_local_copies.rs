@@ -198,6 +198,14 @@ async fn a_data_node_serves_no_orphaned_copy_and_deletes_one_only_when_asked() {
         .await
         .expect_err("a later index of the name does not adopt the orphaned copy");
     assert_eq!(refused.code(), "INDEX_ORPHANED");
+    let mut later_write = Map::new();
+    later_write.insert("title", Value::from("a write to the index created again"));
+    let refused_later = data
+        .node
+        .insert(FORGOTTEN, later_write, Some(DOCUMENT_ID))
+        .await
+        .expect_err("a node that keeps an orphaned copy routes no write for that name");
+    assert_eq!(refused_later.code(), "INDEX_ORPHANED");
 
     let not_orphaned = data
         .node

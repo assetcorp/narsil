@@ -41,17 +41,17 @@ fn release_term(partition: &Partition, primary_term: u64, previous: u64, claimed
     }
 }
 
-fn unanswered_copies(
+fn copies_out_of_step(
     partition: &Partition,
     scope: &Scope,
     copies: Vec<String>,
-    answered: &Mutex<HashSet<String>>,
+    in_step: &Mutex<HashSet<String>>,
 ) -> Vec<String> {
-    let answered = lock(answered).clone();
+    let in_step = lock(in_step).clone();
     let terms = lock(&partition.terms);
     copies
         .into_iter()
-        .filter(|copy| !answered.contains(copy) && !terms.removed_under(copy, scope.primary_term))
+        .filter(|copy| !in_step.contains(copy) && !terms.removed_under(copy, scope.primary_term))
         .collect()
 }
 
@@ -100,8 +100,8 @@ impl PrimaryWrites {
         if copies.is_empty() {
             return Ok(false);
         }
-        let answered = Arc::new(Mutex::new(HashSet::new()));
-        let (writes, started, settled) = (Arc::clone(self), scope.clone(), Arc::clone(&answered));
+        let in_step = Arc::new(Mutex::new(HashSet::new()));
+        let (writes, started, settled) = (Arc::clone(self), scope.clone(), Arc::clone(&in_step));
         let starting = copies.clone();
         let mut work = tokio::spawn(async move {
             let out_of_step = writes.settle_copies(&started, starting, &settled).await;
@@ -110,8 +110,8 @@ impl PrimaryWrites {
             }
         });
         let _ = tokio::time::timeout(self.replication_timeout(), &mut work).await;
-        let unanswered = unanswered_copies(partition, scope, copies, &answered);
-        if let Err(error) = self.remove_failed(scope, &unanswered).await {
+        let out_of_step = copies_out_of_step(partition, scope, copies, &in_step);
+        if let Err(error) = self.remove_failed(scope, &out_of_step).await {
             work.abort();
             release_term(partition, scope.primary_term, previous, claimed);
             return Err(error);
@@ -123,7 +123,7 @@ impl PrimaryWrites {
         self: &Arc<Self>,
         scope: &Scope,
         copies: Vec<String>,
-        answered: &Mutex<HashSet<String>>,
+        in_step: &Mutex<HashSet<String>>,
     ) -> Vec<String> {
         let (name, partition_id) = (scope.index_name.clone(), scope.partition_id);
         let last_seq_no = self
@@ -153,49 +153,43 @@ impl PrimaryWrites {
             let Ok((copy, settled)) = joined else {
                 continue;
             };
-            if settled.is_some() {
-                lock(answered).insert(copy.clone());
-            }
-            if settled != Some(true) {
+            if settled {
+                lock(in_step).insert(copy);
+            } else {
                 out_of_step.push(copy);
             }
         }
         out_of_step
     }
 
-    async fn settle_copy(
-        self: &Arc<Self>,
-        scope: &Scope,
-        request: &TermStart,
-        copy: &str,
-    ) -> Option<bool> {
-        let message = self
-            .message(
-                message_types::REPLICATION_TERM_START,
-                encode_term_start(request),
-            )
-            .ok()?;
-        let answer = self.send_to_node(copy, &message).await.ok()?;
+    async fn settle_copy(self: &Arc<Self>, scope: &Scope, request: &TermStart, copy: &str) -> bool {
+        let Ok(message) = self.message(
+            message_types::REPLICATION_TERM_START,
+            encode_term_start(request),
+        ) else {
+            return false;
+        };
+        let Ok(answer) = self.send_to_node(copy, &message).await else {
+            return false;
+        };
         if answer.message_type != message_types::REPLICATION_TERM_START_ACK {
-            return Some(false);
+            return false;
         }
         let Some(held) = term_start_ack_of(&answer.payload, request) else {
-            return Some(false);
+            return false;
         };
         if held.last_seq_no == request.last_seq_no
             && held.last_primary_term == request.last_primary_term
         {
-            return Some(true);
+            return true;
         }
         if held.last_seq_no >= request.last_seq_no
             || self.term_at(scope, held.last_seq_no).await != Some(held.last_primary_term)
         {
-            return Some(false);
+            return false;
         }
-        Some(
-            self.send_missing_entries(scope, copy, held.last_seq_no)
-                .await,
-        )
+        self.send_missing_entries(scope, copy, held.last_seq_no)
+            .await
     }
 
     async fn send_missing_entries(

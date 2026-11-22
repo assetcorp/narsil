@@ -170,10 +170,10 @@ impl ClusterNode {
     ///
     /// Fails with `NODE_NOT_JOINED` before the node joins, with `DOC_VALIDATION_FAILED` where the id is empty,
     /// holds more than 512 UTF-16 code units or a null byte, or differs from the document's own `id` field, with
-    /// `INDEX_NOT_FOUND` where the cluster holds no such index, with `INDEX_ORPHANED` where the cluster holds no
-    /// such index and this node keeps an orphaned copy under that name, with `QUERY_ROUTING_FAILED` where the cluster has
-    /// yet to allocate it, with `REPLICATION_OUTCOME_UNKNOWN` where the write may or may not have taken effect, and
-    /// with the primary's refusal otherwise.
+    /// `INDEX_ORPHANED` where this node keeps an orphaned copy under that name, with `INDEX_NOT_FOUND` where the
+    /// cluster holds no such index, with `QUERY_ROUTING_FAILED` where the cluster has yet to allocate it, with
+    /// `REPLICATION_OUTCOME_UNKNOWN` where the write may or may not have taken effect, and with the primary's refusal
+    /// otherwise.
     pub async fn insert(
         &self,
         index_name: &str,
@@ -199,10 +199,11 @@ impl ClusterNode {
     ///
     /// # Errors
     ///
-    /// Fails with `NODE_NOT_JOINED` before the node joins, with `INDEX_NOT_FOUND` where the cluster holds no such
-    /// index, with `INDEX_ORPHANED` where the cluster holds no such index and this node keeps an orphaned copy under
-    /// that name, and with `QUERY_ROUTING_FAILED` where the cluster has yet to allocate it or drops it while the batch
-    /// waits for a new primary. Every other failure is a document's own, in [`WriteBatchResult::failed`].
+    /// Fails with `NODE_NOT_JOINED` before the node joins, with `INDEX_ORPHANED` where this node keeps an orphaned
+    /// copy under that name, with `INDEX_NOT_FOUND` where the cluster holds no such index, and with
+    /// `QUERY_ROUTING_FAILED` where the cluster has yet to allocate it, or where the node finds it gone when it routes
+    /// the batch again after a primary change. Every other failure is a document's own, in
+    /// [`WriteBatchResult::failed`].
     pub async fn insert_batch(
         &self,
         index_name: &str,
