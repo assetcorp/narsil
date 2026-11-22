@@ -13,10 +13,10 @@ export { processInitialAllocations } from './table'
  * Starts following the allocation table, so that this node bootstraps every partition the controller gives it.
  *
  * The changes that arrive within the debounce window of the first one collapse into one pass over the tables, and
- * the window starts at that first change, so a steady stream of changes can delay a pass by one window at most. A table whose version does not rise above the pending one, or whose index uuid differs from the
- * pending table's, comes from an index that was dropped and created again under the same name, so the watcher first
- * processes the pending table of the dropped index, which releases every partition that the dropped index held on
- * this node.
+ * the window starts at that first change, so a steady stream of changes can delay a pass by one window at most. A
+ * table whose version does not rise above the pending one, or whose index uuid differs from the pending table's,
+ * comes from an index that was dropped and created again under the same name, so the watcher first processes the
+ * pending table of the dropped index, which releases every partition that the dropped index held on this node.
  *
  * @param state - The watcher state this call registers the watcher on.
  * @param config - The lifecycle configuration, which names the coordinator and the debounce window.
