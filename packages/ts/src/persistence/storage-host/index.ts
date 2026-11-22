@@ -93,6 +93,7 @@ export {
   prepareDocumentVectors,
   removeDocumentVectors,
   updateDocumentVectors,
+  validateVectorDimensions,
 } from '../../engine/vector-coordinator'
 export { ErrorCodes, NarsilError } from '../../errors'
 export { validQueryFilter } from '../../filters/query'
