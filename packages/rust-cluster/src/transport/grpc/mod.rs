@@ -1,5 +1,6 @@
 mod client;
 mod envelope;
+mod peer_channel;
 mod server;
 
 use std::sync::atomic::{AtomicBool, Ordering};
