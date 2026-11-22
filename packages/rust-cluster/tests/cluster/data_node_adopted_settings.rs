@@ -3,10 +3,7 @@ use std::path::Path;
 use narsil::{IndexConfig, Map, Narsil, QueryParams, Value, encode_msgpack};
 use sha2::{Digest, Sha256};
 
-mod data_node;
-mod support;
-
-use data_node::{
+use crate::data_node::{
     DataNode, Scratch, cluster_coordinator, engine_config, metadata_key, title_schema,
 };
 

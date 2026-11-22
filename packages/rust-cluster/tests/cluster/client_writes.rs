@@ -5,15 +5,10 @@ use narsil_cluster::error::ClusterError;
 use narsil_cluster::message::TransportMessage;
 use narsil_cluster::transport::NodeTransport;
 
-mod data_node;
-mod ledger;
-mod spread;
-mod support;
-
-use data_node::{DataNode, Scratch, cluster_coordinator, create_cluster_index};
-use ledger::{FORWARDER, forwarder, start_controller, title_document};
-use spread::{Expected, copy_difference, settled_holders, titled};
-use support::{decode, write_binary, write_map_header, write_text};
+use crate::data_node::{DataNode, Scratch, cluster_coordinator, create_cluster_index};
+use crate::ledger::{FORWARDER, forwarder, start_controller, title_document};
+use crate::spread::{Expected, copy_difference, settled_holders, titled};
+use crate::support::{decode, write_binary, write_map_header, write_text};
 
 const INDEX: &str = "client-ledger";
 const INDEX_UUID: &str = "uuid-of-the-client-ledger";

@@ -5,12 +5,8 @@ use narsil::Value;
 use narsil_cluster::coordinator::etcd::EtcdCoordinator;
 use narsil_cluster::transport::NodeTransport;
 
-mod data_node;
-mod ledger;
-mod support;
-
-use data_node::{Scratch, cluster_coordinator, eventually};
-use ledger::{
+use crate::data_node::{Scratch, cluster_coordinator, eventually};
+use crate::ledger::{
     DIVERGED_DOCUMENT_ID, LEDGER, Ledger, Member, PAUSE_BETWEEN_WRITES, document_ids,
     first_difference, holds_exactly, placement, start_cluster,
 };

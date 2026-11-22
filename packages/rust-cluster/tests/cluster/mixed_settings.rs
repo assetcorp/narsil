@@ -1,23 +1,16 @@
 use narsil::{Map, Narsil, QueryParams, Value, VectorQuery};
 use narsil_cluster::coordinator::etcd::{EtcdCoordinator, EtcdCoordinatorConfig};
 
-mod data_node;
-mod ledger;
-mod named_analysis;
-mod spread;
-mod support;
-mod typescript_node;
-
-use data_node::{
+use crate::data_node::{
     DataNode, Scratch, coordinator_at, engine_config, etcd_endpoint, eventually, unique_key_prefix,
 };
-use ledger::start_controller;
-use named_analysis::{
+use crate::ledger::start_controller;
+use crate::named_analysis::{
     ADAPTER_NAME, STOP_WORDS_NAME, TOKENIZER_NAME, letter_shape, open_with_named_analysis,
     with_named_analysis, with_named_analysis_except_stop_words,
 };
-use spread::titled;
-use typescript_node::{TypescriptNode, fields};
+use crate::spread::titled;
+use crate::typescript_node::{TypescriptNode, fields};
 
 const FRENCH: &str = "french-garage";
 const CUSTOM: &str = "custom-garage";

@@ -5,34 +5,22 @@ use std::sync::{Arc, Mutex};
 use narsil_cluster::transport::NodeTransport;
 use narsil_cluster::transport::tcp::TcpTransport;
 
-mod child_node;
-mod data_node;
-mod ledger;
-mod support;
-
-use child_node::{ChildNode, registered_address, serve_until_killed};
-use data_node::{
+use crate::child_node::{ChildNode, registered_address};
+use crate::data_node::{
     DataNode, Scratch, coordinator_at, create_cluster_index, etcd_endpoint, eventually,
     unique_key_prefix,
 };
-use ledger::{
+use crate::ledger::{
     FIRST_DATA_NODE, Forwarded, LEDGER, LEDGER_UUID, SECOND_DATA_NODE, first_difference,
     forward_insert, forwarder, placement, start_controller, title_of,
 };
 
-const CHILD_TEST: &str = "a_data_node_that_serves_until_its_process_is_killed";
 const PARENT_HEARTBEAT_TTL_SECONDS: u64 = 30;
 const WRITERS: usize = 4;
 const ACKNOWLEDGED_BEFORE_THE_REPLICA_STOPS: usize = 20;
 const ACKNOWLEDGED_AFTER_THE_ADMISSION: usize = 40;
 
 type Acknowledged = Arc<Mutex<BTreeMap<String, String>>>;
-
-#[tokio::test(flavor = "multi_thread")]
-#[ignore = "the admission test starts this as a separate process and kills it"]
-async fn a_data_node_that_serves_until_its_process_is_killed() {
-    serve_until_killed().await;
-}
 
 fn acknowledged_count(acknowledged: &Acknowledged) -> usize {
     acknowledged.lock().expect("no writer panicked").len()
@@ -82,13 +70,7 @@ async fn every_write_acknowledged_while_a_returning_replica_is_admitted_survives
     let controller_scratch = Scratch::new();
     let controller = start_controller(&coordinator, &controller_scratch).await;
     let primary_scratch = Scratch::new();
-    let mut primary = ChildNode::spawn(
-        CHILD_TEST,
-        &endpoint,
-        &key_prefix,
-        FIRST_DATA_NODE,
-        &primary_scratch,
-    );
+    let mut primary = ChildNode::spawn(&endpoint, &key_prefix, FIRST_DATA_NODE, &primary_scratch);
     eventually("the primary's process registers its node", || async {
         registered_address(&coordinator, FIRST_DATA_NODE)
             .await

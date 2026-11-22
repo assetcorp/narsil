@@ -2,13 +2,11 @@ use narsil::Value;
 use narsil_cluster::message::TransportMessage;
 use narsil_cluster::transport::NodeTransport;
 
-mod data_node;
-mod ledger;
-mod support;
-
-use data_node::{DataNode, Scratch, cluster_coordinator};
-use ledger::{FORWARDER, LEDGER, LEDGER_UUID, Ledger, placement, start_cluster, title_document};
-use support::{Decoded, decode, write_binary, write_map_header, write_text, write_unsigned};
+use crate::data_node::{DataNode, Scratch, cluster_coordinator};
+use crate::ledger::{
+    FORWARDER, LEDGER, LEDGER_UUID, Ledger, placement, start_cluster, title_document,
+};
+use crate::support::{Decoded, decode, write_binary, write_map_header, write_text, write_unsigned};
 
 const FORWARD_BATCH: &str = "replication.forward_batch";
 const WRITE_CONFLICT: &str = "REPLICATION_WRITE_CONFLICT";

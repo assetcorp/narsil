@@ -4,14 +4,11 @@ use std::time::{Duration, Instant};
 use narsil::Value;
 use narsil_cluster::transport::NodeTransport;
 
-mod child_node;
-mod data_node;
-mod ledger;
-mod support;
-
-use child_node::registered_address;
-use data_node::{DataNode, Scratch, cluster_coordinator, eventually};
-use ledger::{Ledger, document_ids, first_difference, placement, start_cluster, start_controller};
+use crate::child_node::registered_address;
+use crate::data_node::{DataNode, Scratch, cluster_coordinator, eventually};
+use crate::ledger::{
+    Ledger, document_ids, first_difference, placement, start_cluster, start_controller,
+};
 
 const COPY_MISSING: &str = "NODE_COPY_MISSING";
 const WAIT_WITHOUT_A_CONTROLLER: Duration = Duration::from_secs(4);

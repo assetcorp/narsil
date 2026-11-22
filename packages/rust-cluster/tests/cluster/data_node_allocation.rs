@@ -3,10 +3,7 @@ use std::path::Path;
 use narsil::replication::{PartitionCopies, PrimaryLimits, PrimaryWrite};
 use narsil::{IndexConfig, Map, Narsil, Value};
 
-mod data_node;
-mod support;
-
-use data_node::{
+use crate::data_node::{
     DataNode, Scratch, cluster_coordinator, create_cluster_index, engine_config, eventually,
     is_served_by, metadata_key, title_schema,
 };

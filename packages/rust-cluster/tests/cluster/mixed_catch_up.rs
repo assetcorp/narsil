@@ -5,22 +5,16 @@ use std::time::{Duration, Instant};
 use narsil::Value;
 use narsil_cluster::coordinator::etcd::{EtcdCoordinator, EtcdCoordinatorConfig};
 
-mod data_node;
-mod ledger;
-mod spread;
-mod support;
-mod typescript_node;
-
-use data_node::{
+use crate::data_node::{
     DataNode, Scratch, coordinator_at, create_cluster_index, etcd_endpoint, eventually,
     unique_key_prefix,
 };
-use ledger::{
+use crate::ledger::{
     DIVERGED_DOCUMENT_ID, FIRST_DATA_NODE, LEDGER, LEDGER_UUID, Member, PAUSE_BETWEEN_WRITES,
     SECOND_DATA_NODE, holds_exactly, placement, start_controller, title_of,
 };
-use spread::titled;
-use typescript_node::TypescriptNode;
+use crate::spread::titled;
+use crate::typescript_node::TypescriptNode;
 
 const TYPESCRIPT_DATA_NODE: &str = "ledger-typescript-data";
 const ROUTER: &str = "ledger-router";

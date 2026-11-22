@@ -3,19 +3,13 @@ use std::collections::BTreeMap;
 use narsil::Value;
 use narsil_cluster::coordinator::etcd::EtcdCoordinatorConfig;
 
-mod data_node;
-mod ledger;
-mod spread;
-mod support;
-mod typescript_node;
-
-use data_node::{DataNode, Scratch, coordinator_at, etcd_endpoint, unique_key_prefix};
-use ledger::start_controller;
-use spread::{
+use crate::data_node::{DataNode, Scratch, coordinator_at, etcd_endpoint, unique_key_prefix};
+use crate::ledger::start_controller;
+use crate::spread::{
     Expected, NON_ASCII_IDS, assert_non_ascii_ids_tell_the_encodings_apart, copy_difference,
     expected_counts, fnv1a_partition, settled_holders, titled,
 };
-use typescript_node::{TypescriptNode, fields, title_document};
+use crate::typescript_node::{TypescriptNode, fields, title_document};
 
 const INDEX: &str = "mixed-ledger";
 const PARTITIONS: u32 = 3;

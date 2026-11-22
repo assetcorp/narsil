@@ -9,14 +9,11 @@ use narsil_cluster::message::TransportMessage;
 use narsil_cluster::transport::NodeTransport;
 use narsil_cluster::transport::tcp::{TcpTransport, TcpTransportConfig};
 
-mod data_node;
-mod support;
-
-use data_node::{
+use crate::data_node::{
     DataNode, Scratch, cluster_coordinator, create_cluster_index, engine_config, eventually,
     title_schema,
 };
-use support::{Decoded, decode, write_binary, write_map_header, write_text};
+use crate::support::{Decoded, decode, write_binary, write_map_header, write_text};
 
 const LEDGER: &str = "ledger";
 const LEDGER_UUID: &str = "uuid-of-the-ledger";
@@ -442,7 +439,10 @@ async fn a_rust_replica_applies_entries_in_log_order_and_refuses_what_breaks_the
         || async {
             let (code, answer) = primary.refused(std::slice::from_ref(&stale), None).await;
             assert_eq!(code, "REPLICATION_TERM_MISMATCH", "{answer:?}");
-            answer.text("message").contains("already knows")
+            answer
+                .field("details")
+                .and_then(|details| details.field("knownTerm"))
+                .is_some()
         },
     )
     .await;
