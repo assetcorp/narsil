@@ -1,9 +1,9 @@
 import { type ProjectedGroup, WRITE_WOULD_FILL_MEMORY_REASON } from '../../../engine/memory/write-projection'
 import { yieldToEventLoop } from '../../../engine/orchestration/turn'
 import { ErrorCodes, NarsilError } from '../../../errors'
-import type { BatchResult } from '../../../types/results'
 import type { AnyDocument } from '../../../types/schema'
 import { WRITE_APPLY_YIELD_INTERVAL_MS } from '../constants'
+import type { BatchWrite, WriteFailure } from './batch-write'
 import type { WriteRoutingDeps } from './types'
 
 const UNPROJECTED: ProjectedGroup = { count: 1, release: () => {} }
@@ -27,12 +27,10 @@ export function projectOne(deps: WriteRoutingDeps, indexName: string, document: 
   return projection.takeOne(indexName, bound(document))
 }
 
-export interface ProjectedBatch<T> {
-  items: readonly T[]
-  documentOf: (item: T) => AnyDocument
-  docIdOf: (item: T) => string
-  failed: BatchResult['failed']
-  apply: (item: T) => Promise<void>
+export interface ProjectedBatch {
+  writes: readonly BatchWrite<AnyDocument>[]
+  failed: WriteFailure<AnyDocument>[]
+  apply: (write: BatchWrite<AnyDocument>) => Promise<void>
   afterGroup?: () => Promise<void>
 }
 
@@ -45,17 +43,17 @@ function createTurnBudget(): () => Promise<void> {
   }
 }
 
-export async function applyInProjectedGroups<T>(
+export async function applyInProjectedGroups(
   deps: WriteRoutingDeps,
   indexName: string,
-  batch: ProjectedBatch<T>,
+  batch: ProjectedBatch,
 ): Promise<void> {
   const projection = deps.writeProjection
   const bound = projection?.boundOf(indexName) ?? null
   const yieldIfDue = createTurnBudget()
   if (projection === undefined || bound === null) {
-    for (const item of batch.items) {
-      await batch.apply(item)
+    for (const write of batch.writes) {
+      await batch.apply(write)
       await yieldIfDue()
     }
     await batch.afterGroup?.()
@@ -63,13 +61,13 @@ export async function applyInProjectedGroups<T>(
   }
 
   const bounds: number[] = []
-  const bounded: T[] = []
-  for (const item of batch.items) {
+  const bounded: BatchWrite<AnyDocument>[] = []
+  for (const write of batch.writes) {
     try {
-      bounds.push(bound(batch.documentOf(item)))
-      bounded.push(item)
+      bounds.push(bound(write.value))
+      bounded.push(write)
     } catch (err) {
-      batch.failed.push({ docId: batch.docIdOf(item), error: asDocumentError(err, batch.docIdOf(item)) })
+      batch.failed.push({ write, error: asDocumentError(err, write.docId) })
     }
   }
 
@@ -79,11 +77,11 @@ export async function applyInProjectedGroups<T>(
     try {
       group = projection.takeGroup(indexName, bounds, start)
     } catch (err) {
-      const refusedDocId = batch.docIdOf(bounded[start])
-      batch.failed.push({ docId: refusedDocId, error: asDocumentError(err, refusedDocId) })
+      const refused = bounded[start]
+      batch.failed.push({ write: refused, error: asDocumentError(err, refused.docId) })
       for (let index = start + 1; index < bounded.length; index++) {
-        const docId = batch.docIdOf(bounded[index])
-        batch.failed.push({ docId, error: refusedAfter(deps.nodeId, indexName, docId, refusedDocId) })
+        const write = bounded[index]
+        batch.failed.push({ write, error: refusedAfter(deps.nodeId, indexName, write.docId, refused.docId) })
       }
       return
     }
