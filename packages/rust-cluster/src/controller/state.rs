@@ -17,6 +17,7 @@ pub(crate) struct LoopState {
     pub(crate) placement_by_node: HashMap<String, String>,
     pub(crate) departed_at: HashMap<String, f64>,
     pub(crate) debounce: Timer,
+    pub(crate) debounce_due: Option<tokio::time::Instant>,
     pub(crate) departure: Timer,
     pub(crate) holder_retry: Timer,
     pub(crate) indexes_awaiting_holders: HashSet<String>,
@@ -36,6 +37,7 @@ impl LoopState {
     pub(crate) fn clear(&mut self) -> Vec<WatchHandle> {
         self.placement_by_node.clear();
         abort(&mut self.debounce);
+        self.debounce_due = None;
         abort(&mut self.departure);
         abort(&mut self.holder_retry);
         self.indexes_awaiting_holders.clear();
