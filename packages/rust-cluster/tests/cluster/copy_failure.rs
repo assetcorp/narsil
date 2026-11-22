@@ -2,22 +2,27 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use narsil::{Map, Value};
+use narsil_cluster::coordinator::AllocationTable;
 use narsil_cluster::coordinator::etcd::EtcdCoordinator;
 use narsil_cluster::transport::NodeTransport;
 use narsil_cluster::transport::tcp::TcpTransport;
 
 use crate::child_node::{ChildNode, file_sizes, registered_address};
 use crate::data_node::{
-    DataNode, Scratch, coordinator_at, create_cluster_index, etcd_endpoint, eventually,
-    unique_key_prefix,
+    DataNode, Scratch, cluster_coordinator, coordinator_at, create_cluster_index, etcd_endpoint,
+    eventually, metadata_key, metadata_record, title_schema, unique_key_prefix,
 };
 use crate::ledger::{
-    FIRST_DATA_NODE, Forwarded, LEDGER, LEDGER_UUID, Ledger, SECOND_DATA_NODE, first_difference,
-    forward_write, forwarder, placement, start_controller, title_of,
+    FIRST_DATA_NODE, Forwarded, LEDGER, LEDGER_UUID, Ledger, Member, SECOND_DATA_NODE,
+    first_difference, forward_insert, forward_write, forwarder, placement, start_controller,
+    title_of,
 };
 use crate::support::Decoded;
 
 const PARENT_HEARTBEAT_TTL_SECONDS: u64 = 30;
+const NOT_PRIMARY: &str = "PARTITION_NOT_PRIMARY";
+const INITIALISING: &str = "INITIALISING";
 const OUTCOME_UNKNOWN: &str = "REPLICATION_OUTCOME_UNKNOWN";
 const TERM_ENDED: &str = "term_ended";
 const CONTESTED: &str = "contested-entry";
@@ -243,4 +248,101 @@ async fn a_rust_primary_whose_disk_refuses_a_compensating_entry_answers_outcome_
         "the log holds the whole update and none of its compensating entry"
     );
     cluster.stop().await;
+}
+
+fn initialising_assignment() -> Map {
+    let mut assignment = Map::new();
+    assignment.insert("primary", Value::from(FIRST_DATA_NODE));
+    assignment.insert("replicas", Value::Array(Vec::new()));
+    assignment.insert("inSyncSet", Value::Array(Vec::new()));
+    assignment.insert("commitPoint", Value::from(0.0));
+    assignment.insert("state", Value::from(INITIALISING));
+    assignment.insert("primaryTerm", Value::from(1.0));
+    assignment
+}
+
+async fn store_initialising_ledger(coordinator: &EtcdCoordinator, version: f64) {
+    let table = AllocationTable {
+        index_name: LEDGER.to_string(),
+        version,
+        replication_factor: 0.0,
+        assignments: vec![(0.0, initialising_assignment())],
+        generation: None,
+        index_uuid: Some(LEDGER_UUID.to_string()),
+    };
+    coordinator
+        .put_allocation(LEDGER, &table)
+        .await
+        .expect("etcd takes the table");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_write_that_reaches_a_new_primary_before_it_builds_its_copy_is_refused_as_initialising_and_leaves_the_partition_writable()
+ {
+    let Some(coordinator) = cluster_coordinator().await else {
+        return;
+    };
+    let mut primary = Member::start(&coordinator, FIRST_DATA_NODE).await;
+    assert!(
+        coordinator
+            .compare_and_set(
+                &metadata_key(LEDGER),
+                None,
+                &metadata_record(LEDGER, LEDGER_UUID, 1, 0)
+            )
+            .await
+            .expect("etcd takes the metadata")
+    );
+    store_initialising_ledger(&coordinator, 1.0).await;
+    let mut ledger = Ledger::new();
+    match forward_insert(
+        &ledger.forwarder,
+        &primary.data().address,
+        "written-before-the-copy-exists",
+    )
+    .await
+    {
+        Forwarded::Refused(refused) => {
+            assert_eq!(refused.text("code"), NOT_PRIMARY, "{refused:?}");
+            let state = refused
+                .field("details")
+                .and_then(|details| details.field("state"));
+            assert_eq!(
+                state,
+                Some(&Decoded::Text(INITIALISING.to_string())),
+                "the refusal tells the sender that the partition is still initialising: {refused:?}"
+            );
+        }
+        Forwarded::Acknowledged => {
+            panic!("the primary acknowledges a write that it holds no copy for")
+        }
+        Forwarded::Unreachable => panic!("the primary is unreachable"),
+    }
+
+    coordinator
+        .put_schema(LEDGER, &title_schema())
+        .await
+        .expect("etcd takes the schema");
+    let controller_scratch = Scratch::new();
+    let controller = start_controller(&coordinator, &controller_scratch).await;
+    store_initialising_ledger(&coordinator, 2.0).await;
+    eventually("the primary builds its copy", || async {
+        placement(&coordinator)
+            .await
+            .is_some_and(|placed| placed.is_led_by(FIRST_DATA_NODE))
+    })
+    .await;
+    ledger
+        .insert_until_accepted(primary.data(), "written-once-the-copy-is-built")
+        .await;
+    let difference = first_difference(primary.data(), &ledger.written, &[]).await;
+    assert!(
+        difference.is_none(),
+        "the primary holds every acknowledged write: {difference:?}"
+    );
+
+    ledger.forwarder.shutdown().await;
+    primary.stop().await;
+    controller.stop().await;
+    coordinator.shutdown().await;
 }
