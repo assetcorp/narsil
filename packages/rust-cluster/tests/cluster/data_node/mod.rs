@@ -1,8 +1,7 @@
 #![allow(dead_code)]
 
-use std::net::TcpListener;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -12,21 +11,15 @@ use narsil_cluster::coordinator::etcd::{EtcdCoordinator, EtcdCoordinatorConfig};
 use narsil_cluster::coordinator::{NodeCapacity, NodeRegistration};
 use narsil_cluster::error::ClusterError;
 use narsil_cluster::node::{ClusterNode, ClusterNodeConfig, DataNodeConfig, next_started_at};
-use narsil_cluster::transport::NodeTransport;
 use narsil_cluster::transport::tcp::{TcpTransport, TcpTransportConfig};
+use narsil_cluster::transport::{NodeTransport, listen_handler};
 
 use crate::support::{write_map_header, write_text, write_unsigned};
 
 const SETTLE_WAIT: Duration = Duration::from_secs(30);
 const SETTLE_POLL: Duration = Duration::from_millis(50);
 
-const LISTEN_PORT_FLOOR: u32 = 20_000;
-const LISTEN_PORT_SPAN: u32 = 12_000;
-const LISTEN_ATTEMPTS: usize = 5;
-const LISTEN_FAILURE: &str = "The transport failed to listen";
-
 static NEXT_SERIAL: AtomicU64 = AtomicU64::new(0);
-static NEXT_LISTEN_PORT: AtomicU32 = AtomicU32::new(0);
 
 fn unique() -> String {
     let nanos = SystemTime::now()
@@ -187,19 +180,6 @@ pub async fn is_served_by(
         })
 }
 
-pub fn free_port() -> u16 {
-    let start = std::process::id() % LISTEN_PORT_SPAN;
-    for _ in 0..LISTEN_PORT_SPAN {
-        let step = NEXT_LISTEN_PORT.fetch_add(1, Ordering::Relaxed);
-        let port = LISTEN_PORT_FLOOR + (start + step) % LISTEN_PORT_SPAN;
-        let port = u16::try_from(port).expect("every listen port fits in 16 bits");
-        if TcpListener::bind(("127.0.0.1", port)).is_ok() {
-            return port;
-        }
-    }
-    panic!("every port from {LISTEN_PORT_FLOOR} on is taken");
-}
-
 pub struct DataNode {
     pub node: ClusterNode,
     pub transport: Arc<TcpTransport>,
@@ -232,40 +212,23 @@ impl DataNode {
         roles: &[&str],
         configure: fn(&mut ClusterNodeConfig),
     ) -> DataNode {
-        let mut attempts = 0;
-        loop {
-            attempts += 1;
-            match DataNode::try_start(coordinator, node_id, directory, roles, configure).await {
-                Ok(started) => return started,
-                Err(error)
-                    if attempts < LISTEN_ATTEMPTS
-                        && error.code() == "TRANSPORT_CONNECT_FAILED"
-                        && error.message().starts_with(LISTEN_FAILURE) => {}
-                Err(error) => panic!("the data node joins: {error:?}"),
-            }
-        }
-    }
-
-    async fn try_start(
-        coordinator: &Arc<EtcdCoordinator>,
-        node_id: &str,
-        directory: &Path,
-        roles: &[&str],
-        configure: fn(&mut ClusterNodeConfig),
-    ) -> Result<DataNode, ClusterError> {
-        let port = free_port();
-        let address = format!("127.0.0.1:{port}");
         let transport = Arc::new(
             TcpTransport::new(
                 node_id,
                 TcpTransportConfig {
                     host: "127.0.0.1".to_string(),
-                    port,
+                    port: 0,
                     ..TcpTransportConfig::default()
                 },
             )
             .expect("the transport settings are valid"),
         );
+        transport
+            .listen(listen_handler(|_message, _respond| async { Ok(()) }))
+            .await
+            .expect("the transport listens on a port that the system picks")
+            .stop();
+        let address = format!("127.0.0.1:{}", transport.port());
         let mut settings = ClusterNodeConfig::new(
             Arc::clone(coordinator),
             transport.clone(),
@@ -294,14 +257,14 @@ impl DataNode {
         if let Err(error) = node.start().await {
             node.shutdown().await;
             transport.shutdown().await;
-            return Err(error);
+            panic!("the data node joins: {error:?}");
         }
-        Ok(DataNode {
+        DataNode {
             node,
             transport,
             address,
             reported,
-        })
+        }
     }
 
     pub async fn stop(self) {
