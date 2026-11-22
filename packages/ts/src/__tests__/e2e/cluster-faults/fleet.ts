@@ -168,7 +168,7 @@ export async function startFleet(
     entry.child = child
     entry.output += `\n--- start ${new Date().toISOString()}\n`
     entry.exited = new Promise<void>(resolve => {
-      child.once('exit', (code, signal) => {
+      child.once('close', (code, signal) => {
         entry.output += `\nexited with code ${code} and signal ${signal}\n`
         if (entry.child === child) entry.child = null
         resolve()
@@ -234,7 +234,12 @@ export async function startFleet(
     })),
     start,
     kill,
-    stop: slot => stopOne(slotAt(slot)),
+    async stop(slot) {
+      const entry = slotAt(slot)
+      await stopOne(entry)
+      if (!entry.output.slice(entry.output.lastIndexOf('--- start')).includes('exited with code 0 and signal null'))
+        throw new Error(`Slot ${slot} did not stop cleanly: ${entry.output.slice(-4_000)}`)
+    },
     async wipe(slot) {
       const entry = slotAt(slot)
       if (entry.child !== null) throw new Error(`Slot ${slot} must stop before its data directory is wiped`)

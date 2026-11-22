@@ -1,6 +1,7 @@
 import { setTimeout as sleep } from 'node:timers/promises'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { type ClusterUnderTest, startClusterUnderTest } from './cluster-under-test'
+import { MAX_FAULT_SEED, QUIET_WINDOW_MS } from './constants'
 import {
   campaignPlan,
   describeFault,
@@ -12,9 +13,17 @@ import {
   seededRandom,
 } from './fault-plan'
 import { createLedger } from './oracle'
-import { type FaultState, NO_FAULT, type QuietWrite, SEARCH_TERM, send, startWorkload } from './workload'
+import { type FaultState, NO_FAULT, type QuietWrite, SEARCH_TERM, send, startWorkload, type Workload } from './workload'
 
 const SEED = Number(process.env.NARSIL_FAULT_SEED ?? Math.floor(Math.random() * 2 ** 31))
+if (
+  (process.env.NARSIL_FAULT_SEED !== undefined && !/^(0|[1-9]\d*)$/.test(process.env.NARSIL_FAULT_SEED)) ||
+  !Number.isSafeInteger(SEED) ||
+  SEED < 0 ||
+  SEED > MAX_FAULT_SEED
+) {
+  throw new Error('NARSIL_FAULT_SEED must be an integer from 0 to 2147483647')
+}
 const CAMPAIGN = process.env.NARSIL_FAULT_CAMPAIGN === '1'
 const NODE_COUNT = 3
 const PARTITION_COUNT = 3
@@ -22,7 +31,6 @@ const REPLICATION_FACTOR = 1
 const INDEX_NAME = 'ledger'
 const ETCD_OUTAGE_MEMBERS = [1, 2]
 const WORKLOAD_STREAM_SALT = 0x5bd1e995
-const CLIENT_DRAIN_MS = 2_000
 const REST_AFTER_RESTART_MS = 15_000
 const SLOW_WRITE_MEDIAN_MULTIPLE = 100
 const SLOW_WRITE_FLOOR_MS = 5_000
@@ -83,14 +91,19 @@ describe('a three-node cluster on three etcd members under seeded faults', () =>
     return fleet.nodes.find(node => primary !== null && node.nodeId() === primary)?.slot ?? fallback
   }
 
-  async function injectFault(fault: PlannedFault, faults: FaultState, alone: boolean): Promise<void> {
+  async function injectFault(
+    fault: PlannedFault,
+    faults: FaultState,
+    workload: Workload,
+    alone: boolean,
+  ): Promise<void> {
     if (cluster === null) return
     const { fleet, etcd } = cluster
     const { kind, holdMs } = fault
     const slot = isWipe(kind) && alone ? await primarySlotOf(fault.slot % PARTITION_COUNT, fault.slot) : fault.slot
     if (slot !== fault.slot)
       console.log(`the wipe goes to slot ${slot}, the primary of partition ${fault.slot % PARTITION_COUNT}`)
-    await sleep(fault.startAfterMs)
+    if (fault.startAfterMs > 0) await sleep(fault.startAfterMs)
     if (!isEtcdFault(kind)) {
       faults.unavailable.add(slot)
       faults.startedOn[slot] = (faults.startedOn[slot] ?? 0) + 1
@@ -104,8 +117,7 @@ describe('a three-node cluster on three etcd members under seeded faults', () =>
         for (const member of ETCD_OUTAGE_MEMBERS) await etcd.start(member)
       } else if (kind === 'kill' || isWipe(kind)) {
         if (fault.clientsRest === true) {
-          faults.resting = true
-          await sleep(CLIENT_DRAIN_MS)
+          await workload.rest()
         }
         if (kind === 'stop-wipe') await fleet.stop(slot)
         else await fleet.kill(slot)
@@ -130,7 +142,7 @@ describe('a three-node cluster on three etcd members under seeded faults', () =>
         fleet.reconnect(slot)
       }
     } finally {
-      faults.unavailable.delete(slot)
+      if (!isEtcdFault(kind)) faults.unavailable.delete(slot)
       if (fault.clientsRest === true) faults.resting = false
     }
   }
@@ -142,10 +154,8 @@ describe('a three-node cluster on three etcd members under seeded faults', () =>
     for (const node of cluster.fleet.nodes) {
       const output = node.output()
       const lastStart = output.slice(output.lastIndexOf('--- start'))
-      if (lastStart.includes(SOCKETS_LEFT_OPEN_LINE)) {
-        const line = lastStart.split('\n').find(text => text.includes(SOCKETS_LEFT_OPEN_LINE)) ?? ''
+      for (const line of output.split('\n').filter(text => text.includes(SOCKETS_LEFT_OPEN_LINE)))
         problems.push(`slot ${node.slot}: ${line}`)
-      }
       if (!lastStart.includes(CLEAN_EXIT_LINE)) problems.push(`slot ${node.slot} did not exit cleanly on SIGTERM`)
     }
     return problems
@@ -183,16 +193,21 @@ describe('a three-node cluster on three etcd members under seeded faults', () =>
     })
     const applied: string[] = []
     try {
+      if (CAMPAIGN) await sleep(QUIET_WINDOW_MS)
       for (const [at, round] of plan.rounds.entries()) {
         const shown = round.map(describeFault).join(' while ')
         applied.push(shown)
         enter(shown)
         console.log(`fault ${at + 1} of ${plan.rounds.length}: ${shown}`)
-        await Promise.all(round.map(fault => injectFault(fault, faults, round.length === 1)))
+        const outcomes = await Promise.allSettled(
+          round.map(fault => injectFault(fault, faults, workload, round.length === 1)),
+        )
+        for (const outcome of outcomes) if (outcome.status === 'rejected') throw outcome.reason
         enter(`healing after ${shown}`)
         await untilHealed(`after ${shown}`)
         enter(NO_FAULT)
       }
+      if (CAMPAIGN) await sleep(QUIET_WINDOW_MS)
     } finally {
       await workload.stop()
     }
@@ -225,6 +240,9 @@ describe('a three-node cluster on three etcd members under seeded faults', () =>
 
     if (CAMPAIGN) {
       expect(workload.unansweredQuietWrites()).toEqual([])
+      expect(workload.quietWrites().length, 'completed writes outside a fault').toBeGreaterThanOrEqual(
+        MIN_QUIET_WRITES_FOR_LATENCY,
+      )
       expect(slowWrites(workload.quietWrites())).toEqual([])
       expect(await shutdownProblems()).toEqual([])
     }

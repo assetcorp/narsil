@@ -84,8 +84,10 @@ async function stop() {
   await node.shutdown()
   await transport.shutdown()
   await coordinator.shutdown()
-  const left = await socketsLeftOpen()
-  if (left.length > 0) process.stderr.write(`SOCKETS LEFT OPEN AT SHUTDOWN: ${left.join(', ')}\n`)
+  if (process.env.NARSIL_FAULT_CAMPAIGN === '1') {
+    const left = await socketsLeftOpen()
+    if (left.length > 0) process.stderr.write(`SOCKETS LEFT OPEN AT SHUTDOWN: ${left.join(', ')}\n`)
+  }
   process.exit(0)
 }
 
