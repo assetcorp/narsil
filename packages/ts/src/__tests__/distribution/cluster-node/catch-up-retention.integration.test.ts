@@ -56,6 +56,44 @@ async function waitFor<T>(read: () => Promise<T | null> | T | null, what: string
   throw new Error(`timed out waiting for ${what}`)
 }
 
+interface AppliedPositionRecorder {
+  transport: NodeTransport
+  highest: () => number
+}
+
+function seqNoIn(payload: Uint8Array, field: 'seqNo' | 'lastSeqNo'): number {
+  const decoded = decode(payload) as Record<string, unknown>
+  const value = decoded[field]
+  return typeof value === 'number' ? value : 0
+}
+
+function recordAppliedPositions(inner: NodeTransport): AppliedPositionRecorder {
+  let highest = 0
+  const transport: NodeTransport = {
+    ...inner,
+    listen: handler =>
+      inner.listen((message: TransportMessage, respond: RespondFn) =>
+        handler(message, response => {
+          if (response.type === ReplicationMessageTypes.ACK)
+            highest = Math.max(highest, seqNoIn(response.payload, 'seqNo'))
+          return respond(response)
+        }),
+      ),
+    stream: (target, message, onChunk) => {
+      const reportsPosition =
+        message.type === ReplicationMessageTypes.SYNC_REQUEST &&
+        (decode(message.payload) as { syncSession?: unknown }).syncSession !== undefined
+      const streamed = inner.stream(target, message, onChunk)
+      if (!reportsPosition) return streamed
+      return streamed.then(result => {
+        highest = Math.max(highest, seqNoIn(message.payload, 'lastSeqNo'))
+        return result
+      })
+    },
+  }
+  return { transport, highest: () => highest }
+}
+
 function entrySeqNoOf(message: TransportMessage): number | null {
   const payload = decode(message.payload) as { entry?: { seqNo?: unknown } }
   return typeof payload.entry?.seqNo === 'number' ? payload.entry.seqNo : null
@@ -186,7 +224,8 @@ describe('catch-up of a replica whose position leaves the retained log', () => {
         return reply
       },
     })
-    await startNode(REPLICA, transportOf(REPLICA))
+    const replica = recordAppliedPositions(transportOf(REPLICA))
+    await startNode(REPLICA, replica.transport)
     await proofHeld.promise
     const tideIds = Array.from(
       { length: ENTRIES_BEFORE_REPLICA + ENTRIES_WHILE_PROOF_WAITS },
@@ -195,7 +234,10 @@ describe('catch-up of a replica whose position leaves the retained log', () => {
     for (const documentId of tideIds.slice(ENTRIES_BEFORE_REPLICA)) {
       await controller.insert(INDEX_NAME, { id: documentId, note: TIDE_NOTE })
     }
-    await waitFor(() => replicaHolds(tideIds), 'the replica to apply every write sent while the proof waited')
+    await waitFor(
+      () => (replica.highest() >= tideIds.length ? true : null),
+      'the replica to apply every write sent while the proof waited',
+    )
     proofReleased.release()
 
     const reply = await waitFor(() => proofReply, 'the replica to answer the resent entry')
@@ -211,7 +253,8 @@ describe('catch-up of a replica whose position leaves the retained log', () => {
   it('syncs a replica again once its position falls below the oldest entry that the primary retains, so it rejoins the in-sync set and receives every acknowledged write', async () => {
     const controller = await startPrimaryWithEntries(transportOf(PRIMARY))
     let feedFails = false
-    const replicaTransport = transportOf(REPLICA)
+    const replica = recordAppliedPositions(transportOf(REPLICA))
+    const replicaTransport = replica.transport
     const feedFailingTransport: NodeTransport = {
       ...replicaTransport,
       listen: handler =>
@@ -235,7 +278,10 @@ describe('catch-up of a replica whose position leaves the retained log', () => {
     const syncedIds = tideIds.slice(0, ENTRIES_BEFORE_REPLICA + 1)
     await controller.insert(INDEX_NAME, { id: syncedIds[ENTRIES_BEFORE_REPLICA], note: TIDE_NOTE })
     expect((await assignment()).inSyncSet).not.toContain(REPLICA)
-    await waitFor(() => replicaHolds(syncedIds), 'the replica to sync the write that it missed')
+    await waitFor(
+      () => (replica.highest() >= syncedIds.length ? true : null),
+      'the replica to sync the write that it missed',
+    )
     tableFilter.dropUnchangedTables()
     const versionAfterSync = (await assignment()).inSyncVersion
 

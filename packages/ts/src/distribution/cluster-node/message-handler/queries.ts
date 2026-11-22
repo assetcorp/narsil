@@ -26,6 +26,7 @@ import { answerRefusalOf, refuseEncodeWithoutRoom } from '../memory/answer-room'
 import { wireParamsToLocal } from '../query-conversion'
 import { documentOfSnapshot, heldBytesOf, keepAliveOf } from '../search-contexts'
 import type { DocumentSnapshot } from '../search-contexts/snapshots'
+import { refuseUnservedRead } from './read-refusal'
 import type { DataNodeHandlerDeps } from './types'
 
 export async function handleSearch(
@@ -34,6 +35,7 @@ export async function handleSearch(
   deps: DataNodeHandlerDeps,
 ): Promise<void> {
   const payload = validateSearchPayload(decodeRequestPayload(message.payload, message.type))
+  await refuseUnservedRead(deps, payload.indexName, payload.partitionIds, 'query')
 
   const queryParams = wireParamsToLocal(payload.params, payload.facetShardSize)
   if (queryParams.group?.limit !== undefined) {
@@ -154,6 +156,10 @@ export async function handleFetch(
   const read: FetchedFields = { fields: payload.fields, vectors: payload.vectors !== false }
 
   const contextId = payload.contextId ?? null
+  if (contextId === null) {
+    const partitionIds = new Set(payload.documentIds.map(docRef => docRef.partitionId))
+    await refuseUnservedRead(deps, payload.indexName, [...partitionIds], 'query')
+  }
   const documents =
     contextId === null
       ? await readCurrentDocuments(deps, payload.indexName, payload.documentIds, read)
@@ -242,6 +248,7 @@ export async function handleStats(
   deps: DataNodeHandlerDeps,
 ): Promise<void> {
   const payload = validateStatsPayload(decodeRequestPayload(message.payload, message.type))
+  await refuseUnservedRead(deps, payload.indexName, payload.partitionIds, 'query')
 
   const resultPayload: StatsResultPayload = await deps.analysisView.answerAt(
     payload.indexName,

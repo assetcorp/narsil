@@ -14,6 +14,7 @@ import { refuseEncodeWithoutRoom } from '../memory/answer-room'
 import { wireParamsToLocal } from '../query-conversion'
 import { localCountAnswer } from '../reads/count-answer'
 import { listLocalPage } from '../reads/local-list-page'
+import { refuseUnservedRead } from './read-refusal'
 import type { DataNodeHandlerDeps } from './types'
 
 export async function handleCount(
@@ -22,6 +23,7 @@ export async function handleCount(
   deps: DataNodeHandlerDeps,
 ): Promise<void> {
   const payload = validateCountPayload(decodeRequestPayload(message.payload, message.type))
+  await refuseUnservedRead(deps, payload.indexName, payload.partitionIds, 'query')
   const answer = await localCountAnswer(deps.engine, payload.indexName, payload.partitionIds)
   await respond(createCountResultMessage(answer, deps.nodeId, message.requestId))
 }
@@ -32,6 +34,7 @@ export async function handleList(
   deps: DataNodeHandlerDeps,
 ): Promise<void> {
   const payload = validateListPayload(decodeRequestPayload(message.payload, message.type))
+  await refuseUnservedRead(deps, payload.indexName, payload.partitionIds, 'query')
   const page = await listLocalPage(deps.engine, payload)
   refuseEncodeWithoutRoom(page.entries.map(entry => entry.document))
   await respond(createListResultMessage(page, deps.nodeId, message.requestId))
@@ -43,6 +46,7 @@ export async function handleSuggest(
   deps: DataNodeHandlerDeps,
 ): Promise<void> {
   const payload = validateSuggestPayload(decodeRequestPayload(message.payload, message.type))
+  await refuseUnservedRead(deps, payload.indexName, payload.partitionIds, 'query')
   const result = await deps.analysisView.answerAt(payload.indexName, payload.analysisGeneration ?? 0, () =>
     deps.engine.suggestPartitions(
       payload.indexName,
@@ -66,6 +70,7 @@ export async function handlePreflight(
   deps: DataNodeHandlerDeps,
 ): Promise<void> {
   const payload = validatePreflightPayload(decodeRequestPayload(message.payload, message.type))
+  await refuseUnservedRead(deps, payload.indexName, payload.partitionIds, 'query')
   const params = wireParamsToLocal(payload.params)
   const result = await deps.analysisView.answerAt(payload.indexName, payload.params.analysisGeneration ?? 0, () =>
     deps.engine.preflightPartitions(
