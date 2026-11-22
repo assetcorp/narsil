@@ -3,6 +3,7 @@ import type { PartitionFailureHandler } from './types'
 export interface PartitionFailureRouting {
   isolate(onFailed: PartitionFailureHandler): void
   failsAlone(indexName: string, partitionId: number, error: Error): boolean
+  isolates(): boolean
 }
 
 export function createPartitionFailureRouting(): PartitionFailureRouting {
@@ -16,5 +17,6 @@ export function createPartitionFailureRouting(): PartitionFailureRouting {
       onFailed(indexName, partitionId, error)
       return true
     },
+    isolates: () => onFailed !== null,
   }
 }
