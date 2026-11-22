@@ -354,7 +354,7 @@ full snapshot:
 
 The primary must send the entries of one answer in sequence-number order with no gap, from the request's `lastSeqNo` + 1 for an incremental catch-up and from the snapshot header's `lastSeqNo` + 1 after a snapshot. The primary must split those entries into batches that each fit within the [Maximum Message Size](#maximum-message-size), and it must set `isLast` to true on the last batch alone.
 
-A replica must tell the payloads of one answer apart by their keys: a payload with `error: true` is an error reply, a payload with `entries` or `isLast` is a `replication.sync_entries`, the first other payload is the `replication.snapshot_start`, a payload with `offset` and `data` is a `replication.snapshot_chunk`, and a payload with `totalBytes` and `checksum` is the `replication.snapshot_end`.
+A replica must tell the payloads of one answer apart by their keys: a payload with `error: true` is an error reply, a payload with `entries` or `isLast` is a `replication.sync_entries`, the first other payload is the `replication.snapshot_start`, a payload with `offset` and `data` is a `replication.snapshot_chunk`, and a payload with `totalBytes` and `checksum` is the `replication.snapshot_end`. A replica must stop reading the answer at the first payload that follows the batch that sets `isLast`, and it must report `SNAPSHOT_SYNC_PRIMARY_ERROR` where that payload is an error reply and `SNAPSHOT_SYNC_FRAME_INVALID` for any other payload, because an error reply carries the primary's reason.
 
 A primary that refuses or abandons a sync must send an error reply as the last payload of the answer, with one of these codes:
 
@@ -1219,8 +1219,11 @@ A coordinator must fill `terms` with the non-empty pieces of the query's `term`,
 {
   indexName:    string
   partitionIds: List<uint32>
+  everyCopy:    boolean or absent   (true where the coordinator reads only the size figures of every copy)
 }
 ```
+
+A node must answer a `query.count` that sets `everyCopy` to true for every named partition that it holds, whatever the partition's state and whether its copy is in the in-sync set, because the coordinator takes only `savedBytes`, `vectorSavedBytes`, and `logBytes` from that answer. A node that predates the field ignores it, because a node ignores a key that it does not know.
 
 ### query.count_result
 
@@ -1242,7 +1245,7 @@ The node answers for exactly the named partitions it holds, one entry per partit
 
 A node must set `savedBytes` and `logBytes` as [Saved Size](../durability.md#saved-size) defines them for a partition, and it must leave out each figure that those rules give it no value for. A node must split the bytes of the vector files and graph parts that its manifest lists for the index among every partition of the index that it holds, in proportion to their `documentCount`, or in equal parts where those partitions hold no document. It must round each share down and add the bytes left over to the share of the partition with the lowest id, so that the shares add up to those bytes, and it must set `vectorSavedBytes` to each share.
 
-In the stats of an index, the coordinator must report as the saved size the sum of `savedBytes` and `vectorSavedBytes`, and as the log size the sum of `logBytes`, over the copy that it reads for each partition. In the stats of a partition, it must report that copy's `savedBytes` and `logBytes`. The coordinator must also report each of those figures summed over every copy that the allocation table lists, so it must send `query.count` to every other copy as well. Where another copy fails to answer, the coordinator must report the sums over every copy as absent, and it must not fail the stats call. The coordinator must report a figure as absent wherever an answer that it adds up leaves that figure out.
+In the stats of an index, the coordinator must report as the saved size the sum of `savedBytes` and `vectorSavedBytes`, and as the log size the sum of `logBytes`, over the copy that it reads for each partition. In the stats of a partition, it must report that copy's `savedBytes` and `logBytes`. The coordinator must also report each of those figures summed over every copy that the allocation table lists, so it must send `query.count` with `everyCopy` set to true to every other copy as well, and it must never take `documentCount` or `estimatedMemoryBytes` from that answer. Where another copy fails to answer, the coordinator must report the sums over every copy as absent, and it must not fail the stats call. The coordinator must report a figure as absent wherever an answer that it adds up leaves that figure out.
 
 ### query.list
 
