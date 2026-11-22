@@ -112,7 +112,9 @@ describe('a three-node cluster on three etcd members under seeded faults', () =>
     for (const [partitionId, assignment] of table.assignments) {
       const holders = [assignment.primary, ...assignment.replicas].filter(holder => holder !== null)
       if (!holders.includes(nodeId)) continue
-      for (const other of holders.filter(holder => holder !== nodeId)) {
+      const others = holders.filter(holder => holder !== nodeId)
+      if (others.length === 0) return `partition ${partitionId} keeps its only copy on slot ${slot}`
+      for (const other of others) {
         const node = fleet.nodes.find(candidate => candidate.nodeId() === other)
         const current = other === assignment.primary || assignment.inSyncSet.includes(other)
         if (node === undefined || !node.running() || faults.unavailable.has(node.slot) || !current) {
