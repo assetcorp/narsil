@@ -1,6 +1,6 @@
 import { ErrorCodes, NarsilError } from '../../../errors'
 import type { AllocationTable, PartitionAssignment, RegistrationLease } from '../../coordinator/types'
-import { partitionKey } from '../catch-up/state'
+import { type CatchUpState, partitionKey } from '../catch-up/state'
 import { REGISTRATION_LEASE_CONFIRM_TIMEOUT_MS, REGISTRATION_LEASE_DRIFT_SHARE } from '../constants'
 import { noteLedTerm } from '../led-term'
 import { assertReshardOpen } from '../reshard/block'
@@ -160,12 +160,31 @@ export async function inLeadingPartitionQueue<T>(
   return result
 }
 
+const termStartsFromTable = new WeakMap<CatchUpState, Map<string, number>>()
+
+function queuedTermStartsOf(deps: WriteRoutingDeps): Map<string, number> {
+  let queued = termStartsFromTable.get(deps.catchUp)
+  if (queued === undefined) {
+    queued = new Map()
+    termStartsFromTable.set(deps.catchUp, queued)
+  }
+  return queued
+}
+
 export function startLeadingTerm(
   deps: WriteRoutingDeps,
   indexName: string,
   partitionId: number,
   assignment: PartitionAssignment,
 ): void {
-  if ((deps.catchUp.startedTerms.get(partitionKey(indexName, partitionId)) ?? 0) >= assignment.primaryTerm) return
-  inLeadingPartitionQueue({ indexName, partitionId, assignment, deps }, async () => undefined).catch(() => undefined)
+  const key = partitionKey(indexName, partitionId)
+  if ((deps.catchUp.startedTerms.get(key) ?? 0) >= assignment.primaryTerm) return
+  const queued = queuedTermStartsOf(deps)
+  if ((queued.get(key) ?? 0) >= assignment.primaryTerm) return
+  queued.set(key, assignment.primaryTerm)
+  inLeadingPartitionQueue({ indexName, partitionId, assignment, deps }, async () => undefined)
+    .catch(() => undefined)
+    .finally(() => {
+      if (queued.get(key) === assignment.primaryTerm) queued.delete(key)
+    })
 }
