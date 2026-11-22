@@ -46,6 +46,7 @@ pub(crate) struct IndexState {
     pub(crate) last_checkpoint: Mutex<Instant>,
     pub(crate) pins: Mutex<HashMap<String, usize>>,
     pub(crate) records_previous_documents: Arc<AtomicBool>,
+    pub(crate) fails_partitions_alone: AtomicBool,
     replacements: AtomicU64,
     history_moved: AtomicBool,
 }
@@ -60,6 +61,7 @@ impl IndexState {
             last_checkpoint: Mutex::new(Instant::now()),
             pins: Mutex::new(HashMap::new()),
             records_previous_documents: Arc::new(AtomicBool::new(false)),
+            fails_partitions_alone: AtomicBool::new(false),
             replacements: AtomicU64::new(0),
             history_moved: AtomicBool::new(false),
         }

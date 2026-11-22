@@ -14,6 +14,7 @@ use super::removed_documents::{RewriteBudget, rewrite_removed_documents};
 use super::saved_size::SavedSize;
 use crate::config::Storage;
 use crate::engine::index::IndexState;
+use crate::engine::replication::fail_stopped_logs;
 use crate::error::Result;
 use crate::format::manifest::{PartitionEntry, SegmentManifest};
 use crate::format::metadata::IndexMetadata;
@@ -326,6 +327,7 @@ pub(super) fn write_checkpoint_locked(
     log: &IndexLog,
     upgraded: Option<&SegmentManifest>,
 ) -> Result<()> {
+    fail_stopped_logs(index);
     let mut writer = log.backing().begin_checkpoint(&index.name)?;
     let partitions = index.partitions();
     let applied = log.applied_seq_nos();

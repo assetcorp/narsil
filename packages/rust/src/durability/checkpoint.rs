@@ -215,7 +215,7 @@ impl DurabilityStore {
             }
         };
         for log in inner.logs_of(index_name)? {
-            inner.guard(log.roll_for_checkpoint(&inner.directory))?;
+            inner.guard_log(&log, log.roll_for_checkpoint(&inner.directory))?;
         }
         Ok(writer)
     }

@@ -1,6 +1,8 @@
 mod support;
 
 use std::collections::BTreeMap;
+use std::fs::OpenOptions;
+use std::io::Write;
 use std::path::Path;
 
 use narsil::replication::{
@@ -20,6 +22,8 @@ const ROUNDS: u64 = 240;
 const ROUNDS_PER_RESTART: u64 = 37;
 const ROUNDS_PER_TERM: u64 = 53;
 const DIMENSION: usize = 3;
+const TORN_SEGMENT_MAX_BYTES: u64 = 10_000;
+const TORN_ITEM_CHARACTERS: usize = 4_000;
 
 type Held = BTreeMap<String, (Map, WriteRecord)>;
 
@@ -436,4 +440,134 @@ fn an_emptied_or_advanced_partition_numbers_from_its_new_position_after_a_restar
             primary_term: 8,
         })
     );
+}
+
+fn small_segment_engine(root: &Path) -> Narsil {
+    Narsil::open(NarsilConfig {
+        durability: Some(DurabilityConfig {
+            directory: Some(root.to_path_buf()),
+            mode: Some(DurabilityMode::Sync),
+            segment_max_bytes: Some(TORN_SEGMENT_MAX_BYTES),
+            ..DurabilityConfig::default()
+        }),
+        ..NarsilConfig::default()
+    })
+    .expect("the engine opens")
+}
+
+fn padded_order(id: &str, round: u64) -> Map {
+    let mut document = order(id, round);
+    document.insert(
+        "item",
+        Value::from(format!("{round} {}", "a".repeat(TORN_ITEM_CHARACTERS))),
+    );
+    document
+}
+
+#[test]
+fn a_reload_after_a_torn_append_keeps_every_acknowledged_write_across_a_restart() {
+    let root = ScratchDirectory::new("assigned-torn");
+    let mut engine = small_segment_engine(root.path());
+    PartitionCopies::new(&engine)
+        .create_index(INDEX, index_config(Storage::Memory), UUID, PARTITIONS)
+        .expect("the copy is created");
+    let partition = partition_of("order-1");
+    let candidates = (0..200).map(|number| format!("order-{number}"));
+    let ids: Vec<String> = candidates
+        .clone()
+        .filter(|id| partition_of(id) == partition)
+        .take(3)
+        .collect();
+    let other = candidates
+        .clone()
+        .find(|id| partition_of(id) != partition)
+        .expect("another partition holds an order");
+    let documents: Vec<Map> = (1..)
+        .zip(&ids)
+        .map(|(round, id)| padded_order(id, round))
+        .collect();
+    let entries: Vec<ReplicatedEntry> = (1..)
+        .zip(ids.iter().zip(&documents))
+        .map(|(seq_no, (id, document))| entry(id, seq_no, 2, Some(encoded(document))))
+        .collect();
+    let logs = root
+        .path()
+        .join(INDEX)
+        .join("wal")
+        .join(partition.to_string());
+    let segment = logs.join(format!("{:016}", 1));
+    let mut lengths = Vec::new();
+    for sent in &entries[..2] {
+        let applied = PartitionCopies::new(&engine)
+            .append(INDEX, partition, std::slice::from_ref(sent))
+            .expect("the entry applies");
+        assert_eq!((applied.applied, applied.failure), (1, None));
+        lengths.push(
+            std::fs::metadata(&segment)
+                .expect("the segment exists")
+                .len(),
+        );
+    }
+    assert!(lengths[1] > lengths[0], "both entries share one segment");
+    let written = std::fs::read(&segment).expect("the segment is read");
+    let frame = &written[lengths[0] as usize..lengths[1] as usize];
+    OpenOptions::new()
+        .append(true)
+        .open(&segment)
+        .and_then(|mut file| file.write_all(&frame[..frame.len() / 2]))
+        .expect("a torn frame follows the durable records");
+    let blocked = logs.join(format!("{:016}", 3));
+    std::fs::create_dir(&blocked).expect("the next segment's path is blocked");
+
+    let failed = PartitionCopies::new(&engine)
+        .append(INDEX, partition, &entries[2..])
+        .expect("the failed run answers");
+    assert_eq!(failed.applied, 0);
+    assert!(failed.failure.is_some());
+    std::fs::remove_dir(&blocked).expect("the next segment's path is freed");
+    let elsewhere = entry(&other, 1, 2, Some(encoded(&order(&other, 1))));
+    let applied = PartitionCopies::new(&engine)
+        .append(INDEX, partition_of(&other), &[elsewhere])
+        .expect("another partition takes its entry");
+    assert_eq!((applied.applied, applied.failure), (1, None));
+
+    PartitionCopies::new(&engine)
+        .reload_partition(INDEX, partition)
+        .expect("the partition reloads");
+    assert_eq!(
+        PartitionCopies::new(&engine)
+            .position(INDEX, partition)
+            .unwrap(),
+        CopyPosition {
+            seq_no: 2,
+            primary_term: 2,
+        }
+    );
+    let applied = PartitionCopies::new(&engine)
+        .append(INDEX, partition, &entries[2..])
+        .expect("the reloaded partition takes the entry");
+    assert_eq!((applied.applied, applied.failure), (1, None));
+
+    engine.shutdown().expect("the engine shuts down");
+    drop(engine);
+    engine = small_segment_engine(root.path());
+    assert_eq!(
+        PartitionCopies::new(&engine)
+            .position(INDEX, partition)
+            .unwrap(),
+        CopyPosition {
+            seq_no: 3,
+            primary_term: 2,
+        }
+    );
+    for (id, document) in ids.iter().zip(&documents) {
+        let stored = engine
+            .get_with(INDEX, id, Some(&WHOLE_DOCUMENT))
+            .expect("the read answers");
+        assert_eq!(stored.as_ref(), Some(document));
+    }
+    let stored = engine
+        .get_with(INDEX, &other, Some(&WHOLE_DOCUMENT))
+        .expect("the read answers");
+    assert_eq!(stored, Some(order(&other, 1)));
 }
