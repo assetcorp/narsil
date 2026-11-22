@@ -1,5 +1,6 @@
 import { describeError, ErrorCodes, NarsilError } from '../../../errors'
 import { RESHARD_FORWARD_BATCH_DOCUMENTS } from '../../cluster/constants'
+import { isHiddenGeneration, type RebalanceRecord, readRebalanceRecord } from '../../cluster/rebalance/records'
 import { buildEntry } from '../../replication/entry-checksum'
 import type { ReplicationLogEntry } from '../../replication/types'
 import type {
@@ -138,11 +139,34 @@ async function applyOperations(
   return results
 }
 
-export function applyReshardForward(
+function writesTo(record: RebalanceRecord | null, payload: ReshardForwardPayload): boolean {
+  return record?.jobId === payload.jobId && record.targetGeneration === payload.targetGeneration
+}
+
+async function assertRunningJob(deps: WriteRoutingDeps, payload: ReshardForwardPayload): Promise<void> {
+  const { coordinator } = deps
+  const known = deps.reshard?.publicNames.get(payload.targetGeneration)
+  if (known !== undefined && writesTo(await readRebalanceRecord(coordinator, known), payload)) return
+  for (const name of await coordinator.listSchemas()) {
+    if (isHiddenGeneration(name) || name === known) continue
+    if (writesTo(await readRebalanceRecord(coordinator, name), payload)) {
+      deps.reshard?.publicNames.set(payload.targetGeneration, name)
+      return
+    }
+  }
+  throw new NarsilError(
+    ErrorCodes.ALLOCATION_FAILED,
+    `No partition count change '${payload.jobId}' copies documents into '${payload.targetGeneration}'`,
+    { jobId: payload.jobId, targetGeneration: payload.targetGeneration },
+  )
+}
+
+export async function applyReshardForward(
   deps: WriteRoutingDeps,
   engine: ReshardTargetEngine,
   payload: ReshardForwardPayload,
 ): Promise<ForwardBatchOperationResult[]> {
+  await assertRunningJob(deps, payload)
   const state = deps.reshard
   if (state !== undefined) {
     const key = jobKey(payload.jobId, payload.sourcePartitionId)
