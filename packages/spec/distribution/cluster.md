@@ -1101,6 +1101,8 @@ A node may open its transport listener before step 2 so that a peer receives a r
 
 A node must persist the `indexUuid` alongside its local copy, in the `index_uuid` field of the [index metadata payload](../envelope.md#index-metadata-payload), so that the comparison survives a restart. A node must also record the identity on every index it bootstraps, whether it took the partition on as primary or as replica, because an index that carries none proves nothing at the next join.
 
+A node must report `NODE_BOOTSTRAP_FAILED` to its error handler each time that its sync from a partition's primary fails, and where its last retry of `cluster.bootstrap_complete` fails while the partition is in `INITIALISING`. The error's details must carry `indexName`, and they must carry the code of the cause as `innerCode` where the cause has one, so that an operator can act on the cause.
+
 Step 3b is the only step that deletes local data, and the stored metadata is what permits it: metadata naming another index under the same name proves that the index this copy belongs to was dropped, so the copy holds documents no reader may see again.
 
 Three rules govern an orphaned copy:
@@ -1194,6 +1196,11 @@ A community adapter, whether it targets Consul, ZooKeeper, FoundationDB, or Redi
 |------|-------------|
 | `NODE_NOT_READY` | A message reached a node that has yet to finish joining the cluster. |
 | `NODE_NOT_CONTROLLER` | A controller message reached a node that holds no controller lease. |
+| `NODE_ALREADY_JOINED` | A caller starts a node that is joining or has joined the cluster. |
+| `NODE_BOOTSTRAP_FAILED` | A node's sync from a partition's primary fails, or the node cannot report a bootstrap as complete, as [Joining the Cluster](#joining-the-cluster) defines. |
+| `CLUSTER_OPERATION_UNSUPPORTED` | A node receives an operation that it does not support, so it refuses the operation before it changes any state. |
+| `ALLOCATION_INVALID_CONFIG` | The allocator receives a `partitionCount` of 0 or below, or a `replicationFactor` below 0. |
+| `ALLOCATION_NO_DATA_NODES` | The allocator receives no node that holds the `data` role. |
 | `INDEX_ORPHANED` | A node reports an orphaned copy, or a caller sends that node a read, a write, or a create for the copy's index name. |
 | `CLUSTER_WRITE_BLOCKED` | An insert or an update targets an index that has a copy on a node reporting `full`, or a node refuses it under its bound on the bytes of writes in progress. |
 | `COORDINATOR_AUTH_FAILED` | etcd refuses the username or the password that the coordinator presents. |
