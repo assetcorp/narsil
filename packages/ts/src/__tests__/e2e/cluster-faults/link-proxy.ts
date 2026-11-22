@@ -3,17 +3,39 @@ import { connect, createServer, type Server, type Socket } from 'node:net'
 export interface LinkProxy {
   readonly port: number
   cut(): void
+  blackhole(): void
   heal(): void
   close(): Promise<void>
 }
 
+type LinkMode = 'forward' | 'cut' | 'blackhole'
+
 export async function startLinkProxy(targetPort: () => number): Promise<LinkProxy> {
   const open = new Set<Socket>()
-  let isCut = false
+  const held = new Set<Socket>()
+  let mode: LinkMode = 'forward'
+
+  function hold(inbound: Socket): void {
+    held.add(inbound)
+    inbound.on('data', () => {})
+    inbound.on('error', () => held.delete(inbound))
+    inbound.on('close', () => held.delete(inbound))
+  }
+
+  function destroyAll(): void {
+    for (const socket of open) socket.destroy()
+    open.clear()
+    for (const socket of held) socket.destroy()
+    held.clear()
+  }
 
   const server: Server = createServer(inbound => {
-    if (isCut) {
+    if (mode === 'cut') {
       inbound.destroy()
+      return
+    }
+    if (mode === 'blackhole') {
+      hold(inbound)
       return
     }
     const outbound = connect(targetPort(), '127.0.0.1')
@@ -43,17 +65,21 @@ export async function startLinkProxy(targetPort: () => number): Promise<LinkProx
   return {
     port: address.port,
     cut() {
-      isCut = true
-      for (const socket of open) socket.destroy()
-      open.clear()
+      mode = 'cut'
+      destroyAll()
+    },
+    blackhole() {
+      mode = 'blackhole'
+      destroyAll()
     },
     heal() {
-      isCut = false
+      mode = 'forward'
+      for (const socket of held) socket.destroy()
+      held.clear()
     },
     async close() {
-      isCut = true
-      for (const socket of open) socket.destroy()
-      open.clear()
+      mode = 'cut'
+      destroyAll()
       await new Promise<void>(resolve => server.close(() => resolve()))
     },
   }

@@ -259,7 +259,7 @@ describe('a backup taken while a client writes and a primary dies', () => {
 
     const ledger = createBackupLedger()
     await preload(entry, ledger)
-    const faults: FaultState = { unavailable: new Set(), startedOn: [], describe: () => 'a backup' }
+    const faults: FaultState = { unavailable: new Set(), startedOn: [], generation: 0, describe: () => 'a backup' }
     const workload = startWorkload({
       fleet,
       ledger,

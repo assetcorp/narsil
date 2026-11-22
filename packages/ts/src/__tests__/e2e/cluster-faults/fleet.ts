@@ -1,5 +1,5 @@
 import { type ChildProcess, spawn } from 'node:child_process'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
@@ -14,6 +14,7 @@ const READY_TIMEOUT_MS = 90_000
 const STOP_TIMEOUT_MS = 15_000
 const READY_LINE = /READY (\S+)\n/
 const PORT_ATTEMPTS = 5
+const NODE_ID_FILE = '.narsil-node-id'
 
 export interface FleetSettings {
   keyPrefix: string
@@ -69,7 +70,9 @@ export interface Fleet {
   kill(slot: number): Promise<void>
   pause(slot: number): void
   resume(slot: number): void
+  wipe(slot: number): Promise<void>
   isolate(slot: number): void
+  blackhole(slot: number): void
   reconnect(slot: number): void
   cutCoordinator(slot: number): void
   healCoordinator(slot: number): void
@@ -230,6 +233,13 @@ export async function startFleet(
     })),
     start,
     kill,
+    async wipe(slot) {
+      const entry = slotAt(slot)
+      if (entry.child !== null) throw new Error(`Slot ${slot} must stop before its data directory is wiped`)
+      for (const name of await readdir(entry.directory)) {
+        if (name !== NODE_ID_FILE) await rm(join(entry.directory, name), { recursive: true, force: true })
+      }
+    },
     pause(slot) {
       slotAt(slot).child?.kill('SIGSTOP')
     },
@@ -240,6 +250,9 @@ export async function startFleet(
       const entry = slotAt(slot)
       entry.transportProxy.cut()
       for (const proxy of entry.etcdProxies) proxy.cut()
+    },
+    blackhole(slot) {
+      slotAt(slot).transportProxy.blackhole()
     },
     reconnect(slot) {
       const entry = slotAt(slot)
