@@ -14,17 +14,23 @@ const CAMPAIGN_GRPC_SHARE = 0.5
 const CAMPAIGN_PLAIN_SHARE = 0.5
 const QUICK_RESTART_SHARE = 0.5
 const MAX_QUICK_RESTART_HOLD_MS = 1_000
+const CLIENTS_REST_SHARE = 0.5
 
 export const PULL_REQUEST_FAULT_KINDS = ['kill', 'pause', 'isolate', 'etcd-restart', 'etcd-outage'] as const
-export const CAMPAIGN_FAULT_KINDS = [...PULL_REQUEST_FAULT_KINDS, 'wipe', 'blackhole'] as const
+export const CAMPAIGN_FAULT_KINDS = [...PULL_REQUEST_FAULT_KINDS, 'kill-wipe', 'stop-wipe', 'blackhole'] as const
 
 export type FaultKind = (typeof CAMPAIGN_FAULT_KINDS)[number]
+
+export function isWipe(kind: FaultKind): boolean {
+  return kind === 'kill-wipe' || kind === 'stop-wipe'
+}
 
 export interface PlannedFault {
   kind: FaultKind
   slot: number
   holdMs: number
   startAfterMs: number
+  clientsRest?: boolean
 }
 
 export interface FaultPlan {
@@ -52,7 +58,8 @@ export function isEtcdFault(kind: FaultKind): boolean {
 export function describeFault(fault: PlannedFault): string {
   const target = isEtcdFault(fault.kind) ? `etcd member ${fault.slot}` : `slot ${fault.slot}`
   const delay = fault.startAfterMs > 0 ? ` from ${fault.startAfterMs} ms in` : ''
-  return `${fault.kind} on ${target} for ${fault.holdMs} ms${delay}`
+  const rest = fault.clientsRest === true ? ' while every client rests' : ''
+  return `${fault.kind} on ${target} for ${fault.holdMs} ms${delay}${rest}`
 }
 
 function between(random: () => number, low: number, high: number): number {
@@ -68,7 +75,7 @@ function holdFor(random: () => number): number {
 }
 
 function campaignHoldFor(random: () => number, kind: FaultKind): number {
-  if (kind === 'wipe' && random() < QUICK_RESTART_SHARE) return Math.floor(random() * MAX_QUICK_RESTART_HOLD_MS)
+  if (isWipe(kind) && random() < QUICK_RESTART_SHARE) return Math.floor(random() * MAX_QUICK_RESTART_HOLD_MS)
   return holdFor(random)
 }
 
@@ -85,7 +92,7 @@ export function pullRequestPlan(random: () => number, nodeCount: number, plain: 
 function overlappingFault(random: () => number, first: PlannedFault, nodeCount: number): PlannedFault {
   let kind = pick(random, CAMPAIGN_FAULT_KINDS, 'kill')
   if (isEtcdFault(kind) && isEtcdFault(first.kind)) kind = 'pause'
-  if (kind === 'wipe' && first.kind === 'wipe') kind = 'kill'
+  if (isWipe(kind) && isWipe(first.kind)) kind = 'kill'
   const otherSlots = Array.from({ length: nodeCount }, (_, slot) => slot).filter(slot => slot !== first.slot)
   const slot = pick(random, otherSlots, 0)
   return { kind, slot, holdMs: campaignHoldFor(random, kind), startAfterMs: Math.floor(random() * first.holdMs) }
@@ -102,7 +109,12 @@ export function campaignPlan(random: () => number, nodeCount: number): FaultPlan
     const kind = pick(random, CAMPAIGN_FAULT_KINDS, 'kill')
     const slot = Math.floor(random() * nodeCount)
     const first: PlannedFault = { kind, slot, holdMs: campaignHoldFor(random, kind), startAfterMs: 0 }
-    rounds.push(random() < CAMPAIGN_OVERLAP_SHARE ? [first, overlappingFault(random, first, nodeCount)] : [first])
+    if (random() < CAMPAIGN_OVERLAP_SHARE) {
+      rounds.push([first, overlappingFault(random, first, nodeCount)])
+    } else {
+      if (isWipe(kind)) first.clientsRest = random() < CLIENTS_REST_SHARE
+      rounds.push([first])
+    }
   }
   return { transport, plain, writers, searchers, rounds }
 }

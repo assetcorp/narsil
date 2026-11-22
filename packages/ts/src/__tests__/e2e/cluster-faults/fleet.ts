@@ -68,6 +68,7 @@ export interface Fleet {
   readonly nodes: readonly FleetNode[]
   start(slot: number): Promise<void>
   kill(slot: number): Promise<void>
+  stop(slot: number): Promise<void>
   pause(slot: number): void
   resume(slot: number): void
   wipe(slot: number): Promise<void>
@@ -233,6 +234,7 @@ export async function startFleet(
     })),
     start,
     kill,
+    stop: slot => stopOne(slotAt(slot)),
     async wipe(slot) {
       const entry = slotAt(slot)
       if (entry.child !== null) throw new Error(`Slot ${slot} must stop before its data directory is wiped`)

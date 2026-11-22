@@ -25,6 +25,7 @@ export interface FaultState {
   unavailable: Set<number>
   startedOn: number[]
   generation: number
+  resting?: boolean
   describe(): string
 }
 
@@ -66,6 +67,7 @@ export async function send(base: string, method: string, path: string, body: unk
 }
 
 function pickNode(fleet: Fleet, faults: FaultState, random: () => number): number | null {
+  if (faults.resting === true) return null
   const choices = fleet.nodes.filter(node => node.running() && !faults.unavailable.has(node.slot))
   if (choices.length === 0) return null
   return choices[Math.floor(random() * choices.length)]?.slot ?? null
