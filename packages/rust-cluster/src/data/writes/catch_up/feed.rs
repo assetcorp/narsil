@@ -262,18 +262,22 @@ impl PrimaryWrites {
             if Instant::now() >= deadline {
                 return;
             }
-            let (batch, reaches_log_end) =
-                Self::next_batch(partition, &scope.index_name, applied + 1);
+            let Some((batch, reaches_log_end, reserved)) =
+                self.next_batch(partition, &scope.index_name, applied + 1)
+            else {
+                return;
+            };
             if batch.is_empty() {
                 return;
             }
             if answered && reaches_log_end {
+                drop((batch, reserved));
                 self.close_gap_in_queue(partition, scope, replica_node_id, feed)
                     .await;
                 return;
             }
             if !self
-                .send_batch(partition, scope, &batch, replica_node_id, feed)
+                .send_batch(partition, scope, (&batch, reserved), replica_node_id, feed)
                 .await
             {
                 return;
