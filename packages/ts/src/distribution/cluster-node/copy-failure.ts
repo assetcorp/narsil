@@ -27,6 +27,7 @@ export interface CopyFailures {
   isFailed(indexName: string, partitionId: number): boolean
   isUnlisted(indexName: string, partitionId: number): boolean
   awaitReset(indexName: string, partitionId: number): Promise<boolean>
+  diskWork: CopyDiskWork
   settled(): Promise<void>
 }
 
@@ -312,6 +313,7 @@ export function createCopyFailures(deps: CopyFailureDeps): CopyFailures {
       if (copy === undefined) return true
       return copy.recovery ?? startRecovery(key, copy)
     },
+    diskWork,
     settled: () => diskWork.settled(),
   }
 }

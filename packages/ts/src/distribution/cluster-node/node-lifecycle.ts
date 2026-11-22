@@ -26,12 +26,13 @@ export interface NodeLifecycleDeps {
   copyFailures: CopyFailures
   bootstrapPartition: (indexName: string, partitionId: number, primaryNodeId: string) => Promise<boolean>
   trackHeldPartitionWrite: (write: Promise<void>) => void
-  cleanupDeps: Omit<BootstrapCleanupDeps, 'removedIndexUuid'>
+  cleanupDeps: Omit<BootstrapCleanupDeps, 'removedIndexUuid' | 'diskWork'>
   beforeRegistration?: (signal: AbortSignal) => Promise<void>
 }
 
 export function createNodeLifecycle(deps: NodeLifecycleDeps): DataNodeHandle {
   const { engine, cleanupDeps } = deps
+  const { diskWork } = deps.copyFailures
   return createDataNodeLifecycle({
     registration: deps.registration,
     currentRegistration: deps.currentRegistration,
@@ -68,11 +69,11 @@ export function createNodeLifecycle(deps: NodeLifecycleDeps): DataNodeHandle {
       clearBootstrapSyncIndex(deps.bootstrapSyncState, indexName, partitionId)
       deps.replicationLogs.delete(replicationLogKey(indexName, partitionId))
       deps.trackHeldPartitionWrite(engine.forgetHeldPartition(indexName, partitionId))
-      void cleanupRemovedPartition(indexName, partitionId, { ...cleanupDeps, removedIndexUuid })
+      void cleanupRemovedPartition(indexName, partitionId, { ...cleanupDeps, removedIndexUuid, diskWork })
     },
     onIndexTornDown: (indexName: string) => {
       const removedIndexUuid = engine.indexUuidOf(indexName)
-      void releaseTornDownIndex(indexName, { ...cleanupDeps, removedIndexUuid })
+      void releaseTornDownIndex(indexName, { ...cleanupDeps, removedIndexUuid, diskWork })
     },
     onError: reportWithoutThrowing(cleanupDeps.onError),
   })
