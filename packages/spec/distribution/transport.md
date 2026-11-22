@@ -1403,3 +1403,4 @@ A community adapter, whether it carries QUIC, HTTP/2, or Unix sockets, must:
 | `TRANSPORT_MESSAGE_TOO_LARGE` | A non-streaming message exceeded the 64 MB limit. |
 | `TRANSPORT_DECODE_FAILED` | A received message could not be decoded, because the MessagePack was corrupt or invalid. |
 | `TRANSPORT_PEER_UNAVAILABLE` | The connection to the peer node failed after the sender handed it the message, so the peer may have received the message and acted on it. |
+| `INTERNAL_ERROR` | An operation fails for a cause that has no other code, such as an unexpected error in a handler. |
