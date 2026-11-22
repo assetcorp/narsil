@@ -35,7 +35,9 @@ export interface WriteRoutingDeps {
   writeProjection?: WriteProjection
   reshard?: ReshardState
   copyFailed?: (indexName: string, partitionId: number) => boolean
+  failCopy?: (indexName: string, partitionId: number, error: Error) => void
   copyUnlisted?: (indexName: string, partitionId: number) => boolean
+  vectorFieldPathsOf?: (indexName: string) => ReadonlySet<string>
   stopped?: () => boolean
   replicaFeedClock?: ReplicaFeedClock
 }

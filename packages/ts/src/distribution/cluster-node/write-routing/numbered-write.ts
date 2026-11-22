@@ -6,6 +6,7 @@ import type { ReplicationLogEntry } from '../../replication/types'
 import { acceptedTermOf } from '../led-term'
 import type { HoldPartitionQueue } from './partition-queue'
 import { appendDeleteReplicationEntry, appendIndexReplicationEntry } from './replication'
+import { failedCopyOutcome, failedCopyRefusal } from './rollback'
 import type { WriteRoutingDeps } from './types'
 
 export interface PrimaryWriteScope {
@@ -41,6 +42,9 @@ export async function numberedWrite<T>(
   let value: T
   try {
     value = await write()
+  } catch (error) {
+    if (!copyFailedIn(scope)) throw error
+    throw (writes?.entries.length ?? 0) > 0 ? failedCopyOutcome(scope, error) : failedCopyRefusal(scope)
   } finally {
     writes?.close()
   }
@@ -50,6 +54,10 @@ export async function numberedWrite<T>(
   const entry = await appendOutsideTheLog(value, admitted)
   scope.deps.writeRecords?.applied(entry)
   return { value, entry }
+}
+
+export function copyFailedIn(scope: PrimaryWriteScope): boolean {
+  return scope.deps.copyFailed?.(scope.indexName, scope.partitionId) === true
 }
 
 function refuseEndedTerm(scope: PrimaryWriteScope): void {

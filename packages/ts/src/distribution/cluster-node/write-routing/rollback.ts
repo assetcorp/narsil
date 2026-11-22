@@ -31,6 +31,18 @@ export function outcomeUnknown(
   )
 }
 
+export function failedCopyOutcome(scope: PrimaryWriteScope, cause: unknown): NarsilError {
+  return outcomeUnknown(scope, cause, 'term_ended', "the primary's copy failed while its log may hold the write")
+}
+
+export function failedCopyRefusal(scope: PrimaryWriteScope): NarsilError {
+  return new NarsilError(
+    ErrorCodes.PARTITION_NOT_PRIMARY,
+    `Node '${scope.deps.nodeId}' no longer leads partition ${scope.partitionId} of index '${scope.indexName}', because its copy failed`,
+    { indexName: scope.indexName, partitionId: scope.partitionId, localNodeId: scope.deps.nodeId },
+  )
+}
+
 export function isOutcomeUnknown(error: unknown): boolean {
   return error instanceof NarsilError && error.code === ErrorCodes.REPLICATION_OUTCOME_UNKNOWN
 }

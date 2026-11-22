@@ -1,5 +1,7 @@
 import { ErrorCodes, NarsilError } from '../../../errors'
+import type { ReplicationLogEntry } from '../../replication/types'
 import type { WriteCondition } from '../../transport/types'
+import type { WriteRecord } from '../write-records/table'
 import type { PrimaryWriteScope } from './numbered-write'
 
 const CONDITION_FIELDS = [
@@ -11,6 +13,36 @@ const CONDITION_FIELDS = [
 ] as const satisfies ReadonlyArray<keyof WriteCondition>
 
 export type ConditionVerdict = 'apply' | 'acknowledge'
+
+interface AppliedResend {
+  abandoned: WriteRecord
+  appended: WriteRecord
+}
+
+export type AppliedResends = Map<string, AppliedResend>
+
+function sameRecord(left: WriteRecord, right: WriteRecord): boolean {
+  return left.seqNo === right.seqNo && left.primaryTerm === right.primaryTerm
+}
+
+function chainsOnto(earlier: AppliedResend | undefined, condition: WriteCondition, record: WriteRecord): boolean {
+  if (earlier === undefined) return false
+  const previous = { seqNo: condition.ifSeqNo, primaryTerm: condition.ifPrimaryTerm }
+  return sameRecord(earlier.abandoned, previous) && sameRecord(earlier.appended, record)
+}
+
+export function noteAppliedResend(
+  resends: AppliedResends | undefined,
+  documentId: string,
+  condition: WriteCondition | undefined,
+  entry: ReplicationLogEntry,
+): void {
+  if (resends === undefined || condition === undefined) return
+  resends.set(documentId, {
+    abandoned: { seqNo: condition.abandonedSeqNo, primaryTerm: condition.abandonedPrimaryTerm },
+    appended: { seqNo: entry.seqNo, primaryTerm: entry.primaryTerm },
+  })
+}
 
 function isSequenceNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
@@ -61,6 +93,7 @@ export function decideCondition(
   scope: PrimaryWriteScope,
   documentId: string,
   condition: WriteCondition,
+  resends?: AppliedResends,
 ): ConditionVerdict {
   const records = scope.deps.writeRecords
   const { indexName, partitionId } = scope
@@ -87,6 +120,7 @@ export function decideCondition(
   const expectedSeqNo = failed === 'held' ? condition.compensationSeqNo : condition.ifSeqNo
   const expectedTerm = failed === 'held' ? condition.abandonedPrimaryTerm : condition.ifPrimaryTerm
   if (record.seqNo === expectedSeqNo && record.primaryTerm === expectedTerm) return 'apply'
+  if (chainsOnto(resends?.get(documentId), condition, record)) return 'apply'
   throw new NarsilError(
     ErrorCodes.REPLICATION_WRITE_CONFLICT,
     `Another write touched document '${documentId}' in index '${indexName}' after the earlier primary's attempt, so this primary refused the write that was sent again. The write did not take effect.`,

@@ -13,16 +13,11 @@ import { estimateForwardedBytes } from '../memory/write-pressure'
 import { abandonedWriteOf } from './abandoned-write'
 import { requireAssignedPrimary, resolvePartitionId } from './assignment'
 import type { BatchWrite, WriteFailure } from './batch-write'
-import { decodeForwardedDocument } from './forwarded-document'
+import { decodeForwardedDocument, forwardedReplacementOf } from './forwarded-document'
 import { writableAssignment } from './initialising-partition'
-import {
-  applyPrimaryInsertBatch,
-  applyPrimaryRemoveBatch,
-  applyPrimaryUpdateBatch,
-  resolveForwardedUpdateDocument,
-} from './primary-writes'
+import { applyPrimaryInsertBatch, applyPrimaryRemoveBatch, applyPrimaryUpdateBatch } from './primary-writes'
 import type { WriteRoutingDeps } from './types'
-import { conditionOfFields } from './write-condition'
+import { type AppliedResends, conditionOfFields } from './write-condition'
 
 interface OperationRun {
   partitionId: number
@@ -122,6 +117,7 @@ async function applyAdmittedForwardedBatch(
 
   await Promise.all(
     Array.from(runsByPartition.entries()).map(async ([partitionId, runs]) => {
+      const resends: AppliedResends = new Map()
       for (const run of runs) {
         if (block !== null && run.operation !== 'remove') {
           for (const { index, wire } of run.operations) {
@@ -129,7 +125,8 @@ async function applyAdmittedForwardedBatch(
           }
           continue
         }
-        await applyRun(payload.indexName, partitionId, run, table.assignments.get(partitionId), deps, results)
+        const assignment = table.assignments.get(partitionId)
+        await applyRun(payload.indexName, partitionId, run, assignment, deps, results, resends)
       }
     }),
   )
@@ -144,6 +141,7 @@ async function applyRun(
   assignment: PartitionAssignment | undefined,
   deps: WriteRoutingDeps,
   results: ForwardBatchOperationResult[],
+  resends: AppliedResends,
 ): Promise<void> {
   try {
     const assigned = requireAssignedPrimary(assignment, indexName, partitionId)
@@ -156,7 +154,7 @@ async function applyRun(
     }
 
     const writable = await writableAssignment(deps, indexName, partitionId, assigned)
-    await applyRunToPrimary(indexName, partitionId, run, writable, deps, results)
+    await applyRunToPrimary(indexName, partitionId, run, writable, deps, results, resends)
     for (const operation of run.operations) {
       if (results[operation.index] !== undefined) {
         continue
@@ -185,6 +183,7 @@ async function applyRunToPrimary(
   assignment: PartitionAssignment,
   deps: WriteRoutingDeps,
   results: ForwardBatchOperationResult[],
+  resends: AppliedResends,
 ): Promise<void> {
   const positions = new Map<BatchWrite<unknown>, number>()
   function reportFailures(failed: readonly WriteFailure<unknown>[]): void {
@@ -203,7 +202,8 @@ async function applyRunToPrimary(
       removals.push(write)
       positions.set(write, index)
     }
-    reportFailures((await applyPrimaryRemoveBatch(indexName, removals, partitionId, assignment, deps)).failed)
+    const removed = await applyPrimaryRemoveBatch(indexName, removals, partitionId, assignment, deps, resends)
+    reportFailures(removed.failed)
     return
   }
 
@@ -211,7 +211,7 @@ async function applyRunToPrimary(
     const inserts: BatchWrite<AnyDocument>[] = []
     for (const { index, wire } of run.operations) {
       if (conditionOrFailure(wire, results, index) === null) continue
-      const decodedDocument = decodeOperationDocument(wire, results, index)
+      const decodedDocument = decodeOperationDocument(deps, indexName, wire, results, index)
       if (decodedDocument === null) continue
       const write: BatchWrite<AnyDocument> = { docId: wire.documentId, value: decodedDocument }
       inserts.push(write)
@@ -226,14 +226,12 @@ async function applyRunToPrimary(
     const condition = conditionOrFailure(operation.wire, results, operation.index)
     if (condition === null) continue
     try {
-      const replacement = await resolveForwardedUpdateDocument(
-        indexName,
-        operation.wire.documentId,
-        operation.wire.document,
-        operation.wire.updateFields,
-        deps,
-      )
-      const write: BatchWrite<AnyDocument> = { docId: operation.wire.documentId, value: replacement, condition }
+      const { documentId, document, updateFields } = operation.wire
+      const replacement = forwardedReplacementOf(deps, indexName, documentId, document, updateFields)
+      const write: BatchWrite<AnyDocument> =
+        typeof replacement === 'function'
+          ? { docId: documentId, value: {}, mergeWithStored: replacement, condition }
+          : { docId: documentId, value: replacement, condition }
       updates.push(write)
       positions.set(write, operation.index)
     } catch (err) {
@@ -241,7 +239,7 @@ async function applyRunToPrimary(
       results[operation.index] = failureResult(operation.wire.documentId, error)
     }
   }
-  reportFailures((await applyPrimaryUpdateBatch(indexName, updates, partitionId, assignment, deps)).failed)
+  reportFailures((await applyPrimaryUpdateBatch(indexName, updates, partitionId, assignment, deps, resends)).failed)
 }
 
 function conditionOrFailure(
@@ -259,6 +257,8 @@ function conditionOrFailure(
 }
 
 function decodeOperationDocument(
+  deps: WriteRoutingDeps,
+  indexName: string,
   wire: ForwardBatchOperation,
   results: ForwardBatchOperationResult[],
   index: number,
@@ -273,7 +273,7 @@ function decodeOperationDocument(
     return null
   }
   try {
-    return decodeForwardedDocument(wire.document, wire.documentId)
+    return decodeForwardedDocument(deps, indexName, wire.document, wire.documentId)
   } catch (err) {
     const error = err instanceof NarsilError ? err : new NarsilError(ErrorCodes.DOC_VALIDATION_FAILED, String(err))
     results[index] = failureResult(wire.documentId, error)
