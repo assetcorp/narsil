@@ -28,9 +28,13 @@ const node = await createClusterNode({
   transport,
   address: `127.0.0.1:${settings.advertisedPort}`,
   ...(settings.nodeId === undefined ? {} : { nodeId: settings.nodeId }),
-  roles: ['data', 'coordinator', 'controller'],
+  roles: settings.roles ?? ['data', 'coordinator', 'controller'],
   engine: { workers: { enabled: false }, durability: { directory: settings.directory } },
-  controller: { leaseTtlMs: settings.controllerLeaseTtlMs, standbyRetryMs: settings.standbyRetryMs },
+  controller: {
+    leaseTtlMs: settings.controllerLeaseTtlMs,
+    standbyRetryMs: settings.standbyRetryMs,
+    ...(settings.nodeLeftDelayMs === undefined ? {} : { nodeLeftDelayMs: settings.nodeLeftDelayMs }),
+  },
   ...(settings.backupDirectory === undefined
     ? {}
     : {

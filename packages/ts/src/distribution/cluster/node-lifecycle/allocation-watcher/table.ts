@@ -3,7 +3,7 @@ import { holdsLastCopy } from '../../last-holders'
 import { abortBootstrapState } from '../bootstrap'
 import type { NodeLifecycleConfig } from '../types'
 import { startBootstrap } from './bootstrap-restart'
-import { type AllocationWatcherState, partitionKey, type TrackedPartition } from './state'
+import { type AllocationWatcherState, forgetAwaitedAdmission, partitionKey, type TrackedPartition } from './state'
 
 export function processAllocationChange(
   state: AllocationWatcherState,
@@ -140,12 +140,12 @@ function handleNewAssignment(
 
   if (assignment.primary === nodeId) {
     if (assignment.state === 'INITIALISING') {
-      startBootstrap(state, config, indexName, partitionId, nodeId)
+      startBootstrap(state, config, indexName, partitionId, nodeId, assignment.primaryTerm)
     }
     return
   }
 
-  startBootstrap(state, config, indexName, partitionId, assignment.primary)
+  startBootstrap(state, config, indexName, partitionId, assignment.primary, assignment.primaryTerm)
 }
 
 function handleExistingAssignment(
@@ -155,24 +155,47 @@ function handleExistingAssignment(
   assignment: PartitionAssignment,
   nodeId: string,
 ): void {
+  const { indexName, partitionId } = existing
+  settleAwaitedAdmission(state, partitionKey(indexName, partitionId), assignment, nodeId)
+
   if (existing.isPrimary && assignment.primary !== nodeId && assignment.primaryTerm > existing.primaryTerm) {
     if (assignment.primary !== null) {
       if (config.onPrimaryDemotion !== undefined) {
-        config.onPrimaryDemotion(existing.indexName, existing.partitionId, assignment.primary)
+        config.onPrimaryDemotion(indexName, partitionId, assignment.primary)
       }
 
-      startBootstrap(state, config, existing.indexName, existing.partitionId, assignment.primary)
+      startBootstrap(state, config, indexName, partitionId, assignment.primary, assignment.primaryTerm)
     }
     return
   }
 
   if (promotedBackAtHigherTerm(existing, assignment, nodeId)) {
-    startBootstrap(state, config, existing.indexName, existing.partitionId, nodeId)
+    startBootstrap(state, config, indexName, partitionId, nodeId, assignment.primaryTerm)
     return
   }
 
   if (assignment.primary !== null && replicaNeedsResync(state, existing, assignment, nodeId)) {
-    startBootstrap(state, config, existing.indexName, existing.partitionId, assignment.primary)
+    startBootstrap(state, config, indexName, partitionId, assignment.primary, assignment.primaryTerm)
+  }
+}
+
+function settleAwaitedAdmission(
+  state: AllocationWatcherState,
+  key: string,
+  assignment: PartitionAssignment,
+  nodeId: string,
+): void {
+  const awaited = state.awaitedAdmissions.get(key)
+  if (awaited === undefined) {
+    return
+  }
+  const stillAwaited =
+    assignment.primary === awaited.primaryNodeId &&
+    assignment.primaryTerm === awaited.primaryTerm &&
+    assignment.replicas.includes(nodeId) &&
+    !assignment.inSyncSet.includes(nodeId)
+  if (!stillAwaited) {
+    forgetAwaitedAdmission(state, key)
   }
 }
 
@@ -194,7 +217,8 @@ function replicaNeedsResync(
   if (assignment.inSyncSet.includes(nodeId)) {
     return false
   }
-  return !state.activeBootstraps.has(partitionKey(existing.indexName, existing.partitionId))
+  const key = partitionKey(existing.indexName, existing.partitionId)
+  return !state.activeBootstraps.has(key) && !state.awaitedAdmissions.has(key)
 }
 
 function promotedBackAtHigherTerm(
@@ -266,6 +290,7 @@ function releaseSupersededCopies(
       continue
     }
     state.retainedPartitions.delete(key)
+    forgetAwaitedAdmission(state, key)
     if (config.onRemovePartition !== undefined) {
       config.onRemovePartition(table.indexName, partitionId)
     }
@@ -288,6 +313,7 @@ function removeDroppedPartitions(
 
     state.trackedPartitions.delete(key)
     state.pendingPartitions.delete(key)
+    forgetAwaitedAdmission(state, key)
 
     const activeBootstrap = state.activeBootstraps.get(key)
     if (activeBootstrap !== undefined) {

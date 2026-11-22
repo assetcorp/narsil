@@ -1,3 +1,4 @@
+import { createServer, type Server as NetServer, type Socket } from 'node:net'
 import type {
   Server,
   ServerCredentials,
@@ -6,6 +7,7 @@ import type {
   ServiceDefinition,
   sendUnaryData,
 } from '@grpc/grpc-js'
+import { GRPC_INBOUND_CONNECTION_LIMIT } from '../constants'
 import { decodeTransportMessage, encodeTransportMessage } from '../tcp/framing'
 import type { ListenHandler, RespondFn } from '../types'
 import { TransportError, TransportErrorCodes, type TransportMessage } from '../types'
@@ -23,10 +25,19 @@ function errorEnvelope(requestId: string, err: unknown): TransportMessage {
   }
 }
 
+function unbracketedHost(host: string): string {
+  if (host.length >= 2 && host.startsWith('[') && host.endsWith(']')) {
+    return host.slice(1, -1)
+  }
+  return host
+}
+
 export class GrpcServerHost {
   private readonly grpc: GrpcModule
   private readonly config: GrpcTransportConfig
   private server: Server | null = null
+  private listener: NetServer | null = null
+  private readonly sockets = new Set<Socket>()
   private handler: ListenHandler | null = null
   private boundPort = 0
   private closed = false
@@ -71,17 +82,29 @@ export class GrpcServerHost {
     const address = `${this.config.host}:${this.config.port}`
 
     return new Promise<() => void>((resolve, reject) => {
-      server.bindAsync(address, this.serverCredentials(), (err, port) => {
-        if (err !== null) {
-          reject(
-            new TransportError(TransportErrorCodes.CONNECT_FAILED, `gRPC server failed to start: ${err.message}`, {
-              address,
-            }),
-          )
+      const injector = server.createConnectionInjector(this.serverCredentials())
+      const listener = createServer(socket => {
+        this.sockets.add(socket)
+        socket.once('close', () => this.sockets.delete(socket))
+        injector.injectConnection(socket)
+      })
+      listener.maxConnections = GRPC_INBOUND_CONNECTION_LIMIT
+      listener.on('error', err => {
+        if (this.listener !== null) {
           return
         }
+        injector.destroy()
+        reject(
+          new TransportError(TransportErrorCodes.CONNECT_FAILED, `gRPC server failed to start: ${err.message}`, {
+            address,
+          }),
+        )
+      })
+      listener.listen(this.config.port, unbracketedHost(this.config.host), () => {
+        const bound = listener.address()
         this.server = server
-        this.boundPort = port
+        this.listener = listener
+        this.boundPort = bound !== null && typeof bound === 'object' ? bound.port : this.config.port
         resolve(restore)
       })
     })
@@ -94,9 +117,20 @@ export class GrpcServerHost {
     this.closed = true
     this.handler = null
 
+    const listener = this.listener
+    this.listener = null
     if (this.server !== null) {
       this.server.forceShutdown()
       this.server = null
+    }
+    for (const socket of this.sockets) {
+      socket.destroy()
+    }
+    this.sockets.clear()
+    if (listener !== null) {
+      await new Promise<void>(resolve => {
+        listener.close(() => resolve())
+      })
     }
   }
 

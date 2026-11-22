@@ -19,7 +19,9 @@ export { clearEventLoopWatchers, createEventLoopState, type EventLoopState } fro
  *
  * The controller registers a watcher on node registrations and another on schemas, listens for in-sync, bootstrap,
  * replication factor, and partition count change messages, runs the allocator once for every index it starts with,
- * and resumes every partition count change that a previous controller left in its record. A registration that changes only its memory
+ * and resumes every partition count change that a previous controller left in its record. It lists the stored schemas
+ * only once the schema watcher is registered, so an index whose schema arrives while the controller starts reaches the
+ * allocator through the listing or through the watcher. A registration that changes only its memory
  * figures or its partition sizes starts no allocation run, because every node writes those again on each heartbeat. A failure at any of those steps drops the watchers this call had
  * already registered, before the error reaches the caller, so that a controller which failed to start leaves
  * nothing running behind it.
@@ -104,6 +106,12 @@ export async function startEventLoop(
     clearEventLoopWatchers(state)
     throw error
   }
+
+  try {
+    for (const indexName of await coordinator.listSchemas()) {
+      state.knownIndexes.add(indexName)
+    }
+  } catch (_) {}
 
   scheduleDebouncedAllocation(state, coordinator, isActive, onError)
   resumeRebalances({ state, coordinator, nodeId, isActive, onError }).catch(error => onError?.('', error))
