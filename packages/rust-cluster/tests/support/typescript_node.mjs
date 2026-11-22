@@ -2,7 +2,8 @@ import { join } from 'node:path'
 import { createInterface } from 'node:readline'
 import { pathToFileURL } from 'node:url'
 
-const [repositoryRoot, endpoint, keyPrefix, nodeId, roleList, port, heartbeatTtlSeconds] = process.argv.slice(2)
+const [repositoryRoot, endpoint, keyPrefix, nodeId, roleList, heartbeatTtlSeconds, durabilityDirectory] =
+  process.argv.slice(2)
 const dist = join(repositoryRoot, 'packages/ts/dist')
 const load = path => import(pathToFileURL(join(dist, path)).href)
 const { createClusterNode } = await load('distribution.mjs')
@@ -36,16 +37,23 @@ const embeddingAdapters = {
 const coordinator = await createEtcdCoordinator({
   endpoints: [endpoint],
   keyPrefix,
-  ...(heartbeatTtlSeconds === undefined ? {} : { nodeHeartbeatTtlSeconds: Number(heartbeatTtlSeconds) }),
+  ...(heartbeatTtlSeconds === '' ? {} : { nodeHeartbeatTtlSeconds: Number(heartbeatTtlSeconds) }),
 })
-const transport = createTcpTransport(nodeId, { host: '127.0.0.1', port: Number(port) })
+const transport = createTcpTransport(nodeId, { host: '127.0.0.1', port: 0 })
+const stopPlaceholderListener = await transport.listen(() => undefined)
+stopPlaceholderListener()
+const address = `127.0.0.1:${transport.getPort()}`
 const node = await createClusterNode({
   coordinator,
   transport,
   nodeId,
-  address: `127.0.0.1:${port}`,
+  address,
   roles: roleList.split(','),
-  engine: { workers: { enabled: false }, embeddingAdapters },
+  engine: {
+    workers: { enabled: false },
+    embeddingAdapters,
+    ...(durabilityDirectory === '' ? {} : { durability: { directory: durabilityDirectory, mode: 'sync' } }),
+  },
 })
 await node.start()
 
@@ -109,7 +117,7 @@ async function shutdown() {
   process.exit(0)
 }
 
-process.stdout.write('READY\n')
+process.stdout.write(`READY ${address}\n`)
 const lines = createInterface({ input: process.stdin })
 lines.on('line', line => {
   perform(JSON.parse(line))

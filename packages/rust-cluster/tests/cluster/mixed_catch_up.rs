@@ -47,7 +47,7 @@ struct MixedCluster {
     coordinator: Arc<EtcdCoordinator>,
     controller: DataNode,
     router: Option<DataNode>,
-    scratches: [Scratch; 2],
+    scratches: [Scratch; 3],
 }
 
 impl MixedCluster {
@@ -56,7 +56,7 @@ impl MixedCluster {
         let key_prefix = unique_key_prefix();
         let ttl = EtcdCoordinatorConfig::default().node_heartbeat_ttl_seconds;
         let coordinator = coordinator_at(endpoint.clone(), key_prefix.clone(), ttl).await;
-        let scratches = [Scratch::new(), Scratch::new()];
+        let scratches = [Scratch::new(), Scratch::new(), Scratch::new()];
         let controller = start_controller(&coordinator, &scratches[0]).await;
         Some(MixedCluster {
             endpoint,
@@ -69,11 +69,12 @@ impl MixedCluster {
     }
 
     async fn typescript_data_node(&self) -> TypescriptNode {
-        TypescriptNode::start(
+        TypescriptNode::start_durable(
             &self.endpoint,
             &self.key_prefix,
             TYPESCRIPT_DATA_NODE,
             "data",
+            self.scratches[2].path(),
         )
         .await
     }

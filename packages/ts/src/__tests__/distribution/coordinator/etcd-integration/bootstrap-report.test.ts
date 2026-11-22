@@ -9,7 +9,6 @@ import { NarsilError } from '../../../../errors'
 import {
   type EtcdContainerHandle,
   eventually,
-  getAvailablePort,
   MANAGED_ETCD_ENDPOINT,
   runDocker,
   startEtcdContainer,
@@ -42,15 +41,14 @@ describe('a primary that loses the coordinator while it reports a finished boots
   }
 
   async function startMember(nodeId: string, roles: ClusterNode['roles'], keyPrefix: string): Promise<Member> {
-    const port = await getAvailablePort()
-    const peerLink = await startLinkProxy(new URL(`http://127.0.0.1:${port}`))
+    const transport = createTcpTransport(nodeId, { host: '127.0.0.1', port: 0 })
+    closers.push(() => transport.shutdown())
+    const peerLink = await startLinkProxy(() => new URL(`http://127.0.0.1:${transport.getPort()}`))
     closers.push(peerLink.close)
     const coordinatorLink = await startLinkProxy(new URL(requireEndpoint()))
     closers.push(coordinatorLink.close)
     const coordinator = await createEtcdCoordinator({ endpoints: [coordinatorLink.endpoint], keyPrefix })
     closers.push(() => coordinator.shutdown())
-    const transport = createTcpTransport(nodeId, { host: '127.0.0.1', port })
-    closers.push(() => transport.shutdown())
     const failures: NarsilError[] = []
     const node = await createClusterNode({
       coordinator,
