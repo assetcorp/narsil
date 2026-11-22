@@ -3,22 +3,28 @@ import { MAX_MESSAGE_SIZE_BYTES } from '../constants'
 import { replyDeadlineMs } from '../reply-deadline'
 import { decodeTransportMessage, encodeTransportMessage } from '../tcp/framing'
 import { TransportError, TransportErrorCodes, type TransportMessage } from '../types'
+import { type ChannelConnect, connectChannel, connectFailed } from './channel-connect'
 import type { GrpcModule } from './loader'
+import { PeerSockets } from './peer-sockets'
 import { openStreamMethod, sendMethod } from './service'
 import { channelOptions, type GrpcTransportConfig, toCredentialBuffer } from './types'
-
-const CONNECT_PROBE_PATH = '/narsil.transport.v1.ConnectProbe/LastError'
-const LAST_ERROR_PATTERN = /Last error: (?:Error: )?(.*?)\. Resolution note:/s
 
 interface StatusCarrier {
   code?: number
   message?: string
 }
 
+interface PeerClient {
+  client: Client
+  connecting?: ChannelConnect
+}
+
 export class GrpcClientPool {
   private readonly grpc: GrpcModule
   private readonly config: GrpcTransportConfig
-  private readonly clients = new Map<string, Promise<Client>>()
+  private readonly peers = new Map<string, PeerClient>()
+  private readonly callsHandedOver = new Set<() => void>()
+  private readonly sockets = new PeerSockets()
   private closed = false
 
   constructor(grpc: GrpcModule, config: GrpcTransportConfig) {
@@ -50,14 +56,16 @@ export class GrpcClientPool {
 
   async stream(target: string, message: TransportMessage, handler: (chunk: Uint8Array) => void): Promise<void> {
     const messageBytes = this.encodeChecked(target, message)
-    const client = await this.getClient(target)
-    const call = client.makeServerStreamRequest(
-      openStreamMethod.path,
-      openStreamMethod.requestSerialize,
-      openStreamMethod.responseDeserialize,
-      messageBytes,
-      this.metadata(),
-      {},
+    const client = await this.readyClient(target)
+    const call = this.handOver(target, () =>
+      client.makeServerStreamRequest(
+        openStreamMethod.path,
+        openStreamMethod.requestSerialize,
+        openStreamMethod.responseDeserialize,
+        messageBytes,
+        this.metadata(),
+        {},
+      ),
     )
 
     return new Promise<void>((resolve, reject) => {
@@ -67,11 +75,18 @@ export class GrpcClientPool {
 
       const settle = (fn: () => void): void => {
         if (idleTimer !== null) clearTimeout(idleTimer)
+        this.callsHandedOver.delete(stop)
         if (!settled) {
           settled = true
           fn()
         }
       }
+
+      const stop = (): void => {
+        settle(() => reject(this.stoppedByShutdown(target, message.requestId)))
+        call.cancel()
+      }
+      this.callsHandedOver.add(stop)
 
       const rearm = (): void => {
         if (idleTimer !== null) clearTimeout(idleTimer)
@@ -112,24 +127,16 @@ export class GrpcClientPool {
   }
 
   async shutdown(): Promise<void> {
-    if (this.closed) {
-      return
-    }
     this.closed = true
 
-    const pending = Array.from(this.clients.values())
-    this.clients.clear()
-
-    await Promise.all(
-      pending.map(clientPromise =>
-        clientPromise.then(
-          client => {
-            client.close()
-          },
-          () => undefined,
-        ),
-      ),
-    )
+    for (const stop of [...this.callsHandedOver]) stop()
+    this.callsHandedOver.clear()
+    for (const { client, connecting } of this.peers.values()) {
+      connecting?.cancel()
+      client.close()
+    }
+    this.peers.clear()
+    await this.sockets.closeAll()
   }
 
   private encodeChecked(target: string, message: TransportMessage): Uint8Array {
@@ -151,97 +158,49 @@ export class GrpcClientPool {
     }
   }
 
-  private getClient(target: string): Promise<Client> {
-    this.assertOpen()
-
-    const existing = this.clients.get(target)
-    if (existing !== undefined) {
-      return existing
-    }
-
-    const clientPromise = this.connect(target)
-    this.clients.set(target, clientPromise)
-    clientPromise.catch(() => {
-      if (this.clients.get(target) === clientPromise) {
-        this.clients.delete(target)
-      }
-    })
-    return clientPromise
-  }
-
   private async readyClient(target: string): Promise<Client> {
-    const client = await this.getClient(target)
-    if (client.getChannel().getConnectivityState(false) === this.grpc.connectivityState.READY) {
-      return client
-    }
-    const ready = this.awaitReady(client, target)
-    this.clients.set(target, ready)
-    ready.catch(() => {
-      if (this.clients.get(target) === ready) {
-        this.clients.delete(target)
+    this.assertOpen()
+    const peer = this.peerAt(target)
+    if (peer.connecting === undefined) {
+      if (peer.client.getChannel().getConnectivityState(false) === this.grpc.connectivityState.READY) {
+        return peer.client
       }
-    })
-    return ready
-  }
-
-  private connect(target: string): Promise<Client> {
-    return this.awaitReady(new this.grpc.Client(target, this.credentials(), channelOptions()), target)
-  }
-
-  private awaitReady(client: Client, target: string): Promise<Client> {
-    const channel = client.getChannel()
-    const { READY, SHUTDOWN, TRANSIENT_FAILURE } = this.grpc.connectivityState
-    const deadline = Date.now() + this.config.connectTimeout
-
-    return new Promise<Client>((resolve, reject) => {
-      const fail = (reason: string): void => {
-        client.close()
-        reject(
-          new TransportError(TransportErrorCodes.CONNECT_FAILED, `Failed to connect to '${target}': ${reason}`, {
-            target,
-          }),
-        )
-      }
-
-      const check = (deadlinePassed?: Error): void => {
-        if (deadlinePassed !== undefined) {
-          fail(`no connection was ready within ${this.config.connectTimeout}ms`)
-          return
-        }
-        try {
-          const state = channel.getConnectivityState(true)
-          if (state === READY) {
-            resolve(client)
-          } else if (state === TRANSIENT_FAILURE) {
-            void this.lastConnectError(client, deadline).then(fail)
-          } else if (state === SHUTDOWN) {
-            fail('the channel shut down')
-          } else {
-            channel.watchConnectivityState(state, deadline, check)
-          }
-        } catch {
-          fail('the channel closed')
-        }
-      }
-      check()
-    })
-  }
-
-  private lastConnectError(client: Client, deadline: number): Promise<string> {
-    return new Promise<string>(resolve => {
-      client.makeUnaryRequest(
-        CONNECT_PROBE_PATH,
-        sendMethod.requestSerialize,
-        sendMethod.responseDeserialize,
-        new Uint8Array(0),
-        this.metadata(),
-        { deadline },
-        err => {
-          const details = err?.details ?? ''
-          resolve(LAST_ERROR_PATTERN.exec(details)?.[1] ?? (details === '' ? 'the channel failed to connect' : details))
+      const connecting = connectChannel(this.grpc, peer.client, target, this.config.connectTimeout)
+      peer.connecting = connecting
+      connecting.ready.then(
+        () => {
+          peer.connecting = undefined
+        },
+        () => {
+          if (this.peers.get(target) === peer) this.peers.delete(target)
         },
       )
-    })
+    }
+    await peer.connecting.ready
+    return peer.client
+  }
+
+  private peerAt(target: string): PeerClient {
+    const existing = this.peers.get(target)
+    if (existing !== undefined) return existing
+    try {
+      const credentials = this.sockets.closingOnRelease(this.credentials())
+      const options = { ...channelOptions(), 'grpc.use_local_subchannel_pool': 1 }
+      const peer: PeerClient = { client: new this.grpc.Client(target, credentials, options) }
+      this.peers.set(target, peer)
+      return peer
+    } catch (err) {
+      throw connectFailed(target, err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  private handOver<T>(target: string, start: () => T): T {
+    this.assertOpen()
+    try {
+      return start()
+    } catch (err) {
+      throw connectFailed(target, err instanceof Error ? err.message : String(err))
+    }
   }
 
   private credentials(): ChannelCredentials {
@@ -275,31 +234,49 @@ export class GrpcClientPool {
     timeoutMs: number,
   ): Promise<Uint8Array> {
     return new Promise<Uint8Array>((resolve, reject) => {
-      client.makeUnaryRequest(
-        sendMethod.path,
-        sendMethod.requestSerialize,
-        sendMethod.responseDeserialize,
-        messageBytes,
-        this.metadata(),
-        this.callOptions(timeoutMs),
-        (err, response) => {
-          if (err !== null) {
-            reject(this.mapCallError(target, requestId, err))
-            return
-          }
-          if (response === undefined) {
-            reject(
-              new TransportError(TransportErrorCodes.DECODE_FAILED, `Empty response from '${target}'`, {
-                target,
-                requestId,
-              }),
-            )
-            return
-          }
-          resolve(response)
-        },
+      let settled = false
+      const stop = (): void => {
+        reject(this.stoppedByShutdown(target, requestId))
+        call.cancel()
+      }
+      const call = this.handOver(target, () =>
+        client.makeUnaryRequest(
+          sendMethod.path,
+          sendMethod.requestSerialize,
+          sendMethod.responseDeserialize,
+          messageBytes,
+          this.metadata(),
+          this.callOptions(timeoutMs),
+          (err, response) => {
+            settled = true
+            this.callsHandedOver.delete(stop)
+            if (err !== null) {
+              reject(this.mapCallError(target, requestId, err))
+              return
+            }
+            if (response === undefined) {
+              reject(
+                new TransportError(TransportErrorCodes.DECODE_FAILED, `Empty response from '${target}'`, {
+                  target,
+                  requestId,
+                }),
+              )
+              return
+            }
+            resolve(response)
+          },
+        ),
       )
+      if (!settled) this.callsHandedOver.add(stop)
     })
+  }
+
+  private stoppedByShutdown(target: string, requestId: string): TransportError {
+    return new TransportError(
+      TransportErrorCodes.PEER_UNAVAILABLE,
+      `The transport shut down before '${target}' answered`,
+      { target, requestId },
+    )
   }
 
   private mapCallError(target: string, requestId: string, err: Error): TransportError {

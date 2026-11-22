@@ -1,9 +1,10 @@
-import { connect, createServer, type Socket } from 'node:net'
+import type { Socket } from 'node:net'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { decode, encode } from '@msgpack/msgpack'
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { TransportErrorCodes } from '../../../../distribution/transport'
 import { createTcpTransport, type TcpTransportConfig } from '../../../../distribution/transport/tcp'
+import { failureOf, LOOPBACK, type ReceivingSide, relayTo, startReceivingSide } from '../receiving-side'
 import {
   echoHandler,
   generateTlsBundles,
@@ -13,7 +14,6 @@ import {
   type TlsBundles,
 } from '../tcp-tls/fixtures'
 
-const LOOPBACK = '127.0.0.1'
 const CONCURRENT_FIRST_SENDS = 300
 const CONNECT_TIMEOUT_MS = 20_000
 const SHUTDOWN_WITHIN_MS = 2_000
@@ -46,37 +46,10 @@ function startTransport(nodeId: string, config: Partial<TcpTransportConfig> = {}
   return transport
 }
 
-async function startReceivingSide(accept: (socket: Socket, position: number) => void) {
-  const sockets: Socket[] = []
-  const server = createServer({ noDelay: true }, socket => {
-    socket.on('error', () => socket.destroy())
-    sockets.push(socket)
-    accept(socket, sockets.length - 1)
-  })
-  await new Promise<void>((resolve, reject) => {
-    server.once('error', reject)
-    server.listen(0, LOOPBACK, resolve)
-  })
-  releases.push(async () => {
-    for (const socket of sockets) socket.destroy()
-    await new Promise<void>(resolve => server.close(() => resolve()))
-  })
-  const address = server.address()
-  if (address === null || typeof address === 'string') throw new Error('The receiving side has no port')
-  return {
-    target: `${LOOPBACK}:${address.port}`,
-    sockets,
-    openSockets: () => sockets.filter(socket => !socket.destroyed).length,
-  }
-}
-
-function relayTo(port: number, inbound: Socket): void {
-  const outbound = connect({ host: LOOPBACK, port, noDelay: true })
-  inbound.pipe(outbound)
-  outbound.pipe(inbound)
-  outbound.on('error', () => inbound.destroy())
-  outbound.on('close', () => inbound.destroy())
-  inbound.on('close', () => outbound.destroy())
+async function receivingSide(accept: (socket: Socket, position: number) => void): Promise<ReceivingSide> {
+  const side = await startReceivingSide(accept)
+  releases.push(side.close)
+  return side
 }
 
 function onEachRequest(socket: Socket, receive: (requestId: string, data: Uint8Array) => void): void {
@@ -100,13 +73,6 @@ function respond(socket: Socket, requestId: string, data: Uint8Array): void {
   socket.write(Buffer.concat([prefix, body]))
 }
 
-function failureOf(request: Promise<unknown>): Promise<unknown> {
-  return request.then(
-    () => 'the request succeeded',
-    (error: unknown) => error,
-  )
-}
-
 describe('the connection to one TCP peer', () => {
   it.each([
     'plain TCP',
@@ -115,7 +81,7 @@ describe('the connection to one TCP peer', () => {
     const secured = carrier === 'mutual TLS'
     const receiver = startTransport('receiver', secured ? { tls: makeTlsConfig(bundles.serverBundle) } : {})
     await receiver.listen(echoHandler('receiver'))
-    const relay = await startReceivingSide(socket => relayTo(receiver.getPort(), socket))
+    const relay = await receivingSide(socket => relayTo(receiver.getPort(), socket))
     const sender = startTransport('sender', secured ? { tls: makeTlsConfig(bundles.clientBundle) } : {})
 
     const payloads = Array.from({ length: CONCURRENT_FIRST_SENDS }, (_, at) => new Uint8Array([at >> 8, at & 0xff, 7]))
@@ -143,7 +109,7 @@ describe('the connection to one TCP peer', () => {
   it('rejects every request that waits for a failed connect and connects afresh for the next', async () => {
     const receiver = startTransport('receiver', { tls: makeTlsConfig(bundles.serverBundle) })
     await receiver.listen(echoHandler('receiver'))
-    const relay = await startReceivingSide((socket, position) => {
+    const relay = await receivingSide((socket, position) => {
       if (position === 0) socket.destroy()
       else relayTo(receiver.getPort(), socket)
     })
@@ -169,7 +135,7 @@ describe('the connection to one TCP peer', () => {
     const began = new Promise<void>(resolve => {
       handshakeBegan = resolve
     })
-    const silent = await startReceivingSide(socket => {
+    const silent = await receivingSide(socket => {
       socket.on('data', () => handshakeBegan())
     })
     const sender = startTransport('sender', { tls: makeTlsConfig(bundles.clientBundle) })
@@ -188,7 +154,7 @@ describe('the connection to one TCP peer', () => {
 
   it('writes no request once shutdown begins during a plain connect', async () => {
     let bytesReceived = 0
-    const peer = await startReceivingSide(socket => {
+    const peer = await receivingSide(socket => {
       socket.on('data', data => {
         bytesReceived += data.byteLength
       })
@@ -211,7 +177,7 @@ describe('the connection to one TCP peer', () => {
     const closed = new Promise<void>(resolve => {
       oldClosed = resolve
     })
-    const peer = await startReceivingSide((socket, position) => {
+    const peer = await receivingSide((socket, position) => {
       if (position === 0) {
         socket.on('close', () => oldClosed())
         socket.once('data', () => socket.write(LENGTH_BEYOND_THE_LIMIT))
