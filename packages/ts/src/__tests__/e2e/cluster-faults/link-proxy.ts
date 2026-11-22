@@ -38,7 +38,19 @@ export async function startLinkProxy(targetPort: () => number): Promise<LinkProx
       hold(inbound)
       return
     }
-    const outbound = connect(targetPort(), '127.0.0.1')
+    let port: number
+    try {
+      port = targetPort()
+    } catch {
+      inbound.destroy()
+      return
+    }
+    if (mode !== 'forward') {
+      if (mode === 'blackhole') hold(inbound)
+      else inbound.destroy()
+      return
+    }
+    const outbound = connect(port, '127.0.0.1')
     open.add(inbound)
     open.add(outbound)
     const end = () => {
