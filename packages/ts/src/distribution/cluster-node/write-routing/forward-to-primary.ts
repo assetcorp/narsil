@@ -112,8 +112,16 @@ export async function forwardBatchToRemote<V extends AnyDocument | null>(
     failed.push({ write, error })
     if (retriable(error, operation === 'insert')) awaitingRetry.set(write.docId, error)
   }
+  const outgoing: OutgoingWrite<V>[] = []
+  for (const write of writes) {
+    try {
+      outgoing.push(toOutgoing(operation, write))
+    } catch (err) {
+      failed.push({ write, error: toForwardError(err, write.docId) })
+    }
+  }
   let undelivered: unknown
-  for (const planned of chunkOutgoing(writes.map(write => toOutgoing(operation, write)))) {
+  for (const planned of chunkOutgoing(outgoing)) {
     if (windowClosed(deadline)) {
       for (const { write } of planned) failed.push({ write, error: windowEndedOutcome(indexName, write.docId) })
       continue
