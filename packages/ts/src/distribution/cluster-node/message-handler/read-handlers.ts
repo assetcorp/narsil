@@ -23,7 +23,7 @@ export async function handleCount(
   deps: DataNodeHandlerDeps,
 ): Promise<void> {
   const payload = validateCountPayload(decodeRequestPayload(message.payload, message.type))
-  await refuseUnservedRead(deps, payload.indexName, payload.partitionIds, 'query')
+  if (payload.everyCopy !== true) await refuseUnservedRead(deps, payload.indexName, payload.partitionIds, 'query')
   const answer = await localCountAnswer(deps.engine, payload.indexName, payload.partitionIds)
   await respond(createCountResultMessage(answer, deps.nodeId, message.requestId))
 }
