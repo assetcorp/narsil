@@ -7,6 +7,7 @@ use crate::format::wal::{
     WAL_FORMAT_VERSION_WITH_PREVIOUS_DOCUMENT, frame_record,
 };
 
+mod assigned;
 mod flushing;
 
 use super::files::DurableDirectory;

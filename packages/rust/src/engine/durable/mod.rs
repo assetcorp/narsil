@@ -17,6 +17,7 @@ pub(crate) mod load_source;
 pub(crate) mod log;
 pub(crate) mod metadata;
 mod recover;
+pub(crate) mod reload;
 mod removed_documents;
 mod residency;
 mod restored;
@@ -147,6 +148,14 @@ impl Durable {
 impl Drop for Durable {
     fn drop(&mut self) {
         self.schedule.stop();
+    }
+}
+
+/// Writes a checkpoint of a durable index while the caller holds its write lock.
+pub(crate) fn checkpoint_locked(index: &IndexState) -> Result<()> {
+    match index.log() {
+        Some(log) => checkpoint::write_checkpoint_locked(index, log, None),
+        None => Ok(()),
     }
 }
 
