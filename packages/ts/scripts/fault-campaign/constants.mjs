@@ -1,0 +1,15 @@
+export const RUN_TIMEOUT_MS = 8 * 60_000
+export const STOP_GRACE_MS = 30_000
+export const CLEANUP_TIMEOUT_MS = 10_000
+export const RUN_BUDGET_MS = RUN_TIMEOUT_MS + STOP_GRACE_MS + 2 * CLEANUP_TIMEOUT_MS
+export const PROCESS_POLL_MS = 100
+export const MIN_MINUTES = 18
+export const PASSES_TO_RETIRE_A_SEED = 3
+export const MAX_OUTCOME_LOG_BYTES = 32 * 1024 * 1024
+export const GH_CALL_TIMEOUT_MS = 60_000
+export const MAX_OPEN_ISSUE_PAGES = 50
+export const REPLAY_SHARE_OF_BUDGET = 0.5
+export const MAX_MINUTES = 30
+export const MAX_SEED = 2 ** 31
+export const MAX_SEED_FILE_BYTES = 4_096
+export const MAX_RESOURCE_PREFIX_LENGTH = 56

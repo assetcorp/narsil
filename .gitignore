@@ -23,6 +23,7 @@ packages/conformance/.dataset/
 .venv/
 scratch/
 packages/ts/test-evidence/
+packages/ts/fault-campaign/
 packages/native/build/
 packages/native/artifacts/
 packages/native/.lint-tools/
