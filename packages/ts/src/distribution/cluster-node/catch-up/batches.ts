@@ -1,5 +1,4 @@
-import { chunkByBudget } from '../../chunking'
-import { WIRE_BATCH_BUDGET } from '../../constants'
+import { chunkLogEntries } from '../../replication/entry-batches'
 import { entryByteEstimate } from '../../replication/entry-checksum'
 import { previousTermOf, replicateBatchToReplicas } from '../../replication/primary'
 import type { ReplicationLogEntry } from '../../replication/types'
@@ -17,11 +16,7 @@ function batchBytes(entries: ReplicationLogEntry[]): number {
 }
 
 export function nextWireBatch(state: CatchUpState, pending: ReplicationLogEntry[]): ReplicationLogEntry[] {
-  const chunks = chunkByBudget(pending, {
-    ...WIRE_BATCH_BUDGET,
-    payloadBytesOf: entry => entry.document?.byteLength ?? 0,
-    breaksRun: (entry, previous) => entry.seqNo !== previous.seqNo + 1,
-  })
+  const chunks = chunkLogEntries(pending, entry => entry)
   const batch = chunks[0] ?? []
   if (batch.length === 0) {
     return []
