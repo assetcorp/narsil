@@ -1,12 +1,6 @@
 import { ErrorCodes, NarsilError } from '../../../errors'
 import type { ClusterCoordinator } from '../../coordinator/types'
-import {
-  ABORT_SENTINEL,
-  loadCoordinatorIndexConfig,
-  resolveTransportTargets,
-  surfaceAborted,
-  surfaceError,
-} from '../bootstrap-restore'
+import { ABORT_SENTINEL, loadCoordinatorIndexConfig, resolveTransportTargets, surfaceError } from '../bootstrap-restore'
 import { entryKey } from './state'
 import { syncFromAnyTarget } from './targets'
 import type { AbortCheck, BootstrapEntry, BootstrapSyncDeps, BootstrapSyncState } from './types'
@@ -87,7 +81,6 @@ export async function executeLiveBootstrapSync(
 ): Promise<boolean> {
   const configResult = await loadCoordinatorIndexConfig(deps.coordinator, indexName, primaryNodeId, entry.abortPromise)
   if (configResult === 'aborted') {
-    surfaceAborted(deps, indexName, primaryNodeId)
     return false
   }
   if ('error' in configResult) {
@@ -95,7 +88,6 @@ export async function executeLiveBootstrapSync(
     return false
   }
   if (abortCheck()) {
-    surfaceAborted(deps, indexName, primaryNodeId)
     return false
   }
 
@@ -107,7 +99,6 @@ export async function executeLiveBootstrapSync(
     entry.abortPromise,
   )
   if (allocationResult === 'aborted') {
-    surfaceAborted(deps, indexName, primaryNodeId)
     return false
   }
   if ('error' in allocationResult) {
@@ -149,18 +140,17 @@ export async function executeLiveBootstrapSync(
   )
 
   if (!syncResult.ok) {
-    if (syncResult.error.code === ErrorCodes.SNAPSHOT_SYNC_ABORTED) {
-      surfaceAborted(deps, indexName, primaryNodeId)
-      return false
-    }
-    if (syncResult.error.details.alreadySurfaced !== true) {
+    if (
+      !abortCheck() &&
+      syncResult.error.code !== ErrorCodes.SNAPSHOT_SYNC_ABORTED &&
+      syncResult.error.details.alreadySurfaced !== true
+    ) {
       surfaceError(deps, indexName, primaryNodeId, syncResult.error)
     }
     return false
   }
 
   if (abortCheck()) {
-    surfaceAborted(deps, indexName, primaryNodeId)
     return false
   }
 
