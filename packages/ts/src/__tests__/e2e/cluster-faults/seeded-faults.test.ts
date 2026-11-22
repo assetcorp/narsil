@@ -1,7 +1,13 @@
 import { setTimeout as sleep } from 'node:timers/promises'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { DEFAULT_TRANSPORT_CONFIG } from '../../../distribution/transport/types'
 import { type ClusterUnderTest, startClusterUnderTest } from './cluster-under-test'
-import { MAX_FAULT_SEED, QUIET_WINDOW_MS } from './constants'
+import {
+  ALLOCATION_READ_TIMEOUT_MS,
+  CAMPAIGN_WRITE_TIMEOUT_MARGIN_MS,
+  MAX_FAULT_SEED,
+  QUIET_WINDOW_MS,
+} from './constants'
 import {
   campaignPlan,
   describeFault,
@@ -38,6 +44,8 @@ const SLOW_WRITE_FLOOR_MS = 5_000
 const MIN_QUIET_WRITES_FOR_LATENCY = 20
 const SOCKETS_LEFT_OPEN_LINE = 'SOCKETS LEFT OPEN AT SHUTDOWN'
 const CLEAN_EXIT_LINE = 'exited with code 0 and signal null'
+const CAMPAIGN_WRITE_TIMEOUT_MS = DEFAULT_TRANSPORT_CONFIG.requestTimeout + CAMPAIGN_WRITE_TIMEOUT_MARGIN_MS
+const SETTLE_AFTER_LAST_FAULT_MS = DEFAULT_TRANSPORT_CONFIG.requestTimeout
 
 function slowWrites(quiet: readonly QuietWrite[]): string[] {
   if (quiet.length < MIN_QUIET_WRITES_FOR_LATENCY) return []
@@ -92,6 +100,29 @@ describe('a three-node cluster on three etcd members under seeded faults', () =>
     return fleet.nodes.find(node => primary !== null && node.nodeId() === primary)?.slot ?? fallback
   }
 
+  async function unsafeToWipe(slot: number, faults: FaultState): Promise<string | null> {
+    if (cluster === null) return 'the cluster never started'
+    const { fleet, coordinator } = cluster
+    const nodeId = fleet.nodes[slot]?.nodeId() ?? ''
+    const table = await Promise.race([
+      coordinator.getAllocation(INDEX_NAME).catch(() => null),
+      sleep(ALLOCATION_READ_TIMEOUT_MS, null),
+    ])
+    if (table === null) return `the allocation table gave no answer within ${ALLOCATION_READ_TIMEOUT_MS} ms`
+    for (const [partitionId, assignment] of table.assignments) {
+      const holders = [assignment.primary, ...assignment.replicas].filter(holder => holder !== null)
+      if (!holders.includes(nodeId)) continue
+      for (const other of holders.filter(holder => holder !== nodeId)) {
+        const node = fleet.nodes.find(candidate => candidate.nodeId() === other)
+        const current = other === assignment.primary || assignment.inSyncSet.includes(other)
+        if (node === undefined || !node.running() || faults.unavailable.has(node.slot) || !current) {
+          return `partition ${partitionId} keeps its other copy on ${node === undefined ? other : `slot ${node.slot}`}, which is faulted or outside the in-sync set`
+        }
+      }
+    }
+    return null
+  }
+
   async function injectFault(
     fault: PlannedFault,
     faults: FaultState,
@@ -122,7 +153,11 @@ describe('a three-node cluster on three etcd members under seeded faults', () =>
         }
         if (kind === 'stop-wipe') await fleet.stop(slot)
         else await fleet.kill(slot)
-        if (isWipe(kind)) await fleet.wipe(slot)
+        if (isWipe(kind)) {
+          const unsafe = await unsafeToWipe(slot, faults)
+          if (unsafe === null) await fleet.wipe(slot)
+          else console.log(`slot ${slot} restarts with its data, because ${unsafe}`)
+        }
         await sleep(holdMs)
         await fleet.start(slot)
         if (fault.clientsRest === true) {
@@ -191,6 +226,7 @@ describe('a three-node cluster on three etcd members under seeded faults', () =>
       writers: plan.writers,
       searchers: plan.searchers,
       random: workloadRandom,
+      ...(CAMPAIGN ? { writeTimeoutMs: CAMPAIGN_WRITE_TIMEOUT_MS } : {}),
     })
     const applied: string[] = []
     try {
@@ -208,7 +244,12 @@ describe('a three-node cluster on three etcd members under seeded faults', () =>
         await untilHealed(`after ${shown}`)
         enter(NO_FAULT)
       }
-      if (CAMPAIGN) await sleep(QUIET_WINDOW_MS)
+      if (CAMPAIGN) {
+        enter('settling after the last fault')
+        await sleep(SETTLE_AFTER_LAST_FAULT_MS)
+        enter(NO_FAULT)
+        await sleep(QUIET_WINDOW_MS)
+      }
     } finally {
       await workload.stop()
     }

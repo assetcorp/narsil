@@ -81,18 +81,19 @@ async function writeOnce(
   docId: string,
   current: LedgerDocument | null,
   next: LedgerDocument | null,
+  timeoutMs: number,
 ): Promise<WriteAttempt> {
   const base = fleet.nodes[slot]?.base ?? ''
   const path = `/indexes/${indexName}/documents`
   try {
     if (current === null) {
-      return { reply: await send(base, 'POST', path, { id: docId, document: next }, WRITE_TIMEOUT_MS), timedOut: false }
+      return { reply: await send(base, 'POST', path, { id: docId, document: next }, timeoutMs), timedOut: false }
     }
     if (next === null) {
-      return { reply: await send(base, 'DELETE', `${path}/${docId}`, undefined, WRITE_TIMEOUT_MS), timedOut: false }
+      return { reply: await send(base, 'DELETE', `${path}/${docId}`, undefined, timeoutMs), timedOut: false }
     }
     return {
-      reply: await send(base, 'PATCH', `${path}/${docId}`, { document: next }, WRITE_TIMEOUT_MS),
+      reply: await send(base, 'PATCH', `${path}/${docId}`, { document: next }, timeoutMs),
       timedOut: false,
     }
   } catch (error) {
@@ -166,8 +167,10 @@ export function startWorkload(options: {
   writers: number
   searchers: number
   random: () => number
+  writeTimeoutMs?: number
 }): Workload {
   const { fleet, ledger, faults, indexName, random } = options
+  const writeTimeoutMs = options.writeTimeoutMs ?? WRITE_TIMEOUT_MS
   let stopping = false
   let version = 0
   let searchCount = 0
@@ -205,13 +208,11 @@ export function startWorkload(options: {
         const generationAtStart = faults.generation
         const describedAtStart = faults.describe()
         const startedAt = performance.now()
-        const { reply, timedOut } = await track(writeOnce(fleet, slot, indexName, docId, current, next))
+        const { reply, timedOut } = await track(writeOnce(fleet, slot, indexName, docId, current, next, writeTimeoutMs))
         const durationMs = performance.now() - startedAt
         if (quietThroughout(generationAtStart, describedAtStart)) {
           if (timedOut) {
-            unansweredQuiet.push(
-              `${docId} on slot ${slot} gave no answer within ${WRITE_TIMEOUT_MS} ms outside a fault`,
-            )
+            unansweredQuiet.push(`${docId} on slot ${slot} gave no answer within ${writeTimeoutMs} ms outside a fault`)
           } else if (reply !== null && reply.status >= 200 && reply.status < 300) {
             quiet.push({ docId, slot, durationMs })
           }
