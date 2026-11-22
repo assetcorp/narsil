@@ -22,6 +22,8 @@ const SETTLE_POLL: Duration = Duration::from_millis(50);
 
 const LISTEN_PORT_FLOOR: u32 = 20_000;
 const LISTEN_PORT_SPAN: u32 = 12_000;
+const LISTEN_ATTEMPTS: usize = 5;
+const LISTEN_FAILURE: &str = "The transport failed to listen";
 
 static NEXT_SERIAL: AtomicU64 = AtomicU64::new(0);
 static NEXT_LISTEN_PORT: AtomicU32 = AtomicU32::new(0);
@@ -230,6 +232,27 @@ impl DataNode {
         roles: &[&str],
         configure: fn(&mut ClusterNodeConfig),
     ) -> DataNode {
+        let mut attempts = 0;
+        loop {
+            attempts += 1;
+            match DataNode::try_start(coordinator, node_id, directory, roles, configure).await {
+                Ok(started) => return started,
+                Err(error)
+                    if attempts < LISTEN_ATTEMPTS
+                        && error.code() == "TRANSPORT_CONNECT_FAILED"
+                        && error.message().starts_with(LISTEN_FAILURE) => {}
+                Err(error) => panic!("the data node joins: {error:?}"),
+            }
+        }
+    }
+
+    async fn try_start(
+        coordinator: &Arc<EtcdCoordinator>,
+        node_id: &str,
+        directory: &Path,
+        roles: &[&str],
+        configure: fn(&mut ClusterNodeConfig),
+    ) -> Result<DataNode, ClusterError> {
         let port = free_port();
         let address = format!("127.0.0.1:{port}");
         let transport = Arc::new(
@@ -268,13 +291,17 @@ impl DataNode {
         }));
         configure(&mut settings);
         let node = ClusterNode::new(settings).expect("the data node's settings are valid");
-        node.start().await.expect("the data node joins");
-        DataNode {
+        if let Err(error) = node.start().await {
+            node.shutdown().await;
+            transport.shutdown().await;
+            return Err(error);
+        }
+        Ok(DataNode {
             node,
             transport,
             address,
             reported,
-        }
+        })
     }
 
     pub async fn stop(self) {
