@@ -90,6 +90,15 @@ pub mod codes {
     pub const SNAPSHOT_SYNC_CAPACITY_EXHAUSTED: &str = "SNAPSHOT_SYNC_CAPACITY_EXHAUSTED";
     /// The primary could not send the snapshot that a replica needs.
     pub const SNAPSHOT_SYNC_SNAPSHOT_FAILED: &str = "SNAPSHOT_SYNC_SNAPSHOT_FAILED";
+    /// A node holds a copy whose schema disagrees with the schema that the cluster stores for the index, or it could
+    /// not drop a copy that the cluster took away from it.
+    pub const SNAPSHOT_SYNC_RESTORE_FAILED: &str = "SNAPSHOT_SYNC_RESTORE_FAILED";
+    /// A node could not bring its copy of a partition into service, or could not report that it did, and the
+    /// details carry the cause's code as `innerCode` where the cause has one.
+    pub const NODE_BOOTSTRAP_FAILED: &str = "NODE_BOOTSTRAP_FAILED";
+    /// A node started without its copy of a partition that the allocation table gives it as primary or as an
+    /// in-sync replica, so it waits to register until the controller fails that copy over.
+    pub const NODE_COPY_MISSING: &str = "NODE_COPY_MISSING";
 }
 
 /// A failure of a cluster node, a transport, or a coordinator, with the code that a peer or a caller branches on.

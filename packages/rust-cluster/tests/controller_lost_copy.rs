@@ -116,6 +116,7 @@ fn lost_with_holder(table: &AllocationTable) -> bool {
     };
     let holders = assignment.get("lastHolders").and_then(Value::as_array);
     assignment.get("state").and_then(Value::as_str) == Some("UNASSIGNED")
+        && assignment.get("unassignedReason").and_then(Value::as_str) == Some("HOLDER_OFFLINE")
         && assignment.get("primary").is_none_or(Value::is_null)
         && holders.is_some_and(|holders| holders.iter().map(Value::as_str).eq([Some(LOST_PRIMARY)]))
 }
@@ -134,7 +135,7 @@ async fn controller_fails_the_lost_primary_over(registered: Option<NodeRegistrat
     let controller = start_controller(&coordinator).await;
 
     eventually(
-        "the controller marks the lost partition unassigned",
+        "the controller marks the lost partition unassigned because its holder is offline",
         || async {
             stored_ledger(&coordinator)
                 .await

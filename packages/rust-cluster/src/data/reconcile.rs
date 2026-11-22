@@ -12,6 +12,7 @@ use crate::node::{NodeErrorHandler, report_failure};
 enum Settled {
     Claimed,
     Orphaned(String),
+    Unreadable(String),
 }
 
 async fn settle(
@@ -36,7 +37,7 @@ async fn settle(
             ));
         }
         Err(error) => {
-            return Ok(Settled::Orphaned(format!(
+            return Ok(Settled::Unreadable(format!(
                 "its metadata could not be read: {error}"
             )));
         }
@@ -65,6 +66,19 @@ fn orphan_report(node_id: &str, index_name: &str, reason: &str) -> ClusterError 
     .with_detail("nodeId", Value::String(node_id.to_string()))
 }
 
+fn unreadable_report(node_id: &str, index_name: &str, reason: &str) -> ClusterError {
+    ClusterError::new(
+        codes::INDEX_ORPHANED,
+        format!(
+            "Node '{node_id}' can't confirm that the cluster claims its local copy of index '{index_name}', because \
+             {reason}. The node keeps the data and serves none of it until it settles the copy before it registers \
+             or at a later start, so keep the copy."
+        ),
+    )
+    .with_detail("indexName", Value::String(index_name.to_string()))
+    .with_detail("nodeId", Value::String(node_id.to_string()))
+}
+
 pub(super) async fn settle_local_indexes(
     coordinator: &EtcdCoordinator,
     copies: &Arc<LocalCopies>,
@@ -73,10 +87,41 @@ pub(super) async fn settle_local_indexes(
 ) -> ClusterResult<()> {
     let held = Arc::clone(copies);
     for index_name in off_executor(move || held.index_names()).await? {
-        if let Settled::Orphaned(reason) = settle(coordinator, copies, &index_name).await? {
-            copies.mark_orphaned(&index_name);
-            report_failure(on_error, &orphan_report(node_id, &index_name, &reason));
+        match settle(coordinator, copies, &index_name).await? {
+            Settled::Claimed => {}
+            Settled::Orphaned(reason) => {
+                copies.mark_orphaned(&index_name, false);
+                report_failure(on_error, &orphan_report(node_id, &index_name, &reason));
+            }
+            Settled::Unreadable(reason) => {
+                copies.mark_orphaned(&index_name, true);
+                report_failure(on_error, &unreadable_report(node_id, &index_name, &reason));
+            }
         }
     }
     Ok(())
+}
+
+pub(super) async fn settle_unreadable_indexes(
+    coordinator: &EtcdCoordinator,
+    copies: &Arc<LocalCopies>,
+) -> ClusterResult<()> {
+    let mut failure = None;
+    for index_name in copies.unreadable_names() {
+        let held = Arc::clone(copies);
+        let name = index_name.clone();
+        if !off_executor(move || held.holds_index(&name)).await? {
+            copies.forget_orphan(&index_name);
+            continue;
+        }
+        match settle(coordinator, copies, &index_name).await {
+            Ok(Settled::Unreadable(_)) => {}
+            Ok(Settled::Orphaned(_)) => copies.mark_orphaned(&index_name, false),
+            Ok(Settled::Claimed) => copies.forget_orphan(&index_name),
+            Err(error) => {
+                failure.get_or_insert(error);
+            }
+        }
+    }
+    failure.map_or(Ok(()), Err)
 }

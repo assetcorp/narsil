@@ -49,7 +49,7 @@ fn analysis_failure_is_valid(raw: &Value) -> bool {
         .all(|field| is_text(failure.get(field)))
 }
 
-fn readable(settings: &Map) -> bool {
+pub(crate) fn stored_settings_readable(settings: &Map) -> bool {
     let language_named =
         matches!(settings.get("language"), Some(Value::String(language)) if !language.is_empty());
     language_named
@@ -82,7 +82,7 @@ pub(crate) fn previous_documents_recorded(settings: Option<&Value>) -> bool {
         Some(Value::Object(settings)) => settings,
         Some(_) => return true,
     };
-    if !readable(settings) {
+    if !stored_settings_readable(settings) {
         return true;
     }
     let Some(Value::Object(changes)) = settings.get("changes") else {
