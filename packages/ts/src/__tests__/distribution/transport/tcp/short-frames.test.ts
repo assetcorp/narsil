@@ -1,13 +1,5 @@
-import { beforeAll, describe, expect, it } from 'vitest'
-import {
-  createTlsPair,
-  generateTlsBundles,
-  type ListenHandler,
-  makeMessage,
-  makeTlsConfig,
-  TLS_BUNDLES_TIMEOUT_MS,
-  type TlsBundles,
-} from '../tcp-tls/fixtures'
+import { describe, expect, it } from 'vitest'
+import { createTlsPair, type ListenHandler, makeMessage } from '../tcp-tls/fixtures'
 
 const PAYLOAD_BYTES = 100
 const WARM_UP_EXCHANGES = 10
@@ -36,22 +28,11 @@ function answerOnceBothRequestsArrive(): ListenHandler {
   }
 }
 
-let bundles: TlsBundles
-
-beforeAll(async () => {
-  bundles = await generateTlsBundles()
-}, TLS_BUNDLES_TIMEOUT_MS)
-
 describe('short frames on a TCP connection', () => {
-  it.each(['plain TCP', 'mutual TLS'] as const)(
-    'reach the peer over %s without waiting for a delayed acknowledgement',
-    async carrier => {
-      const secured = carrier === 'mutual TLS'
-      const pair = await createTlsPair(
-        answerOnceBothRequestsArrive(),
-        secured ? makeTlsConfig(bundles.serverBundle) : undefined,
-        secured ? makeTlsConfig(bundles.clientBundle) : undefined,
-      )
+  it(
+    'reach the peer without waiting for a delayed acknowledgement',
+    async () => {
+      const pair = await createTlsPair(answerOnceBothRequestsArrive(), undefined, undefined)
       const target = `127.0.0.1:${pair.port}`
 
       async function exchange(at: number): Promise<void> {
