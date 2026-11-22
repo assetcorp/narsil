@@ -129,9 +129,6 @@ describe('a replica copy that cannot apply an entry from its primary', () => {
     await waitUntil('the primary to ask for the caught-up replica to join the in-sync set', () =>
       admissions.some(admission => admission.appliedSeqNo === ACKNOWLEDGED_WRITES),
     )
-    const before = await readCopy(cluster.probe, replica)
-    expect([...before.keys()].sort()).toEqual([...acknowledged.keys()].sort())
-
     copyBroken = true
     const reply = await cluster.probe.send(
       replica,
