@@ -8,7 +8,7 @@ export interface LinkProxy {
   close(): Promise<void>
 }
 
-export async function startLinkProxy(target: URL): Promise<LinkProxy> {
+export async function startLinkProxy(target: URL | (() => URL)): Promise<LinkProxy> {
   const sockets = new Set<Socket>()
   let linkUp = true
   let refused = 0
@@ -26,7 +26,8 @@ export async function startLinkProxy(target: URL): Promise<LinkProxy> {
       client.destroy()
       return
     }
-    const upstream = connect(Number(target.port), target.hostname)
+    const destination = typeof target === 'function' ? target() : target
+    const upstream = connect(Number(destination.port), destination.hostname)
     track(upstream)
     client.pipe(upstream)
     upstream.pipe(client)

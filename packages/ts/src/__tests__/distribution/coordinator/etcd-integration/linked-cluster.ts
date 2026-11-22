@@ -8,7 +8,7 @@ import { createEtcdCoordinator } from '../../../../distribution/coordinator'
 import type { ClusterCoordinator, PartitionAssignment } from '../../../../distribution/coordinator/types'
 import { createTcpTransport } from '../../../../distribution/transport/tcp'
 import { NarsilError } from '../../../../errors'
-import { eventually, getAvailablePort } from './fixtures'
+import { eventually } from './fixtures'
 import { type LinkProxy, startLinkProxy } from './link-proxy'
 
 export interface LinkedMember {
@@ -53,11 +53,10 @@ export async function createLinkedCluster(endpoint: string): Promise<LinkedClust
     roles: ClusterNode['roles'],
     { storage }: MemberStorage = {},
   ): Promise<LinkedMember> {
-    const port = await getAvailablePort()
-    const peerLink = await startLinkProxy(new URL(`http://127.0.0.1:${port}`))
+    const transport = createTcpTransport(nodeId, { host: '127.0.0.1', port: 0 })
+    const peerLink = await startLinkProxy(() => new URL(`http://127.0.0.1:${transport.getPort()}`))
     const coordinatorLink = await startLinkProxy(new URL(endpoint))
     const coordinator = await createEtcdCoordinator({ endpoints: [coordinatorLink.endpoint], keyPrefix })
-    const transport = createTcpTransport(nodeId, { host: '127.0.0.1', port })
     const errors: NarsilError[] = []
     const durability =
       storage === null ? {} : { durability: { directory: directoryOf(storage ?? nodeId), mode: 'sync' as const } }
