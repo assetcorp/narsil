@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use super::admission_wait::{replica_needs_resync, settle_awaited};
 use super::state::{Action, PartitionKey, Tracked, WatcherState};
 use crate::allocator::{ACTIVE, Assignment, Assignments, INITIALISING, Table};
 
@@ -63,17 +64,29 @@ fn release_earlier_index(
     actions.push(Action::ReleaseTornDown(table.index_name.clone()));
 }
 
+fn bootstrap_toward(key: &PartitionKey, primary_node_id: &str, assignment: &Assignment) -> Action {
+    Action::Bootstrap {
+        key: key.clone(),
+        primary_node_id: primary_node_id.to_string(),
+        primary_term: assignment.primary_term,
+    }
+}
+
 fn new_assignment(
     key: &PartitionKey,
     assignment: &Assignment,
     node_id: &str,
     actions: &mut Vec<Action>,
 ) {
-    if assignment.is_primary(node_id) && assignment.state == INITIALISING {
-        actions.push(Action::Bootstrap {
-            key: key.clone(),
-            primary_term: assignment.primary_term,
-        });
+    let Some(primary_node_id) = assignment.primary.as_deref() else {
+        return;
+    };
+    if primary_node_id != node_id {
+        actions.push(bootstrap_toward(key, primary_node_id, assignment));
+        return;
+    }
+    if assignment.state == INITIALISING {
+        actions.push(bootstrap_toward(key, node_id, assignment));
     }
 }
 
@@ -85,21 +98,28 @@ fn existing_assignment(
     node_id: &str,
     actions: &mut Vec<Action>,
 ) {
+    settle_awaited(state, key, assignment, node_id);
     let demoted = existing.is_primary
         && !assignment.is_primary(node_id)
         && assignment.primary_term > existing.primary_term;
     if demoted {
         state.abort_bootstrap(key);
+        if let Some(primary_node_id) = assignment.primary.as_deref() {
+            actions.push(bootstrap_toward(key, primary_node_id, assignment));
+        }
         return;
     }
     let promoted_back = assignment.is_primary(node_id)
         && assignment.state == INITIALISING
         && assignment.primary_term > existing.primary_term;
     if promoted_back {
-        actions.push(Action::Bootstrap {
-            key: key.clone(),
-            primary_term: assignment.primary_term,
-        });
+        actions.push(bootstrap_toward(key, node_id, assignment));
+        return;
+    }
+    if replica_needs_resync(state, key, assignment, node_id)
+        && let Some(primary_node_id) = assignment.primary.as_deref()
+    {
+        actions.push(bootstrap_toward(key, primary_node_id, assignment));
     }
 }
 
@@ -147,6 +167,7 @@ fn remove_dropped_partitions(
     for key in dropped {
         state.tracked.remove(&key);
         state.abort_bootstrap(&key);
+        state.forget_awaited(&key);
         if keeps_copy_for_recovery(table, key.1, node_id) {
             state.retained.insert(key);
             continue;
@@ -178,6 +199,7 @@ fn release_superseded_copies(
             continue;
         }
         state.retained.remove(&key);
+        state.forget_awaited(&key);
         actions.push(Action::RemovePartition(key));
     }
 }
@@ -213,6 +235,8 @@ pub(super) fn process_table(
             Tracked {
                 is_primary: assignment.is_primary(node_id),
                 primary_term: assignment.primary_term,
+                primary_node_id: assignment.primary.clone(),
+                in_sync: assignment.holds_in_sync(node_id),
             },
         );
         if already_holds_data(assignment, node_id) {

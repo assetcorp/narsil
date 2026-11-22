@@ -90,6 +90,14 @@ impl ReplicationLog {
         self.entries.front().map(|(entry, _)| entry.seq_no)
     }
 
+    pub(super) fn newest_seq_no(&self) -> Option<u64> {
+        self.entries.back().map(|(entry, _)| entry.seq_no)
+    }
+
+    pub(super) fn commit_point(&self) -> u64 {
+        self.commit_point
+    }
+
     pub(super) fn advance_commit_point(&mut self, seq_no: u64) {
         self.commit_point = self.commit_point.max(seq_no);
     }

@@ -32,6 +32,11 @@ pub mod message_types {
     pub const REPLICATION_TERM_START_ACK: &str = "replication.term_start_ack";
     /// A replica's acknowledgement of replication log entries.
     pub const REPLICATION_ACK: &str = "replication.ack";
+    /// A replica's request that the primary send what its copy of a partition lacks, or its report of the position
+    /// that a sync left it at.
+    pub const REPLICATION_SYNC_REQUEST: &str = "replication.sync_request";
+    /// A batch of log entries in the primary's answer to a sync request.
+    pub const REPLICATION_SYNC_ENTRIES: &str = "replication.sync_entries";
     /// A primary's request that the controller admit a caught-up replica to the in-sync set.
     pub const REPLICATION_INSYNC_ADD: &str = "replication.insync_add";
     /// A request that the controller drop a replica from the in-sync set.

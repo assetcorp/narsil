@@ -90,6 +90,24 @@ pub mod codes {
     pub const SNAPSHOT_SYNC_CAPACITY_EXHAUSTED: &str = "SNAPSHOT_SYNC_CAPACITY_EXHAUSTED";
     /// The primary could not send the snapshot that a replica needs.
     pub const SNAPSHOT_SYNC_SNAPSHOT_FAILED: &str = "SNAPSHOT_SYNC_SNAPSHOT_FAILED";
+    /// A replica could not read the index's schema for a sync, or found none.
+    pub const SNAPSHOT_SYNC_SCHEMA_UNAVAILABLE: &str = "SNAPSHOT_SYNC_SCHEMA_UNAVAILABLE";
+    /// A replica could not resolve an address of the partition's primary.
+    pub const SNAPSHOT_SYNC_NO_TARGETS: &str = "SNAPSHOT_SYNC_NO_TARGETS";
+    /// A sync request or the report of a synced position failed in transport, or the primary answered that report
+    /// with a snapshot.
+    pub const SNAPSHOT_SYNC_TRANSPORT_FAILED: &str = "SNAPSHOT_SYNC_TRANSPORT_FAILED";
+    /// A sync passed its deadline, or no time remained to report the synced position.
+    pub const SNAPSHOT_SYNC_TIMEOUT: &str = "SNAPSHOT_SYNC_TIMEOUT";
+    /// A payload of the primary's answer to a sync request is not valid MessagePack.
+    pub const SNAPSHOT_SYNC_DECODE_FAILED: &str = "SNAPSHOT_SYNC_DECODE_FAILED";
+    /// A payload of the primary's answer to a sync request breaks the answer's shape or order.
+    pub const SNAPSHOT_SYNC_FRAME_INVALID: &str = "SNAPSHOT_SYNC_FRAME_INVALID";
+    /// The primary's answer to a sync request ended with no sync payload.
+    pub const SNAPSHOT_SYNC_CHUNK_MISSING: &str = "SNAPSHOT_SYNC_CHUNK_MISSING";
+    /// The primary answered a sync request with an error reply, whose code and message the details carry as
+    /// `primaryCode` and `primaryMessage`.
+    pub const SNAPSHOT_SYNC_PRIMARY_ERROR: &str = "SNAPSHOT_SYNC_PRIMARY_ERROR";
     /// A node holds a copy whose schema disagrees with the schema that the cluster stores for the index, or it could
     /// not drop a copy that the cluster took away from it.
     pub const SNAPSHOT_SYNC_RESTORE_FAILED: &str = "SNAPSHOT_SYNC_RESTORE_FAILED";
