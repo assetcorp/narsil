@@ -1,10 +1,9 @@
 import { ErrorCodes, NarsilError } from '../../../errors'
 import { encodeDocument } from '../../../serialization/document-encoding'
 import type { AnyDocument } from '../../../types/schema'
-import { chunkByBudget } from '../../chunking'
 import { CONTROLLER_LEASE_KEY } from '../../cluster/controller/types'
-import { WIRE_BATCH_BUDGET } from '../../constants'
 import type { PartitionAssignment } from '../../coordinator/types'
+import { chunkLogEntries } from '../../replication/entry-batches'
 import { requestInsyncRemoval } from '../../replication/insync'
 import { previousTermOf, replicateBatchToReplicas, replicateToReplicas } from '../../replication/primary'
 import type { ReplicationLogEntry } from '../../replication/types'
@@ -389,9 +388,5 @@ export async function replicateEntryBatch(
 }
 
 export function chunkReplicationEntries<T extends { entry: ReplicationLogEntry }>(items: T[]): T[][] {
-  return chunkByBudget(items, {
-    ...WIRE_BATCH_BUDGET,
-    payloadBytesOf: item => item.entry.document?.byteLength ?? 0,
-    breaksRun: (item, previous) => item.entry.seqNo !== previous.entry.seqNo + 1,
-  })
+  return chunkLogEntries(items, item => item.entry)
 }
