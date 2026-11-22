@@ -94,6 +94,7 @@ impl DataRole {
             copies: Arc::clone(&copies),
             view: Arc::clone(&view),
             on_error: self.on_error.clone(),
+            log_retention_bytes: self.config.log_retention_bytes,
         }));
         let started = AllocationWatcher::start(WatcherSettings {
             node_id: self.node_id.clone(),

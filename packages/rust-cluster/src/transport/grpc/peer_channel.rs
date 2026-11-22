@@ -1,5 +1,5 @@
 use std::future::Future;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use std::time::Duration;
 
@@ -13,18 +13,13 @@ use tokio::time::Instant;
 use tokio_rustls::rustls::ClientConfig;
 
 use crate::constants::{GRPC_KEEPALIVE_TIME_MS, GRPC_KEEPALIVE_TIMEOUT_MS};
+use crate::controller::lock;
 use crate::error::{ClusterError, ClusterResult, codes};
 use crate::transport::BoxFuture;
 use crate::transport::io::connect;
 use crate::transport::peers::PeerLink;
 
 type Body = tonic::body::Body;
-
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-}
 
 pub(super) fn connect_failed(target: &str, reason: String) -> ClusterError {
     ClusterError::new(
