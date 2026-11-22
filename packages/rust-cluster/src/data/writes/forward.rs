@@ -130,10 +130,13 @@ impl PrimaryWrites {
         }
     }
 
-    async fn held_by_another_index(
+    async fn refused_by_local_copy(
         &self,
         request: &ForwardRequest,
     ) -> ClusterResult<Option<ClusterError>> {
+        if let Err(orphaned) = self.refuse_orphaned(&request.index_name) {
+            return Ok(Some(orphaned));
+        }
         let Some(sent) = request.index_uuid.clone() else {
             return Ok(None);
         };
@@ -272,7 +275,7 @@ impl PrimaryWrites {
         request: ForwardRequest,
     ) -> Vec<Result<(), WriteFailure>> {
         let count = request.operations.len();
-        let refused = match self.held_by_another_index(&request).await {
+        let refused = match self.refused_by_local_copy(&request).await {
             Ok(None) => match self.apply_request(request, false).await {
                 Ok(outcomes) => return outcomes,
                 Err(error) => error,
@@ -313,7 +316,7 @@ impl PrimaryWrites {
             Ok(request) => request,
             Err(error) => return self.refuse(message, &WriteFailure::from(error)),
         };
-        match self.held_by_another_index(&request).await {
+        match self.refused_by_local_copy(&request).await {
             Ok(None) => {}
             Ok(Some(error)) | Err(error) => {
                 return self.refuse(message, &WriteFailure::from(error));
@@ -349,7 +352,7 @@ impl PrimaryWrites {
             .iter()
             .map(|operation| operation.document_id.clone())
             .collect();
-        let outcomes = match self.held_by_another_index(&request).await {
+        let outcomes = match self.refused_by_local_copy(&request).await {
             Ok(None) => match self.apply_request(request, true).await {
                 Ok(outcomes) => outcomes,
                 Err(error) => document_ids

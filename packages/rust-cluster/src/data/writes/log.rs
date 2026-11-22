@@ -2,19 +2,22 @@ use std::collections::VecDeque;
 
 use narsil::replication::ReplicatedEntry;
 
-use crate::constants::REPLICATION_ENTRY_FIXED_OVERHEAD_BYTES;
+pub(super) use crate::payload::entry::entry_byte_estimate as entry_bytes;
+use crate::wire_size::{WireBatchBound, wire_batches};
 
-pub(super) fn entry_bytes(index_name: &str, entry: &ReplicatedEntry) -> u64 {
-    let previous = match &entry.previous_document {
-        Some(Some(document)) => document.len(),
-        _ => 0,
-    };
-    let document = entry.document.as_ref().map_or(0, Vec::len);
-    (REPLICATION_ENTRY_FIXED_OVERHEAD_BYTES
-        + index_name.len()
-        + entry.document_id.len()
-        + document
-        + previous) as u64
+fn wire_bytes(index_name: &str, entry: &ReplicatedEntry) -> usize {
+    usize::try_from(entry_bytes(index_name, entry)).unwrap_or(usize::MAX)
+}
+
+fn continues(previous: &ReplicatedEntry, entry: &ReplicatedEntry) -> bool {
+    entry.seq_no == previous.seq_no + 1 && entry.primary_term == previous.primary_term
+}
+
+pub(super) fn chunked<'e>(
+    index_name: &str,
+    entries: &'e [ReplicatedEntry],
+) -> Vec<&'e [ReplicatedEntry]> {
+    wire_batches(entries, |entry| wire_bytes(index_name, entry), continues)
 }
 
 #[derive(Default)]
@@ -61,13 +64,14 @@ impl ReplicationLog {
         self.commit_point = 0;
     }
 
-    pub(super) fn entries_from(&self, from_seq_no: u64) -> Option<Vec<ReplicatedEntry>> {
+    fn offset_of(&self, seq_no: u64) -> Option<usize> {
         let (first, _) = self.entries.front()?;
-        let (last, _) = self.entries.back()?;
-        if from_seq_no < first.seq_no || from_seq_no > last.seq_no {
-            return None;
-        }
-        let skipped = usize::try_from(from_seq_no - first.seq_no).ok()?;
+        let offset = usize::try_from(seq_no.checked_sub(first.seq_no)?).ok()?;
+        (offset < self.entries.len()).then_some(offset)
+    }
+
+    pub(super) fn entries_from(&self, from_seq_no: u64) -> Option<Vec<ReplicatedEntry>> {
+        let skipped = self.offset_of(from_seq_no)?;
         Some(
             self.entries
                 .iter()
@@ -77,9 +81,38 @@ impl ReplicationLog {
         )
     }
 
+    pub(super) fn retained_from(&self, from_seq_no: u64) -> Option<Vec<ReplicatedEntry>> {
+        let oldest = self.oldest_seq_no()?;
+        self.entries_from(from_seq_no.max(oldest))
+    }
+
+    pub(super) fn batch_from(
+        &self,
+        index_name: &str,
+        from_seq_no: u64,
+        through_seq_no: u64,
+    ) -> Vec<ReplicatedEntry> {
+        let Some(skipped) = self.offset_of(from_seq_no) else {
+            return Vec::new();
+        };
+        let mut bound = WireBatchBound::default();
+        let mut previous: Option<&ReplicatedEntry> = None;
+        self.entries
+            .iter()
+            .skip(skipped)
+            .map(|(entry, _)| entry)
+            .take_while(|entry| {
+                let follows = previous.is_none_or(|previous| continues(previous, entry));
+                previous = Some(entry);
+                entry.seq_no <= through_seq_no
+                    && bound.takes(wire_bytes(index_name, entry), follows)
+            })
+            .cloned()
+            .collect()
+    }
+
     pub(super) fn entry_at(&self, seq_no: u64) -> Option<&ReplicatedEntry> {
-        let (first, _) = self.entries.front()?;
-        let offset = usize::try_from(seq_no.checked_sub(first.seq_no)?).ok()?;
+        let offset = self.offset_of(seq_no)?;
         self.entries.get(offset).map(|(entry, _)| entry)
     }
 

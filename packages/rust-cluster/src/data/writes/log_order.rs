@@ -82,10 +82,20 @@ impl PrimaryWrites {
             return Ok(());
         };
         let (index_name, partition_id) = (first.index_name.clone(), first.partition_id);
+        if self.failures.is_failed(&index_name, partition_id) {
+            return Err(self.failed_copy_refusal(&index_name, partition_id));
+        }
         let name = index_name.clone();
-        let tail = self
-            .on_copies(move |copies| copies.position(&name, partition_id))
+        let (tail, failure) = self
+            .on_copies(move |copies| {
+                let position = copies.position(&name, partition_id)?;
+                Ok((position, copies.copy_failure(&name, partition_id)?))
+            })
             .await?;
+        if let Some(failure) = failure {
+            self.record_copy_failure(&index_name, partition_id);
+            return Err(ClusterError::from(failure));
+        }
         let mut ordered = Ordered {
             partition,
             index_name,

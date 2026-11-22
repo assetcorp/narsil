@@ -58,19 +58,8 @@ impl PrimaryWrites {
     }
 
     pub(super) async fn copy_failed(self: &Arc<Self>, index_name: &str, partition_id: u32) -> bool {
-        if self.failures.is_failed(index_name, partition_id) {
-            return true;
-        }
-        let name = index_name.to_string();
-        let failed = !matches!(
-            self.on_copies(move |copies| copies.copy_failure(&name, partition_id))
-                .await,
-            Ok(None)
-        );
-        if failed {
-            self.record_copy_failure(index_name, partition_id);
-        }
-        failed
+        self.failures.is_failed(index_name, partition_id)
+            || self.held_failure(index_name, partition_id).await.is_some()
     }
 
     async fn writable_assignment(

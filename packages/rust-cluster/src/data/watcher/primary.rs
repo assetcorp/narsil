@@ -124,6 +124,7 @@ impl WatcherContext {
                 .can_list_copy(index_name, &stored.index_uuid, partition_id)
                 .await?
         {
+            self.writes.fail_missing_copy(index_name, partition_id);
             return Ok(false);
         }
         let copies = Arc::clone(&self.copies);

@@ -105,6 +105,12 @@ impl Partitions {
         )
     }
 
+    pub(super) fn existing(&self, index_name: &str, partition_id: u32) -> Option<Arc<Partition>> {
+        lock(&self.held)
+            .get(&(index_name.to_string(), partition_id))
+            .map(Arc::clone)
+    }
+
     pub(super) fn held(&self) -> Vec<(PartitionKey, Arc<Partition>)> {
         lock(&self.held)
             .iter()

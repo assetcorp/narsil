@@ -9,13 +9,10 @@ use super::state::{Abort, BootstrapSlot, PartitionKey, Tracked};
 use crate::allocator::INITIALISING;
 use crate::constants::{
     BOOTSTRAP_MAX_RETRIES, BOOTSTRAP_RESTART_DELAY_MS, BOOTSTRAP_RETRY_BASE_MS,
-    BOOTSTRAP_RETRY_MAX_MS,
+    BOOTSTRAP_RETRY_JITTER_FLOOR, BOOTSTRAP_RETRY_JITTER_SPAN, BOOTSTRAP_RETRY_MAX_MS,
 };
 use crate::controller::lock;
 use crate::error::{ClusterError, codes};
-
-const JITTER_FLOOR: f64 = 0.5;
-const JITTER_SPAN: f64 = 0.5;
 
 struct Bootstrap {
     key: PartitionKey,
@@ -35,7 +32,8 @@ fn random_fraction() -> f64 {
 fn backoff_ms(retry: u32) -> u64 {
     let doubled = BOOTSTRAP_RETRY_BASE_MS.saturating_mul(1u64 << retry.min(32));
     let capped = doubled.min(BOOTSTRAP_RETRY_MAX_MS) as f64;
-    (capped * (JITTER_FLOOR + random_fraction() * JITTER_SPAN)).floor() as u64
+    (capped * (BOOTSTRAP_RETRY_JITTER_FLOOR + random_fraction() * BOOTSTRAP_RETRY_JITTER_SPAN))
+        .floor() as u64
 }
 
 fn bootstrap_failure(
@@ -113,7 +111,6 @@ impl WatcherContext {
             if !current || state.stopped {
                 AfterBootstrap::Settled
             } else if !succeeded {
-                state.tracked.remove(&key);
                 state.forget_awaited(&key);
                 AfterBootstrap::Restart
             } else if syncs_replica {
