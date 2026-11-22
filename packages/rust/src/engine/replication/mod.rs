@@ -15,6 +15,8 @@ use crate::error::{ErrorCode, NarsilError, Result};
 use crate::value::Value;
 use copy_state::ReplicatedCopy;
 
+pub(crate) use logged::fail_stopped_logs;
+
 pub use types::{
     AppliedRun, CopyPosition, EntryOperation, HeldTerm, PrimaryLimits, PrimaryRefusal, PrimaryRun,
     PrimaryWrite, PrimaryWritten, PriorDocument, ReplicatedEntry, WriteRecord,

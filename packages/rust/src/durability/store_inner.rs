@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::io;
-use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Condvar, Mutex, RwLock};
 use std::thread::JoinHandle;
 use std::time::Duration;
@@ -8,12 +7,9 @@ use std::time::Duration;
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::value::Value;
 
-use super::constants::SINGLE_NODE_PRIMARY_TERM;
 use super::files::DurableDirectory;
 use super::index_state::IndexState;
 use super::lock::DirectoryLock;
-use super::log_reader::read_marker;
-use super::log_segment::LogStart;
 use super::log_writer::PartitionLog;
 use super::platform::{DirectoryIdentity, directory_identity};
 use super::restore_journal::{finish_restore_journals, require_index_name};
@@ -28,7 +24,7 @@ pub(crate) struct StoreInner {
     lock: Mutex<Option<DirectoryLock>>,
     identity: DirectoryIdentity,
     fatal: Mutex<Option<NarsilError>>,
-    logs: RwLock<PartitionLogs>,
+    pub(super) logs: RwLock<PartitionLogs>,
     indexes: Mutex<HashMap<String, Arc<IndexState>>>,
     stopping: Mutex<bool>,
     wake: Condvar,
@@ -197,133 +193,6 @@ impl StoreInner {
             .clone())
     }
 
-    fn records_previous_documents(&self, index_name: &str) -> Result<Arc<AtomicBool>> {
-        Ok(self
-            .index_state(index_name)?
-            .records_previous_documents
-            .clone())
-    }
-
-    pub(crate) fn logs_of(&self, index_name: &str) -> Result<Vec<Arc<PartitionLog>>> {
-        let logs = self.logs.read().map_err(|_| store_poisoned())?;
-        Ok(logs
-            .get(index_name)
-            .map(|partitions| partitions.values().cloned().collect())
-            .unwrap_or_default())
-    }
-
-    pub(crate) fn register_log(
-        &self,
-        index_name: &str,
-        partition_id: u32,
-        start: LogStart,
-    ) -> Result<()> {
-        let log = Arc::new(PartitionLog::new(
-            index_name,
-            partition_id,
-            self.config.segment_max_bytes,
-            self.records_previous_documents(index_name)?,
-            start,
-        ));
-        let previous = {
-            let mut logs = self.logs.write().map_err(|_| store_poisoned())?;
-            self.require_open()?;
-            logs.entry(index_name.to_string())
-                .or_default()
-                .insert(partition_id, log)
-        };
-        if let Some(previous) = previous {
-            self.guard(previous.close(&self.directory))?;
-        }
-        Ok(())
-    }
-
-    pub(crate) fn log(&self, index_name: &str, partition_id: u32) -> Result<Arc<PartitionLog>> {
-        let known = self
-            .logs
-            .read()
-            .map_err(|_| store_poisoned())?
-            .get(index_name)
-            .and_then(|partitions| partitions.get(&partition_id))
-            .cloned();
-        if let Some(log) = known {
-            return Ok(log);
-        }
-        require_index_name(index_name)?;
-        if read_marker(&self.directory, index_name, partition_id)?.is_some() {
-            return Err(NarsilError::new(
-                ErrorCode::PERSISTENCE_SAVE_FAILED,
-                format!(
-                    "The log of partition {partition_id} of index \"{index_name}\" holds records that recovery has not replayed"
-                ),
-            ));
-        }
-        let records_previous_documents = self.records_previous_documents(index_name)?;
-        let mut logs = self.logs.write().map_err(|_| store_poisoned())?;
-        self.require_open()?;
-        let log = logs
-            .entry(index_name.to_string())
-            .or_default()
-            .entry(partition_id)
-            .or_insert_with(|| {
-                Arc::new(PartitionLog::new(
-                    index_name,
-                    partition_id,
-                    self.config.segment_max_bytes,
-                    records_previous_documents,
-                    LogStart {
-                        active: None,
-                        highest_seq_no: 0,
-                        highest_durable_seq_no: 0,
-                        primary_term: SINGLE_NODE_PRIMARY_TERM,
-                    },
-                ))
-            });
-        Ok(log.clone())
-    }
-
-    fn close_logs(&self, logs: Vec<Arc<PartitionLog>>) -> Result<()> {
-        let mut outcome = Ok(());
-        for log in logs {
-            if let Err(error) = log.close(&self.directory) {
-                outcome = Err(self.mark_fatal(error));
-            }
-        }
-        outcome
-    }
-
-    pub(crate) fn forget_partitions_from(
-        &self,
-        index_name: &str,
-        partition_count: u32,
-    ) -> Result<()> {
-        let removed: Vec<Arc<PartitionLog>> = {
-            let mut logs = self.logs.write().map_err(|_| store_poisoned())?;
-            let Some(partitions) = logs.get_mut(index_name) else {
-                return Ok(());
-            };
-            let beyond: Vec<u32> = partitions
-                .keys()
-                .copied()
-                .filter(|id| *id >= partition_count)
-                .collect();
-            beyond
-                .iter()
-                .filter_map(|id| partitions.remove(id))
-                .collect()
-        };
-        self.close_logs(removed)
-    }
-
-    pub(crate) fn close_index_logs(&self, index_name: &str) -> Result<()> {
-        let removed = self
-            .logs
-            .write()
-            .map_err(|_| store_poisoned())?
-            .remove(index_name);
-        self.close_logs(removed.into_iter().flat_map(HashMap::into_values).collect())
-    }
-
     pub(crate) fn forget_index(&self, index_name: &str) -> Result<()> {
         let outcome = self.close_index_logs(index_name);
         let removed = self
@@ -335,19 +204,6 @@ impl StoreInner {
             state.mark_replaced();
         }
         outcome
-    }
-
-    pub(crate) fn flush_logs(&self, logs: &[Arc<PartitionLog>]) -> Result<()> {
-        let verify = || self.verify();
-        for log in logs {
-            self.guard(log.flush(&self.directory, &verify))?;
-        }
-        Ok(())
-    }
-
-    pub(crate) fn every_log(&self) -> Result<Vec<Arc<PartitionLog>>> {
-        let logs = self.logs.read().map_err(|_| store_poisoned())?;
-        Ok(logs.values().flat_map(HashMap::values).cloned().collect())
     }
 
     /// Waits up to `tick` for the store to stop, and reports whether it is stopping.

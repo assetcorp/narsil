@@ -84,6 +84,18 @@ impl PartitionLog {
         self.partition_id
     }
 
+    pub(crate) fn index_name(&self) -> &str {
+        &self.index_name
+    }
+
+    pub(crate) fn failure(&self) -> Option<NarsilError> {
+        self.state
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .failure
+            .clone()
+    }
+
     fn lock(&self) -> Result<MutexGuard<'_, LogState>> {
         self.state.lock().map_err(|_| poisoned())
     }
