@@ -1,0 +1,9 @@
+export const RUN_TIMEOUT_MS = 8 * 60_000
+export const STOP_GRACE_MS = 30_000
+export const CLEANUP_TIMEOUT_MS = 10_000
+export const RUN_BUDGET_MS = RUN_TIMEOUT_MS + STOP_GRACE_MS + 2 * CLEANUP_TIMEOUT_MS
+export const PROCESS_POLL_MS = 100
+export const MIN_MINUTES = 9
+export const MAX_MINUTES = 30
+export const MAX_SEED = 2 ** 31
+export const MAX_SEED_FILE_BYTES = 4_096
