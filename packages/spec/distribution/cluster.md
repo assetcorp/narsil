@@ -425,7 +425,7 @@ stateDiagram-v2
 |-------|---------|
 | `UNASSIGNED` | No node holds this partition, which happens when an index is first created and when the primary and every replica are lost. |
 | `INITIALISING` | A node is bootstrapping the partition, by incremental catch-up or by snapshot transfer. It serves no reads and accepts no writes while it does. |
-| `ACTIVE` | The partition is fully operational. The primary accepts writes and serves reads, and each replica serves reads and receives replication entries. |
+| `ACTIVE` | The partition is fully operational. The primary accepts writes and serves reads. Each replica receives replication entries, but only a replica in the in-sync set serves reads. |
 | `MIGRATING` | Reserved. The controller writes no partition in this state, and a reader must accept it. |
 | `DECOMMISSIONING` | Reserved. The controller writes no partition in this state, and a reader must accept it. |
 
@@ -1101,7 +1101,9 @@ A node may open its transport listener before step 2 so that a peer receives a r
 
 A node must persist the `indexUuid` alongside its local copy, in the `index_uuid` field of the [index metadata payload](../envelope.md#index-metadata-payload), so that the comparison survives a restart. A node must also record the identity on every index it bootstraps, whether it took the partition on as primary or as replica, because an index that carries none proves nothing at the next join.
 
-Unless a node abandons a bootstrap, it must report `NODE_BOOTSTRAP_FAILED` to its error handler each time that its sync from a partition's primary fails or that a bootstrap attempt ends on an error that the node reports under no other code. It must report the same code where its last retry of `cluster.bootstrap_complete` fails, unless it reads the partition in a state other than `INITIALISING`. The error's details must carry `indexName` and, where the cause has a code, that code as `innerCode`, so that an operator can act on the cause.
+Unless a node abandons a bootstrap or finds that a caller dropped the index, it must report `NODE_BOOTSTRAP_FAILED` to its error handler each time that its sync from a partition's primary fails or that a bootstrap attempt fails for a reason that the node reports under no other code. It must report the same code where its last retry of `cluster.bootstrap_complete` fails, unless it reads the partition in a state other than `INITIALISING`. The error's details must carry `indexName` and, where the cause has a code, that code as `innerCode`, so that an operator can act on the cause. A node that abandons a bootstrap must end it without reporting a failure.
+
+When the bootstrap of a primary ends without success and no later bootstrap replaces it, the node must wait 1,000 ms and then read the allocation table from the cluster coordinator, because the watch may deliver no further change for that partition. It must start the bootstrap again where the node is the primary of that partition in `INITIALISING` under that table and has no bootstrap of the partition under way. Where the read fails, the node must repeat the wait and the read until a read succeeds or the node stops.
 
 Step 3b is the only step that deletes local data, and the stored metadata is what permits it: metadata naming another index under the same name proves that the index this copy belongs to was dropped, so the copy holds documents no reader may see again.
 

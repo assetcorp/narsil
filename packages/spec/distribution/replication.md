@@ -111,7 +111,15 @@ Comparing the highest `seqNo` and its term is enough, because [Log Matching](#lo
 
 ### Read Path
 
-Any node holding a replica of the requested partition can serve reads. The coordinator picks one replica per partition for each query; see [Replica Selection](query-routing.md#replica-selection).
+The primary and each in-sync replica of an `ACTIVE` partition can serve reads. The coordinator picks one of those copies per partition for each query; see [Replica Selection](query-routing.md#replica-selection).
+
+A node must refuse a read with `QUERY_NO_ACTIVE_REPLICA` in three cases:
+
+- It receives a `query.search`, a `query.stats`, a `query.count`, a `query.list`, a `query.suggest`, a `query.preflight`, or a `query.fetch` without a `contextId`, and the request includes a partition in `INITIALISING`.
+- It receives one of those requests for a partition where another node is the primary and this node is a replica outside the in-sync set, because that copy can lack acknowledged writes.
+- It receives a `sync.read`, a `cluster.backup_partition`, a `cluster.reshard_start`, or a `cluster.reshard_cutover` whose `action` is `block`, for a partition in `INITIALISING`.
+
+Where a table that the node watches gives one of those cases, the node must read the table from the cluster coordinator before it refuses, so that it answers where the watch event is late. It must refuse where that read fails.
 
 ---
 
@@ -308,7 +316,7 @@ A replica must report in `lastPrimaryTerm` the `primaryTerm` of the entry at its
 
 ### Partition State During Recovery
 
-A replica that is still bootstrapping holds the partition in `INITIALISING` and serves no reads. A query that would route to it goes to another replica or to the primary instead. Once bootstrapping finishes, the controller moves the partition to `ACTIVE` on that replica, and it starts serving reads.
+A primary bootstraps its copy while the partition is in `INITIALISING`, whereas a replica can also bootstrap outside the in-sync set of an `ACTIVE` partition. Neither copy serves reads, as [Read Path](#read-path) defines, so the coordinator sends a query to an eligible copy. The primary starts serving reads once the controller moves the partition to `ACTIVE`, whereas a replica starts once the controller admits it to the in-sync set.
 
 ---
 
