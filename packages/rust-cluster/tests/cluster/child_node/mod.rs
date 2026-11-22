@@ -16,6 +16,7 @@ const CHILD_NODE_ID: &str = "NARSIL_CHILD_NODE_ID";
 const CHILD_HEARTBEAT_TTL_SECONDS: u64 = 2;
 const CHILD_HEARTBEAT_INTERVAL_MS: u64 = 500;
 const START_WITH_OVERSIZED_WRITES_IGNORED: &str = "trap '' XFSZ; exec \"$0\" \"$@\"";
+const KIB: u64 = 1_024;
 const CHILD_TEST: &str = "child_node::a_data_node_that_serves_until_its_process_is_killed";
 
 fn beat_often(settings: &mut ClusterNodeConfig) {
@@ -88,6 +89,32 @@ impl ChildNode {
             status.success(),
             "prlimit lowers the node's file size limit"
         );
+    }
+
+    pub fn limit_address_space_to_current_plus(&self, headroom_bytes: u64) -> u64 {
+        let status = std::fs::read_to_string(format!("/proc/{}/status", self.child.id()))
+            .expect("the node's process status is readable");
+        let current_kib: u64 = status
+            .lines()
+            .find_map(|line| line.strip_prefix("VmSize:"))
+            .and_then(|size| size.trim().trim_end_matches("kB").trim().parse().ok())
+            .expect("the node's process reports its address space size");
+        let bytes = current_kib * KIB + headroom_bytes;
+        let limited = Command::new("prlimit")
+            .arg("--pid")
+            .arg(self.child.id().to_string())
+            .arg(format!("--as={bytes}:{bytes}"))
+            .status()
+            .expect("prlimit starts");
+        assert!(
+            limited.success(),
+            "prlimit lowers the node's address space limit"
+        );
+        bytes
+    }
+
+    pub fn has_exited(&mut self) -> bool {
+        matches!(self.child.try_wait(), Ok(Some(_)))
     }
 
     pub fn kill(&mut self) {
