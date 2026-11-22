@@ -1386,6 +1386,7 @@ Frame {
 }
 ```
 
+- Both ends of each connection must set `TCP_NODELAY` so that the kernel sends a short frame without waiting for the peer to acknowledge an earlier frame.
 - A request frame holds one encoded `TransportMessage` in `data`, for `send` and for `stream` alike, and the message `type` alone tells the receiver whether to answer once or to stream.
 - The receiver must send every frame of the answer back on the connection that carried the request. The first `respond` goes out as a response frame holding the whole encoded `TransportMessage`, and each later `respond` goes out as a stream chunk frame holding only the payload.
 - Once its handler finishes, the receiver must send a stream end frame with empty `data` after any handler that responded at least once, and a caller that used `send` ignores that frame.
