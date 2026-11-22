@@ -1,3 +1,4 @@
+import { describeError, ErrorCodes, NarsilError } from '../../../../errors'
 import type { BatchResult } from '../../../../types/results'
 import type { AllocationTable } from '../../../coordinator/types'
 import {
@@ -18,14 +19,27 @@ import {
   retriable,
   retriedAfterDelay,
 } from './rules'
-import { NOTHING_SETTLED, type RetrySettlement, type SettleRetried } from './settlement'
-import { awaitNewPrimary, nextRetryDelay, pauseAndRereadTable, primaryFor, type RefusingPrimary } from './wait'
+import { NOTHING_SETTLED, type RetrySettlement, type SettleRetried, settledBeforeWindowEnds } from './settlement'
+import {
+  awaitNewPrimary,
+  nextRetryDelay,
+  pauseAndRereadTable,
+  primaryFor,
+  type RefusingPrimary,
+  tableBeforeWindowEnds,
+} from './wait'
 
-export type BatchAttempt<V> = (writes: BatchWrite<V>[]) => Promise<BatchOutcome<V>>
+export type BatchAttempt<V> = (writes: BatchWrite<V>[], deadline: number) => Promise<BatchOutcome<V>>
 
 interface RefusedWrite<V> {
   failure: WriteFailure<V>
   refusing: RefusingPrimary
+}
+
+function stoppedBatchError(indexName: string, reason: unknown): NarsilError {
+  return reason instanceof NarsilError
+    ? reason
+    : new NarsilError(ErrorCodes.QUERY_ROUTING_FAILED, describeError(reason), { indexName })
 }
 
 async function settleInSentOrder<V>(
@@ -50,26 +64,43 @@ async function retryBatchOnPrimaryChange<V>(
   writes: BatchWrite<V>[],
   attempt: BatchAttempt<V>,
   settleRetried: SettleRetried<V>,
-  deadline: number,
   settlesAsEqual: boolean,
 ): Promise<BatchOutcome<V>> {
+  const deadline = Date.now() + PRIMARY_CHANGE_RETRY_WINDOW_MS
   const succeeded: BatchWrite<V>[] = []
   const failed: WriteFailure<V>[] = []
   const histories = new Map<BatchWrite<V>, AttemptHistory>()
+  const lastRefusals = new Map<BatchWrite<V>, NarsilError>()
   const failWith = ({ write, error }: WriteFailure<V>): void => {
     failed.push({ write, error: finalError(histories.get(write), indexName, write.docId, error) })
   }
   let pending = writes
   let retryDelayMs = FORWARD_RETRY_INITIAL_DELAY_MS
   while (pending.length > 0) {
-    const table = await deps.coordinator.getAllocation(indexName)
-    const result = await beforeWindowEnds(attempt(pending), deadline)
+    const table = await tableBeforeWindowEnds(deps, indexName, deadline)
+    if (table === WINDOW_ENDED) {
+      for (const write of pending) {
+        const lastRefusal = lastRefusals.get(write)
+        if (lastRefusal === undefined) failed.push({ write, error: windowEndedOutcome(indexName, write.docId) })
+        else failWith({ write, error: lastRefusal })
+      }
+      break
+    }
+    let result: BatchOutcome<V> | typeof WINDOW_ENDED
+    try {
+      result = await beforeWindowEnds(attempt(pending, deadline), deadline)
+    } catch (reason) {
+      const error = stoppedBatchError(indexName, reason)
+      for (const write of pending) failWith({ write, error })
+      break
+    }
     if (result === WINDOW_ENDED) {
       for (const write of pending) failed.push({ write, error: windowEndedOutcome(indexName, write.docId) })
       break
     }
     for (const write of result.succeeded) succeeded.push(write)
-    const settlement = await settleInSentOrder(pending, result, succeeded, histories, settleRetried)
+    const settling = settleInSentOrder(pending, result, succeeded, histories, settleRetried)
+    const settlement = await settledBeforeWindowEnds(settling, deadline)
     const refused = new Map<BatchWrite<V>, RefusedWrite<V>>()
     for (const failure of result.failed) {
       const { write, error, withheld } = failure
@@ -115,6 +146,7 @@ async function retryBatchOnPrimaryChange<V>(
       break
     }
     for (const { failure } of refusals) {
+      lastRefusals.set(failure.write, failure.error)
       if (failure.withheld === true) continue
       const condition = nextCondition(failure.error, failure.write.condition)
       if (condition !== undefined) failure.write.condition = condition
@@ -166,13 +198,17 @@ export async function retryEachPartition<V>(
   settleRetried: SettleRetried<V>,
   settlesAsEqual = false,
 ): Promise<BatchResult> {
-  const deadline = Date.now() + PRIMARY_CHANGE_RETRY_WINDOW_MS
-  const outcomes = await settleEachBounded(groupByPartition(table, writes), PARTITION_WRITE_CONCURRENCY, group =>
-    retryBatchOnPrimaryChange(deps, indexName, group, attempt, settleRetried, deadline, settlesAsEqual),
+  const groups = groupByPartition(table, writes)
+  const outcomes = await settleEachBounded(groups, PARTITION_WRITE_CONCURRENCY, group =>
+    retryBatchOnPrimaryChange(deps, indexName, group, attempt, settleRetried, settlesAsEqual),
   )
   const merged: BatchOutcome<V> = { succeeded: [], failed: [] }
-  for (const outcome of outcomes) {
-    if (outcome.status === 'rejected') throw outcome.reason
+  for (const [at, outcome] of outcomes.entries()) {
+    if (outcome.status === 'rejected') {
+      const error = stoppedBatchError(indexName, outcome.reason)
+      for (const write of groups[at] ?? []) merged.failed.push({ write, error })
+      continue
+    }
     for (const write of outcome.value.succeeded) merged.succeeded.push(write)
     for (const failure of outcome.value.failed) merged.failed.push(failure)
   }
