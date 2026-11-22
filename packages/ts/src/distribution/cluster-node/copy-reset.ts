@@ -24,28 +24,52 @@ function clearPartition(manager: PartitionManager, partitionId: number): void {
   manager.deserializePartition(partitionId, emptySerializablePartition(manager, partitionId), deserializePartition)
 }
 
-async function withPartitionHeld(core: EngineCore, indexName: string, work: () => Promise<void>): Promise<void> {
+function holdsIndex(core: EngineCore, indexName: string, indexUuid: string | null): boolean {
+  const entry = core.indexRegistry.get(indexName)
+  return entry !== undefined && (entry.indexUuid ?? null) === indexUuid
+}
+
+async function withIndexHeld(
+  core: EngineCore,
+  indexName: string,
+  indexUuid: string | null,
+  work: () => Promise<void>,
+): Promise<boolean> {
+  if (!holdsIndex(core, indexName, indexUuid)) return false
   const release = await core.indexState.acquire(indexName, false)
   try {
+    if (!holdsIndex(core, indexName, indexUuid)) return false
+    await work()
+    return true
+  } finally {
+    release()
+  }
+}
+
+async function withPartitionHeld(
+  core: EngineCore,
+  indexName: string,
+  indexUuid: string | null,
+  work: () => Promise<void>,
+): Promise<boolean> {
+  return withIndexHeld(core, indexName, indexUuid, async () => {
     const wasScaledOut = core.orchestrator.desyncIndex(indexName)
     try {
       await work()
     } finally {
       await core.orchestrator.resyncIndex(indexName, wasScaledOut)
     }
-  } finally {
-    release()
-  }
+  })
 }
 
 export async function emptyPartitionCopy(
   core: EngineCore,
   indexName: string,
+  indexUuid: string | null,
   partitionId: number,
   writeRecords: ClusterWriteRecords,
-): Promise<void> {
-  if (!core.indexRegistry.has(indexName)) return
-  await withPartitionHeld(core, indexName, async () => {
+): Promise<boolean> {
+  const emptied = await withPartitionHeld(core, indexName, indexUuid, async () => {
     const manager = core.requireManager(indexName)
     await manager.publication.write(() => {
       clearPartition(manager, partitionId)
@@ -53,7 +77,11 @@ export async function emptyPartitionCopy(
     })
   })
   const durable = core.durability?.manager
-  if (durable !== undefined) await restartPartitionLog(durable, indexName, partitionId, { seqNo: 0, primaryTerm: 0 })
+  if (!emptied || durable === undefined) return emptied
+  await withIndexHeld(core, indexName, indexUuid, () =>
+    restartPartitionLog(durable, indexName, partitionId, { seqNo: 0, primaryTerm: 0 }),
+  )
+  return true
 }
 
 async function loadPartitionVectors(
@@ -84,9 +112,10 @@ async function loadPartitionVectors(
 export async function reloadPartitionCopy(
   core: EngineCore,
   indexName: string,
+  indexUuid: string | null,
   partitionId: number,
   writeRecords: ClusterWriteRecords,
-): Promise<void> {
+): Promise<boolean> {
   const durable = core.durability?.manager
   const registry = durable?.partitionRegistry
   if (durable === undefined || registry === undefined) {
@@ -96,7 +125,7 @@ export async function reloadPartitionCopy(
       { indexName, partitionId },
     )
   }
-  await withPartitionHeld(core, indexName, async () => {
+  return withPartitionHeld(core, indexName, indexUuid, async () => {
     await publishPartitionCopy(core, indexName, partitionId, writeRecords, async (manager, writeRecords) => {
       const store = directoryCheckpointStore(registry.directory)
       const decoded = await readSegmentManifest(store, indexName)

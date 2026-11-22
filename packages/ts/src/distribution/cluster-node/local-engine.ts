@@ -93,8 +93,8 @@ export interface ClusterLocalEngine extends Narsil {
   documentTableGrowthBytesOf(indexName: string, documents: number, pendingDocuments: number): number
   restartLocalLog(indexName: string, partitionId: number, position: PartitionLogPosition): Promise<void>
   isolateCopyFailures(onFailed: PartitionFailureHandler): void
-  emptyPartitionCopy(indexName: string, partitionId: number): Promise<void>
-  reloadPartitionCopy(indexName: string, partitionId: number): Promise<void>
+  emptyPartitionCopy(indexName: string, indexUuid: string | null, partitionId: number): Promise<boolean>
+  reloadPartitionCopy(indexName: string, indexUuid: string | null, partitionId: number): Promise<boolean>
   heldPartitionsOf(indexName: string): number[] | undefined
   recordHeldPartition(indexName: string, partitionId: number): Promise<void>
   forgetHeldPartition(indexName: string, partitionId: number): Promise<void>
@@ -250,10 +250,10 @@ export async function createClusterLocalEngine(
       restartLocalLog(core, indexName, partitionId, position),
     isolateCopyFailures: (onFailed: PartitionFailureHandler) =>
       core.durability?.manager.isolatePartitionFailures?.(onFailed),
-    emptyPartitionCopy: (indexName: string, partitionId: number) =>
-      emptyPartitionCopy(core, indexName, partitionId, writeRecords),
-    reloadPartitionCopy: (indexName: string, partitionId: number) =>
-      reloadPartitionCopy(core, indexName, partitionId, writeRecords),
+    emptyPartitionCopy: (indexName: string, indexUuid: string | null, partitionId: number) =>
+      emptyPartitionCopy(core, indexName, indexUuid, partitionId, writeRecords),
+    reloadPartitionCopy: (indexName: string, indexUuid: string | null, partitionId: number) =>
+      reloadPartitionCopy(core, indexName, indexUuid, partitionId, writeRecords),
     heldPartitionsOf: (indexName: string) => heldPartitions.held(indexName),
     recordHeldPartition: (indexName: string, partitionId: number) => heldPartitions.record(indexName, partitionId),
     forgetHeldPartition: (indexName: string, partitionId: number) => heldPartitions.forget(indexName, partitionId),
