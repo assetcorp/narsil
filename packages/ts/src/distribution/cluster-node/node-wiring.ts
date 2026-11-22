@@ -112,6 +112,7 @@ export function createNodeWiring(input: {
     readLiveAllocation: allocationView.readLive,
     readPrimaryCopies,
     engine,
+    vectorFieldPathsOf: engine.vectorFieldPathsOf,
     transport: config.transport,
     getReplicationLog,
     resetReplicationLog: seedReplicationLog,
