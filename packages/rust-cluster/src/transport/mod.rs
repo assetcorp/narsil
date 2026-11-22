@@ -2,6 +2,7 @@ mod address;
 mod handler;
 mod io;
 mod listener;
+mod peers;
 mod run_handler;
 mod serve;
 mod tls;

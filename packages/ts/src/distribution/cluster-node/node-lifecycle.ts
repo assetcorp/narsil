@@ -27,6 +27,7 @@ export interface NodeLifecycleDeps {
   bootstrapPartition: (indexName: string, partitionId: number, primaryNodeId: string) => Promise<boolean>
   trackHeldPartitionWrite: (write: Promise<void>) => void
   cleanupDeps: Omit<BootstrapCleanupDeps, 'removedIndexUuid'>
+  beforeRegistration?: (signal: AbortSignal) => Promise<void>
 }
 
 export function createNodeLifecycle(deps: NodeLifecycleDeps): DataNodeHandle {
@@ -37,6 +38,7 @@ export function createNodeLifecycle(deps: NodeLifecycleDeps): DataNodeHandle {
     coordinator: deps.config.coordinator,
     transport: deps.config.transport,
     knownIndexNames: [],
+    beforeRegistration: deps.beforeRegistration,
     bootstrapRetryBaseMs: DEFAULT_NODE_LIFECYCLE_CONFIG.bootstrapRetryBaseMs,
     bootstrapRetryMaxMs: DEFAULT_NODE_LIFECYCLE_CONFIG.bootstrapRetryMaxMs,
     bootstrapMaxRetries: DEFAULT_NODE_LIFECYCLE_CONFIG.bootstrapMaxRetries,
@@ -72,5 +74,14 @@ export function createNodeLifecycle(deps: NodeLifecycleDeps): DataNodeHandle {
       const removedIndexUuid = engine.indexUuidOf(indexName)
       void releaseTornDownIndex(indexName, { ...cleanupDeps, removedIndexUuid })
     },
+    onError: reportWithoutThrowing(cleanupDeps.onError),
   })
+}
+
+function reportWithoutThrowing(report: ((error: unknown) => void) | undefined): (error: unknown) => void {
+  return error => {
+    try {
+      report?.(error)
+    } catch (_) {}
+  }
 }

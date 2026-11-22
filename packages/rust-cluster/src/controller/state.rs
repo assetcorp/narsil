@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use narsil::{Map, Value};
 use tokio::task::JoinHandle;
@@ -18,6 +18,9 @@ pub(crate) struct LoopState {
     pub(crate) departed_at: HashMap<String, f64>,
     pub(crate) debounce: Timer,
     pub(crate) departure: Timer,
+    pub(crate) holder_retry: Timer,
+    pub(crate) indexes_awaiting_holders: HashSet<String>,
+    pub(crate) schemas_listed: bool,
     pub(crate) teardowns: HashMap<String, (u64, JoinHandle<()>)>,
     pub(crate) watches: Vec<WatchHandle>,
     pub(crate) listening: bool,
@@ -34,6 +37,9 @@ impl LoopState {
         self.placement_by_node.clear();
         abort(&mut self.debounce);
         abort(&mut self.departure);
+        abort(&mut self.holder_retry);
+        self.indexes_awaiting_holders.clear();
+        self.schemas_listed = false;
         for (_, (_, handle)) in self.teardowns.drain() {
             handle.abort();
         }
@@ -50,6 +56,15 @@ impl LoopState {
 
     pub(crate) fn forget_index(&mut self, index_name: &str) {
         self.known_indexes.retain(|known| known != index_name);
+        self.indexes_awaiting_holders.remove(index_name);
+    }
+
+    pub(crate) fn await_holders(&mut self, index_name: &str, ask_again: bool) {
+        if ask_again {
+            self.indexes_awaiting_holders.insert(index_name.to_string());
+        } else {
+            self.indexes_awaiting_holders.remove(index_name);
+        }
     }
 
     pub(crate) fn changes_topology(&mut self, event: &NodeEvent) -> bool {

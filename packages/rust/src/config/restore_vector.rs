@@ -89,8 +89,13 @@ pub(crate) fn restored_vector_promotion(
             "vectorPromotion.threshold must be a positive integer",
         )?,
         filter_threshold: match raw.get("filterThreshold") {
+            None | Some(Value::Null) => None,
             Some(Value::Number(ratio)) => Some(*ratio),
-            _ => None,
+            Some(_) => {
+                return Err(config_invalid(
+                    "vectorPromotion.filterThreshold must be a number",
+                ));
+            }
         },
         hnsw,
         quantization,

@@ -410,6 +410,6 @@ The coordinator that receives a query carrying `rerank` must rerank it with its 
 | `QUERY_PARTIAL_FAILURE` | A partition was unavailable and `allowPartialResults` is false. |
 | `QUERY_NODE_TIMEOUT` | A data node did not answer within `partitionTimeout`. |
 | `QUERY_ROUTING_FAILED` | The allocation table holds no entry for the target index. |
-| `QUERY_NO_ACTIVE_REPLICA` | One or more partitions have no `ACTIVE` replica. |
+| `QUERY_NO_ACTIVE_REPLICA` | One or more partitions have no `ACTIVE` replica, or a node refused a read under [Read Path](replication.md#read-path). |
 | `SEARCH_CONTEXT_MISSING` | A data node no longer held the search context of a query, or the coordinator could not reach it, in the first run of the query and again in its one rerun. |
 | `ANALYSIS_GENERATION_MISSING` | A data node held another analysis generation in the first run of a query and again in its one rerun. |

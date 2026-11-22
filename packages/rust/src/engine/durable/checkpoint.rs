@@ -14,6 +14,7 @@ use super::removed_documents::{RewriteBudget, rewrite_removed_documents};
 use super::saved_size::SavedSize;
 use crate::config::Storage;
 use crate::engine::index::IndexState;
+use crate::engine::replication::fail_stopped_logs;
 use crate::error::Result;
 use crate::format::manifest::{PartitionEntry, SegmentManifest};
 use crate::format::metadata::IndexMetadata;
@@ -60,6 +61,8 @@ fn write_partition(
         index_name: &index.name,
         partition_id,
         pages_text,
+        copy: index.replicated_copy(),
+        snapshot,
     };
     let mut next_id = snapshot
         .next_segment_id
@@ -244,7 +247,12 @@ pub(super) fn build_checkpoint(
     let mut entries = Vec::with_capacity(partitions.len());
     let mut swaps = Vec::with_capacity(partitions.len());
     let mut budget = RewriteBudget::new(plan.limits.rewrite_bytes_per_checkpoint);
-    let checkpoint = partition_checkpoints(writer, plan.applied, partitions.len())?;
+    let checkpoint = partition_checkpoints(
+        writer,
+        plan.applied,
+        partitions.len(),
+        index.replicated_copy(),
+    )?;
     for (at, partition) in partitions.iter().enumerate() {
         let partition_id = at as u32;
         let snapshot = partition.snapshot();
@@ -320,6 +328,7 @@ pub(super) fn write_checkpoint_locked(
     log: &IndexLog,
     upgraded: Option<&SegmentManifest>,
 ) -> Result<()> {
+    fail_stopped_logs(index);
     let mut writer = log.backing().begin_checkpoint(&index.name)?;
     let partitions = index.partitions();
     let applied = log.applied_seq_nos();
@@ -339,5 +348,10 @@ pub(super) fn write_checkpoint_locked(
     log.record_saved(built.saved.clone());
     log.checkpointed();
     built.apply(&partitions);
+    if let Some(copy) = index.replicated_copy() {
+        for (at, partition) in partitions.iter().enumerate() {
+            copy.forget_saved(at as u32, &partition.snapshot());
+        }
+    }
     Ok(())
 }

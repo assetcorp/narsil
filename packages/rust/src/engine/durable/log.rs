@@ -40,10 +40,7 @@ impl IndexLog {
         limits: CheckpointLimits,
     ) -> IndexLog {
         if let Backing::Log(store) = &backing {
-            store.note_previous_documents(
-                &recorded.index_name,
-                recorded.records_previous_documents(),
-            );
+            store.note_metadata(&recorded.index_name, &recorded);
         }
         IndexLog {
             backing,
@@ -124,7 +121,7 @@ impl IndexLog {
     /// Records the metadata that a checkpoint committed, whose facts the next metadata write keeps.
     pub(crate) fn remember(&self, metadata: IndexMetadata) {
         if let Backing::Log(store) = &self.backing {
-            store.note_previous_documents(&self.index_name, metadata.records_previous_documents());
+            store.note_metadata(&self.index_name, &metadata);
         }
         *self
             .recorded
@@ -198,7 +195,7 @@ impl IndexLog {
         self.unsaved_writes.store(0, Ordering::Release);
     }
 
-    fn count_applied(&self, partition: u32, writes: u64) {
+    pub(crate) fn count_applied(&self, partition: u32, writes: u64) {
         let mut applied = self
             .applied
             .lock()

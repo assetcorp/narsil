@@ -11,13 +11,15 @@ use super::inputs::{MergeInput, prepare};
 use super::keywords::MergedPostings;
 use super::partial_table::partial_table;
 use super::tail_columns::{InputColumns, input_columns};
-use crate::error::Result;
-use crate::format::keyword_segment::KeywordSegment;
+use crate::error::{ErrorCode, NarsilError, Result};
+use crate::format::keyword_segment::{KeywordSegment, WriteRecords};
 use crate::format::paged_segment::assemble::{AssembledSection, write_assembled};
 use crate::format::paged_segment::head::PagedHead;
 use crate::format::paged_segment::removal_sort::RemovalWriter;
 use crate::format::paged_segment::sink::{ScratchNames, SectionSink};
-use crate::format::paged_segment::{head_of, resident_sections, surface_section};
+use crate::format::paged_segment::{
+    head_of, resident_sections, surface_section, write_record_sections,
+};
 use crate::index::constants::MERGE_READ_CACHE_BYTES;
 use crate::index::frozen::FrozenSegment;
 use crate::index::paged::merge_cache_scope;
@@ -36,6 +38,31 @@ pub(crate) struct PagedMerge {
 impl PagedMerge {
     pub(crate) fn document_count(&self) -> u32 {
         self.head.document_count
+    }
+
+    /// Adds the write record of each merged document, in the section order of the format.
+    pub(crate) fn hold_write_records(&mut self, records: &WriteRecords) -> Result<()> {
+        if records.seq_nos.len() != self.head.document_count as usize {
+            return Err(NarsilError::new(
+                ErrorCode::PERSISTENCE_SAVE_FAILED,
+                format!(
+                    "A merge of {} documents cannot hold {} write records",
+                    self.head.document_count,
+                    records.seq_nos.len()
+                ),
+            ));
+        }
+        let before_surfaces = match self.sections.last() {
+            Some(AssembledSection::Held(last)) if last.name == "surfaceForms" => {
+                self.sections.len() - 1
+            }
+            _ => self.sections.len(),
+        };
+        self.sections.splice(
+            before_surfaces..before_surfaces,
+            write_record_sections(records).map(AssembledSection::Held),
+        );
+        Ok(())
     }
 
     pub(crate) fn write_payload(

@@ -6,6 +6,7 @@ use super::durable::log::IndexLog;
 use super::index_lifecycle::residency::IndexResidency;
 use super::layout::TextLayout;
 use super::query_suggestions::stored_state::SuggestionState;
+use super::replication::copy_state::ReplicatedCopy;
 use super::synonyms::SynonymSet;
 use super::vectors::IndexVectors;
 use crate::analysis::Analyser;
@@ -44,6 +45,7 @@ pub(crate) struct IndexState {
     writer: Mutex<()>,
     publication: RwLock<()>,
     log: OnceLock<IndexLog>,
+    replicated: OnceLock<Box<ReplicatedCopy>>,
     retired: AtomicBool,
     pub(crate) changes: LayoutChanges,
     analysis_stale: AtomicBool,
@@ -51,7 +53,7 @@ pub(crate) struct IndexState {
     pub(crate) residency: IndexResidency,
 }
 
-fn guarded<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+pub(crate) fn guarded<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -100,6 +102,7 @@ impl IndexState {
             writer: Mutex::new(()),
             publication: RwLock::new(()),
             log: OnceLock::new(),
+            replicated: OnceLock::new(),
             retired: AtomicBool::new(false),
             changes: LayoutChanges::default(),
             analysis_stale: AtomicBool::new(false),
@@ -150,6 +153,15 @@ impl IndexState {
 
     pub(crate) fn attach_log(&self, log: IndexLog) {
         let _ = self.log.set(log);
+    }
+
+    /// Returns what the index records as a cluster copy, or `None` for a standalone index.
+    pub(crate) fn replicated_copy(&self) -> Option<&ReplicatedCopy> {
+        self.replicated.get().map(Box::as_ref)
+    }
+
+    pub(crate) fn attach_replicated_copy(&self, copy: ReplicatedCopy) {
+        let _ = self.replicated.set(Box::new(copy));
     }
 
     /// Returns the synonym set as it stands, which stays valid for the caller while an update replaces it.

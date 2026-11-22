@@ -15,6 +15,7 @@ export type TransportHandler = (message: TransportMessage, respond: RespondFn) =
 export interface MultiplexedControllerTransport {
   transport: NodeTransport
   createHandler: (dataHandler: TransportHandler) => TransportHandler
+  createJoiningHandler: (notReady: TransportHandler) => TransportHandler
 }
 
 const CONTROLLER_MESSAGE_TYPES = new Set<string>([
@@ -73,7 +74,9 @@ export function createNotReadyHandler(nodeId: string): TransportHandler {
  *
  * The controller listens on the returned transport, and the data node wraps its own handler with `createHandler`,
  * which sends each controller message to the controller while one is listening. While none is, the node refuses
- * the message with `NODE_NOT_CONTROLLER`, so the sender retries against the node that holds the lease.
+ * the message with `NODE_NOT_CONTROLLER`, so the sender retries against the node that holds the lease. A node that
+ * has yet to join listens with `createJoiningHandler`, which sends a controller message to a controller that won the
+ * election early and refuses everything else as the not-ready handler does.
  *
  * @param baseTransport - The transport the node was built with.
  * @param nodeId - This node's id, which names the sender of each refusal.
@@ -131,6 +134,12 @@ export function createMultiplexedControllerTransport(
         }
         await dataHandler(message, respond)
       }
+    },
+    createJoiningHandler(notReady: TransportHandler): TransportHandler {
+      return (message, respond) =>
+        controllerHandler !== null && CONTROLLER_MESSAGE_TYPES.has(message.type)
+          ? controllerHandler(message, createSingleResponseRespond(respond))
+          : notReady(message, respond)
     },
   }
 }

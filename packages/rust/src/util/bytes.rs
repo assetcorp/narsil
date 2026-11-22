@@ -56,6 +56,17 @@ pub(crate) fn float32_array(bytes: &[u8]) -> Value {
     )
 }
 
+pub(crate) fn float32_bytes(values: &[Value]) -> Option<Vec<u8>> {
+    let mut bytes = Vec::with_capacity(values.len() * size_of::<f32>());
+    for value in values {
+        let Value::Number(number) = value else {
+            return None;
+        };
+        bytes.extend_from_slice(&(*number as f32).to_le_bytes());
+    }
+    Some(bytes)
+}
+
 pub(crate) fn le_u32(bytes: &[u8], at: usize) -> u32 {
     bytes.get(at..at + 4).map_or(0, |raw| {
         u32::from_le_bytes([raw[0], raw[1], raw[2], raw[3]])

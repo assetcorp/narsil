@@ -3,7 +3,11 @@ import { lastHoldersOf } from '../last-holders'
 import type { PartitionAssignment } from './types'
 import { countPrimaryAssignments } from './weight'
 
-function markUnassigned(assignment: PartitionAssignment, lastPrimary: string | null, lastInSyncSet: string[]): void {
+export function markUnassigned(
+  assignment: PartitionAssignment,
+  lastPrimary: string | null,
+  lastInSyncSet: string[],
+): void {
   const holders = new Set<string>(lastHoldersOf(assignment))
   for (const nodeId of lastInSyncSet) {
     holders.add(nodeId)
@@ -60,7 +64,7 @@ function promotionCandidate(
   )
 }
 
-function neverReachedActive(assignment: PartitionAssignment): boolean {
+export function neverReachedActive(assignment: PartitionAssignment): boolean {
   return assignment.state === 'INITIALISING' && lastHoldersOf(assignment).length === 0
 }
 
@@ -88,7 +92,7 @@ function restartAsEmptyCopy(
   delete assignment.removingReplicas
 }
 
-function keepRemovingReplicasHeld(assignment: PartitionAssignment): void {
+export function keepRemovingReplicasHeld(assignment: PartitionAssignment): void {
   const removing = assignment.removingReplicas?.filter(id => assignment.replicas.includes(id)) ?? []
   if (removing.length > 0) {
     assignment.removingReplicas = removing

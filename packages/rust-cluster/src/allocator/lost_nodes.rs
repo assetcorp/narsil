@@ -56,7 +56,7 @@ fn distinct_push(entries: &mut Vec<String>, node_id: &str) {
     }
 }
 
-fn mark_unassigned(
+pub(super) fn mark_unassigned(
     assignment: &mut Assignment,
     last_primary: Option<&str>,
     last_in_sync: &[String],
@@ -104,7 +104,7 @@ fn promotion_candidate(
         .or_else(|| least_loaded_candidate(&in_sync, counts, lost.shares))
 }
 
-fn never_reached_active(assignment: &Assignment) -> bool {
+pub(super) fn never_reached_active(assignment: &Assignment) -> bool {
     assignment.state == INITIALISING && assignment.last_holders_of().is_empty()
 }
 
@@ -143,7 +143,7 @@ fn restart_as_empty_copy(
     assignment.removing_replicas = None;
 }
 
-fn keep_removing_replicas_held(assignment: &mut Assignment) {
+pub(super) fn keep_removing_replicas_held(assignment: &mut Assignment) {
     let removing: Vec<String> = assignment
         .removing_replicas
         .as_deref()

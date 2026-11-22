@@ -275,9 +275,9 @@ async function routeAdmittedInsert(
   return retryOnPrimaryChange(
     deps,
     indexName,
-    resolvedDocId,
+    { docId: resolvedDocId, value: document },
     () => insertOnce(indexName, document, resolvedDocId, deps, options),
-    settleEqualInserts(deps, indexName, new Map([[resolvedDocId, document]])),
+    settleEqualInserts(deps, indexName),
     () => resolvedDocId,
     true,
   )
@@ -317,7 +317,7 @@ export function routeRemove(indexName: string, docId: string, deps: WriteRouting
   return retryOnPrimaryChange(
     deps,
     indexName,
-    docId,
+    { docId, value: null },
     condition => removeOnce(indexName, docId, deps, condition),
     settleNothing,
     () => undefined,
@@ -358,7 +358,7 @@ export function routeUpdate(
       retryOnPrimaryChange(
         deps,
         indexName,
-        docId,
+        { docId, value: document },
         condition => routeAdmittedUpdate(indexName, docId, document, deps, condition),
         settleNothing,
         () => undefined,

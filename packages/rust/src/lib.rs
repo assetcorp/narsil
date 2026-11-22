@@ -18,6 +18,14 @@ mod native;
 mod ordering;
 mod pattern;
 mod pins;
+#[doc(hidden)]
+pub mod replication {
+    pub use crate::engine::replication::{
+        AppliedRun, CopyPosition, EntryOperation, HeldTerm, PartitionCopies, PrimaryLimits,
+        PrimaryRefusal, PrimaryRun, PrimaryWrite, PrimaryWritten, PriorDocument, ReplicatedEntry,
+        WriteRecord,
+    };
+}
 mod schema;
 mod search;
 mod synonyms;
@@ -30,7 +38,7 @@ pub use analysis::{Language, StopWordFunction, StopWords, Token, TokenSource, To
 pub use config::{
     AdapterSetting, Bm25FieldParams, Bm25Params, EmbeddingConfig, HnswSettings, IndexConfig,
     Metric, PartitionConfig, Quantization, ScoringMode, StopWordsSetting, Storage, SynonymRule,
-    TokenizerSetting, VectorPromotion,
+    TokenizerSetting, VectorPromotion, index_config_from_stored_settings,
 };
 pub use durability::persistence::{FilesystemPersistence, MemoryPersistence, PersistenceAdapter};
 #[doc(hidden)]

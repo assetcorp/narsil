@@ -160,7 +160,7 @@ fn validate_record(decoded: &Value, index_name: &str) -> ClusterResult<IndexMeta
     })
 }
 
-async fn read_stored(
+pub(crate) async fn stored_index_metadata(
     coordinator: &EtcdCoordinator,
     index_name: &str,
 ) -> ClusterResult<Option<(IndexMetadata, Option<Value>)>> {
@@ -184,7 +184,7 @@ pub(crate) async fn index_metadata(
     coordinator: &EtcdCoordinator,
     index_name: &str,
 ) -> ClusterResult<Option<IndexMetadata>> {
-    Ok(read_stored(coordinator, index_name)
+    Ok(stored_index_metadata(coordinator, index_name)
         .await?
         .map(|(record, _)| record))
 }
@@ -193,7 +193,7 @@ pub(crate) async fn records_previous_documents(
     coordinator: &EtcdCoordinator,
     index_name: &str,
 ) -> bool {
-    match read_stored(coordinator, index_name).await {
+    match stored_index_metadata(coordinator, index_name).await {
         Ok(None) => false,
         Ok(Some((_, settings))) => super::settings::previous_documents_recorded(settings.as_ref()),
         Err(_) => true,

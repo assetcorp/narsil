@@ -59,6 +59,30 @@ pub(crate) struct IndexMetadata {
 }
 
 impl IndexMetadata {
+    /// Returns the cluster's UUID for the index, which only a cluster copy records.
+    pub(crate) fn index_uuid(&self) -> Option<&str> {
+        self.index_uuid.as_deref()
+    }
+
+    pub(crate) fn set_index_uuid(&mut self, uuid: &str) {
+        self.index_uuid = Some(uuid.to_string());
+    }
+
+    /// Returns the partitions that a cluster node recorded as held, leaving out an ID that no partition can have,
+    /// or `None` where the index records no such list.
+    pub(crate) fn held_partitions(&self) -> Option<Vec<u32>> {
+        let held = self.held_partitions.as_ref()?;
+        Some(
+            held.iter()
+                .filter_map(|&id| u32::try_from(id).ok())
+                .collect(),
+        )
+    }
+
+    pub(crate) fn set_held_partitions(&mut self, held: &[u32]) {
+        self.held_partitions = Some(held.iter().map(|&id| u64::from(id)).collect());
+    }
+
     pub(crate) fn new(index_name: &str, schema: Map) -> IndexMetadata {
         IndexMetadata {
             index_name: index_name.to_string(),

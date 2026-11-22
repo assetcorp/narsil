@@ -2,7 +2,7 @@ import { ErrorCodes, NarsilError } from '../../errors'
 import { decode } from '../../serialization/msgpack'
 import { CONTROLLER_LEASE_KEY } from '../cluster/controller/types'
 import { getIndexMetadata } from '../cluster/index-metadata'
-import { holdsLastCopy } from '../cluster/last-holders'
+import { holdsLastCopy, lastHoldersOf } from '../cluster/last-holders'
 import type { AllocationTable, PartitionAssignment } from '../coordinator/types'
 import { createPrimaryResignMessage, validateInsyncConfirmPayload } from '../replication/codec'
 import { COPY_FAILURE_ATTEMPTS, COPY_FAILURE_RETRY_DELAY_MS } from './constants'
@@ -23,6 +23,7 @@ export interface CopyFailureDeps {
 
 export interface CopyFailures {
   record(indexName: string, partitionId: number, error: Error): void
+  recordMissing(indexName: string, partitionId: number): void
   isFailed(indexName: string, partitionId: number): boolean
   isUnlisted(indexName: string, partitionId: number): boolean
   awaitReset(indexName: string, partitionId: number): Promise<boolean>
@@ -36,6 +37,7 @@ interface FailedCopy {
   recovery: Promise<boolean> | null
   reloaded: boolean | null
   resignedTerm: number | null
+  missing: boolean
 }
 
 function delay(ms: number): Promise<void> {
@@ -85,7 +87,9 @@ async function removeSelf(
   await requestInsyncRemovalWithTargets(indexName, partitionId, nodeId, primaryTerm, controller, deps.writeDeps)
 }
 
-function emptyCopy(deps: CopyFailureDeps, indexName: string, partitionId: number): Promise<void> {
+function emptyCopy(deps: CopyFailureDeps, round: FailedCopy): Promise<void> {
+  const { indexName, partitionId, missing } = round
+  if (missing) return Promise.resolve()
   return enqueuePartitionWrite(deps.writeDeps.partitionWriteQueues, indexName, partitionId, async () => {
     await deps.engine.emptyPartitionCopy(indexName, partitionId)
     deps.forgetPartitionLog(indexName, partitionId)
@@ -111,7 +115,18 @@ async function reloadFromDisk(deps: CopyFailureDeps, indexName: string, partitio
   }
 }
 
+function reportMissingCopy(deps: CopyFailureDeps, indexName: string, partitionId: number): void {
+  deps.onError(
+    new NarsilError(
+      ErrorCodes.PERSISTENCE_LOAD_FAILED,
+      `Partition ${partitionId} of index '${indexName}' has no copy on this node to reload, so the node gives up the lead and leaves the partition out of the partitions it reports holding`,
+      { indexName, partitionId, nodeId: deps.writeDeps.nodeId },
+    ),
+  )
+}
+
 async function reloadOnce(deps: CopyFailureDeps, round: FailedCopy, indexName: string, partitionId: number) {
+  if (round.missing) return false
   round.reloaded ??= await reloadFromDisk(deps, indexName, partitionId)
   return round.reloaded
 }
@@ -130,13 +145,14 @@ async function stepFor(
   const { nodeId } = deps.writeDeps
   const assignment = table?.assignments.get(partitionId)
   if (table === null || assignment === undefined) {
-    await emptyCopy(deps, indexName, partitionId)
+    await emptyCopy(deps, round)
     return 'reset'
   }
+  if (round.missing && assignment.state === 'INITIALISING' && lastHoldersOf(assignment).length === 0) return 'reset'
   if (assignment.state === 'UNASSIGNED') {
     if (holdsLastCopy(assignment, nodeId))
       return (await reloadOnce(deps, round, indexName, partitionId)) ? 'reset' : 'kept'
-    await emptyCopy(deps, indexName, partitionId)
+    await emptyCopy(deps, round)
     return 'reset'
   }
   if (assignment.primary === nodeId) {
@@ -151,7 +167,7 @@ async function stepFor(
     await removeSelf(deps, indexName, partitionId, assignment.primaryTerm)
     return 'retry'
   }
-  await emptyCopy(deps, indexName, partitionId)
+  await emptyCopy(deps, round)
   return 'reset'
 }
 
@@ -184,6 +200,10 @@ async function recover(deps: CopyFailureDeps, round: FailedCopy): Promise<boolea
   return false
 }
 
+function newFailedCopy(indexName: string, partitionId: number, missing: boolean): FailedCopy {
+  return { indexName, partitionId, recovery: null, reloaded: null, resignedTerm: null, missing }
+}
+
 export function createCopyFailures(deps: CopyFailureDeps): CopyFailures {
   const failed = new Map<string, FailedCopy>()
   const keyOf = (indexName: string, partitionId: number) => `${indexName}:${partitionId}`
@@ -202,14 +222,25 @@ export function createCopyFailures(deps: CopyFailureDeps): CopyFailures {
     record(indexName, partitionId) {
       const key = keyOf(indexName, partitionId)
       if (failed.has(key)) return
-      const copy: FailedCopy = { indexName, partitionId, recovery: null, reloaded: null, resignedTerm: null }
+      const copy = newFailedCopy(indexName, partitionId, false)
       failed.set(key, copy)
       void startRecovery(key, copy)
+    },
+    recordMissing(indexName, partitionId) {
+      const key = keyOf(indexName, partitionId)
+      const known = failed.get(key)
+      if (known?.missing === true) return
+      const copy = known ?? newFailedCopy(indexName, partitionId, true)
+      copy.missing = true
+      copy.reloaded = null
+      failed.set(key, copy)
+      reportMissingCopy(deps, indexName, partitionId)
+      if (copy.recovery === null) void startRecovery(key, copy)
     },
     isFailed: (indexName, partitionId) => failed.has(keyOf(indexName, partitionId)),
     isUnlisted(indexName, partitionId) {
       const copy = failed.get(keyOf(indexName, partitionId))
-      return copy !== undefined && copy.reloaded !== true
+      return copy !== undefined && (copy.missing || copy.reloaded !== true)
     },
     async awaitReset(indexName, partitionId) {
       const key = keyOf(indexName, partitionId)
