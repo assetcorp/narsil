@@ -2,6 +2,7 @@ import { ErrorCodes, NarsilError } from '../../../../errors'
 import type { AnyDocument } from '../../../../types/schema'
 import { getClusterIndexConfig } from '../../../cluster/index-metadata'
 import type { BatchWrite } from '../batch-write'
+import { beforeWindowEnds, WINDOW_ENDED } from '../forward-window'
 import { storedCopyMatchesSent } from '../sent-fields'
 import type { WriteRoutingDeps } from '../types'
 
@@ -23,6 +24,14 @@ export type SettleRetried<V> = (
 export const NOTHING_SETTLED: RetrySettlement = { settled: new Set(), unverified: new Set() }
 
 export const settleNothing: SettleRetried<unknown> = async () => NOTHING_SETTLED
+
+export async function settledBeforeWindowEnds(
+  settling: Promise<RetrySettlement>,
+  deadline: number,
+): Promise<RetrySettlement> {
+  const settlement = await beforeWindowEnds(settling, deadline)
+  return settlement === WINDOW_ENDED ? NOTHING_SETTLED : settlement
+}
 
 async function derivedFieldsOf(deps: WriteRoutingDeps, indexName: string): Promise<Set<string>> {
   const schema = await deps.coordinator.getSchema(indexName)
