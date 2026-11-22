@@ -43,6 +43,7 @@ NodeTransport {
 - Calling `listen` again replaces the previous handler, and the old unsubscribe function then does nothing.
 - `respond` completes once the transport has taken the reply, and a handler sending many replies must await each one before it builds the next.
 - A transport whose connection reports that it is full must hold that completion until the connection accepts more, so that a snapshot cannot outrun a slow receiver and exhaust the sender's memory. A transport that buffers without limit completes immediately.
+- A transport must also complete `respond` once the connection closes or the caller cancels the request, so that the handler can finish and release the resources that it holds.
 
 ### shutdown()
 
