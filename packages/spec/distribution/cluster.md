@@ -1106,7 +1106,7 @@ Step 3b is the only step that deletes local data, and the stored metadata is wha
 Three rules govern an orphaned copy:
 
 - The node must neither serve it nor adopt it into an index of the same name, because an index created again under a dropped name holds different documents.
-- The node must report it, naming the index and the reason the adoption failed, so that an operator can act on it.
+- The node must report it under `INDEX_ORPHANED`, with the index and the reason that the adoption failed, so that an operator can act on it. While the copy is orphaned, the node must raise the same code for every read, write, and create that a caller sends it for that index name.
 - The node must keep the data. Absent metadata follows equally from a dropped index, an unreachable coordinator, and a coordinator restored from a backup, and in the last two cases the local copy is the only one left.
 
 An operator deletes an orphaned copy explicitly, and every automatic path leaves it alone.
@@ -1194,6 +1194,7 @@ A community adapter, whether it targets Consul, ZooKeeper, FoundationDB, or Redi
 |------|-------------|
 | `NODE_NOT_READY` | A message reached a node that has yet to finish joining the cluster. |
 | `NODE_NOT_CONTROLLER` | A controller message reached a node that holds no controller lease. |
+| `INDEX_ORPHANED` | A node reports an orphaned copy, or a caller sends that node a read, a write, or a create for the copy's index name. |
 | `CLUSTER_WRITE_BLOCKED` | An insert or an update targets an index that has a copy on a node reporting `full`, or a node refuses it under its bound on the bytes of writes in progress. |
 | `COORDINATOR_AUTH_FAILED` | etcd refuses the username or the password that the coordinator presents. |
 | `NODE_VERSION_INCOMPATIBLE` | A node's specification version has a major version other than the active controller's, so the node cannot join the cluster. |
