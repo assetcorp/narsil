@@ -124,7 +124,12 @@ describe('a node cut from etcd while its index is dropped and created again', ()
     const table = await coordinator.getAllocation(INDEX_NAME)
     const primaries = new Set([...(table?.assignments.values() ?? [])].map(assignment => assignment.primary))
     const cut = fleet.nodes.find(node => node.slot !== 0 && primaries.has(node.nodeId()))?.slot ?? 1
-    const faults: FaultState = { unavailable: new Set([cut]), startedOn: [], describe: () => `etcd cut on slot ${cut}` }
+    const faults: FaultState = {
+      unavailable: new Set([cut]),
+      startedOn: [],
+      generation: 0,
+      describe: () => `etcd cut on slot ${cut}`,
+    }
     const stopWatching = cluster.watchTable(INDEX_NAME)
     console.log(`${clock()} cutting etcd from slot ${cut}`)
     fleet.cutCoordinator(cut)
