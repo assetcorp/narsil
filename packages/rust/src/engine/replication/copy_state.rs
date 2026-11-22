@@ -7,6 +7,7 @@ use crate::error::{ErrorCode, NarsilError, Result};
 use crate::format::keyword_segment::{KeywordSegment, WriteRecords};
 use crate::format::manifest::{PartitionCheckpoint, TermStart};
 use crate::format::wal::{LogEntry, Operation};
+use crate::index::partition::PartitionSnapshot;
 use crate::index::segment::{SegmentData, SegmentEntry};
 use crate::util::bytes::offset_entry;
 use crate::value::Value;
@@ -52,8 +53,30 @@ impl PartitionCopy {
         self.position = position;
     }
 
-    pub(crate) fn record_of(&self, document_id: &str) -> Option<WriteRecord> {
-        self.records.get(document_id).copied()
+    pub(crate) fn record_of(
+        &self,
+        document_id: &str,
+        snapshot: &PartitionSnapshot,
+    ) -> Result<Option<WriteRecord>> {
+        match self.records.get(document_id) {
+            Some(record) => Ok(Some(*record)),
+            None => saved_in(snapshot, document_id),
+        }
+    }
+
+    pub(crate) fn hold_saved(
+        &mut self,
+        document_id: &str,
+        entry: &SegmentEntry,
+        ordinal: u32,
+    ) -> Result<()> {
+        if self.records.contains_key(document_id) {
+            return Ok(());
+        }
+        if let Some(record) = saved_record(entry, ordinal)? {
+            self.records.insert(document_id.to_string(), record);
+        }
+        Ok(())
     }
 
     pub(crate) fn held_term(&self, seq_no: u64) -> HeldTerm {
@@ -128,6 +151,16 @@ fn saved_record(entry: &SegmentEntry, ordinal: u32) -> Result<Option<WriteRecord
         }))
 }
 
+fn saved_in(snapshot: &PartitionSnapshot, document_id: &str) -> Result<Option<WriteRecord>> {
+    let Some((at, ordinal)) = snapshot.locate(document_id)? else {
+        return Ok(None);
+    };
+    match snapshot.segments.get(at) {
+        Some(entry) => saved_record(entry, ordinal),
+        None => Ok(None),
+    }
+}
+
 impl ReplicatedCopy {
     pub(crate) fn new(
         uuid: String,
@@ -141,17 +174,17 @@ impl ReplicatedCopy {
         }
     }
 
-    /// Returns the copy that `checkpoint` and the segments loaded from it record, which recovery extends with each
-    /// entry that it replays.
+    /// Returns the copy that `checkpoint` records, which recovery extends with each entry that it replays. The copy
+    /// reads the write record of a document that no replayed entry wrote from the segment that saved it.
     pub(crate) fn loaded(
         index: &IndexState,
         uuid: String,
         held: Option<Vec<u32>>,
         checkpoint: &[PartitionCheckpoint],
     ) -> Result<ReplicatedCopy> {
-        let partitions = index.partitions();
-        let mut copies = Vec::with_capacity(partitions.len());
-        for (at, partition) in partitions.iter().enumerate() {
+        let partition_count = index.partitions().len();
+        let mut copies = Vec::with_capacity(partition_count);
+        for at in 0..partition_count {
             let mut copy = PartitionCopy::default();
             let covered = checkpoint
                 .iter()
@@ -163,15 +196,6 @@ impl ReplicatedCopy {
                     primary_term: covered.primary_term,
                 };
                 copy.history = covered.term_history.clone().unwrap_or_default();
-            }
-            let snapshot = partition.snapshot();
-            for entry in &snapshot.segments {
-                for ordinal in entry.live_ordinals() {
-                    if let Some(record) = saved_record(entry, ordinal)? {
-                        let id = entry.id_of(ordinal)?.into_owned();
-                        copy.records.insert(id, record);
-                    }
-                }
             }
             copies.push(copy);
         }
@@ -224,23 +248,29 @@ impl ReplicatedCopy {
         })
     }
 
-    /// Returns the write record of each document of a segment payload, zero where the copy holds none.
+    /// Returns the write record of each document of a segment payload, zero where the copy holds none, reading a
+    /// record that the copy no longer holds in memory from the segment of `snapshot` that saved it.
     pub(crate) fn records_of(
         &self,
         partition: u32,
         payload: &KeywordSegment,
-    ) -> Option<WriteRecords> {
-        let copy = guarded(self.partitions.get(partition as usize)?);
+        snapshot: &PartitionSnapshot,
+    ) -> Result<Option<WriteRecords>> {
+        let Some(held) = self.partitions.get(partition as usize) else {
+            return Ok(None);
+        };
+        let copy = guarded(held);
         let count = payload.document_count as usize;
         let mut saved = empty_records(count);
         for at in 0..count {
             let id = offset_entry(&payload.ids, &payload.id_offsets, at);
-            let record = std::str::from_utf8(id)
-                .ok()
-                .and_then(|id| copy.record_of(id));
+            let record = match std::str::from_utf8(id) {
+                Ok(id) => copy.record_of(id, snapshot)?,
+                Err(_) => None,
+            };
             save_record(&mut saved, record);
         }
-        Some(saved)
+        Ok(Some(saved))
     }
 
     /// Returns the write record of each live document of `entries`, in the order in which a merge numbers them.
@@ -257,9 +287,32 @@ impl ReplicatedCopy {
         for entry in entries {
             for ordinal in entry.live_ordinals() {
                 let id = entry.id_of(ordinal)?;
-                save_record(&mut saved, guarded(held).record_of(&id));
+                let noted = guarded(held).records.get(id.as_ref()).copied();
+                let record = match noted {
+                    Some(record) => Some(record),
+                    None => saved_record(entry, ordinal)?,
+                };
+                save_record(&mut saved, record);
             }
         }
         Ok(Some(saved))
+    }
+
+    pub(crate) fn forget_saved(&self, partition: u32, snapshot: &PartitionSnapshot) {
+        let Some(held) = self.partitions.get(partition as usize) else {
+            return;
+        };
+        let mut copy = guarded(held);
+        let saved: Vec<String> = copy
+            .records
+            .iter()
+            .filter(|(id, record)| {
+                saved_in(snapshot, id).is_ok_and(|found| found == Some(**record))
+            })
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in saved {
+            copy.records.remove(&id);
+        }
     }
 }

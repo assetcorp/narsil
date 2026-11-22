@@ -62,6 +62,7 @@ fn write_partition(
         partition_id,
         pages_text,
         copy: index.replicated_copy(),
+        snapshot,
     };
     let mut next_id = snapshot
         .next_segment_id
@@ -347,5 +348,10 @@ pub(super) fn write_checkpoint_locked(
     log.record_saved(built.saved.clone());
     log.checkpointed();
     built.apply(&partitions);
+    if let Some(copy) = index.replicated_copy() {
+        for (at, partition) in partitions.iter().enumerate() {
+            copy.forget_saved(at as u32, &partition.snapshot());
+        }
+    }
     Ok(())
 }

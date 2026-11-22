@@ -571,3 +571,93 @@ fn a_reload_after_a_torn_append_keeps_every_acknowledged_write_across_a_restart(
         .expect("the read answers");
     assert_eq!(stored, Some(order(&other, 1)));
 }
+
+fn saved_records(copy: &Copy, partition: u32, ids: &[String]) -> Vec<Option<WriteRecord>> {
+    ids.iter()
+        .map(|id| {
+            copy.copies()
+                .write_record(INDEX, partition, id)
+                .expect("the record is read")
+        })
+        .collect()
+}
+
+#[test]
+fn write_records_that_only_saved_segments_hold_answer_after_checkpoints_and_restarts() {
+    for text in [Storage::Memory, Storage::Disk] {
+        let mut copy = Copy::new("assigned-saved-records", text);
+        let partition = partition_of("order-1");
+        let ids: Vec<String> = (0..200)
+            .map(|number| format!("order-{number}"))
+            .filter(|id| partition_of(id) == partition)
+            .take(3)
+            .collect();
+        let record = |seq_no: u64, primary_term: u64| {
+            Some(WriteRecord {
+                seq_no,
+                primary_term,
+            })
+        };
+        let run: Vec<ReplicatedEntry> = (1..)
+            .zip(&ids)
+            .map(|(seq_no, id)| entry(id, seq_no, 2, Some(encoded(&order(id, seq_no)))))
+            .collect();
+        let applied = copy.copies().append(INDEX, partition, &run).unwrap();
+        assert_eq!((applied.applied, applied.failure), (3, None));
+        copy.engine()
+            .checkpoint(INDEX)
+            .expect("the checkpoint commits");
+        copy.restart();
+        let written = vec![record(1, 2), record(2, 2), record(3, 2)];
+        assert_eq!(saved_records(&copy, partition, &ids), written);
+
+        let limits = PrimaryLimits {
+            records_previous_documents: false,
+            max_entry_bytes: 1 << 20,
+        };
+        let writes = vec![
+            PrimaryWrite::Update {
+                document_id: ids[1].clone(),
+                document: order(&ids[1], 40),
+            },
+            PrimaryWrite::Remove {
+                document_id: ids[2].clone(),
+            },
+        ];
+        let run = copy
+            .copies()
+            .write(INDEX, partition, 5, writes, limits)
+            .expect("the primary takes the writes");
+        assert_eq!(run.failure, None);
+        let priors: Vec<Option<WriteRecord>> = run
+            .outcomes
+            .iter()
+            .map(|outcome| {
+                outcome
+                    .as_ref()
+                    .expect("each write applies")
+                    .prior
+                    .as_ref()
+                    .and_then(|prior| prior.record)
+            })
+            .collect();
+        assert_eq!(priors, vec![record(2, 2), record(3, 2)]);
+        let current = vec![record(1, 2), record(4, 5), None];
+        assert_eq!(saved_records(&copy, partition, &ids), current);
+        assert_ne!(current[1], written[1], "the stale record no longer matches");
+
+        copy.restart();
+        assert_eq!(saved_records(&copy, partition, &ids), current);
+        copy.engine()
+            .checkpoint(INDEX)
+            .expect("the checkpoint commits");
+        copy.restart();
+        assert_eq!(saved_records(&copy, partition, &ids), current);
+        assert_eq!(
+            copy.engine()
+                .get_with(INDEX, &ids[1], Some(&WHOLE_DOCUMENT))
+                .unwrap(),
+            Some(order(&ids[1], 40))
+        );
+    }
+}

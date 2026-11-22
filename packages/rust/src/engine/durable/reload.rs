@@ -109,16 +109,18 @@ pub(crate) fn stored_partition(
     };
     let snapshot = held.snapshot();
     let mut documents = Vec::new();
+    let mut held_copy = copy.partition(&index.name, partition)?.clone();
     for entry in &snapshot.segments {
         for ordinal in entry.live_ordinals() {
             let id = entry.id_of(ordinal)?.into_owned();
             let Some(document) = stored.full_document(&id)? else {
                 return Err(unreadable(index, partition, "a stored document is missing"));
             };
+            held_copy.hold_saved(&id, entry, ordinal)?;
             documents.push((id, document));
         }
     }
-    let copy = copy.partition(&index.name, partition)?.clone();
+    let copy = held_copy;
     Ok(StoredPartition {
         documents,
         copy,
