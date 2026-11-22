@@ -2,7 +2,7 @@
 
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -20,7 +20,11 @@ use crate::support::{write_map_header, write_text, write_unsigned};
 const SETTLE_WAIT: Duration = Duration::from_secs(30);
 const SETTLE_POLL: Duration = Duration::from_millis(50);
 
+const LISTEN_PORT_FLOOR: u32 = 20_000;
+const LISTEN_PORT_SPAN: u32 = 12_000;
+
 static NEXT_SERIAL: AtomicU64 = AtomicU64::new(0);
+static NEXT_LISTEN_PORT: AtomicU32 = AtomicU32::new(0);
 
 fn unique() -> String {
     let nanos = SystemTime::now()
@@ -181,11 +185,17 @@ pub async fn is_served_by(
         })
 }
 
-fn free_port() -> u16 {
-    TcpListener::bind(("127.0.0.1", 0))
-        .and_then(|listener| listener.local_addr())
-        .expect("the host gives a free port")
-        .port()
+pub fn free_port() -> u16 {
+    let start = std::process::id() % LISTEN_PORT_SPAN;
+    for _ in 0..LISTEN_PORT_SPAN {
+        let step = NEXT_LISTEN_PORT.fetch_add(1, Ordering::Relaxed);
+        let port = LISTEN_PORT_FLOOR + (start + step) % LISTEN_PORT_SPAN;
+        let port = u16::try_from(port).expect("every listen port fits in 16 bits");
+        if TcpListener::bind(("127.0.0.1", port)).is_ok() {
+            return port;
+        }
+    }
+    panic!("every port from {LISTEN_PORT_FLOOR} on is taken");
 }
 
 pub struct DataNode {

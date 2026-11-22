@@ -22,6 +22,10 @@ pub mod message_types {
     pub const REPLICATION_FORWARD: &str = "replication.forward";
     /// Many client mutations that another node forwards to a primary of their partitions.
     pub const REPLICATION_FORWARD_BATCH: &str = "replication.forward_batch";
+    /// A read of named documents from the copies that a node holds.
+    pub const QUERY_FETCH: &str = "query.fetch";
+    /// The answer to a `query.fetch`.
+    pub const QUERY_FETCH_RESULT: &str = "query.fetch_result";
     /// A replication log entry from a primary.
     pub const REPLICATION_ENTRY: &str = "replication.entry";
     /// Contiguous replication log entries from a primary.

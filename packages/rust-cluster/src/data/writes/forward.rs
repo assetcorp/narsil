@@ -21,7 +21,7 @@ use crate::payload::forward::{
 const FNV_OFFSET_BASIS: u32 = 2_166_136_261;
 const FNV_PRIME: u32 = 16_777_619;
 
-fn routed_partition(document_id: &str, partition_count: usize) -> u32 {
+pub(crate) fn routed_partition(document_id: &str, partition_count: usize) -> u32 {
     let mut hash = FNV_OFFSET_BASIS;
     for byte in document_id.as_bytes() {
         hash ^= u32::from(*byte);
@@ -256,6 +256,23 @@ impl PrimaryWrites {
             .into_iter()
             .map(|outcome| outcome.unwrap_or_else(|| Err(WriteFailure::from(unanswered()))))
             .collect())
+    }
+
+    pub(crate) async fn apply_client_writes(
+        self: &Arc<Self>,
+        request: ForwardRequest,
+    ) -> Vec<Result<(), WriteFailure>> {
+        let count = request.operations.len();
+        let refused = match self.held_by_another_index(&request).await {
+            Ok(None) => match self.apply_request(request).await {
+                Ok(outcomes) => return outcomes,
+                Err(error) => error,
+            },
+            Ok(Some(error)) | Err(error) => error,
+        };
+        (0..count)
+            .map(|_| Err(WriteFailure::from(refused.clone())))
+            .collect()
     }
 
     fn reply(

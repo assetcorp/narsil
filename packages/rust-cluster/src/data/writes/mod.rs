@@ -23,6 +23,7 @@ use std::time::Duration;
 use tokio::sync::watch;
 
 use self::copy_failure::CopyFailures;
+pub(crate) use self::forward::routed_partition;
 use self::partition::Partitions;
 pub(crate) use self::view::AllocationView;
 use super::blocking::off_executor;
@@ -111,6 +112,20 @@ impl PrimaryWrites {
     {
         let copies = Arc::clone(&self.copies);
         off_executor(move || work(&copies)).await?
+    }
+
+    pub(crate) fn view(&self) -> Arc<AllocationView> {
+        Arc::clone(&self.view)
+    }
+
+    pub(crate) async fn stored_document(
+        &self,
+        index_name: &str,
+        document_id: &str,
+    ) -> ClusterResult<Option<narsil::Map>> {
+        let (index_name, document_id) = (index_name.to_string(), document_id.to_string());
+        self.on_copies(move |copies| copies.document(&index_name, &document_id))
+            .await
     }
 
     pub(super) fn forget_index(&self, index_name: &str) {

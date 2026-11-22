@@ -1,4 +1,5 @@
 pub(crate) mod ack;
+pub(crate) mod client;
 pub(crate) mod entry;
 pub(crate) mod fields;
 pub(crate) mod forward;

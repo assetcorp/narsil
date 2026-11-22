@@ -122,7 +122,7 @@ impl AllocationView {
         Ok(Some(self.observe(&Table::from_stored(&stored))))
     }
 
-    pub(super) async fn refresh(&self, index_name: &str) -> ClusterResult<Option<Table>> {
+    pub(crate) async fn refresh(&self, index_name: &str) -> ClusterResult<Option<Table>> {
         match self.read_live(index_name).await {
             Ok(table) => Ok(table),
             Err(error) => match lock(&self.tables).get(index_name) {
@@ -132,7 +132,7 @@ impl AllocationView {
         }
     }
 
-    pub(super) async fn read(&self, index_name: &str) -> ClusterResult<Option<Table>> {
+    pub(crate) async fn read(&self, index_name: &str) -> ClusterResult<Option<Table>> {
         let held = lock(&self.tables)
             .get(index_name)
             .filter(|held| !torn_down(held))
@@ -158,7 +158,7 @@ impl AllocationView {
         self.changed.subscribe()
     }
 
-    pub(super) fn targets(&self, node_id: &str) -> Vec<String> {
+    pub(crate) fn targets(&self, node_id: &str) -> Vec<String> {
         match lock(&self.addresses).get(node_id) {
             Some(address) if !address.is_empty() && address != node_id => {
                 vec![address.clone(), node_id.to_string()]
