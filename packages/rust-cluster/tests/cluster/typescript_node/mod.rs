@@ -165,6 +165,18 @@ impl TypescriptNode {
         config: Map,
     ) {
         let schema = Value::Object(fields([("title", Value::from("string"))]));
+        self.create_index_with_schema(index_name, partitions, replication_factor, schema, config)
+            .await;
+    }
+
+    pub async fn create_index_with_schema(
+        &mut self,
+        index_name: &str,
+        partitions: u64,
+        replication_factor: u64,
+        schema: Value,
+        config: Map,
+    ) {
         self.call(
             "createIndex",
             fields([

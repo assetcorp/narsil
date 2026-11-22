@@ -5,17 +5,27 @@ use super::{
     WriteRecord,
 };
 use crate::config::validate_doc_id;
+use crate::engine::durable::load::restore_vector_bytes;
 use crate::engine::index::IndexState;
 use crate::engine::vectors::HeldChunk;
 use crate::engine::writes::{check_primary_document, require_matching_doc_id};
-use crate::error::Result;
+use crate::error::{ErrorCode, NarsilError, Result};
 use crate::index::partition::in_keyword_batch;
 use crate::schema::require_document_within_size_limit;
-use crate::value::Map;
+use crate::value::{Map, Value};
 
 enum Slot {
     Document { id: String, inserts: bool },
     Remove { id: String },
+}
+
+fn checked_document(index: &IndexState, document_id: &str, document: &mut Map) -> Result<()> {
+    require_matching_doc_id(document_id, document)?;
+    restore_vector_bytes(index, document).map_err(|error| {
+        NarsilError::new(ErrorCode::DOC_VALIDATION_FAILED, error.message())
+            .with_details([("docId", Value::from(document_id))])
+    })?;
+    check_primary_document(index, document)
 }
 
 fn prepared(
@@ -31,11 +41,10 @@ fn prepared(
             PrimaryWrite::Remove { document_id } => Slot::Remove { id: document_id },
             PrimaryWrite::Insert {
                 document_id,
-                document,
+                mut document,
             } => {
-                checked = checked
-                    .and_then(|()| require_matching_doc_id(&document_id, &document))
-                    .and_then(|()| check_primary_document(index, &document));
+                checked =
+                    checked.and_then(|()| checked_document(index, &document_id, &mut document));
                 documents.push(document);
                 Slot::Document {
                     id: document_id,
@@ -44,11 +53,10 @@ fn prepared(
             }
             PrimaryWrite::Update {
                 document_id,
-                document,
+                mut document,
             } => {
-                checked = checked
-                    .and_then(|()| require_matching_doc_id(&document_id, &document))
-                    .and_then(|()| check_primary_document(index, &document));
+                checked =
+                    checked.and_then(|()| checked_document(index, &document_id, &mut document));
                 documents.push(document);
                 Slot::Document {
                     id: document_id,
@@ -164,7 +172,7 @@ impl PartitionCopies<'_> {
                 Err(failure) => {
                     log.fail(failure);
                     for written in outcomes.iter().rev().flatten() {
-                        put_back(state, written)?;
+                        let _ = put_back(state, written);
                     }
                 }
             }

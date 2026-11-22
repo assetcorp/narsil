@@ -28,6 +28,7 @@ pub(crate) mod staged_file;
 pub(crate) mod store;
 pub(crate) mod store_config;
 pub(crate) mod store_inner;
+mod store_logs;
 mod store_thread;
 pub(crate) mod sync_files;
 pub(crate) mod sync_retention;

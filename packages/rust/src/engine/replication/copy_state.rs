@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::{Mutex, MutexGuard};
 
 use super::{CopyPosition, HeldTerm, WriteRecord};
-use crate::engine::index::IndexState;
+use crate::engine::index::{IndexState, guarded};
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::format::keyword_segment::{KeywordSegment, WriteRecords};
 use crate::format::manifest::{PartitionCheckpoint, TermStart};
@@ -82,12 +82,6 @@ pub(crate) struct ReplicatedCopy {
     pub(crate) uuid: String,
     held: Mutex<Option<Vec<u32>>>,
     partitions: Vec<Mutex<PartitionCopy>>,
-}
-
-fn guarded<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 pub(super) fn no_such_partition(index: &str, partition: u32) -> NarsilError {

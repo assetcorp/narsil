@@ -12,3 +12,4 @@ pub(crate) const MAX_SUGGEST_LIMIT: usize = 100;
 pub(crate) const MIN_SUGGEST_LIMIT: usize = 1;
 pub(crate) const SUGGEST_PARTITION_OVERSAMPLE: usize = 2;
 pub(crate) const LARGEST_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
+pub(crate) const REPLICATION_ENTRY_FIXED_OVERHEAD_BYTES: u64 = 40;

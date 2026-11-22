@@ -1,13 +1,15 @@
 use super::build::recovered_index;
-use super::load::load_current_checkpoint;
+use super::load::{grow_partitions, load_partition, load_vector_field};
+use super::load_source::CheckpointSource;
 use super::recover::apply_entry;
 use crate::durability::checkpoint_files::read_manifest;
-use crate::durability::log_reader::{LogVisit, replay_partition_log};
+use crate::durability::log_reader::LogReplayed;
+use crate::durability::replicated_log::ReplicatedLog;
 use crate::engine::EngineInner;
 use crate::engine::index::IndexState;
 use crate::engine::replication::copy_state::{PartitionCopy, ReplicatedCopy};
 use crate::error::{ErrorCode, NarsilError, Result};
-use crate::format::manifest::DecodedManifest;
+use crate::format::manifest::{DecodedManifest, SegmentManifest};
 use crate::format::wal::LogEntry;
 use crate::value::{Map, Value};
 
@@ -15,6 +17,7 @@ use crate::value::{Map, Value};
 pub(crate) struct StoredPartition {
     pub(crate) documents: Vec<(String, Map)>,
     pub(crate) copy: PartitionCopy,
+    pub(crate) replayed: Option<LogReplayed>,
 }
 
 fn unreadable(index: &IndexState, partition: u32, why: &str) -> NarsilError {
@@ -31,8 +34,30 @@ fn unreadable(index: &IndexState, partition: u32, why: &str) -> NarsilError {
     ])
 }
 
-/// Reads one partition of a cluster copy from its checkpoint and its write-ahead log, leaving the files and the
-/// index as they stand, while the caller holds the write lock.
+fn load_partition_checkpoint(
+    store: &dyn CheckpointSource,
+    index: &IndexState,
+    manifest: &SegmentManifest,
+    partition: u32,
+) -> Result<()> {
+    let ids = manifest.partitions.iter().map(|entry| entry.partition_id);
+    grow_partitions(index, manifest.partitions.len(), ids)?;
+    let listed = manifest
+        .partitions
+        .iter()
+        .find(|entry| entry.partition_id == partition);
+    if let Some(entry) = listed {
+        load_partition(store, index, entry, &manifest.schema)?;
+    }
+    for field in &manifest.vectors {
+        load_vector_field(store, index, field)?;
+    }
+    Ok(())
+}
+
+/// Reads one partition of a cluster copy from its checkpoint and its write-ahead log while the caller holds the
+/// write lock, leaving the index as it stands. The partition's log closes, and the replay cuts a torn record off
+/// the end of its active segment as recovery does, so that the caller resumes the log from what the replay read.
 pub(crate) fn stored_partition(
     engine: &EngineInner,
     index: &IndexState,
@@ -46,7 +71,7 @@ pub(crate) fn stored_partition(
     let stored = recovered_index(engine, &metadata)?;
     let checkpoint = match read_manifest(backing.files(), &index.name)? {
         Some(DecodedManifest::Current(manifest)) => {
-            load_current_checkpoint(backing, &stored, &manifest)?;
+            load_partition_checkpoint(backing, &stored, &manifest, partition)?;
             manifest.checkpoint
         }
         Some(DecodedManifest::Earlier(_)) => {
@@ -60,6 +85,7 @@ pub(crate) fn stored_partition(
     };
     let uuid = metadata.index_uuid().unwrap_or_default().to_string();
     let copy = ReplicatedCopy::loaded(&stored, uuid, None, &checkpoint)?;
+    let mut replayed = None;
     if let Some(store) = log.log_store() {
         let _writer = stored.write_lock();
         let mut visit = |entry: LogEntry| {
@@ -70,17 +96,12 @@ pub(crate) fn stored_partition(
             .iter()
             .find(|entry| entry.partition_id == partition)
             .map_or(0, |entry| entry.last_seq_no);
-        replay_partition_log(
-            &store.inner.directory,
-            &index.name,
+        let partition_log = ReplicatedLog {
+            store,
+            index_name: &index.name,
             partition,
-            LogVisit {
-                after_seq_no,
-                up_to_seq_no: u64::MAX,
-                visit: &mut visit,
-            },
-            false,
-        )?;
+        };
+        replayed = Some(partition_log.replay_repaired(after_seq_no, &mut visit)?);
     }
     let partitions = stored.partitions();
     let Some(held) = partitions.get(partition as usize) else {
@@ -98,5 +119,9 @@ pub(crate) fn stored_partition(
         }
     }
     let copy = copy.partition(&index.name, partition)?.clone();
-    Ok(StoredPartition { documents, copy })
+    Ok(StoredPartition {
+        documents,
+        copy,
+        replayed,
+    })
 }
