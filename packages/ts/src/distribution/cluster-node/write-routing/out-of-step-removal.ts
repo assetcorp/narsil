@@ -10,8 +10,8 @@ import {
 } from '../catch-up/state'
 import { OUT_OF_STEP_REMOVAL_RETRY_DELAY_CAP_MS, OUT_OF_STEP_REMOVAL_RETRY_INITIAL_DELAY_MS } from '../constants'
 import { replicationTimeoutOf, withinDeadline } from './deadline'
+import { controllerForRemoval, removeReplicaFromInsync } from './insync-removal'
 import type { PrimaryWriteScope } from './numbered-write'
-import { controllerForRemoval, removeReplicaFromInsync } from './replication'
 import { leadingAssignment, lostTerm } from './rollback'
 
 export interface OutOfStepCopy {
