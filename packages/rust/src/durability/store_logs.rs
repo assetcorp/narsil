@@ -125,8 +125,8 @@ impl StoreInner {
     pub(crate) fn close_logs(&self, logs: Vec<Arc<PartitionLog>>) -> Result<()> {
         let mut outcome = Ok(());
         for log in logs {
-            if let Err(error) = log.close(&self.directory) {
-                outcome = Err(self.mark_fatal(error));
+            if let Err(error) = self.guard_log(&log, log.close(&self.directory)) {
+                outcome = Err(error);
             }
         }
         outcome

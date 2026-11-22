@@ -12,7 +12,9 @@ mod removal_copies;
 #[cfg(windows)]
 mod windows;
 
-pub(crate) use budget::{require_analysis_rebuild_memory, require_restore_memory};
+pub(crate) use budget::{
+    require_analysis_rebuild_memory, require_reload_memory, require_restore_memory,
+};
 pub(crate) use guard::MemoryGuard;
 pub use parse::{ParseKind, ParseShortfall};
 pub(crate) use projection::{ProjectedGroup, WriteProjection, refused_after, reserve_for_document};

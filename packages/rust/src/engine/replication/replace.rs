@@ -3,8 +3,11 @@ use std::sync::Arc;
 use super::copy_state::PartitionCopy;
 use super::logged::CopyLog;
 use super::{CopyPosition, PartitionCopies};
+use crate::engine::constants::MAX_PARTITION_RELOAD_READS;
 use crate::engine::durable::checkpoint_locked;
-use crate::engine::durable::reload::{checkpoint_moved, read_checkpointed, stored_partition};
+use crate::engine::durable::reload::{
+    checkpoint_kept_moving, checkpoint_moved, read_checkpointed, stored_partition,
+};
 use crate::engine::index::IndexState;
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::index::partition::PartitionSnapshot;
@@ -82,30 +85,43 @@ impl PartitionCopies<'_> {
     ///
     /// The copy reads only this partition's segments and vectors from the checkpoint, and it reads them before it
     /// takes the index's write lock, so that writes to the other partitions go on meanwhile. It holds the lock only
-    /// to replay the partition's log and put the partition in place, unless a checkpoint that committed meanwhile
-    /// moved the partition's position, in which case it reads the newer checkpoint again under the lock.
+    /// to replay the partition's log and put the partition in place. Where a checkpoint that committed meanwhile
+    /// moved the partition's position, it lets the lock go and reads the newer checkpoint, and it fails with
+    /// `PERSISTENCE_LOAD_FAILED` once checkpoints have moved the position during a bounded number of reads. Before
+    /// it decodes each vector file, and before it puts the partition's vectors into its documents, it checks that
+    /// the process has the memory free, and it fails with `PERSISTENCE_LOAD_FAILED` where the work would pass the
+    /// process's limit.
     pub fn reload_partition(&self, index: &str, partition: u32) -> Result<()> {
         let writable = self.engine.writable_index(index)?;
         let state = writable.index();
-        let read = read_checkpointed(self.engine, state, partition);
-        {
+        let mut reads = 0;
+        loop {
+            reads += 1;
+            let read = read_checkpointed(self.engine, state, partition);
             let _writer = state.lock_writes()?;
             let copy = super::copy_of(state)?;
             drop(copy.partition(&state.name, partition)?);
             let log = CopyLog::of(state, partition);
-            read.and_then(|read| match checkpoint_moved(state, partition, &read)? {
-                true => read_checkpointed(self.engine, state, partition),
-                false => Ok(read),
-            })
-            .and_then(|read| stored_partition(read, state, partition))
-            .and_then(|stored| {
-                let position = stored.copy.position;
-                replace_documents(state, partition, stored.documents)?;
-                *copy.partition(&state.name, partition)? = stored.copy;
-                log.resume(stored.replayed.as_ref(), position)
-            })
-            .and_then(|()| checkpoint_locked(state))
-            .inspect_err(|failure| log.fail(failure))?;
+            let unmoved = read
+                .and_then(|read| match checkpoint_moved(state, partition, &read)? {
+                    false => Ok(Some(read)),
+                    true if reads < MAX_PARTITION_RELOAD_READS => Ok(None),
+                    true => Err(checkpoint_kept_moving(state, partition, reads)),
+                })
+                .inspect_err(|failure| log.fail(failure))?;
+            let Some(read) = unmoved else {
+                continue;
+            };
+            stored_partition(read, state, partition)
+                .and_then(|stored| {
+                    let position = stored.copy.position;
+                    replace_documents(state, partition, stored.documents)?;
+                    *copy.partition(&state.name, partition)? = stored.copy;
+                    log.resume(stored.replayed.as_ref(), position)
+                })
+                .and_then(|()| checkpoint_locked(state))
+                .inspect_err(|failure| log.fail(failure))?;
+            break;
         }
         self.engine.events.wrote(&state.name);
         Ok(())

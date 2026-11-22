@@ -11,7 +11,7 @@ use crate::engine::durable::load_source::{CheckpointSource, StagedSource};
 use crate::engine::durable::metadata::metadata_of;
 use crate::engine::durable::saved_size::SavedSize;
 use crate::engine::index::IndexState;
-use crate::engine::memory::constants::RESTORE_PROCESS_BYTES_PER_STORED_BYTE;
+use crate::engine::memory::constants::LOAD_PROCESS_BYTES_PER_STORED_BYTE;
 use crate::engine::memory::require_restore_memory;
 use crate::engine::query_suggestions::restore_hooks::{
     after_activate, before_install, publish_without_source_bans,
@@ -137,7 +137,7 @@ pub(super) fn install(
     let held_bytes = bytes_held_in_memory(&source, &index, manifest)?;
     require_restore_memory(
         &index.name,
-        held_bytes.saturating_mul(RESTORE_PROCESS_BYTES_PER_STORED_BYTE),
+        held_bytes.saturating_mul(LOAD_PROCESS_BYTES_PER_STORED_BYTE),
         replaces_index,
     )?;
     load_current_checkpoint(&source, &index, manifest)?;

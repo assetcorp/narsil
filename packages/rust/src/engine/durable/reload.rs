@@ -10,6 +10,8 @@ use crate::durability::log_reader::LogReplayed;
 use crate::durability::replicated_log::ReplicatedLog;
 use crate::engine::EngineInner;
 use crate::engine::index::IndexState;
+use crate::engine::memory::constants::LOAD_PROCESS_BYTES_PER_STORED_BYTE;
+use crate::engine::memory::{MemoryGuard, require_reload_memory};
 use crate::engine::replication::copy_state::{PartitionCopy, ReplicatedCopy};
 use crate::engine::vectors::paths::set_value_at;
 use crate::error::{ErrorCode, NarsilError, Result};
@@ -47,6 +49,18 @@ fn unreadable(index: &IndexState, partition: u32, why: &str) -> NarsilError {
     ])
 }
 
+pub(crate) fn checkpoint_kept_moving(
+    index: &IndexState,
+    partition: u32,
+    reads: usize,
+) -> NarsilError {
+    unreadable(
+        index,
+        partition,
+        &format!("a checkpoint moved its position during each of {reads} reads"),
+    )
+}
+
 fn covered_by(checkpoint: &[PartitionCheckpoint], partition: u32) -> Option<PartitionCheckpoint> {
     checkpoint
         .iter()
@@ -63,9 +77,22 @@ fn vector_values(values: &[f32]) -> Value {
     )
 }
 
+fn reserve_reload_memory(
+    memory: &MemoryGuard,
+    index: &IndexState,
+    partition: u32,
+    needed_bytes: u64,
+) -> Result<()> {
+    require_reload_memory(&index.name, partition, needed_bytes)?;
+    memory.admit(needed_bytes);
+    Ok(())
+}
+
 fn attach_checkpoint_vectors(
     store: &dyn CheckpointSource,
+    memory: &MemoryGuard,
     index: &IndexState,
+    partition: u32,
     manifest: &SegmentManifest,
     documents: &mut [(String, Map)],
 ) -> Result<()> {
@@ -80,6 +107,11 @@ fn attach_checkpoint_vectors(
         }
         let mut found: HashMap<usize, Vec<f32>> = HashMap::new();
         for file in &listed.files {
+            let decoded_bytes = file
+                .file
+                .bytes
+                .saturating_mul(LOAD_PROCESS_BYTES_PER_STORED_BYTE);
+            reserve_reload_memory(memory, index, partition, decoded_bytes)?;
             let payload = store.read_listed(
                 &file.file,
                 "vector file",
@@ -111,6 +143,12 @@ fn attach_checkpoint_vectors(
                 }
             }
         }
+        let attached_bytes = found
+            .values()
+            .map(|values| values.len() as u64)
+            .fold(0, u64::saturating_add)
+            .saturating_mul(size_of::<Value>() as u64);
+        reserve_reload_memory(memory, index, partition, attached_bytes)?;
         for (at, values) in found {
             if let Some((_, document)) = documents.get_mut(at) {
                 set_value_at(document, &listed.field_path, vector_values(&values));
@@ -177,7 +215,14 @@ pub(crate) fn read_checkpointed(
         }
     }
     if let Some(manifest) = manifest {
-        attach_checkpoint_vectors(backing, &stored, manifest, &mut documents)?;
+        attach_checkpoint_vectors(
+            backing,
+            &engine.memory,
+            &stored,
+            partition,
+            manifest,
+            &mut documents,
+        )?;
     }
     if let Some(pinned) = &pinned {
         pinned.require_unreplaced()?;
