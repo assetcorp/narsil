@@ -16,6 +16,7 @@ import type { ReplicationLog, ReplicationLogEntry } from '../../replication/type
 import { decodeRequestPayload } from '../../request-decode'
 import type { ForwardPayload, RespondFn, TransportMessage } from '../../transport/types'
 import { ReplicationMessageTypes } from '../../transport/types'
+import { failedCopyRefusal } from '../copy-failure'
 import { noteAcceptedPrimaryTerm, noteSupersedingPrimary } from '../led-term'
 import { holdsAnotherIndex } from '../request-identity'
 import { applyForwardedBatch, applyForwardedWrite } from '../write-routing'
@@ -132,6 +133,9 @@ async function applyEntriesFromPrimary(
   await enqueuePartitionWrite(deps.writeDeps.partitionWriteQueues, first.indexName, first.partitionId, async () => {
     const current = await resolveValidatedAssignment(first, sourceNodeId, deps)
     noteAcceptedPrimaryTerm(deps.writeDeps.getReplicationLog(first.indexName, first.partitionId), current.primaryTerm)
+    if (deps.writeDeps.copyFailed?.(first.indexName, first.partitionId) === true) {
+      throw failedCopyRefusal(first.indexName, first.partitionId, deps.nodeId)
+    }
     await applyEntriesInLogOrder(first, entries, deps, previousPrimaryTerm)
     deps.writeDeps.replicaFeedClock?.noteFed(first.indexName, first.partitionId)
   })
@@ -208,11 +212,15 @@ async function applyEntriesInLogOrder(
 
       if (!canSeedFromCompletedBootstrap) {
         await applyRun(run, log, deps)
-        throw new NarsilError(
+        const refusal = new NarsilError(
           ErrorCodes.REPLICATION_ENTRY_INVALID,
           `Out-of-order replication entry ${entry.seqNo}; expected ${expectedSeqNo}`,
           { indexName: entry.indexName, partitionId: entry.partitionId, seqNo: entry.seqNo, expectedSeqNo },
         )
+        const skipsEntries =
+          entry.seqNo > expectedSeqNo && entry.primaryTerm >= tailPrimaryTerm && log.verifyChecksum(entry)
+        if (skipsEntries) deps.writeDeps.failCopy?.(entry.indexName, entry.partitionId, refusal)
+        throw refusal
       }
 
       deps.writeDeps.resetReplicationLog(entry.indexName, entry.partitionId, entry.seqNo, entry.primaryTerm)
@@ -264,9 +272,14 @@ async function applyRun(
   deps: DataNodeHandlerDeps,
 ): Promise<void> {
   if (run.length === 0) return
-  const { applied, error } = await deps.engine.applyReplicationEntries(run)
+  const { applied, error, entryUnfit } = await deps.engine.applyReplicationEntries(run)
   for (let position = 0; position < applied; position++) log.appendCommitted(run[position])
-  if (applied < run.length) throw error
+  if (applied === run.length) return
+  if (entryUnfit) {
+    const { indexName, partitionId } = run[applied]
+    deps.writeDeps.failCopy?.(indexName, partitionId, error instanceof Error ? error : new Error(String(error)))
+  }
+  throw error
 }
 
 export function validateForwardPayload(decoded: unknown): ForwardPayload {

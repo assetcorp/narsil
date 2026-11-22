@@ -32,6 +32,7 @@ export function createNodeCopies(deps: NodeCopiesDeps): NodeCopies {
   const failures = createCopyFailures(deps)
   writeDeps.copyFailed = failures.isFailed
   writeDeps.copyUnlisted = failures.isUnlisted
+  writeDeps.failCopy = failures.record
   writeDeps.stopped = deps.isShutdown
   engine.isolateCopyFailures(failures.record)
 
