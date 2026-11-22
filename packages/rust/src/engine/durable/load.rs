@@ -176,7 +176,7 @@ fn load_paged_segment(
     Ok(())
 }
 
-fn load_partition(
+pub(crate) fn load_partition(
     store: &dyn CheckpointSource,
     index: &IndexState,
     entry: &PartitionEntry,
@@ -275,7 +275,7 @@ pub(super) fn read_graph_parts(
     assemble_graph_parts(parts).map(Some)
 }
 
-fn load_vector_field(
+pub(crate) fn load_vector_field(
     store: &dyn CheckpointSource,
     index: &IndexState,
     listed: &VectorFieldRef,
