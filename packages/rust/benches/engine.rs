@@ -1,6 +1,8 @@
 use std::sync::LazyLock;
 
-use narsil::{DocumentProjection, IndexConfig, Map, Narsil, QueryParams, Value, VectorQuery};
+use narsil::{
+    DocumentProjection, IndexConfig, Map, Narsil, QueryParams, Value, VectorPromotion, VectorQuery,
+};
 
 const WITH_VECTORS: DocumentProjection = DocumentProjection::Fields {
     include: None,
@@ -17,6 +19,7 @@ const WORDS_PER_BODY: usize = 40;
 const PAGE_LIMIT: usize = 10;
 const MULTI_GET_COUNT: usize = 20;
 const INSERT_BATCH_SIZE: usize = 100;
+const FIRST_GRAPH_BUILD_AT_VECTORS: u64 = DOCUMENT_COUNT as u64;
 const READ_ID_STRIDE: usize = 97;
 const SEARCH_TERM: &str = "harbour lantern";
 const VOCABULARY: [&str; 24] = [
@@ -90,6 +93,10 @@ fn documents(seed: u64, first_row: usize, count: usize, with_embedding: bool) ->
 fn index_config(with_embedding: bool) -> IndexConfig {
     IndexConfig {
         schema: schema(with_embedding),
+        vector_promotion: with_embedding.then_some(VectorPromotion {
+            threshold: Some(FIRST_GRAPH_BUILD_AT_VECTORS),
+            ..VectorPromotion::default()
+        }),
         ..IndexConfig::default()
     }
 }
@@ -107,6 +114,11 @@ fn loaded_engine() -> Narsil {
             )
             .expect("the benchmark documents are inserted");
         assert!(result.failed.is_empty(), "{:?}", result.failed);
+        if with_embedding {
+            engine
+                .optimize_vectors(name, None)
+                .expect("the benchmark graph is built before any measurement");
+        }
     }
     engine
 }
@@ -134,6 +146,11 @@ fn read_ids() -> Vec<String> {
         .collect()
 }
 
+fn bench_after_warm_up<O>(bencher: divan::Bencher<'_, '_>, benched: impl Fn() -> O + Sync) {
+    divan::black_box(benched());
+    bencher.bench(benched);
+}
+
 fn searched(index: &str, params: &QueryParams) -> usize {
     let result = ENGINE.query(index, params).expect("the query answers");
     assert_eq!(result.hits.len(), PAGE_LIMIT);
@@ -143,13 +160,15 @@ fn searched(index: &str, params: &QueryParams) -> usize {
 #[divan::bench]
 fn search_text_index(bencher: divan::Bencher) {
     let params = text_query();
-    bencher.bench(|| searched(TEXT_INDEX, divan::black_box(&params)));
+    bench_after_warm_up(bencher, || searched(TEXT_INDEX, divan::black_box(&params)));
 }
 
 #[divan::bench]
 fn search_text_in_vector_index(bencher: divan::Bencher) {
     let params = text_query();
-    bencher.bench(|| searched(VECTOR_INDEX, divan::black_box(&params)));
+    bench_after_warm_up(bencher, || {
+        searched(VECTOR_INDEX, divan::black_box(&params))
+    });
 }
 
 #[divan::bench]
@@ -163,7 +182,9 @@ fn search_vector_index_by_vector(bencher: divan::Bencher) {
         limit: Some(PAGE_LIMIT),
         ..QueryParams::default()
     };
-    bencher.bench(|| searched(VECTOR_INDEX, divan::black_box(&params)));
+    bench_after_warm_up(bencher, || {
+        searched(VECTOR_INDEX, divan::black_box(&params))
+    });
 }
 
 #[divan::bench]
@@ -172,7 +193,9 @@ fn search_text_in_vector_index_with_vectors(bencher: divan::Bencher) {
         document: Some(WITH_VECTORS),
         ..text_query()
     };
-    bencher.bench(|| searched(VECTOR_INDEX, divan::black_box(&params)));
+    bench_after_warm_up(bencher, || {
+        searched(VECTOR_INDEX, divan::black_box(&params))
+    });
 }
 
 #[divan::bench]
@@ -187,7 +210,9 @@ fn search_vector_index_by_vector_with_vectors(bencher: divan::Bencher) {
         document: Some(WITH_VECTORS),
         ..QueryParams::default()
     };
-    bencher.bench(|| searched(VECTOR_INDEX, divan::black_box(&params)));
+    bench_after_warm_up(bencher, || {
+        searched(VECTOR_INDEX, divan::black_box(&params))
+    });
 }
 
 fn got(index: &str, id: &str) -> Map {
@@ -200,13 +225,13 @@ fn got(index: &str, id: &str) -> Map {
 #[divan::bench]
 fn get_from_text_index(bencher: divan::Bencher) {
     let id = document_id(DOCUMENT_COUNT / 2);
-    bencher.bench(|| got(TEXT_INDEX, divan::black_box(&id)));
+    bench_after_warm_up(bencher, || got(TEXT_INDEX, divan::black_box(&id)));
 }
 
 #[divan::bench]
 fn get_from_vector_index(bencher: divan::Bencher) {
     let id = document_id(DOCUMENT_COUNT / 2);
-    bencher.bench(|| got(VECTOR_INDEX, divan::black_box(&id)));
+    bench_after_warm_up(bencher, || got(VECTOR_INDEX, divan::black_box(&id)));
 }
 
 fn got_many(index: &str, ids: &[String]) -> usize {
@@ -218,19 +243,19 @@ fn got_many(index: &str, ids: &[String]) -> usize {
 #[divan::bench]
 fn get_multiple_from_text_index(bencher: divan::Bencher) {
     let ids = read_ids();
-    bencher.bench(|| got_many(TEXT_INDEX, divan::black_box(&ids)));
+    bench_after_warm_up(bencher, || got_many(TEXT_INDEX, divan::black_box(&ids)));
 }
 
 #[divan::bench]
 fn get_multiple_from_vector_index(bencher: divan::Bencher) {
     let ids = read_ids();
-    bencher.bench(|| got_many(VECTOR_INDEX, divan::black_box(&ids)));
+    bench_after_warm_up(bencher, || got_many(VECTOR_INDEX, divan::black_box(&ids)));
 }
 
 #[divan::bench]
 fn get_from_vector_index_with_vectors(bencher: divan::Bencher) {
     let id = document_id(DOCUMENT_COUNT / 2);
-    bencher.bench(|| {
+    bench_after_warm_up(bencher, || {
         ENGINE
             .get_with(VECTOR_INDEX, divan::black_box(&id), Some(&WITH_VECTORS))
             .expect("the read answers")
@@ -241,7 +266,7 @@ fn get_from_vector_index_with_vectors(bencher: divan::Bencher) {
 #[divan::bench]
 fn get_multiple_from_vector_index_with_vectors(bencher: divan::Bencher) {
     let ids = read_ids();
-    bencher.bench(|| {
+    bench_after_warm_up(bencher, || {
         let found = ENGINE
             .get_multiple_with(VECTOR_INDEX, divan::black_box(&ids), Some(&WITH_VECTORS))
             .expect("the read answers");
