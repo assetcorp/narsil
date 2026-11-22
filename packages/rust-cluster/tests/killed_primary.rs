@@ -1,18 +1,16 @@
 use std::collections::BTreeMap;
-use std::path::PathBuf;
-use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use narsil_cluster::coordinator::etcd::EtcdCoordinator;
-use narsil_cluster::node::ClusterNodeConfig;
 use narsil_cluster::transport::NodeTransport;
 use narsil_cluster::transport::tcp::TcpTransport;
 
+mod child_node;
 mod data_node;
 mod ledger;
 mod support;
 
+use child_node::{ChildNode, registered_address, serve_until_killed};
 use data_node::{
     DataNode, Scratch, coordinator_at, create_cluster_index, etcd_endpoint, eventually,
     unique_key_prefix,
@@ -22,83 +20,17 @@ use ledger::{
     forward_insert, forwarder, placement, start_controller, title_of,
 };
 
-const CHILD_ENDPOINT: &str = "NARSIL_KILLED_PRIMARY_ETCD_ENDPOINT";
-const CHILD_KEY_PREFIX: &str = "NARSIL_KILLED_PRIMARY_KEY_PREFIX";
-const CHILD_DIRECTORY: &str = "NARSIL_KILLED_PRIMARY_DIRECTORY";
-const CHILD_TEST: &str = "a_data_node_that_runs_until_its_process_is_killed";
-const CHILD_HEARTBEAT_TTL_SECONDS: u64 = 2;
-const CHILD_HEARTBEAT_INTERVAL_MS: u64 = 500;
+const CHILD_TEST: &str = "a_data_node_that_serves_until_its_process_is_killed";
 const PARENT_HEARTBEAT_TTL_SECONDS: u64 = 30;
 const WRITERS: usize = 4;
 const ACKNOWLEDGED_BEFORE_THE_KILL: usize = 40;
 
 type Acknowledged = Arc<Mutex<BTreeMap<String, String>>>;
 
-fn beat_often(settings: &mut ClusterNodeConfig) {
-    settings.heartbeat_interval_ms = CHILD_HEARTBEAT_INTERVAL_MS;
-}
-
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "the killed-primary test starts this as a separate process and kills it"]
-async fn a_data_node_that_runs_until_its_process_is_killed() {
-    let (Ok(endpoint), Ok(key_prefix), Ok(directory)) = (
-        std::env::var(CHILD_ENDPOINT),
-        std::env::var(CHILD_KEY_PREFIX),
-        std::env::var(CHILD_DIRECTORY),
-    ) else {
-        return;
-    };
-    let coordinator = coordinator_at(endpoint, key_prefix, CHILD_HEARTBEAT_TTL_SECONDS).await;
-    let _node = DataNode::start_configured(
-        &coordinator,
-        FIRST_DATA_NODE,
-        &PathBuf::from(directory),
-        &["data"],
-        beat_often,
-    )
-    .await;
-    std::future::pending::<()>().await;
-}
-
-struct PrimaryProcess(Child);
-
-impl PrimaryProcess {
-    fn kill(&mut self) {
-        self.0.kill().expect("the primary's process is killed");
-        self.0.wait().expect("the primary's process exits");
-    }
-}
-
-impl Drop for PrimaryProcess {
-    fn drop(&mut self) {
-        if matches!(self.0.try_wait(), Ok(None)) {
-            let _ = self.0.kill();
-            let _ = self.0.wait();
-        }
-    }
-}
-
-fn spawn_primary_process(endpoint: &str, key_prefix: &str, directory: &Scratch) -> PrimaryProcess {
-    let child = Command::new(std::env::current_exe().expect("the test binary has a path"))
-        .args([CHILD_TEST, "--exact", "--ignored", "--test-threads=1"])
-        .env(CHILD_ENDPOINT, endpoint)
-        .env(CHILD_KEY_PREFIX, key_prefix)
-        .env(CHILD_DIRECTORY, directory.path())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .expect("the primary's process starts");
-    PrimaryProcess(child)
-}
-
-async fn registered_address(coordinator: &EtcdCoordinator, node_id: &str) -> Option<String> {
-    coordinator
-        .list_nodes()
-        .await
-        .expect("etcd lists the nodes")
-        .into_iter()
-        .find(|node| node.node_id == node_id)
-        .map(|node| node.address)
+async fn a_data_node_that_serves_until_its_process_is_killed() {
+    serve_until_killed().await;
 }
 
 async fn write_until_cut_off(
@@ -144,7 +76,13 @@ async fn every_write_that_a_killed_rust_primary_acknowledged_survives_on_the_pro
     let controller_scratch = Scratch::new();
     let controller = start_controller(&coordinator, &controller_scratch).await;
     let primary_scratch = Scratch::new();
-    let mut primary = spawn_primary_process(&endpoint, &key_prefix, &primary_scratch);
+    let mut primary = ChildNode::spawn(
+        CHILD_TEST,
+        &endpoint,
+        &key_prefix,
+        FIRST_DATA_NODE,
+        &primary_scratch,
+    );
     eventually("the primary's process registers its node", || async {
         registered_address(&coordinator, FIRST_DATA_NODE)
             .await
@@ -155,7 +93,7 @@ async fn every_write_that_a_killed_rust_primary_acknowledged_survives_on_the_pro
     eventually("the first data node leads the ledger", || async {
         placement(&coordinator)
             .await
-            .is_some_and(|placed| placed.state == "ACTIVE" && placed.primary == FIRST_DATA_NODE)
+            .is_some_and(|placed| placed.is_led_by(FIRST_DATA_NODE))
     })
     .await;
     let replica_scratch = Scratch::new();
@@ -197,7 +135,7 @@ async fn every_write_that_a_killed_rust_primary_acknowledged_survives_on_the_pro
     eventually("the controller promotes the in-sync replica", || async {
         placement(&coordinator)
             .await
-            .is_some_and(|placed| placed.state == "ACTIVE" && placed.primary == SECOND_DATA_NODE)
+            .is_some_and(|placed| placed.is_led_by(SECOND_DATA_NODE))
     })
     .await;
     let acknowledged = acknowledged.lock().expect("no writer panicked").clone();

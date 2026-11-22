@@ -44,6 +44,10 @@ impl Placement {
         self.state == "ACTIVE" && self.lists_in_sync(node_id)
     }
 
+    pub fn is_led_by(&self, node_id: &str) -> bool {
+        self.state == "ACTIVE" && self.primary == node_id
+    }
+
     pub fn admits_its_replica(&self) -> bool {
         self.replica().is_some_and(|replica| self.admits(replica))
     }
@@ -123,7 +127,7 @@ pub fn title_document(title: &str) -> Vec<u8> {
     document
 }
 
-fn insert_payload(document_id: &str, title: &str) -> Vec<u8> {
+fn write_payload(operation: &str, document_id: &str, title: &str) -> Vec<u8> {
     let mut out = Vec::new();
     write_map_header(&mut out, 5);
     write_text(&mut out, "indexName");
@@ -131,7 +135,7 @@ fn insert_payload(document_id: &str, title: &str) -> Vec<u8> {
     write_text(&mut out, "documentId");
     write_text(&mut out, document_id);
     write_text(&mut out, "operation");
-    write_text(&mut out, "insert");
+    write_text(&mut out, operation);
     write_text(&mut out, "document");
     write_binary(&mut out, &title_document(title));
     write_text(&mut out, "indexUuid");
@@ -161,16 +165,18 @@ pub enum Forwarded {
     Unreachable,
 }
 
-pub async fn forward_insert(
+pub async fn forward_write(
     forwarder: &TcpTransport,
     address: &str,
+    operation: &str,
     document_id: &str,
+    title: &str,
 ) -> Forwarded {
     let request = TransportMessage::new(
         FORWARD,
         FORWARDER,
         document_id,
-        insert_payload(document_id, &title_of(document_id)),
+        write_payload(operation, document_id, title),
     );
     let Ok(answer) = forwarder.send(address, request).await else {
         return Forwarded::Unreachable;
@@ -180,6 +186,21 @@ pub async fn forward_insert(
         return Forwarded::Refused(decoded);
     }
     Forwarded::Acknowledged
+}
+
+pub async fn forward_insert(
+    forwarder: &TcpTransport,
+    address: &str,
+    document_id: &str,
+) -> Forwarded {
+    forward_write(
+        forwarder,
+        address,
+        "insert",
+        document_id,
+        &title_of(document_id),
+    )
+    .await
 }
 
 pub struct Ledger {

@@ -126,6 +126,9 @@ impl PrimaryWrites {
                 {
                     kept.push(item);
                 }
+                Err(PrimaryRefusal::Refused(error)) if run.failure.as_ref() == Some(&error) => {
+                    state.fail(item.position, failed_copy_outcome(scope, &error.into()));
+                }
                 Err(refusal) => {
                     let text = refusal_of(scope, refusal).message().to_string();
                     let error = rollback_failed(
@@ -181,8 +184,11 @@ impl PrimaryWrites {
             applied.zip(entries.into_iter().skip(replicated)).collect();
         let compensated = self.compensate(scope, state, abandoned, &original).await;
         if let Some(cause) = state.copy_failure.take() {
-            for item in compensated {
-                state.fail(item.position, failed_copy_outcome(scope, &cause));
+            let answer = failed_copy_outcome(scope, &cause);
+            for item in &compensated {
+                state
+                    .outcomes
+                    .push((item.position, Err(marked(&answer, item))));
             }
             return;
         }
