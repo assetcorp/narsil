@@ -138,6 +138,9 @@ async fn a_rust_replica_catches_up_from_a_rust_primary_and_keeps_its_copy_once_i
     members[primary_at].stop().await;
     members[primary_at].restart(&coordinator).await;
     members[replica_at].restart(&coordinator).await;
+    ledger
+        .insert_until_accepted(members[primary_at].data(), "the-restarted-primary-serves")
+        .await;
     stays_refused_while_writes_continue(
         &coordinator,
         &mut ledger,
