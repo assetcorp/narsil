@@ -225,7 +225,7 @@ impl PrimaryWrites {
             .on_copies(move |copies| copies.replica_append(&name, partition_id, &entries))
             .await?;
         let taken = &run[..applied.applied.min(run.len())];
-        lock(&ordered.partition.log).append(&ordered.index_name, taken);
+        lock(&ordered.partition.log).append(&ordered.index_name, taken, self.log_retention_bytes);
         if copy_failure.is_some() {
             self.record_copy_failure(&ordered.index_name, partition_id);
         }

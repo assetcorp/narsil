@@ -2,21 +2,14 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use narsil::Value;
+use tokio::time::Instant;
 
 use super::WriteRouter;
+use super::remote::unsent_after_window;
 use super::write::{Attempted, PendingWrite, Refused};
-use crate::data::routed_partition;
+use crate::data::{routed_partition, unassigned};
 use crate::error::{ClusterError, ClusterResult, codes};
 use crate::payload::forward::ForwardRequest;
-
-fn unassigned(serving_name: &str, partition_id: u32) -> ClusterError {
-    ClusterError::new(
-        codes::PARTITION_UNASSIGNED,
-        format!("No primary assigned for partition {partition_id} of index '{serving_name}'"),
-    )
-    .with_detail("indexName", Value::from(serving_name))
-    .with_detail("partitionId", Value::from(partition_id))
-}
 
 fn lost_metadata_during_batch(serving_name: &str, error: ClusterError) -> ClusterError {
     if error.code() != codes::INDEX_NOT_FOUND {
@@ -62,6 +55,7 @@ impl WriteRouter {
         serving_name: Arc<str>,
         writes: Vec<PendingWrite>,
         batch: bool,
+        deadline: Instant,
     ) -> ClusterResult<Vec<(usize, Attempted)>> {
         let table = self.routable_table(&serving_name).await.map_err(|error| {
             if batch {
@@ -90,9 +84,12 @@ impl WriteRouter {
             }
         }
         if !here.is_empty() {
-            let applied = self
-                .apply_here(&serving_name, table.index_uuid.clone(), &here)
-                .await;
+            let applied = if Instant::now() < deadline {
+                self.apply_here(&serving_name, table.index_uuid.clone(), &here)
+                    .await
+            } else {
+                unsent_after_window(&serving_name, &here)
+            };
             outcomes.extend(applied);
         }
         for (primary, forwarded) in remote {
@@ -102,6 +99,7 @@ impl WriteRouter {
                     table.index_uuid.as_deref(),
                     &primary,
                     &forwarded,
+                    deadline,
                 )
                 .await;
             outcomes.extend(answered);

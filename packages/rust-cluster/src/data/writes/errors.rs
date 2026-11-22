@@ -182,7 +182,7 @@ pub(super) fn is_outcome_unknown(error: &ClusterError) -> bool {
     error.code() == codes::REPLICATION_OUTCOME_UNKNOWN
 }
 
-pub(super) fn abandoned_with_term(error: &ClusterError) -> bool {
+pub(crate) fn abandoned_with_term(error: &ClusterError) -> bool {
     is_outcome_unknown(error) && error.details().get("reason") == Some(&Value::from(TERM_ENDED))
 }
 

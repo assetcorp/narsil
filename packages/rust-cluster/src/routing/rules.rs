@@ -2,10 +2,10 @@ use narsil::Value;
 
 use super::write::Refused;
 use crate::constants::PRIMARY_CHANGE_RETRY_WINDOW_MS;
+use crate::data::abandoned_with_term;
 use crate::error::{ClusterError, codes};
 use crate::payload::forward::WriteCondition;
 
-const TERM_ENDED: &str = "term_ended";
 const FORWARD_INTERRUPTED: &str = "forward_interrupted";
 const FORWARD_WINDOW_ENDED: &str = "forward_window_ended";
 const INITIALISING: &str = "INITIALISING";
@@ -18,11 +18,6 @@ fn detail_text<'a>(error: &'a ClusterError, key: &str) -> Option<&'a str> {
 
 fn not_primary(error: &ClusterError) -> bool {
     error.code() == codes::PARTITION_NOT_PRIMARY
-}
-
-pub(super) fn abandoned_with_term(error: &ClusterError) -> bool {
-    error.code() == codes::REPLICATION_OUTCOME_UNKNOWN
-        && detail_text(error, "reason") == Some(TERM_ENDED)
 }
 
 fn refused_by_primary_change(refused: &Refused, retries_ended_term: bool) -> bool {
@@ -90,16 +85,19 @@ pub(super) fn next_condition(
 pub(super) struct History {
     pub(super) may_have_applied: bool,
     interrupted: bool,
-    pub(super) abandoned_attempt: Option<ClusterError>,
+    ended_term_before_interruption: Option<ClusterError>,
 }
 
 impl History {
     pub(super) fn record(&mut self, error: &ClusterError) {
+        if !self.interrupted
+            && self.ended_term_before_interruption.is_none()
+            && abandoned_with_term(error)
+        {
+            self.ended_term_before_interruption = Some(error.clone());
+        }
         self.interrupted |= forward_interrupted(error);
         self.may_have_applied |= !cannot_have_applied(error);
-        if self.abandoned_attempt.is_none() && abandoned_with_term(error) {
-            self.abandoned_attempt = Some(error.clone());
-        }
     }
 
     pub(super) fn final_error(
@@ -108,7 +106,9 @@ impl History {
         document_id: &str,
         error: ClusterError,
     ) -> ClusterError {
-        if self.interrupted {
+        if let Some(ended_term) = &self.ended_term_before_interruption {
+            ended_term.clone()
+        } else if self.interrupted {
             interrupted_outcome(index_name, document_id, &error)
         } else {
             error

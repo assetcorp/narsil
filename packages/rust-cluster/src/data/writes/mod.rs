@@ -23,7 +23,8 @@ use std::time::Duration;
 use tokio::sync::watch;
 
 use self::copy_failure::CopyFailures;
-pub(crate) use self::forward::routed_partition;
+pub(crate) use self::errors::abandoned_with_term;
+pub(crate) use self::forward::{routed_partition, unassigned};
 use self::partition::Partitions;
 pub(crate) use self::view::AllocationView;
 use super::blocking::off_executor;
@@ -45,6 +46,7 @@ pub(crate) struct PrimaryWrites {
     catch_up_bytes: AtomicU64,
     stopping: watch::Sender<bool>,
     on_error: Option<NodeErrorHandler>,
+    log_retention_bytes: u64,
 }
 
 pub(crate) struct PrimaryWritesSettings {
@@ -54,6 +56,7 @@ pub(crate) struct PrimaryWritesSettings {
     pub(super) copies: Arc<LocalCopies>,
     pub(crate) view: Arc<AllocationView>,
     pub(crate) on_error: Option<NodeErrorHandler>,
+    pub(crate) log_retention_bytes: u64,
 }
 
 impl PrimaryWrites {
@@ -69,6 +72,7 @@ impl PrimaryWrites {
             catch_up_bytes: AtomicU64::new(0),
             stopping: watch::Sender::new(false),
             on_error: settings.on_error,
+            log_retention_bytes: settings.log_retention_bytes,
         }
     }
 

@@ -27,6 +27,7 @@ const TERM_START: &str = "replication.term_start";
 const ACK: &str = "replication.ack";
 const TERM_START_ACK: &str = "replication.term_start_ack";
 const CRC32_POLYNOMIAL: u32 = 0xedb8_8320;
+const HOSTILE_NIL_ENTRIES: u32 = 60_000_000;
 
 fn write_count(out: &mut Vec<u8>, number: u64) {
     match number {
@@ -473,6 +474,39 @@ async fn a_rust_replica_applies_entries_in_log_order_and_refuses_what_breaks_the
         Some(titled("fourth invoice"))
     );
 
+    for (hostile, code) in [
+        (entry_batch_claiming(u32::MAX, 1), "TRANSPORT_DECODE_FAILED"),
+        (
+            entry_batch_claiming(HOSTILE_NIL_ENTRIES, HOSTILE_NIL_ENTRIES as usize),
+            "REPLICATION_ENTRY_INVALID",
+        ),
+    ] {
+        let (message_type, answer) = primary.send_as(PRIMARY, ENTRY_BATCH, hostile).await;
+        assert_eq!(refusal_of(&message_type, answer).0, code);
+    }
+    primary
+        .acknowledged(
+            &[Entry::index(5, "invoice-5", "after the hostile batches")],
+            Some(PRIMARY_TERM),
+        )
+        .await;
+    assert_eq!(
+        held(&replica, "invoice-5").await,
+        Some(titled("after the hostile batches"))
+    );
+
     replica.stop().await;
     coordinator.shutdown().await;
+}
+
+fn entry_batch_claiming(claimed: u32, nil_entries: usize) -> Vec<u8> {
+    let mut out = Vec::with_capacity(nil_entries + 64);
+    write_map_header(&mut out, 2);
+    write_text(&mut out, "entries");
+    out.push(0xdd);
+    out.extend_from_slice(&claimed.to_be_bytes());
+    out.resize(out.len() + nil_entries, 0xc0);
+    write_text(&mut out, "indexUuid");
+    write_text(&mut out, LEDGER_UUID);
+    out
 }

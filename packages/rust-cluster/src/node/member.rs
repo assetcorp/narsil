@@ -192,10 +192,10 @@ impl NodeInner {
                 }
             };
         }
+        let recognised = DataRole::answers(&message.message_type);
         match &self.data {
-            Some(data) if joined && DataRole::answers(&message.message_type) => {
-                data.answer(message, respond).await
-            }
+            Some(data) if joined && recognised => data.answer(message, respond).await,
+            _ if joined && !recognised => {}
             _ => {
                 respond
                     .send(refusal(&message, node_id, &not_ready(node_id)))
