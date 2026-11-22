@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use narsil::Map;
+use narsil::{Map, Value};
 use narsil_cluster::SPEC_VERSION;
 use narsil_cluster::coordinator::etcd::{EtcdCoordinator, EtcdCoordinatorConfig};
 use narsil_cluster::coordinator::{NodeCapacity, NodeRegistration};
@@ -94,8 +94,9 @@ async fn a_panicking_error_callback_does_not_abandon_controller_election() {
     };
     assert_eq!(refusal.code(), "CONFIG_INVALID");
     assert_eq!(
-        refusal.message(),
-        format!("Maximum watcher limit ({WATCH_LIMIT}) reached")
+        refusal.details().get("currentCount"),
+        Some(&Value::from(WATCH_LIMIT as f64)),
+        "{refusal:?}"
     );
     assert!(
         !watches.is_empty(),
