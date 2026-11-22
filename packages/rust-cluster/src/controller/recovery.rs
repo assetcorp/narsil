@@ -20,6 +20,24 @@ const HOLDER_UNREACHABLE: &str = "HOLDER_UNREACHABLE";
 const HOLDER_IDENTITY_MISMATCH: &str = "HOLDER_IDENTITY_MISMATCH";
 const HOLDER_WITHOUT_DATA: &str = "HOLDER_WITHOUT_DATA";
 
+const NOTHING_TO_RECOVER: RecoveryOutcome = RecoveryOutcome {
+    promoted: false,
+    ask_again: false,
+};
+
+#[derive(Debug, Clone, Copy)]
+pub(super) struct RecoveryOutcome {
+    pub(super) promoted: bool,
+    pub(super) ask_again: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RecoveryWrite {
+    Promoted,
+    Settled,
+    Lost,
+}
+
 #[derive(Debug, Clone)]
 enum StoresAnswer {
     Held(Vec<f64>),
@@ -220,13 +238,13 @@ impl Inner {
         index_name: &str,
         live: &HashMap<String, String>,
         answers: &HashMap<String, StoresAnswer>,
-    ) -> ClusterResult<bool> {
+    ) -> ClusterResult<RecoveryWrite> {
         for _ in 0..RECOVERY_CAS_ATTEMPTS {
             if !self.is_active() {
-                return Ok(false);
+                return Ok(RecoveryWrite::Settled);
             }
             let Some(table) = stored_table(self.coordinator(), index_name).await? else {
-                return Ok(false);
+                return Ok(RecoveryWrite::Settled);
             };
             let mut next = table.clone();
             let mut any_rewritten = false;
@@ -245,11 +263,11 @@ impl Inner {
                 any_promoted = any_promoted || was_promoted;
             }
             if !any_rewritten || !self.is_active() {
-                return Ok(false);
+                return Ok(RecoveryWrite::Settled);
             }
             next.version = table.version + 1.0;
             let Some(next) = rewrite_for_current_index(self.coordinator(), next).await? else {
-                return Ok(false);
+                return Ok(RecoveryWrite::Settled);
             };
             let write = TableWrite {
                 index_name,
@@ -258,44 +276,56 @@ impl Inner {
                 replica: None,
             };
             if put_allocation_over(self.coordinator(), write, next).await? {
-                return Ok(any_promoted);
+                return Ok(if any_promoted {
+                    RecoveryWrite::Promoted
+                } else {
+                    RecoveryWrite::Settled
+                });
             }
         }
-        Ok(false)
+        Ok(RecoveryWrite::Lost)
     }
 
     pub(super) async fn recover_unassigned_partitions(
         &self,
         index_name: &str,
         nodes: &[NodeRegistration],
-    ) -> ClusterResult<bool> {
+    ) -> ClusterResult<RecoveryOutcome> {
         let live: HashMap<String, String> = nodes
             .iter()
             .map(|node| (node.node_id.clone(), node.address.clone()))
             .collect();
         if !self.is_active() {
-            return Ok(false);
+            return Ok(NOTHING_TO_RECOVER);
         }
         let Some(table) = stored_table(self.coordinator(), index_name).await? else {
-            return Ok(false);
+            return Ok(NOTHING_TO_RECOVER);
         };
         if !has_recoverable_partition(&table) || !self.is_active() {
-            return Ok(false);
+            return Ok(NOTHING_TO_RECOVER);
         }
         let mut answers = HashMap::new();
         let holders = live_holders_of_unassigned(&table, &live);
         if !holders.is_empty() {
             let Some(metadata) = index_metadata(self.coordinator(), index_name).await? else {
-                return Ok(false);
+                return Ok(NOTHING_TO_RECOVER);
             };
             if !self.is_active() {
-                return Ok(false);
+                return Ok(NOTHING_TO_RECOVER);
             }
             answers = self
                 .ask_holders(&holders, &live, index_name, &metadata.index_uuid)
                 .await;
         }
-        self.write_recovery_outcome(index_name, &live, &answers)
-            .await
+        let write = self
+            .write_recovery_outcome(index_name, &live, &answers)
+            .await?;
+        let unanswered = holders
+            .iter()
+            .any(|holder| matches!(answers.get(holder), None | Some(StoresAnswer::Unreachable)));
+        Ok(RecoveryOutcome {
+            promoted: write == RecoveryWrite::Promoted,
+            ask_again: write == RecoveryWrite::Lost || unanswered,
+        })
     }
 }

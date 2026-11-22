@@ -15,9 +15,21 @@ export function heldPartitionIdsOf(engine: ClusterLocalEngine, indexName: string
   return [...held].sort((left, right) => left - right)
 }
 
+async function loadUnrecordedPartitions(deps: DataNodeHandlerDeps, indexName: string): Promise<void> {
+  if (deps.isOrphaned?.(indexName) === true) return
+  const copy = deps.engine.listIndexes().find(index => index.name === indexName)
+  if (copy === undefined || copy.state !== 'closed') return
+  if ((deps.engine.heldPartitionsOf(indexName)?.length ?? 0) >= copy.partitionCount) return
+  try {
+    await deps.engine.open(indexName)
+  } catch (error) {
+    if (!(error instanceof NarsilError) || error.code !== ErrorCodes.INDEX_NOT_FOUND) throw error
+  }
+}
+
 function describeLocalCopy(deps: DataNodeHandlerDeps, indexName: string): PartitionStoresResultPayload {
   const absent: PartitionStoresResultPayload = { indexName, indexUuid: null, partitionIds: [] }
-  if (!deps.engine.listIndexes().some(index => index.name === indexName)) {
+  if (deps.isOrphaned?.(indexName) === true || !deps.engine.listIndexes().some(index => index.name === indexName)) {
     return absent
   }
   const indexUuid = deps.engine.indexUuidOf(indexName)
@@ -34,10 +46,11 @@ function describeLocalCopy(deps: DataNodeHandlerDeps, indexName: string): Partit
  * Answers the controller with the identity of this node's copy of an index and the partitions that copy holds.
  *
  * The controller asks this so that it can give a partition no node currently serves back to a node that still holds
- * the data. A node that keeps no copy of the index answers with a null identity and an empty list. A node names both
+ * the data. A node that adopted no copy of the index answers with a null identity and an empty list. A node names both
  * the partitions its copy recorded when it took them on and the partitions its copy holds a document for, so an
  * empty partition it was given counts as held and a copy written before that record existed stays recoverable. It
- * leaves out a partition whose copy failed until that copy reloads cleanly from this node's checkpoint and log.
+ * leaves out a partition whose copy failed until that copy reloads cleanly from this node's checkpoint and log. It
+ * opens a closed index whose record leaves out a partition, because only an open index counts its documents.
  *
  * @param message - The request the controller sent.
  * @param respond - The function that returns the answer to the controller.
@@ -56,6 +69,7 @@ export async function handlePartitionStores(
       'Invalid PartitionStoresPayload: it needs an indexName that is a non-empty string',
     )
   }
+  await loadUnrecordedPartitions(deps, payload.indexName)
   const result = describeLocalCopy(deps, payload.indexName)
 
   await respond(createPartitionStoresResultMessage(result, deps.nodeId, message.requestId))

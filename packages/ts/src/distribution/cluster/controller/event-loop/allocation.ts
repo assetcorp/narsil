@@ -7,18 +7,23 @@ import { getIndexMetadata } from '../../index-metadata'
 import { belongsToAnotherIndex, stampedWith } from '../../table-identity'
 import { sharesMajorVersion } from '../../version'
 import { finishDepartureRun, retainedNodesFor, startDepartureRun } from './departures'
+import { scheduleHolderRetry } from './holder-retry'
 import { nodesForEachIndex } from './previous-document-placement'
 import type { EventLoopState } from './state'
 import { tearDownAllocation } from './teardown'
 import { recoverUnassignedPartitions } from './unassigned-recovery'
+import { failOverWithoutPlacement } from './unplaceable-index'
 
 function holdsDataNode(nodes: NodeRegistration[]): boolean {
   return nodes.some(node => node.roles.includes('data'))
 }
 
-async function listCompatibleNodes(coordinator: ClusterCoordinator): Promise<NodeRegistration[]> {
-  const nodes = await coordinator.listNodes()
+function compatibleNodes(nodes: NodeRegistration[]): NodeRegistration[] {
   return nodes.filter(node => sharesMajorVersion(node.version))
+}
+
+async function listCompatibleNodes(coordinator: ClusterCoordinator): Promise<NodeRegistration[]> {
+  return compatibleNodes(await coordinator.listNodes())
 }
 
 type RetainedNodes = (table: AllocationTable) => ReadonlySet<string>
@@ -99,7 +104,7 @@ async function recoverIndexPartitions(
   if (transport === null || controllerNodeId === null) {
     return
   }
-  const promoted = await recoverUnassignedPartitions(
+  const { promoted, askAgain } = await recoverUnassignedPartitions(
     coordinator,
     transport,
     indexName,
@@ -107,8 +112,31 @@ async function recoverIndexPartitions(
     nodes,
     isActive,
   )
-  if (promoted) {
+  if (askAgain) state.indexesAwaitingHolders.add(indexName)
+  else state.indexesAwaitingHolders.delete(indexName)
+  if (promoted && holdsDataNode(nodes)) {
     await runAllocatorForIndex(coordinator, controllerNodeId, indexName, nodes, isActive, retainedFor)
+  }
+}
+
+async function askHoldersAgain(
+  state: EventLoopState,
+  coordinator: ClusterCoordinator,
+  isActive: () => boolean,
+  onError?: (indexName: string, error: unknown) => void,
+): Promise<void> {
+  const nodes = await listCompatibleNodes(coordinator)
+  const waiting = [...state.indexesAwaitingHolders]
+  const nodesFor = await nodesForEachIndex(coordinator, nodes, waiting)
+  const departures = startDepartureRun(new Set(nodes.map(node => node.nodeId)))
+  const retainedFor: RetainedNodes = table => retainedNodesFor(state, departures, table)
+  for (const indexName of waiting) {
+    if (!isActive()) return
+    try {
+      await recoverIndexPartitions(state, coordinator, indexName, nodesFor(indexName), isActive, retainedFor)
+    } catch (error) {
+      onError?.(indexName, error)
+    }
   }
 }
 
@@ -123,11 +151,17 @@ async function runAllocatorForAllIndexes(
     return
   }
 
-  const nodes = await listCompatibleNodes(coordinator)
-  if (!holdsDataNode(nodes) || !isActive()) {
+  if (!state.schemasListed) {
+    for (const indexName of await coordinator.listSchemas()) state.knownIndexes.add(indexName)
+    state.schemasListed = true
+  }
+  const registered = await coordinator.listNodes()
+  if (!isActive()) {
     return
   }
 
+  const nodes = compatibleNodes(registered)
+  const registeredNodeIds = new Set(registered.map(node => node.nodeId))
   const nodesFor = await nodesForEachIndex(coordinator, nodes, state.knownIndexes)
   const departures = startDepartureRun(new Set(nodes.map(node => node.nodeId)))
   const retainedFor: RetainedNodes = table => retainedNodesFor(state, departures, table)
@@ -138,8 +172,11 @@ async function runAllocatorForAllIndexes(
     }
     try {
       const placeable = nodesFor(indexName)
-      if (!holdsDataNode(placeable)) continue
-      await runAllocatorForIndex(coordinator, writerNodeId, indexName, placeable, isActive, retainedFor)
+      if (holdsDataNode(placeable)) {
+        await runAllocatorForIndex(coordinator, writerNodeId, indexName, placeable, isActive, retainedFor)
+      } else {
+        await failOverWithoutPlacement(coordinator, writerNodeId, indexName, registeredNodeIds, isActive, retainedFor)
+      }
       await recoverIndexPartitions(state, coordinator, indexName, placeable, isActive, retainedFor)
     } catch (error) {
       anyIndexFailed = true
@@ -155,6 +192,7 @@ async function runAllocatorForAllIndexes(
   finishDepartureRun(state, departures, () => {
     scheduleDebouncedAllocation(state, coordinator, isActive, onError)
   })
+  scheduleHolderRetry(state, isActive, () => askHoldersAgain(state, coordinator, isActive, onError))
 
   if (anyIndexFailed && isActive()) {
     scheduleDebouncedAllocation(state, coordinator, isActive, onError, ALLOCATION_RETRY_DELAY_MS)
@@ -326,6 +364,7 @@ export async function handleSchemaEvent(
 
   if (event.type === 'schema_dropped') {
     state.knownIndexes.delete(event.indexName)
+    state.indexesAwaitingHolders.delete(event.indexName)
     await tearDownAllocation(event.indexName, coordinator, state, isActive, 0, onError)
   }
 }

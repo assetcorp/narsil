@@ -397,8 +397,11 @@ describe('catch-up sessions of a replica outside the in-sync set', () => {
       requestId: `partition-stores-${scriptedRequests}`,
       payload: encode({ indexName: INDEX_NAME }),
     })
-    const { partitionIds } = wireFieldsOf(reply)
-    if (!Array.isArray(partitionIds)) throw new Error(`${holder} answered without a list of partitions`)
+    const fields = wireFieldsOf(reply)
+    const { partitionIds } = fields
+    if (!Array.isArray(partitionIds)) {
+      throw new Error(`${holder} answered ${reply.type} without a list of partitions: ${JSON.stringify(fields)}`)
+    }
     return partitionIds
   }
 

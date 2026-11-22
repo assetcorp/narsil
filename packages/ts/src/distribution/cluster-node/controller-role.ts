@@ -10,6 +10,50 @@ export interface NodeControllerErrors {
   extraMessages?: ControllerMessageHandler
 }
 
+export interface ControllerTenure {
+  standEarly(): Promise<void>
+  start(): Promise<void>
+  withdrawOnFailure(join: Promise<void>): Promise<void>
+}
+
+export function createControllerTenure(
+  controller: () => ControllerNode | null,
+  startControllerJobs: () => void,
+  onError: (error: unknown) => void,
+): ControllerTenure {
+  let standing = false
+  return {
+    async standEarly() {
+      const node = controller()
+      if (node === null || standing) return
+      standing = true
+      try {
+        await node.start()
+      } catch (error) {
+        onError(error)
+      }
+    },
+    async start() {
+      const node = controller()
+      if (node === null) return
+      if (!standing) await node.start()
+      standing = true
+      startControllerJobs()
+    },
+    async withdrawOnFailure(join) {
+      try {
+        await join
+      } catch (error) {
+        if (standing) {
+          standing = false
+          await controller()?.stop()
+        }
+        throw error
+      }
+    },
+  }
+}
+
 export function createNodeController(
   config: ClusterNodeConfig,
   nodeId: string,

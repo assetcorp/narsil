@@ -15,8 +15,8 @@ import type { DataNodeHandle, DataNodeLifecycleStatus, NodeLifecycleConfig } fro
  *
  * The handle reports its own status, and it runs one lifecycle operation at a time, so a `leave` called while a
  * `join` is still running waits for that join rather than interleaving with it. A node that has shut down cannot
- * rejoin through the same handle. A `shutdown` called while a `join` still waits for an earlier registration under
- * this node's id to lapse ends that wait, and the join then fails with `NODE_NOT_JOINED`. `renewRegistration` writes
+ * rejoin through the same handle. A `shutdown` ends whatever a `join` waits for before it registers, and the join
+ * then fails with `NODE_NOT_JOINED`. `renewRegistration` writes
  * the registration at once, outside that queue, and does nothing while the node is outside the cluster.
  * `writeRegistration` writes it after the heartbeat renewal in flight, so that no older renewal lands after it, and
  * it fails with `NODE_NOT_JOINED` while the node is outside the cluster.
@@ -32,6 +32,7 @@ export function createDataNodeLifecycle(config: NodeLifecycleConfig): DataNodeHa
   const heartbeatState: RegistrationHeartbeatState = createRegistrationHeartbeatState()
   let operationLock: Promise<void> = Promise.resolve()
   let pendingJoin: AbortController | null = null
+  let shutdownRequested = false
 
   function withLock<T>(fn: () => Promise<T>): Promise<T> {
     const prev = operationLock
@@ -88,6 +89,7 @@ export function createDataNodeLifecycle(config: NodeLifecycleConfig): DataNodeHa
         status = 'joining'
         const joining = new AbortController()
         pendingJoin = joining
+        if (shutdownRequested) joining.abort()
 
         try {
           await joinCluster(
@@ -152,6 +154,7 @@ export function createDataNodeLifecycle(config: NodeLifecycleConfig): DataNodeHa
     },
 
     shutdown(): Promise<void> {
+      shutdownRequested = true
       pendingJoin?.abort()
       return withLock(async () => {
         if (status === 'shutdown') {

@@ -62,18 +62,23 @@ impl Inner {
         Ok(())
     }
 
+    pub(super) async fn list_known_indexes(&self) -> ClusterResult<()> {
+        let index_names = self.coordinator().list_schemas().await?;
+        let mut state = lock(&self.state);
+        for index_name in &index_names {
+            state.know_index(index_name);
+        }
+        state.schemas_listed = true;
+        Ok(())
+    }
+
     pub(super) async fn start_event_loop(self: &Arc<Self>) -> ClusterResult<()> {
         self.clear_event_loop();
         if let Err(error) = self.watch_cluster().await {
             self.clear_event_loop();
             return Err(error);
         }
-        if let Ok(index_names) = self.coordinator().list_schemas().await {
-            let mut state = lock(&self.state);
-            for index_name in &index_names {
-                state.know_index(index_name);
-            }
-        }
+        let _ = self.list_known_indexes().await;
         if self.is_active() {
             lock(&self.state).listening = true;
         }

@@ -24,6 +24,15 @@ interface RecoveryDeps {
   isActive: () => boolean
 }
 
+export interface RecoveryOutcome {
+  promoted: boolean
+  askAgain: boolean
+}
+
+type TableWrite = 'promoted' | 'settled' | 'lost'
+
+const NOTHING_TO_RECOVER: RecoveryOutcome = { promoted: false, askAgain: false }
+
 type StoresAnswer = { kind: 'held'; partitionIds: Set<number> } | { kind: 'unreachable' } | { kind: 'identityMismatch' }
 
 function liveHoldersOfUnassignedPartitions(table: AllocationTable, liveNodeIds: Set<string>): string[] {
@@ -190,14 +199,14 @@ async function writeRecoveryOutcome(
   indexName: string,
   liveNodeIds: Set<string>,
   answers: Map<string, StoresAnswer>,
-): Promise<boolean> {
+): Promise<TableWrite> {
   for (let attempt = 0; attempt < RECOVERY_CAS_ATTEMPTS; attempt++) {
     if (!deps.isActive()) {
-      return false
+      return 'settled'
     }
     const table = await deps.coordinator.getAllocation(indexName)
     if (table === null) {
-      return false
+      return 'settled'
     }
 
     const rewritten = new Map<number, PartitionAssignment>()
@@ -215,7 +224,7 @@ async function writeRecoveryOutcome(
     }
 
     if (rewritten.size === 0) {
-      return false
+      return 'settled'
     }
 
     const assignments = new Map(table.assignments)
@@ -224,24 +233,24 @@ async function writeRecoveryOutcome(
     }
 
     if (!deps.isActive()) {
-      return false
+      return 'settled'
     }
 
     const next = await rewriteForCurrentIndex(deps.coordinator, { ...table, version: table.version + 1, assignments })
     if (next === null) {
-      return false
+      return 'settled'
     }
     const written = await putAllocationOver(deps.coordinator, indexName, table, next, deps.controllerNodeId)
     if (written) {
-      return anyPromoted
+      return anyPromoted ? 'promoted' : 'settled'
     }
   }
-  return false
+  return 'lost'
 }
 
 /**
- * Gives every partition that no node serves back to a node that still holds its data, and reports whether the
- * allocation table changed.
+ * Gives every partition that no node serves back to a node that still holds its data, and reports whether it promoted
+ * one and whether it must ask again.
  *
  * A partition reaches `UNASSIGNED` when its primary fails while no in-sync replica survives, and the allocator
  * records the nodes that still hold it in `lastHolders`. Once one of those nodes registers again, the controller asks it
@@ -261,7 +270,8 @@ async function writeRecoveryOutcome(
  * @param controllerNodeId - The controller's own node id, which names the sender of every request.
  * @param nodes - The nodes registered with the coordinator right now, whose addresses this pass sends to.
  * @param isActive - Reports whether this node still holds the controller lease.
- * @returns True where the controller promoted at least one node, and false where it found nothing to recover.
+ * @returns `promoted` where the controller promoted at least one node, and `askAgain` where a registered holder gave
+ * no usable answer, as a node that registered before it listens does, or where the controller lost every write.
  */
 export async function recoverUnassignedPartitions(
   coordinator: ClusterCoordinator,
@@ -270,21 +280,21 @@ export async function recoverUnassignedPartitions(
   controllerNodeId: string,
   nodes: NodeRegistration[],
   isActive: () => boolean,
-): Promise<boolean> {
+): Promise<RecoveryOutcome> {
   const addressByNodeId = new Map(nodes.map(node => [node.nodeId, node.address]))
   const liveNodeIds = new Set(addressByNodeId.keys())
   const deps: RecoveryDeps = { coordinator, transport, controllerNodeId, addressByNodeId, isActive }
   if (!isActive()) {
-    return false
+    return NOTHING_TO_RECOVER
   }
 
   const table = await coordinator.getAllocation(indexName)
   if (table === null) {
-    return false
+    return NOTHING_TO_RECOVER
   }
 
   if (!hasRecoverablePartition(table) || !isActive()) {
-    return false
+    return NOTHING_TO_RECOVER
   }
 
   const answers = new Map<string, StoresAnswer>()
@@ -292,7 +302,7 @@ export async function recoverUnassignedPartitions(
   if (candidateNodeIds.length > 0) {
     const metadata = await getIndexMetadata(coordinator, indexName)
     if (metadata === null || !isActive()) {
-      return false
+      return NOTHING_TO_RECOVER
     }
     const given = await Promise.all(
       candidateNodeIds.map(nodeId => askNodeForStores(deps, nodeId, indexName, metadata.indexUuid)),
@@ -302,5 +312,7 @@ export async function recoverUnassignedPartitions(
     }
   }
 
-  return writeRecoveryOutcome(deps, indexName, liveNodeIds, answers)
+  const write = await writeRecoveryOutcome(deps, indexName, liveNodeIds, answers)
+  const unanswered = [...answers.values()].some(answer => answer.kind === 'unreachable')
+  return { promoted: write === 'promoted', askAgain: write === 'lost' || unanswered }
 }

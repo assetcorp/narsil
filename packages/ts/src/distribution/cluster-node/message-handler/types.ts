@@ -19,6 +19,7 @@ export interface DataNodeHandlerDeps {
   snapshotSyncState: SnapshotSyncHandlerState
   searchContexts?: SearchContextRegistry
   snapshotSpoolDirectory?: string
+  isOrphaned?: (indexName: string) => boolean
   isBootstrapSynced?: (indexName: string, partitionId: number) => boolean
   backups?: BackupPrimary
   answerQueryCounts?: (message: TransportMessage, respond: RespondFn) => Promise<void>

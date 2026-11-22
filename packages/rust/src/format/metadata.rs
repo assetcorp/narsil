@@ -68,13 +68,15 @@ impl IndexMetadata {
         self.index_uuid = Some(uuid.to_string());
     }
 
-    /// Returns the partitions that a cluster node recorded as held, leaving out an ID that no partition can have.
-    pub(crate) fn held_partitions(&self) -> Vec<u32> {
-        self.held_partitions
-            .iter()
-            .flatten()
-            .filter_map(|&id| u32::try_from(id).ok())
-            .collect()
+    /// Returns the partitions that a cluster node recorded as held, leaving out an ID that no partition can have,
+    /// or `None` where the index records no such list.
+    pub(crate) fn held_partitions(&self) -> Option<Vec<u32>> {
+        let held = self.held_partitions.as_ref()?;
+        Some(
+            held.iter()
+                .filter_map(|&id| u32::try_from(id).ok())
+                .collect(),
+        )
     }
 
     pub(crate) fn set_held_partitions(&mut self, held: &[u32]) {

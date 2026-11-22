@@ -17,6 +17,11 @@ import type { NodeLifecycleConfig } from './types'
  * never claim one id at once. Aborting `signal` ends that wait with `NODE_NOT_JOINED`, which is how a node that
  * shuts down mid-join stops waiting.
  *
+ * The node then calls `beforeRegistration` where the caller gives one, and it registers only once that settles, so
+ * that a node which lacks a copy that the cluster assigns to it can wait while the controller fails that copy over.
+ * Where another process registers under the node's id during that call, the node waits for that registration to lapse
+ * and calls `beforeRegistration` again, because what the cluster assigns to the id can change meanwhile.
+ *
  * The node registers itself, starts the heartbeat that keeps the registration alive, bootstraps every partition the
  * allocation tables already assign to it, and then follows the allocation table for further changes. It reads the
  * table of every index the coordinator holds a schema for, so a node that restarts takes up the partitions it held
@@ -26,17 +31,18 @@ import type { NodeLifecycleConfig } from './types'
  * @param config - The lifecycle configuration, which names the coordinator, the transport, and this node.
  * @param watcherState - The allocation watcher state this call registers the watcher on.
  * @param heartbeatState - The heartbeat state this call starts the renewal timer on.
- * @param signal - Ends the wait for an earlier registration once the node shuts down.
+ * @param signal - Ends each wait before the registration once the node shuts down.
  * @returns A promise that settles once the node has joined.
  */
 export async function joinCluster(
   config: NodeLifecycleConfig,
   watcherState: AllocationWatcherState,
   heartbeatState: RegistrationHeartbeatState,
-  signal?: AbortSignal,
+  signal: AbortSignal,
 ): Promise<void> {
   await refuseControllerOnAnotherMajorVersion(config)
-  await waitForEarlierRegistrationToLapse(config, signal)
+  await waitUntilFreeToRegister(config, signal)
+  if (wasAborted(signal)) throw abortedJoin(config.registration.nodeId)
   await config.coordinator.registerNode(registrationToWrite(config))
   config.onRegistered?.()
 
@@ -63,12 +69,24 @@ async function refuseControllerOnAnotherMajorVersion(config: NodeLifecycleConfig
   )
 }
 
+async function waitUntilFreeToRegister(config: NodeLifecycleConfig, signal: AbortSignal): Promise<void> {
+  await waitForEarlierRegistrationToLapse(config, signal)
+  while (config.beforeRegistration !== undefined) {
+    await config.beforeRegistration(signal)
+    if (!(await holdsRegistration(config))) return
+    await waitForEarlierRegistrationToLapse(config, signal)
+  }
+}
+
+async function holdsRegistration(config: NodeLifecycleConfig): Promise<boolean> {
+  const registered = await config.coordinator.listNodes()
+  return registered.some(node => node.nodeId === config.registration.nodeId)
+}
+
 function abortedJoin(nodeId: string): NarsilError {
-  return new NarsilError(
-    ErrorCodes.NODE_NOT_JOINED,
-    `Node '${nodeId}' shut down while it waited for its earlier registration to lapse`,
-    { nodeId },
-  )
+  return new NarsilError(ErrorCodes.NODE_NOT_JOINED, `Node '${nodeId}' shut down while it waited to register`, {
+    nodeId,
+  })
 }
 
 function wasAborted(signal: AbortSignal | undefined): boolean {
@@ -90,8 +108,7 @@ async function waitForEarlierRegistrationToLapse(config: NodeLifecycleConfig, si
     if (event.type === 'node_left' && event.nodeId === nodeId) markLapsed()
   })
   try {
-    const registered = await config.coordinator.listNodes()
-    if (registered.some(node => node.nodeId === nodeId)) await lapsed
+    if (await holdsRegistration(config)) await lapsed
     if (wasAborted(signal)) throw abortedJoin(nodeId)
   } finally {
     unwatch()

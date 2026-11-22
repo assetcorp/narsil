@@ -3,6 +3,7 @@ import { validateSchema } from '../../schema/validator'
 import type { IndexConfig } from '../../types/schema'
 import { getClusterIndexConfig, getIndexMetadata } from '../cluster/index-metadata'
 import { withPartitionCount } from '../cluster/index-settings'
+import { lastHoldersOf } from '../cluster/last-holders'
 import type { ClusterCoordinator, PartitionAssignment } from '../coordinator/types'
 import { validateRestoredSchema } from './bootstrap-restore'
 import type { ClusterLocalEngine } from './local-engine'
@@ -14,6 +15,8 @@ export interface PrimaryPartitionDeps {
   nodeId: string
   seedReplicationLog: (indexName: string, partitionId: number, startSeqNo: number, lastPrimaryTerm: number) => void
   replicationLogPosition: (indexName: string, partitionId: number) => number
+  canListCopy: (indexName: string, indexUuid: string | undefined, partitionId: number) => Promise<boolean>
+  failMissingCopy: (indexName: string, partitionId: number) => void
   onError: (error: unknown) => void
 }
 
@@ -23,7 +26,8 @@ export interface PrimaryPartitionDeps {
  * The node creates the index where it holds no copy, and it checks a copy it already holds against the schema the
  * cluster keeps. A node the controller promoted back after every copy of the partition was lost numbers its next
  * entry above both the commit point the controller stored and everything its own write-ahead log holds, so a
- * replica that returns can still reach that commit point.
+ * replica that returns can still reach that commit point. Where that node lacks the copy, it fails the copy and
+ * creates nothing, so that the other last holders stay on record.
  *
  * @param indexName - The index the partition belongs to.
  * @param partitionId - The partition this node leads.
@@ -52,6 +56,13 @@ export async function preparePrimaryPartition(
   if (allocation === null || allocation.assignments.size === 0) {
     return false
   }
+  if (
+    promotedFromLastHolders(allocation.assignments.get(partitionId), deps.nodeId) &&
+    !(await deps.canListCopy(indexName, indexUuid, partitionId))
+  ) {
+    if (indexUuid !== undefined) deps.failMissingCopy(indexName, partitionId)
+    return false
+  }
 
   const existing = deps.engine.listIndexes().find(index => index.name === indexName)
   if (existing === undefined) {
@@ -77,6 +88,15 @@ export async function preparePrimaryPartition(
 
   resumeNumberingAboveOwnCopy(indexName, partitionId, allocation.assignments.get(partitionId), deps)
   return true
+}
+
+function promotedFromLastHolders(assignment: PartitionAssignment | undefined, nodeId: string): boolean {
+  return (
+    assignment !== undefined &&
+    assignment.state === 'INITIALISING' &&
+    assignment.primary === nodeId &&
+    lastHoldersOf(assignment).length > 0
+  )
 }
 
 function resumeNumberingAboveOwnCopy(

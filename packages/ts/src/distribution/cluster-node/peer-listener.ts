@@ -16,9 +16,10 @@ export interface PeerListenerDeps {
 export async function listenUntilJoined(
   config: ClusterNodeConfig,
   nodeId: string,
-  hasDataRole: boolean,
+  controllerTransport: MultiplexedControllerTransport | null,
 ): Promise<(() => void) | null> {
-  return hasDataRole ? config.transport.listen(createNotReadyHandler(nodeId)) : null
+  if (controllerTransport === null) return null
+  return config.transport.listen(controllerTransport.createJoiningHandler(createNotReadyHandler(nodeId)))
 }
 
 export async function listenForPeers(deps: PeerListenerDeps): Promise<() => void> {
