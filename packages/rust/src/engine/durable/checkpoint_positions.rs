@@ -2,16 +2,19 @@ use std::collections::BTreeMap;
 
 use super::backing::CheckpointTarget;
 use crate::durability::constants::SINGLE_NODE_PRIMARY_TERM;
+use crate::engine::replication::copy_state::ReplicatedCopy;
 use crate::error::Result;
 use crate::format::manifest::PartitionCheckpoint;
 
 /// Returns the log position that a checkpoint covers in each of `partition_count` partitions: the highest record
 /// that the log holds, or that the index applied where no log keeps records, and never less than the previous
-/// checkpoint covered.
+/// checkpoint covered. A cluster copy gives the position of each of its partitions itself, which falls where the
+/// copy empties a partition.
 pub(super) fn partition_checkpoints(
     writer: &CheckpointTarget<'_>,
     applied: &BTreeMap<u32, u64>,
     partition_count: usize,
+    copy: Option<&ReplicatedCopy>,
 ) -> Result<Vec<PartitionCheckpoint>> {
     let logged = writer.highest_logged()?;
     let prior = writer.prior();
@@ -23,6 +26,17 @@ pub(super) fn partition_checkpoints(
                 .iter()
                 .find(|entry| entry.partition_id == partition_id)
         });
+        if let Some(copy) = copy {
+            let recorded = logged
+                .iter()
+                .flatten()
+                .find(|(id, _)| *id == partition_id)
+                .map_or(0, |(_, seq_no)| *seq_no);
+            if let Some(covered) = copy.checkpointed(partition_id, recorded) {
+                checkpoint.push(covered);
+                continue;
+            }
+        }
         let reached = match &logged {
             Some(logged) => logged
                 .iter()

@@ -18,6 +18,14 @@ mod native;
 mod ordering;
 mod pattern;
 mod pins;
+#[doc(hidden)]
+pub mod replication {
+    pub use crate::engine::replication::{
+        AppliedRun, CopyPosition, EntryOperation, HeldTerm, PartitionCopies, PrimaryLimits,
+        PrimaryRefusal, PrimaryRun, PrimaryWrite, PrimaryWritten, PriorDocument, ReplicatedEntry,
+        WriteRecord,
+    };
+}
 mod schema;
 mod search;
 mod synonyms;

@@ -9,7 +9,7 @@ pub(crate) mod write_lists;
 
 pub(crate) use write::{
     TokenSections, encode_id_sample, encode_paged_segment, head_of, resident_sections,
-    surface_section,
+    surface_section, write_record_sections,
 };
 
 pub(crate) const PAGED_SEGMENT_ENVELOPE_VERSION: u8 = 6;

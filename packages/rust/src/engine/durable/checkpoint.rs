@@ -60,6 +60,7 @@ fn write_partition(
         index_name: &index.name,
         partition_id,
         pages_text,
+        copy: index.replicated_copy(),
     };
     let mut next_id = snapshot
         .next_segment_id
@@ -244,7 +245,12 @@ pub(super) fn build_checkpoint(
     let mut entries = Vec::with_capacity(partitions.len());
     let mut swaps = Vec::with_capacity(partitions.len());
     let mut budget = RewriteBudget::new(plan.limits.rewrite_bytes_per_checkpoint);
-    let checkpoint = partition_checkpoints(writer, plan.applied, partitions.len())?;
+    let checkpoint = partition_checkpoints(
+        writer,
+        plan.applied,
+        partitions.len(),
+        index.replicated_copy(),
+    )?;
     for (at, partition) in partitions.iter().enumerate() {
         let partition_id = at as u32;
         let snapshot = partition.snapshot();

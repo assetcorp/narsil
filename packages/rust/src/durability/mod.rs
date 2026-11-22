@@ -19,6 +19,7 @@ pub(crate) mod marker;
 pub(crate) mod persistence;
 pub(crate) mod platform;
 pub(crate) mod recovery;
+pub(crate) mod replicated_log;
 pub(crate) mod restore;
 pub(crate) mod restore_journal;
 pub(crate) mod restore_swap;

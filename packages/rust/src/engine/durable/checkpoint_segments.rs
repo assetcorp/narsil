@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::backing::{Backing, CheckpointTarget};
 use crate::durability::files::TEMPORARY_MARK;
+use crate::engine::replication::copy_state::ReplicatedCopy;
 use crate::error::Result;
 use crate::format::envelope::{Compression, pack};
 use crate::format::keyword_segment::{
@@ -53,6 +54,7 @@ pub(super) struct SegmentWriter<'w, 'a> {
     pub(super) index_name: &'w str,
     pub(super) partition_id: u32,
     pub(super) pages_text: bool,
+    pub(super) copy: Option<&'w ReplicatedCopy>,
 }
 
 impl SegmentWriter<'_, '_> {
@@ -67,6 +69,9 @@ impl SegmentWriter<'_, '_> {
         let tombstone_count = u32::try_from(tombstones.len()).unwrap_or(u32::MAX);
         let key = segment_key(self.index_name, self.partition_id, id);
         let document_count = payload.document_count;
+        if let Some(copy) = self.copy {
+            payload.write_records = copy.records_of(self.partition_id, &payload);
+        }
         let (file, frozen, paged_file) = if self.pages_text {
             let file = encode_paged_segment(&payload, tombstones)?;
             let mut sink = self
@@ -131,6 +136,11 @@ impl SegmentWriter<'_, '_> {
             SCRATCH_COUNTER.fetch_add(1, Ordering::Relaxed)
         ));
         let mut merged = merge_paged_segments(entries, schema, tombstones, PathBuf::from(scratch))?;
+        if let Some(copy) = self.copy
+            && let Some(records) = copy.records_of_live(self.partition_id, entries)?
+        {
+            merged.hold_write_records(&records)?;
+        }
         let document_count = merged.document_count();
         let mut sink = self
             .writer

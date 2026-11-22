@@ -30,6 +30,7 @@ pub(crate) mod query_suggestions;
 mod reads;
 mod rebalance;
 mod registration;
+pub(crate) mod replication;
 mod rerank_settings;
 mod restore;
 mod segments;

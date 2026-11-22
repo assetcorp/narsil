@@ -198,7 +198,7 @@ impl IndexLog {
         self.unsaved_writes.store(0, Ordering::Release);
     }
 
-    fn count_applied(&self, partition: u32, writes: u64) {
+    pub(crate) fn count_applied(&self, partition: u32, writes: u64) {
         let mut applied = self
             .applied
             .lock()
