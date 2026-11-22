@@ -1,5 +1,6 @@
 import { createServer, type Server, type Socket } from 'node:net'
 import { createServer as createTlsServer, type SecureContextOptions, type Server as TlsServer } from 'node:tls'
+import { drainedOrClosed } from '../drained-or-closed'
 import type { ListenHandler, RespondFn } from '../types'
 import { TransportError, TransportErrorCodes, type TransportMessage } from '../types'
 import { decodeTransportMessage, encodeFrame, encodeTransportMessage, FrameParser } from './framing'
@@ -16,9 +17,7 @@ function writeAwaitingDrain(socket: Socket, frame: Uint8Array): Promise<void> {
   if (socket.write(frame)) {
     return Promise.resolve()
   }
-  return new Promise<void>(resolve => {
-    socket.once('drain', resolve)
-  })
+  return drainedOrClosed(socket)
 }
 
 export class TcpServer {
