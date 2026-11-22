@@ -17,6 +17,20 @@ pub(super) struct Settlement {
     pub(super) unverified: HashSet<usize>,
 }
 
+pub(super) fn equal_insert_candidates<'a>(
+    failures: &[(&'a PendingWrite, &Refused)],
+    acknowledged: &HashSet<String>,
+) -> Vec<&'a PendingWrite> {
+    failures
+        .iter()
+        .filter(|(write, refused)| {
+            refused.error.code() == codes::DOC_ALREADY_EXISTS
+                && !acknowledged.contains(write.document_id())
+        })
+        .map(|(write, _)| *write)
+        .collect()
+}
+
 fn unreadable(serving_name: &str) -> ClusterError {
     ClusterError::new(
         codes::QUERY_ROUTING_FAILED,
@@ -117,14 +131,7 @@ impl WriteRouter {
         failures: &[(&PendingWrite, &Refused)],
         acknowledged: &HashSet<String>,
     ) -> Settlement {
-        let existing: Vec<&PendingWrite> = failures
-            .iter()
-            .filter(|(write, refused)| {
-                refused.error.code() == codes::DOC_ALREADY_EXISTS
-                    && !acknowledged.contains(write.document_id())
-            })
-            .map(|(write, _)| *write)
-            .collect();
+        let existing = equal_insert_candidates(failures, acknowledged);
         let mut settlement = Settlement::default();
         if existing.is_empty() {
             return settlement;

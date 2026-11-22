@@ -129,7 +129,7 @@ impl PrimaryWrites {
         let Some(claim) = feed.until_cancelled(queued, None).await else {
             return;
         };
-        let request = self.spawn_admission(partition, scope, replica_node_id, Some(claim));
+        let request = self.spawn_admission(partition, scope, replica_node_id, claim);
         feed.until_cancelled(request, Ok(())).await.ok();
     }
 }

@@ -6,7 +6,7 @@ use tokio::time::{Instant, timeout_at};
 
 use super::WriteRouter;
 use super::rules::{History, next_condition, retriable, retried_after_delay, window_ended_outcome};
-use super::settle::Settlement;
+use super::settle::{Settlement, equal_insert_candidates};
 use super::wait::{RefusingPrimary, next_retry_delay, primary_for};
 use super::write::{Attempted, PendingWrite, Refused};
 use crate::constants::FORWARD_RETRY_INITIAL_DELAY_MS;
@@ -23,15 +23,33 @@ fn unanswered(serving_name: &str, document_id: &str) -> ClusterError {
     )
 }
 
+fn window_closed_answer(
+    serving_name: &str,
+    write: &PendingWrite,
+    histories: &HashMap<usize, History>,
+    last_refusal: Option<ClusterError>,
+) -> ClusterError {
+    let document_id = write.document_id();
+    match (last_refusal, histories.get(&write.position)) {
+        (Some(error), Some(history)) => history.final_error(serving_name, document_id, error),
+        (Some(error), None) => error,
+        (None, _) => window_ended_outcome(serving_name, document_id),
+    }
+}
+
 impl WriteRouter {
     async fn attempt_before_deadline(
         self: &Arc<Self>,
         serving_name: &Arc<str>,
         pending: &[PendingWrite],
         deadline: Instant,
+        batch: bool,
     ) -> ClusterResult<Option<HashMap<usize, Attempted>>> {
-        let attempt =
-            tokio::spawn(Arc::clone(self).attempt(Arc::clone(serving_name), pending.to_vec()));
+        let attempt = tokio::spawn(Arc::clone(self).attempt(
+            Arc::clone(serving_name),
+            pending.to_vec(),
+            batch,
+        ));
         match timeout_at(deadline, attempt).await {
             Err(_) => Ok(None),
             Ok(Err(stopped)) => Err(ClusterError::new(
@@ -48,6 +66,7 @@ impl WriteRouter {
         failures: &[(&PendingWrite, Box<Refused>)],
         histories: &HashMap<usize, History>,
         acknowledged: &HashSet<String>,
+        deadline: Instant,
     ) -> Settlement {
         let uncertain: Vec<(&PendingWrite, &Refused)> = failures
             .iter()
@@ -61,8 +80,17 @@ impl WriteRouter {
         if uncertain.is_empty() {
             return Settlement::default();
         }
-        self.settle_equal_inserts(serving_name, &uncertain, acknowledged)
-            .await
+        let settling = self.settle_equal_inserts(serving_name, &uncertain, acknowledged);
+        match timeout_at(deadline, settling).await {
+            Ok(settlement) => settlement,
+            Err(_) => Settlement {
+                unverified: equal_insert_candidates(&uncertain, acknowledged)
+                    .iter()
+                    .map(|write| write.position)
+                    .collect(),
+                ..Settlement::default()
+            },
+        }
     }
 
     pub(super) async fn retry_group(
@@ -71,15 +99,30 @@ impl WriteRouter {
         mut pending: Vec<PendingWrite>,
         deadline: Instant,
         settles_as_equal: bool,
+        batch: bool,
     ) -> ClusterResult<Vec<Answered>> {
         let mut answered: Vec<Answered> = Vec::with_capacity(pending.len());
         let mut histories: HashMap<usize, History> = HashMap::new();
         let mut acknowledged: HashSet<String> = HashSet::new();
+        let mut last_refusals: HashMap<usize, ClusterError> = HashMap::new();
         let mut delay = Duration::from_millis(FORWARD_RETRY_INITIAL_DELAY_MS);
         while !pending.is_empty() {
-            let table = self.view.read(&serving_name).await.ok().flatten();
+            let read = timeout_at(deadline, self.view.read(&serving_name)).await;
+            let Some(read) = read.ok().filter(|_| Instant::now() < deadline) else {
+                for write in &pending {
+                    let error = window_closed_answer(
+                        &serving_name,
+                        write,
+                        &histories,
+                        last_refusals.remove(&write.position),
+                    );
+                    answered.push((write.position, Err(error)));
+                }
+                break;
+            };
+            let table = read.ok().flatten();
             let Some(mut outcomes) = self
-                .attempt_before_deadline(&serving_name, &pending, deadline)
+                .attempt_before_deadline(&serving_name, &pending, deadline, batch)
                 .await?
             else {
                 for write in &pending {
@@ -103,8 +146,14 @@ impl WriteRouter {
                 }
             }
             let settlement = if settles_as_equal {
-                self.settle(&serving_name, &failures, &histories, &acknowledged)
-                    .await
+                self.settle(
+                    &serving_name,
+                    &failures,
+                    &histories,
+                    &acknowledged,
+                    deadline,
+                )
+                .await
             } else {
                 Settlement::default()
             };
@@ -167,6 +216,7 @@ impl WriteRouter {
             pending = refused_writes
                 .into_iter()
                 .map(|(mut write, refused, _)| {
+                    last_refusals.insert(write.position, refused.error.clone());
                     if !refused.withheld {
                         write.condition = next_condition(&refused, write.condition);
                     }

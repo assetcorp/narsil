@@ -97,6 +97,10 @@ impl WatcherContext {
                     primary_term,
                 } => self.start_bootstrap(key, primary_node_id, primary_term),
                 Action::HoldPartition(key) => self.hold_partition(key).await,
+                Action::StartTerm { key, primary_term } => {
+                    self.writes
+                        .start_led_term(&key.0, key.1, primary_term as u64);
+                }
                 Action::RemovePartition(key) => self.remove_partition(key).await,
                 Action::ReleaseTornDown(index_name) => self.release_torn_down(index_name).await,
             }

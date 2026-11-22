@@ -18,6 +18,19 @@ fn unassigned(serving_name: &str, partition_id: u32) -> ClusterError {
     .with_detail("partitionId", Value::from(partition_id))
 }
 
+fn lost_metadata_during_batch(serving_name: &str, error: ClusterError) -> ClusterError {
+    if error.code() != codes::INDEX_NOT_FOUND {
+        return error;
+    }
+    ClusterError::new(
+        codes::QUERY_ROUTING_FAILED,
+        format!(
+            "Index '{serving_name}' lost its cluster metadata while a batch waited for a new primary"
+        ),
+    )
+    .with_detail("indexName", Value::from(serving_name))
+}
+
 impl WriteRouter {
     async fn apply_here(
         &self,
@@ -48,8 +61,15 @@ impl WriteRouter {
         self: Arc<Self>,
         serving_name: Arc<str>,
         writes: Vec<PendingWrite>,
+        batch: bool,
     ) -> ClusterResult<Vec<(usize, Attempted)>> {
-        let table = self.routable_table(&serving_name).await?;
+        let table = self.routable_table(&serving_name).await.map_err(|error| {
+            if batch {
+                lost_metadata_during_batch(&serving_name, error)
+            } else {
+                error
+            }
+        })?;
         let partition_count = table.assignments.len();
         let mut outcomes = Vec::with_capacity(writes.len());
         let mut here = Vec::new();

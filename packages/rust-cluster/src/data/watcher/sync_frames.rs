@@ -23,6 +23,11 @@ impl SyncFrames {
                 ));
             }
             Ok(SyncFrame::Snapshot) => self.saw_snapshot = true,
+            Ok(SyncFrame::Entries { .. }) if self.batches.iter().any(|batch| batch.is_last) => {
+                self.error = Some(frame_invalid(
+                    "sync_entries marked isLast before final batch",
+                ));
+            }
             Ok(SyncFrame::Entries {
                 entries,
                 is_last,

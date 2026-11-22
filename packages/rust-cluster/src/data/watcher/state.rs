@@ -67,6 +67,10 @@ pub(super) enum Action {
         primary_term: f64,
     },
     HoldPartition(PartitionKey),
+    StartTerm {
+        key: PartitionKey,
+        primary_term: f64,
+    },
     RemovePartition(PartitionKey),
     ReleaseTornDown(String),
 }

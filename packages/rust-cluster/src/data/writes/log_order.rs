@@ -45,6 +45,13 @@ struct Ordered<'p> {
     partition_id: u32,
     tail: CopyPosition,
     run: Vec<ReplicatedEntry>,
+    skipped_entries: bool,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum EntrySource {
+    Primary,
+    Sync,
 }
 
 impl Ordered<'_> {
@@ -69,6 +76,7 @@ impl PrimaryWrites {
         self: &Arc<Self>,
         partition: &Partition,
         run: EntryRun,
+        source: EntrySource,
     ) -> ClusterResult<()> {
         let Some(first) = run.entries.first() else {
             return Ok(());
@@ -84,12 +92,16 @@ impl PrimaryWrites {
             partition_id,
             tail,
             run: Vec::new(),
+            skipped_entries: false,
         };
         let mut expected_previous = run.previous_primary_term;
         for wire in run.entries {
             let expected_before = expected_previous.replace(wire.entry.primary_term);
             if let Err(error) = self.order(&mut ordered, wire, expected_before).await {
                 self.apply_held_run(&mut ordered).await?;
+                if source == EntrySource::Primary && ordered.skipped_entries {
+                    self.record_copy_failure(&ordered.index_name, partition_id);
+                }
                 return Err(error);
             }
         }
@@ -145,6 +157,7 @@ impl PrimaryWrites {
         }
         let expected_seq_no = tail.seq_no + 1;
         if seq_no != expected_seq_no {
+            ordered.skipped_entries = seq_no > expected_seq_no;
             return Err(refused(
                 codes::REPLICATION_ENTRY_INVALID,
                 &wire,

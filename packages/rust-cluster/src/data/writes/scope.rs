@@ -176,7 +176,7 @@ impl PrimaryWrites {
         let scope = self
             .current_scope(partition, index_name, partition_id)
             .await?;
-        if !self.start_term_in_queue(partition, &scope).await {
+        if !self.start_term_in_queue(partition, &scope).await? {
             return Ok(scope);
         }
         self.current_scope(partition, index_name, partition_id)

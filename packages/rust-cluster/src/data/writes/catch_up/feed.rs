@@ -260,8 +260,8 @@ impl PrimaryWrites {
             }
             if applied >= log_end {
                 if confirmed {
-                    let proposal = self.spawn_admission(partition, scope, replica_node_id, None);
-                    feed.until_cancelled(proposal, Ok(())).await.ok();
+                    self.close_gap_in_queue(partition, scope, replica_node_id, feed)
+                        .await;
                 }
                 return;
             }

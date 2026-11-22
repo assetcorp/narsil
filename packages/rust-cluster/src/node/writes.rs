@@ -139,7 +139,7 @@ impl ClusterNode {
                 Err(error) => refused.push(Some(error)),
             }
         }
-        let mut outcomes = router.write(index_name, routed).await?.into_iter();
+        let mut outcomes = router.write(index_name, routed, true).await?.into_iter();
         let mut result = WriteBatchResult::default();
         for (document_id, refusal) in document_ids.into_iter().zip(refused) {
             let outcome = match refusal {
@@ -170,7 +170,8 @@ impl ClusterNode {
     ///
     /// Fails with `NODE_NOT_JOINED` before the node joins, with `DOC_VALIDATION_FAILED` where the id is empty,
     /// holds more than 512 UTF-16 code units or a null byte, or differs from the document's own `id` field, with
-    /// `INDEX_NOT_FOUND` where the cluster holds no such index, with `QUERY_ROUTING_FAILED` where the cluster has
+    /// `INDEX_NOT_FOUND` where the cluster holds no such index, with `INDEX_ORPHANED` where the cluster holds no
+    /// such index and this node keeps an orphaned copy under that name, with `QUERY_ROUTING_FAILED` where the cluster has
     /// yet to allocate it, with `REPLICATION_OUTCOME_UNKNOWN` where the write may or may not have taken effect, and
     /// with the primary's refusal otherwise.
     pub async fn insert(
@@ -185,7 +186,7 @@ impl ClusterNode {
         };
         let write = insert_write(document, document_id.clone())?;
         let router = self.inner.router()?;
-        only_outcome(router.write(index_name, vec![write]).await?)?;
+        only_outcome(router.write(index_name, vec![write], false).await?)?;
         Ok(document_id)
     }
 
@@ -199,8 +200,9 @@ impl ClusterNode {
     /// # Errors
     ///
     /// Fails with `NODE_NOT_JOINED` before the node joins, with `INDEX_NOT_FOUND` where the cluster holds no such
-    /// index, and with `QUERY_ROUTING_FAILED` where the cluster has yet to allocate it. Every other failure is a
-    /// document's own, in [`WriteBatchResult::failed`].
+    /// index, with `INDEX_ORPHANED` where the cluster holds no such index and this node keeps an orphaned copy under
+    /// that name, and with `QUERY_ROUTING_FAILED` where the cluster has yet to allocate it or drops it while the batch
+    /// waits for a new primary. Every other failure is a document's own, in [`WriteBatchResult::failed`].
     pub async fn insert_batch(
         &self,
         index_name: &str,
@@ -232,7 +234,7 @@ impl ClusterNode {
     ) -> ClusterResult<()> {
         let write = update_write(document_id.to_string(), &document)?;
         let router = self.inner.router()?;
-        only_outcome(router.write(index_name, vec![write]).await?)
+        only_outcome(router.write(index_name, vec![write], false).await?)
     }
 
     /// Replaces many stored documents, each with the whole document paired with its id, and reports each one's
@@ -264,7 +266,7 @@ impl ClusterNode {
     pub async fn remove(&self, index_name: &str, document_id: &str) -> ClusterResult<()> {
         let write = remove_write(document_id.to_string())?;
         let router = self.inner.router()?;
-        only_outcome(router.write(index_name, vec![write]).await?)
+        only_outcome(router.write(index_name, vec![write], false).await?)
     }
 
     /// Removes many documents from a cluster index and reports each one's outcome in the order of `document_ids`.

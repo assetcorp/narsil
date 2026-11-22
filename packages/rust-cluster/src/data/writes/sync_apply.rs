@@ -3,6 +3,7 @@ use std::sync::Arc;
 use narsil::Value;
 
 use super::PrimaryWrites;
+use super::log_order::EntrySource;
 use crate::error::{ClusterError, ClusterResult, codes};
 use crate::payload::entry::WireEntry;
 use crate::payload::replica::EntryRun;
@@ -66,7 +67,9 @@ impl PrimaryWrites {
                 previous_primary_term: None,
             };
             let turn = partition.turn().await;
-            let applied = self.apply_in_log_order(&partition, run).await;
+            let applied = self
+                .apply_in_log_order(&partition, run, EntrySource::Sync)
+                .await;
             drop(turn);
             applied?;
             if let Some(error) = refused {
