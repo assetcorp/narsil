@@ -53,18 +53,20 @@ function signalGroup(signal) {
 
 async function cleanup() {
   const containers = [0, 1, 2].map(member => `${prefix}-etcd-${member}`)
+  const problems = []
   await execute('docker', ['rm', '--force', ...containers], { timeout: CLEANUP_TIMEOUT_MS }).catch(error => {
     const lines = error.stderr?.trim().split('\n') ?? []
     if (
       lines.length === 0 ||
       !lines.every(line => containers.some(name => line.endsWith(`No such container: ${name}`)))
     )
-      throw error
+      problems.push(error)
   })
   await execute('docker', ['network', 'rm', `${prefix}-net`], { timeout: CLEANUP_TIMEOUT_MS }).catch(error => {
-    if (!error.stderr?.includes('not found')) throw error
+    if (!error.stderr?.includes('not found')) problems.push(error)
   })
-  await rm(temporaryDirectory, { recursive: true, force: true })
+  await rm(temporaryDirectory, { recursive: true, force: true }).catch(error => problems.push(error))
+  if (problems.length > 0) throw new AggregateError(problems, 'The campaign could not remove every resource')
 }
 
 async function finish(passed) {
