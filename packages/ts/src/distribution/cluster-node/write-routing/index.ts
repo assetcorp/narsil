@@ -1,6 +1,5 @@
 import { generateId } from '../../../core/id-generator'
 import { bm25SetsValue } from '../../../core/scorer'
-import { providedDocId } from '../../../engine/mutations/insert-admission'
 import { requireConfigurationWithinSizeLimit } from '../../../engine/snapshot/index-configuration-limit'
 import { prepareConfiguredSynonyms } from '../../../engine/synonym-sets'
 import { requireSurfaceFormsForPartialFields, validateBooleanOnlySettings } from '../../../engine/validation'
@@ -9,7 +8,7 @@ import { getLanguage } from '../../../languages/registry'
 import type { Narsil } from '../../../narsil'
 import { requireCreatableSchema, validateSchema } from '../../../schema/validator'
 import { validateBM25Params } from '../../../search/bm25-params'
-import type { AnyDocument, IndexConfig, InsertOptions } from '../../../types/schema'
+import type { IndexConfig } from '../../../types/schema'
 import {
   type IndexMetadata,
   indexConfigKey,
@@ -23,25 +22,17 @@ import { deleteSynonymSet, type SynonymSetRef, storeSynonymSet } from '../../clu
 import { MAX_PARTITION_COUNT, MAX_REPLICATION_FACTOR } from '../../constants'
 import type { AllocationConstraints, ClusterCoordinator } from '../../coordinator/types'
 import { bm25NotReady, registeredNodesBelowBm25Tuning } from '../../query/bm25-routing'
-import type { WriteCondition } from '../../transport/types'
 import { waitForServingAllocation } from '../allocation-wait'
 import { DEFAULT_CREATE_INDEX_WAIT_MS } from '../constants'
 import { localIndexIsGone } from '../local-index-gone'
-import { requireWritableIndex } from '../memory/write-block'
-import { estimateDocumentBytes, withAdmittedWrite } from '../memory/write-pressure'
 import type { CreateIndexOptions } from '../types'
 import { DEFAULT_PARTITION_COUNT, DEFAULT_REPLICATION_FACTOR } from '../types'
-import { resolvePrimaryAssignment } from './assignment'
-import { forwardInsertToRemote, forwardRemoveToRemote, forwardUpdateToRemote } from './forwarding'
-import { writeLocalOnly } from './numbered-write'
-import { retryOnPrimaryChange, settleEqualInserts, settleNothing } from './primary-change'
-import { applyPrimaryInsert, applyPrimaryRemove, applyPrimaryUpdate } from './primary-writes'
-import type { WriteRoutingDeps } from './types'
 
 export { resolvePartitionId } from './assignment'
 export { routeInsertBatch, routeRemoveBatch, routeUpdateBatch } from './batches'
 export { applyForwardedBatch } from './forward-batch'
 export { applyForwardedWrite } from './primary-writes'
+export { routeInsert, routeRemove, routeUpdate } from './single-writes'
 export type { WriteRoutingDeps } from './types'
 
 function validateCreateIndexOptions(partitionCount: number, replicationFactor: number): void {
@@ -247,151 +238,4 @@ export async function routeDropIndex(
 
   await coordinator.dropSchema(name)
   return { indexUuid }
-}
-
-export function routeInsert(
-  indexName: string,
-  document: AnyDocument,
-  docId: string | undefined,
-  deps: WriteRoutingDeps,
-  options?: InsertOptions,
-): Promise<string> {
-  return withAdmittedWrite(
-    deps.writePressure,
-    indexName,
-    () => estimateDocumentBytes(document),
-    () => routeAdmittedInsert(indexName, document, docId, deps, options),
-  )
-}
-
-async function routeAdmittedInsert(
-  indexName: string,
-  document: AnyDocument,
-  docId: string | undefined,
-  deps: WriteRoutingDeps,
-  options?: InsertOptions,
-): Promise<string> {
-  const resolvedDocId = docId ?? providedDocId(document) ?? generateId()
-  return retryOnPrimaryChange(
-    deps,
-    indexName,
-    { docId: resolvedDocId, value: document },
-    () => insertOnce(indexName, document, resolvedDocId, deps, options),
-    settleEqualInserts(deps, indexName),
-    () => resolvedDocId,
-    true,
-  )
-}
-
-async function insertOnce(
-  indexName: string,
-  document: AnyDocument,
-  resolvedDocId: string,
-  deps: WriteRoutingDeps,
-  options?: InsertOptions,
-): Promise<string> {
-  const resolution = await resolvePrimaryAssignment(indexName, resolvedDocId, deps, false)
-
-  if (resolution === null) {
-    return writeLocalOnly(deps, indexName, () => deps.engine.insert(indexName, document, resolvedDocId, options))
-  }
-
-  requireWritableIndex(resolution.table, deps.memoryView)
-  const primaryNodeId = resolution.assignment.primary
-  if (primaryNodeId === deps.nodeId) {
-    return applyPrimaryInsert(
-      indexName,
-      document,
-      resolvedDocId,
-      resolution.partitionId,
-      resolution.assignment,
-      deps,
-      options,
-    )
-  }
-
-  return forwardInsertToRemote(indexName, document, resolvedDocId, primaryNodeId, deps, resolution.table.indexUuid)
-}
-
-export function routeRemove(indexName: string, docId: string, deps: WriteRoutingDeps): Promise<void> {
-  return retryOnPrimaryChange(
-    deps,
-    indexName,
-    { docId, value: null },
-    condition => removeOnce(indexName, docId, deps, condition),
-    settleNothing,
-    () => undefined,
-  )
-}
-
-async function removeOnce(
-  indexName: string,
-  docId: string,
-  deps: WriteRoutingDeps,
-  condition: WriteCondition | undefined,
-): Promise<void> {
-  const resolution = await resolvePrimaryAssignment(indexName, docId, deps, false)
-
-  if (resolution === null) {
-    return writeLocalOnly(deps, indexName, () => deps.engine.remove(indexName, docId))
-  }
-
-  const primaryNodeId = resolution.assignment.primary
-  if (primaryNodeId === deps.nodeId) {
-    return applyPrimaryRemove(indexName, docId, resolution.partitionId, resolution.assignment, deps, condition)
-  }
-
-  return forwardRemoveToRemote(indexName, docId, primaryNodeId, deps, resolution.table.indexUuid, condition)
-}
-
-export function routeUpdate(
-  indexName: string,
-  docId: string,
-  document: AnyDocument,
-  deps: WriteRoutingDeps,
-): Promise<void> {
-  return withAdmittedWrite(
-    deps.writePressure,
-    indexName,
-    () => estimateDocumentBytes(document),
-    () =>
-      retryOnPrimaryChange(
-        deps,
-        indexName,
-        { docId, value: document },
-        condition => routeAdmittedUpdate(indexName, docId, document, deps, condition),
-        settleNothing,
-        () => undefined,
-      ),
-  )
-}
-
-async function routeAdmittedUpdate(
-  indexName: string,
-  docId: string,
-  document: AnyDocument,
-  deps: WriteRoutingDeps,
-  condition: WriteCondition | undefined,
-): Promise<void> {
-  const resolution = await resolvePrimaryAssignment(indexName, docId, deps, false)
-
-  if (resolution === null) {
-    return writeLocalOnly(deps, indexName, () => deps.engine.update(indexName, docId, document))
-  }
-
-  requireWritableIndex(resolution.table, deps.memoryView)
-  const primaryNodeId = resolution.assignment.primary
-  if (primaryNodeId === deps.nodeId) {
-    return applyPrimaryUpdate(
-      indexName,
-      docId,
-      document,
-      resolution.partitionId,
-      resolution.assignment,
-      deps,
-      condition,
-    )
-  }
-
-  return forwardUpdateToRemote(indexName, document, docId, primaryNodeId, deps, resolution.table.indexUuid, condition)
 }

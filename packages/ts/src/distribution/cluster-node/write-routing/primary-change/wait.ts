@@ -6,6 +6,7 @@ import {
   PRIMARY_CHANGE_POLL_INTERVAL_MS,
 } from '../../constants'
 import { resolvePartitionId } from '../assignment'
+import { beforeWindowEnds, WINDOW_ENDED, windowClosed } from '../forward-window'
 import type { WriteRoutingDeps } from '../types'
 
 export interface RefusingPrimary {
@@ -40,6 +41,20 @@ async function liveTable(deps: WriteRoutingDeps, indexName: string): Promise<All
     : deps.coordinator.getAllocation(indexName)
 }
 
+export async function tableBeforeWindowEnds(
+  deps: WriteRoutingDeps,
+  indexName: string,
+  deadline: number,
+): Promise<AllocationTable | null | typeof WINDOW_ENDED> {
+  let table: AllocationTable | null | typeof WINDOW_ENDED
+  try {
+    table = await beforeWindowEnds(deps.coordinator.getAllocation(indexName), deadline)
+  } catch (_) {
+    table = null
+  }
+  return windowClosed(deadline) ? WINDOW_ENDED : table
+}
+
 export async function pauseAndRereadTable(
   deps: WriteRoutingDeps,
   indexName: string,
@@ -51,7 +66,8 @@ export async function pauseAndRereadTable(
   await pause(Math.min(delayMs, untilDeadlineMs))
   if (deps.stopped?.() === true) return false
   try {
-    if ((await liveTable(deps, indexName)) === null) return false
+    const live = await beforeWindowEnds(liveTable(deps, indexName), deadline)
+    if (live === WINDOW_ENDED || live === null) return false
   } catch (_) {}
   const remainingMs = deadline - Date.now()
   if (remainingMs >= FORWARD_RETRY_LAST_ATTEMPT_ROOM_MS) return true
@@ -70,13 +86,13 @@ export async function awaitNewPrimary(
   deadline: number,
 ): Promise<boolean> {
   while (Date.now() < deadline) {
-    let table: AllocationTable | null | undefined
+    let table: AllocationTable | null | undefined | typeof WINDOW_ENDED
     try {
-      table = await liveTable(deps, indexName)
+      table = await beforeWindowEnds(liveTable(deps, indexName), deadline)
     } catch (_) {
       table = undefined
     }
-    if (table === null) return false
+    if (table === null || table === WINDOW_ENDED) return false
     if (table !== undefined && refusing.some(primary => movedOn(table, primary))) return true
     await pause(Math.max(0, Math.min(PRIMARY_CHANGE_POLL_INTERVAL_MS, deadline - Date.now())))
   }
