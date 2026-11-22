@@ -12,6 +12,7 @@ import type {
   ReshardForwardOperation,
   ReshardStartPayload,
 } from '../../transport/reshard-payloads'
+import { refuseUnservedRead } from '../message-handler/read-refusal'
 import { enqueuePartitionWrite } from '../write-routing/partition-queue'
 import { reconcileReshardBlock } from './block'
 import {
@@ -162,6 +163,12 @@ export async function applyReshardCutover(deps: ReshardSourceDeps, payload: Resh
     )
   }
   const source = record.sourceGeneration
+  await refuseUnservedRead(
+    { nodeId: deps.writeDeps.nodeId, writeDeps: deps.writeDeps },
+    source,
+    [payload.partitionId],
+    'partition-read',
+  )
   const assignment = await leadingAssignment(deps.writeDeps, source, payload.partitionId)
   setReshardBlock(state, source, payload.jobId, payload.partitionId)
   await enqueuePartitionWrite(deps.writeDeps.partitionWriteQueues, source, payload.partitionId, async () => undefined)
