@@ -47,6 +47,8 @@ Each partition has exactly one primary node that accepts writes, and zero or mor
 
 A primary appends no entry under a term until it has started that term on every copy in the in-sync set, as [Starting a Term](#starting-a-term) defines.
 
+A primary must refuse every write for a partition in `INITIALISING` with `PARTITION_NOT_PRIMARY`, setting `state` to `INITIALISING` in the error's details, before it applies the write or appends an entry, because the controller may restart that partition as an empty copy, as [No Eligible Replica](#no-eligible-replica) defines. Where a table that the primary watches gives that state, the primary must read the table from the cluster coordinator before it refuses, so that it accepts the write where the partition is `ACTIVE` and the watch event is late.
+
 A node forwarding many mutations to one primary should send them in a single `replication.forward_batch` message, and the primary then answers one outcome per mutation; see [transport.md](transport.md#replicationforward_batch).
 
 ### Rollback of a Failed Write
@@ -514,6 +516,6 @@ Only a primary needs access to the embedding adapter, so a replica runs with no 
 | `REPLICATION_WRITE_CONFLICT` | A new primary refused an update or a remove that a node sent again after the earlier primary's term ended, because another write touched the document after the earlier primary's attempt, as [Retry After an Ended Term](#retry-after-an-ended-term) defines. The write did not take effect. |
 | `REPLICATION_ENTRY_INVALID` | A received entry is malformed, out of order, or not addressed to the receiving replica. |
 | `REPLICATION_INSYNC_REMOVAL_FAILED` | The primary could not remove a failed replica from the in-sync set while it still held its term, because no controller was reachable or the controller rejected the request. A primary whose term has moved reports `PARTITION_NOT_PRIMARY` instead. |
-| `PARTITION_NOT_PRIMARY` | A write reached a node that is not the primary for the target partition. |
+| `PARTITION_NOT_PRIMARY` | A write reached a node that is not the primary for the target partition, or it reached the primary of a partition in `INITIALISING`. |
 | `PARTITION_UNASSIGNED` | The target partition has no primary, because every copy was lost. |
 | `INSUFFICIENT_REPLICAS` | The `waitForActiveReplicas` check failed. |
