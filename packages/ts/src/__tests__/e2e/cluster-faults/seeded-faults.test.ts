@@ -100,7 +100,7 @@ describe('a three-node cluster on three etcd members under seeded faults', () =>
     return fleet.nodes.find(node => primary !== null && node.nodeId() === primary)?.slot ?? fallback
   }
 
-  async function unsafeToWipe(slot: number, faults: FaultState): Promise<string | null> {
+  async function unsafeToWipe(slot: number, unhealed: ReadonlySet<number>): Promise<string | null> {
     if (cluster === null) return 'the cluster never started'
     const { fleet, coordinator } = cluster
     const nodeId = fleet.nodes[slot]?.nodeId() ?? ''
@@ -117,11 +117,18 @@ describe('a three-node cluster on three etcd members under seeded faults', () =>
       for (const other of others) {
         const node = fleet.nodes.find(candidate => candidate.nodeId() === other)
         const current = other === assignment.primary || assignment.inSyncSet.includes(other)
-        if (node === undefined || !node.running() || faults.unavailable.has(node.slot) || !current) {
-          return `partition ${partitionId} keeps its other copy on ${node === undefined ? other : `slot ${node.slot}`}, which is faulted or outside the in-sync set`
+        if (node === undefined || !node.running() || unhealed.has(node.slot) || !current) {
+          return `partition ${partitionId} keeps its other copy on ${node === undefined ? other : `slot ${node.slot}`}, which is faulted, not yet confirmed healed, or outside the in-sync set`
         }
       }
     }
+    const slotOf = (holder: string): string =>
+      String(fleet.nodes.find(candidate => candidate.nodeId() === holder)?.slot ?? holder)
+    const shown = [...table.assignments].map(
+      ([partitionId, assignment]) =>
+        `p${partitionId} primary ${assignment.primary === null ? 'none' : slotOf(assignment.primary)} replicas [${assignment.replicas.map(slotOf).join(' ')}] in-sync [${assignment.inSyncSet.map(slotOf).join(' ')}]`,
+    )
+    console.log(`slot ${slot} is wiped while table version ${table.version} shows ${shown.join('; ')}`)
     return null
   }
 
@@ -130,6 +137,7 @@ describe('a three-node cluster on three etcd members under seeded faults', () =>
     faults: FaultState,
     workload: Workload,
     alone: boolean,
+    unhealed: Set<number>,
   ): Promise<void> {
     if (cluster === null) return
     const { fleet, etcd } = cluster
@@ -139,6 +147,7 @@ describe('a three-node cluster on three etcd members under seeded faults', () =>
       console.log(`the wipe goes to slot ${slot}, the primary of partition ${fault.slot % PARTITION_COUNT}`)
     if (fault.startAfterMs > 0) await sleep(fault.startAfterMs)
     if (!isEtcdFault(kind)) {
+      unhealed.add(slot)
       faults.unavailable.add(slot)
       faults.startedOn[slot] = (faults.startedOn[slot] ?? 0) + 1
     }
@@ -156,7 +165,7 @@ describe('a three-node cluster on three etcd members under seeded faults', () =>
         if (kind === 'stop-wipe') await fleet.stop(slot)
         else await fleet.kill(slot)
         if (isWipe(kind)) {
-          const unsafe = await unsafeToWipe(slot, faults)
+          const unsafe = await unsafeToWipe(slot, unhealed)
           if (unsafe === null) await fleet.wipe(slot)
           else console.log(`slot ${slot} restarts with its data, because ${unsafe}`)
         }
@@ -231,6 +240,7 @@ describe('a three-node cluster on three etcd members under seeded faults', () =>
       ...(CAMPAIGN ? { writeTimeoutMs: CAMPAIGN_WRITE_TIMEOUT_MS } : {}),
     })
     const applied: string[] = []
+    const unhealed = new Set<number>()
     try {
       if (CAMPAIGN) await sleep(QUIET_WINDOW_MS)
       for (const [at, round] of plan.rounds.entries()) {
@@ -239,11 +249,12 @@ describe('a three-node cluster on three etcd members under seeded faults', () =>
         enter(shown)
         console.log(`fault ${at + 1} of ${plan.rounds.length}: ${shown}`)
         const outcomes = await Promise.allSettled(
-          round.map(fault => injectFault(fault, faults, workload, round.length === 1)),
+          round.map(fault => injectFault(fault, faults, workload, round.length === 1, unhealed)),
         )
         for (const outcome of outcomes) if (outcome.status === 'rejected') throw outcome.reason
         enter(`healing after ${shown}`)
         await untilHealed(`after ${shown}`)
+        unhealed.clear()
         enter(NO_FAULT)
       }
       if (CAMPAIGN) {
