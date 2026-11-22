@@ -101,20 +101,23 @@ describe('a forwarded write held across several promotions', () => {
     expect(answeredAt - startedAt).toBeLessThan(PRIMARY_CHANGE_RETRY_WINDOW_MS + ANSWER_MARGIN_MS)
 
     expected.set('held', { title: 'held transfer', amount: 77 })
-    const healed = await waitUntil(
+    const copies = await waitUntil(
       'every copy to hold the abandoned write',
       async () => {
         const current = partitionAssignment(await running.coordinator.getAllocation(INDEX))
         if (current?.state !== 'ACTIVE' || current.primary === null) return null
+        const held = new Map<string, Record<string, Record<string, unknown>>>()
         for (const holder of [current.primary, ...current.inSyncSet]) {
-          if (!(await readCopy(running.probe, holder)).has('held')) return null
+          const copy = await readCopy(running.probe, holder)
+          if (!copy.has('held')) return null
+          held.set(holder, Object.fromEntries(copy))
         }
-        return current
+        return held
       },
       REJOIN_TIMEOUT_MS,
     )
-    for (const holder of [healed.primary ?? '', ...healed.inSyncSet]) {
-      expect(Object.fromEntries(await readCopy(running.probe, holder)), holder).toEqual(Object.fromEntries(expected))
+    for (const [holder, copy] of copies) {
+      expect(copy, holder).toEqual(Object.fromEntries(expected))
     }
   }, 120_000)
 })

@@ -50,6 +50,7 @@ export interface CatchUpState {
   outOfStepRemovals: Map<string, OutOfStepRemoval>
   settlingAdmissions: Set<string>
   inFlightBytes: number
+  inFlightByteWaiters: Array<() => void>
   timer: ReturnType<typeof setInterval> | null
   activeTick: Promise<void> | null
   replicaWork: Set<Promise<void>>
@@ -90,6 +91,7 @@ export function createCatchUpState(): CatchUpState {
     outOfStepRemovals: new Map(),
     settlingAdmissions: new Set(),
     inFlightBytes: 0,
+    inFlightByteWaiters: [],
     timer: null,
     activeTick: null,
     replicaWork: new Set(),
