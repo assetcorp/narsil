@@ -3,21 +3,13 @@ import { encodeDocument } from '../../../serialization/document-encoding'
 import { decode } from '../../../serialization/msgpack'
 import type { AnyDocument } from '../../../types/schema'
 import { createForwardMessage } from '../../replication/codec'
-import {
-  type ForwardPayload,
-  type NodeTransport,
-  TransportError,
-  TransportErrorCodes,
-  type TransportMessage,
-  type WriteCondition,
-} from '../../transport/types'
+import { refuseCarrierFailure } from '../../transport/carrier-error'
+import type { ForwardPayload, NodeTransport, TransportMessage, WriteCondition } from '../../transport/types'
 import { remoteErrorDetails } from '../error-reply'
 import { sendUntilMaybeDelivered } from '../transport-failure'
 import { abandonedWriteFrom, conditionFields, withAbandonedWrite } from './abandoned-write'
 import { resolveNodeTargets } from './assignment'
 import type { WriteRoutingDeps } from './types'
-
-const CARRIER_ERROR_TYPE = 'error'
 
 export function assertForwardResponse(
   response: TransportMessage,
@@ -111,15 +103,6 @@ export async function forwardRemoveToRemote(
   const message = createForwardMessage(payload, deps.nodeId)
   const response = await sendToNode(primaryNodeId, message, deps)
   assertForwardResponse(response, indexName, primaryNodeId)
-}
-
-function refuseCarrierFailure(answer: TransportMessage, target: string): TransportMessage {
-  if (answer.type !== CARRIER_ERROR_TYPE) return answer
-  throw new TransportError(
-    TransportErrorCodes.PEER_UNAVAILABLE,
-    `The listener on '${target}' failed: ${new TextDecoder().decode(answer.payload)}`,
-    { target, requestId: answer.requestId },
-  )
 }
 
 export async function sendToNode(
