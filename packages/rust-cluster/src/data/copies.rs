@@ -9,7 +9,7 @@ use crate::error::{ClusterError, ClusterResult, codes};
 
 pub(super) struct LocalCopies {
     node_id: String,
-    engine: Narsil,
+    pub(super) engine: Narsil,
     orphaned: Mutex<HashSet<String>>,
     unreadable: Mutex<HashSet<String>>,
     explicit_drop: Mutex<()>,
@@ -237,6 +237,21 @@ impl LocalCopies {
 
     pub(super) fn adopt(&self, index_name: &str, index_uuid: &str) -> ClusterResult<()> {
         Ok(PartitionCopies::new(&self.engine).adopt(index_name, index_uuid)?)
+    }
+
+    pub(super) fn apply_stored_settings(
+        &self,
+        index_name: &str,
+        index_uuid: &str,
+        config: &IndexConfig,
+    ) -> ClusterResult<()> {
+        if self.index_uuid(index_name)?.as_deref() != Some(index_uuid) {
+            return Ok(());
+        }
+        let rules = config.synonyms.as_deref().unwrap_or_default();
+        self.engine.update_synonyms(index_name, rules)?;
+        let bm25 = config.bm25.clone().unwrap_or_default();
+        Ok(self.engine.update_bm25(index_name, &bm25)?)
     }
 
     pub(super) fn drop_superseded(&self, index_name: &str) -> ClusterResult<()> {

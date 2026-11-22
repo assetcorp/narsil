@@ -4,6 +4,7 @@ use narsil::Value;
 
 use super::blocking::off_executor;
 use super::copies::LocalCopies;
+use super::stored_index::stored_index;
 use crate::controller::index_metadata;
 use crate::coordinator::etcd::EtcdCoordinator;
 use crate::error::{ClusterError, ClusterResult, codes};
@@ -42,16 +43,48 @@ async fn settle(
             )));
         }
     };
-    if local_uuid.as_deref() == Some(cluster_uuid.as_str()) {
-        return Ok(Settled::Claimed);
+    match local_uuid {
+        Some(local_uuid) if local_uuid == cluster_uuid => {}
+        Some(_) => {
+            let (held, name) = (Arc::clone(copies), index_name.to_string());
+            off_executor(move || held.drop_superseded(&name)).await??;
+            return Ok(Settled::Claimed);
+        }
+        None => {
+            let (held, name, uuid) = (
+                Arc::clone(copies),
+                index_name.to_string(),
+                cluster_uuid.clone(),
+            );
+            off_executor(move || held.adopt(&name, &uuid)).await??;
+        }
+    }
+    match apply_stored_settings(coordinator, copies, index_name, &cluster_uuid).await {
+        Ok(()) => Ok(Settled::Claimed),
+        Err(error) => Ok(Settled::Unreadable(format!(
+            "its synonym set and BM25 setting could not be read or applied: {error}"
+        ))),
+    }
+}
+
+async fn apply_stored_settings(
+    coordinator: &EtcdCoordinator,
+    copies: &Arc<LocalCopies>,
+    index_name: &str,
+    cluster_uuid: &str,
+) -> ClusterResult<()> {
+    let Some(schema) = coordinator.schema(index_name).await? else {
+        return Ok(());
+    };
+    let Some(stored) = stored_index(coordinator, index_name, &schema).await? else {
+        return Ok(());
+    };
+    if stored.index_uuid != cluster_uuid {
+        return Ok(());
     }
     let (held, name) = (Arc::clone(copies), index_name.to_string());
-    off_executor(move || match local_uuid {
-        Some(_) => held.drop_superseded(&name),
-        None => held.adopt(&name, &cluster_uuid),
-    })
-    .await??;
-    Ok(Settled::Claimed)
+    off_executor(move || held.apply_stored_settings(&name, &stored.index_uuid, &stored.config))
+        .await?
 }
 
 fn orphan_report(node_id: &str, index_name: &str, reason: &str) -> ClusterError {

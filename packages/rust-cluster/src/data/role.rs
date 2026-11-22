@@ -10,6 +10,7 @@ use super::lost_copy::LostCopyWait;
 use super::partition_stores::{partition_stores_answer, requested_index};
 use super::reconcile::settle_local_indexes;
 use super::watcher::{AllocationWatcher, WatcherSettings};
+use super::writes::{AllocationView, PrimaryWrites, PrimaryWritesSettings};
 use crate::controller::lock;
 use crate::coordinator::etcd::EtcdCoordinator;
 use crate::error::ClusterResult;
@@ -24,6 +25,7 @@ pub(crate) struct DataRole {
     on_error: Option<NodeErrorHandler>,
     settled: Mutex<Option<Arc<LocalCopies>>>,
     watcher: tokio::sync::Mutex<Option<AllocationWatcher>>,
+    writes: Mutex<Option<Arc<PrimaryWrites>>>,
 }
 
 impl DataRole {
@@ -40,6 +42,7 @@ impl DataRole {
             on_error,
             settled: Mutex::new(None),
             watcher: tokio::sync::Mutex::new(None),
+            writes: Mutex::new(None),
         }
     }
 
@@ -79,14 +82,39 @@ impl DataRole {
         transport: Arc<dyn NodeTransport>,
     ) -> ClusterResult<()> {
         let copies = self.settled_copies()?;
+        let view = Arc::new(AllocationView::new(Arc::clone(&self.coordinator)));
+        if let Err(error) = view.start().await {
+            view.stop();
+            return Err(error);
+        }
+        let writes = Arc::new(PrimaryWrites::new(PrimaryWritesSettings {
+            node_id: self.node_id.clone(),
+            coordinator: Arc::clone(&self.coordinator),
+            transport: Arc::clone(&transport),
+            copies: Arc::clone(&copies),
+            view: Arc::clone(&view),
+            on_error: self.on_error.clone(),
+        }));
         let started = AllocationWatcher::start(WatcherSettings {
             node_id: self.node_id.clone(),
             coordinator: Arc::clone(&self.coordinator),
             transport,
             copies,
+            view,
+            writes: Arc::clone(&writes),
             on_error: self.on_error.clone(),
         })
-        .await?;
+        .await;
+        let started = match started {
+            Ok(started) => started,
+            Err(error) => {
+                writes.stop();
+                return Err(error);
+            }
+        };
+        if let Some(previous) = lock(&self.writes).replace(writes) {
+            previous.stop();
+        }
         if let Some(previous) = self.watcher.lock().await.replace(started) {
             previous.stop().await;
         }
@@ -94,15 +122,36 @@ impl DataRole {
     }
 
     pub(crate) fn answers(message_type: &str) -> bool {
-        message_type == message_types::CLUSTER_PARTITION_STORES
+        matches!(
+            message_type,
+            message_types::CLUSTER_PARTITION_STORES
+                | message_types::REPLICATION_FORWARD
+                | message_types::REPLICATION_FORWARD_BATCH
+        )
     }
 
     pub(crate) async fn answer(&self, message: TransportMessage, respond: Respond) {
-        let reply = match self.answer_partition_stores(&message).await {
-            Ok(reply) => reply,
-            Err(error) => refusal(&message, &self.node_id, &error),
+        let reply = match message.message_type.as_str() {
+            message_types::REPLICATION_FORWARD => match self.primary_writes() {
+                Ok(writes) => writes.answer_forward(&message).await,
+                Err(error) => refusal(&message, &self.node_id, &error),
+            },
+            message_types::REPLICATION_FORWARD_BATCH => match self.primary_writes() {
+                Ok(writes) => writes.answer_forward_batch(&message).await,
+                Err(error) => refusal(&message, &self.node_id, &error),
+            },
+            _ => match self.answer_partition_stores(&message).await {
+                Ok(reply) => reply,
+                Err(error) => refusal(&message, &self.node_id, &error),
+            },
         };
         respond.send(reply).await;
+    }
+
+    fn primary_writes(&self) -> ClusterResult<Arc<PrimaryWrites>> {
+        lock(&self.writes)
+            .clone()
+            .ok_or_else(|| not_ready(&self.node_id))
     }
 
     async fn answer_partition_stores(
@@ -112,11 +161,19 @@ impl DataRole {
         let index_name = requested_index(message)?;
         let copies = self.settled_copies()?;
         let name = index_name.clone();
-        let stored = off_executor(move || copies.stored_partitions(&name)).await??;
+        let mut stored = off_executor(move || copies.stored_partitions(&name)).await??;
+        if let Some(writes) = lock(&self.writes).clone() {
+            stored
+                .partition_ids
+                .retain(|partition_id| !writes.copy_unlisted(&index_name, *partition_id));
+        }
         partition_stores_answer(message, &self.node_id, &index_name, stored)
     }
 
     pub(crate) async fn close(&self) {
+        if let Some(writes) = lock(&self.writes).take() {
+            writes.stop();
+        }
         if let Some(watcher) = self.watcher.lock().await.take() {
             watcher.stop().await;
         }
@@ -151,7 +208,11 @@ impl DataRole {
 
     pub(crate) async fn drop_orphaned_copy(&self, index_name: &str) -> ClusterResult<()> {
         let copies = self.settled_copies()?;
-        let index_name = index_name.to_string();
-        off_executor(move || copies.drop_orphaned(&index_name)).await?
+        let name = index_name.to_string();
+        off_executor(move || copies.drop_orphaned(&name)).await??;
+        if let Some(writes) = lock(&self.writes).clone() {
+            writes.forget_index(index_name);
+        }
+        Ok(())
     }
 }

@@ -56,7 +56,9 @@ impl WatcherContext {
             return Ok(());
         }
         let (copies, name) = (Arc::clone(&self.copies), index_name.to_string());
-        off_executor(move || copies.drop_copy_of(&name, &local_uuid)).await?
+        off_executor(move || copies.drop_copy_of(&name, &local_uuid)).await??;
+        self.writes.forget_index(index_name);
+        Ok(())
     }
 
     async fn checked_schema(
@@ -143,6 +145,7 @@ impl WatcherContext {
                 self.report(&error);
                 return Ok(false);
             }
+            self.writes.forget_index(index_name);
         }
         let floor = assignment.as_ref().map(|assignment| CopyPosition {
             seq_no: assignment.commit_point as u64,

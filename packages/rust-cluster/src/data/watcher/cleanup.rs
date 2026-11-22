@@ -45,7 +45,9 @@ impl WatcherContext {
             index_name.to_string(),
             index_uuid.to_string(),
         );
-        off_executor(move || copies.drop_copy_of(&name, &uuid)).await?
+        off_executor(move || copies.drop_copy_of(&name, &uuid)).await??;
+        self.writes.forget_index(index_name);
+        Ok(())
     }
 
     pub(super) async fn hold_partition(self: &Arc<Self>, key: PartitionKey) {
@@ -88,6 +90,7 @@ impl WatcherContext {
         let copies = Arc::clone(&self.copies);
         let (name, partition_id) = (key.0.clone(), key.1);
         off_executor(move || copies.forget_partition(&name, partition_id)).await??;
+        self.writes.forget_partition(&key.0, key.1);
         let replaced = self.replaced_removed_copy(&key.0, &removed_uuid).await;
         if !replaced && self.holds_other_partitions(&key.0, key.1).await {
             return Ok(());
