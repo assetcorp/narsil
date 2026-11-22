@@ -56,6 +56,12 @@ function batchOutcome(result) {
   }
 }
 
+function withVectors(document, vectorFields = []) {
+  const converted = { ...document }
+  for (const field of vectorFields) converted[field] = Float32Array.from(converted[field])
+  return converted
+}
+
 async function indexConfig(schema, config = {}) {
   const { language, stopWords, ...rest } = config
   if (language !== undefined && language !== 'english') {
@@ -76,8 +82,10 @@ const operations = {
       replicationFactor,
       waitForServingMs: 30_000,
     }),
-  insert: ({ indexName, documentId, document }) => node.insert(indexName, document, documentId ?? undefined),
-  update: ({ indexName, documentId, document }) => node.update(indexName, documentId, document),
+  insert: ({ indexName, documentId, document, vectorFields }) =>
+    node.insert(indexName, withVectors(document, vectorFields), documentId ?? undefined),
+  update: ({ indexName, documentId, document, vectorFields }) =>
+    node.update(indexName, documentId, withVectors(document, vectorFields)),
   remove: ({ indexName, documentId }) => node.remove(indexName, documentId),
   insertBatch: async ({ indexName, documents }) => batchOutcome(await node.insertBatch(indexName, documents)),
   updateBatch: async ({ indexName, updates }) => batchOutcome(await node.updateBatch(indexName, updates)),

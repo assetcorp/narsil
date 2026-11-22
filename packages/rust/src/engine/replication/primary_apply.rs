@@ -2,19 +2,21 @@ use std::collections::HashMap;
 
 use super::copy_state::ReplicatedCopy;
 use super::primary_room::PrimaryRoom;
+use super::types::entry_bytes;
 use super::{
     CopyPosition, EntryOperation, PrimaryLimits, PrimaryRefusal, PrimaryWrite, PrimaryWritten,
     PriorDocument, ReplicatedEntry, WriteRecord,
 };
 use crate::engine::EngineInner;
+use crate::engine::durable::load::restore_vector_bytes;
 use crate::engine::index::IndexState;
+use crate::engine::vectors::paths::{set_value_at, value_at};
 use crate::engine::writes::{
     apply_primary_insert, apply_primary_remove, apply_primary_update, replay_delete, replay_index,
 };
 use crate::error::{ErrorCode, NarsilError, Result};
+use crate::util::bytes::float32_bytes;
 use crate::value::{MAX_SAFE_INTEGER, Map, Value, decode_document, encode_document};
-
-const ENTRY_FIXED_BYTES: u64 = 40;
 
 pub(super) struct Candidate {
     pub(super) id: String,
@@ -44,9 +46,29 @@ impl EngineInner {
 pub(super) fn put_back(index: &IndexState, written: &PrimaryWritten) -> Result<()> {
     let id = &written.entry.document_id;
     match &written.prior {
-        Some(prior) => replay_index(index, id, decode_document(&prior.document)?),
+        Some(prior) => {
+            let mut document = decode_document(&prior.document)?;
+            restore_vector_bytes(index, &mut document)?;
+            replay_index(index, id, document)
+        }
         None => replay_delete(index, id),
     }
+}
+
+fn entry_document(index: &IndexState, document: &Map) -> Result<Vec<u8>> {
+    let mut packed: Option<Map> = None;
+    for field in index.vectors.fields() {
+        let held = packed.as_ref().unwrap_or(document);
+        let Some(Value::Array(values)) = value_at(held, &field.path) else {
+            continue;
+        };
+        let Some(bytes) = float32_bytes(values) else {
+            continue;
+        };
+        let target = packed.get_or_insert_with(|| document.clone());
+        set_value_at(target, &field.path, Value::Bytes(bytes));
+    }
+    encode_document(packed.as_ref().unwrap_or(document))
 }
 
 /// The writes of one call on the primary, applied one after another while the caller holds the write lock.
@@ -140,13 +162,9 @@ impl<'a> PrimaryTurn<'a> {
             return Ok(None);
         };
         Ok(Some(PriorDocument {
-            document: encode_document(&held)?,
+            document: entry_document(self.index, &held)?,
             record: self.record_of(id)?,
         }))
-    }
-
-    fn entry_bytes(&self, id: &str, document: usize, previous: usize) -> u64 {
-        ENTRY_FIXED_BYTES + (self.index.name.len() + id.len() + document + previous) as u64
     }
 
     fn apply(&mut self, candidate: Candidate) -> Outcome {
@@ -170,13 +188,17 @@ impl<'a> PrimaryTurn<'a> {
             )
             .into());
         }
-        let encoded = document.as_ref().map(encode_document).transpose()?;
+        let encoded = document
+            .as_ref()
+            .map(|document| entry_document(index, document))
+            .transpose()?;
         let prior = if inserts { None } else { self.prior_of(&id)? };
         let previous_document = self
             .limits
             .records_previous_documents
             .then(|| prior.as_ref().map(|held| held.document.clone()));
-        let bytes = self.entry_bytes(
+        let bytes = entry_bytes(
+            &index.name,
             &id,
             encoded.as_ref().map_or(0, Vec::len),
             previous_document

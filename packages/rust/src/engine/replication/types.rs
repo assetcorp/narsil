@@ -1,3 +1,4 @@
+use crate::engine::constants::REPLICATION_ENTRY_FIXED_OVERHEAD_BYTES;
 use crate::error::NarsilError;
 use crate::format::wal::{EntryPlace, LogEntry, Operation};
 use crate::value::Map;
@@ -56,6 +57,22 @@ impl ReplicatedEntry {
         )
         .checksum as u32
     }
+
+    /// Returns the bytes that the entry takes in a replication log of `index`, which a primary compares with
+    /// [`PrimaryLimits::max_entry_bytes`] and a log counts toward its retention limit.
+    pub fn byte_estimate(&self, index: &str) -> u64 {
+        let previous = match &self.previous_document {
+            Some(Some(document)) => document.len(),
+            _ => 0,
+        };
+        let document = self.document.as_ref().map_or(0, Vec::len);
+        entry_bytes(index, &self.document_id, document, previous)
+    }
+}
+
+pub(crate) fn entry_bytes(index: &str, document_id: &str, document: usize, previous: usize) -> u64 {
+    REPLICATION_ENTRY_FIXED_OVERHEAD_BYTES
+        + (index.len() + document_id.len() + document + previous) as u64
 }
 
 /// The highest entry that a copy of a partition holds, which is zero in both fields for an empty copy.
@@ -94,14 +111,15 @@ pub enum PrimaryWrite {
     Insert {
         /// The ID that the document is stored under.
         document_id: String,
-        /// The whole document.
+        /// The whole document, where a vector is a list of numbers or the little-endian bytes of its float32 values.
         document: Map,
     },
     /// Replaces a document that the partition holds.
     Update {
         /// The ID that the document is stored under.
         document_id: String,
-        /// The whole new document.
+        /// The whole new document, where a vector is a list of numbers or the little-endian bytes of its float32
+        /// values.
         document: Map,
     },
     /// Removes a document that the partition holds.
@@ -133,7 +151,7 @@ pub struct PrimaryLimits {
 /// The document that a write replaced or removed, which the write's compensation stores again.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PriorDocument {
-    /// The whole document as MessagePack, vectors included.
+    /// The whole document as MessagePack, with each vector as the little-endian bytes of its float32 values.
     pub document: Vec<u8>,
     /// The entry that had written the document, where the copy holds its record.
     pub record: Option<WriteRecord>,
@@ -172,7 +190,7 @@ pub struct PrimaryRun {
     /// One outcome for each write, in the order of the writes.
     pub outcomes: Vec<std::result::Result<PrimaryWritten, PrimaryRefusal>>,
     /// The failure that stops the copy from taking another entry, where the log failed. Every outcome is a refusal
-    /// where the copy put the writes back.
+    /// where the log refused the writes, whether or not the copy managed to put each one back.
     pub failure: Option<NarsilError>,
 }
 

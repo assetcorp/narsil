@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use narsil::Value;
+use narsil::{Map, Value};
 use narsil_cluster::coordinator::etcd::EtcdCoordinatorConfig;
 
 use crate::data_node::{DataNode, Scratch, coordinator_at, etcd_endpoint, unique_key_prefix};
@@ -18,8 +18,57 @@ const BEYOND_ONE_MESSAGE: usize = 3_500;
 const UUID_TEXT_LENGTH: usize = 36;
 const UUID_VERSION_AT: usize = 14;
 
+const VECTOR_DOCUMENT_ID: &str = "from-typescript-with-vector";
+
 fn is_uuid_version_seven(document_id: &str) -> bool {
     document_id.len() == UUID_TEXT_LENGTH && document_id.as_bytes()[UUID_VERSION_AT] == b'7'
+}
+
+fn numbers(values: [f64; 3]) -> Value {
+    Value::Array(values.into_iter().map(Value::from).collect())
+}
+
+async fn forward_vector_write(
+    forwarder: &mut TypescriptNode,
+    operation: &str,
+    title: &str,
+    embedding: [f64; 3],
+) {
+    let document = fields([
+        ("title", Value::from(title)),
+        ("embedding", numbers(embedding)),
+    ]);
+    forwarder
+        .call(
+            operation,
+            fields([
+                ("indexName", Value::from(INDEX)),
+                ("documentId", Value::from(VECTOR_DOCUMENT_ID)),
+                ("document", Value::Object(document)),
+                ("vectorFields", Value::Array(vec![Value::from("embedding")])),
+            ]),
+        )
+        .await
+        .value();
+}
+
+async fn held_embedding(nodes: &[DataNode], holders: &BTreeMap<u32, Vec<String>>) -> Value {
+    let partition_id = fnv1a_partition(VECTOR_DOCUMENT_ID, PARTITIONS);
+    let holder = nodes
+        .iter()
+        .find(|node| {
+            holders[&partition_id]
+                .iter()
+                .any(|id| id == node.node.node_id())
+        })
+        .expect("a Rust node holds the vector document's partition");
+    let held = holder
+        .node
+        .local_document(INDEX, VECTOR_DOCUMENT_ID)
+        .await
+        .expect("the Rust primary reads its copy")
+        .expect("the Rust primary holds the vector document");
+    held.get("embedding").cloned().unwrap_or(Value::Null)
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -47,8 +96,18 @@ async fn a_typescript_node_forwards_every_write_to_the_rust_primary_of_its_parti
         "coordinator",
     )
     .await;
+    let schema = Value::Object(fields([
+        ("title", Value::from("string")),
+        ("embedding", Value::from("vector[3]")),
+    ]));
     forwarder
-        .create_index(INDEX, u64::from(PARTITIONS), REPLICATION_FACTOR)
+        .create_index_with_schema(
+            INDEX,
+            u64::from(PARTITIONS),
+            REPLICATION_FACTOR,
+            schema,
+            Map::new(),
+        )
         .await;
     let holders = settled_holders(&coordinator, INDEX, PARTITIONS).await;
 
@@ -99,6 +158,23 @@ async fn a_typescript_node_forwards_every_write_to_the_rust_primary_of_its_parti
         duplicate.code(),
         Some("DOC_ALREADY_EXISTS"),
         "{duplicate:?}"
+    );
+
+    let inserted_embedding = [0.5, -1.25, 3.0];
+    forward_vector_write(&mut forwarder, "insert", "a vector", inserted_embedding).await;
+    assert_eq!(
+        held_embedding(&nodes, &holders).await,
+        numbers(inserted_embedding)
+    );
+    let updated_embedding = [2.0, 0.25, -4.0];
+    forward_vector_write(&mut forwarder, "update", "a new vector", updated_embedding).await;
+    assert_eq!(
+        held_embedding(&nodes, &holders).await,
+        numbers(updated_embedding)
+    );
+    expected.insert(
+        VECTOR_DOCUMENT_ID.to_string(),
+        Some("a new vector".to_string()),
     );
 
     let node_refs: Vec<&DataNode> = nodes.iter().collect();
