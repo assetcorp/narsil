@@ -9,6 +9,7 @@ import {
   runDockerOnFreePort,
 } from '../../distribution/coordinator/etcd-integration/fixtures'
 import type { TlsBundles } from '../../distribution/transport/tcp-tls/fixtures'
+import { MAX_RESOURCE_PREFIX_LENGTH } from './constants'
 
 const MEMBER_COUNT = 3
 const CERTIFICATE_DIRECTORY = '/certs'
@@ -29,7 +30,11 @@ export interface EtcdMembers {
 export async function startEtcdMembers(bundles: TlsBundles | null): Promise<EtcdMembers> {
   const run = randomUUID().slice(0, 8)
   const prefix = process.env.NARSIL_FAULT_RESOURCE_PREFIX
-  if (prefix !== undefined && !/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(prefix)) throw new Error('Invalid resource prefix')
+  if (
+    prefix !== undefined &&
+    (!/^[a-zA-Z0-9][a-zA-Z0-9-]*$/.test(prefix) || prefix.length > MAX_RESOURCE_PREFIX_LENGTH)
+  )
+    throw new Error('Invalid resource prefix')
   const network = prefix === undefined ? `narsil-fault-net-${run}` : `${prefix}-net`
   const secure = bundles !== null
   const scheme = secure ? 'https' : 'http'

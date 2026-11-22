@@ -6,14 +6,22 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { promisify } from 'node:util'
-import { CLEANUP_TIMEOUT_MS, MAX_SEED, PROCESS_POLL_MS, RUN_TIMEOUT_MS, STOP_GRACE_MS } from './constants.mjs'
+import {
+  CLEANUP_TIMEOUT_MS,
+  MAX_RESOURCE_PREFIX_LENGTH,
+  MAX_SEED,
+  PROCESS_POLL_MS,
+  RUN_TIMEOUT_MS,
+  STOP_GRACE_MS,
+} from './constants.mjs'
 
 const execute = promisify(execFile)
 const seed = process.argv[2]
 if (!/^(0|[1-9]\d*)$/.test(seed ?? '') || Number(seed) >= MAX_SEED || !process.connected)
   throw new Error('The campaign runner must start the supervisor with a valid seed and an IPC channel')
-const prefix = `${process.env.NARSIL_FAULT_RESOURCE_PREFIX ?? 'narsil-fault-campaign'}-${randomUUID()}`
-if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(prefix)) throw new Error('Invalid resource prefix')
+const prefix = `${process.env.NARSIL_FAULT_RESOURCE_PREFIX ?? 'narsil-fault-campaign'}-${randomUUID().replaceAll('-', '')}`
+if (!/^[a-zA-Z0-9][a-zA-Z0-9-]*$/.test(prefix) || prefix.length > MAX_RESOURCE_PREFIX_LENGTH)
+  throw new Error('Invalid resource prefix')
 let stopping = false
 let timedOut = false
 const temporaryDirectory = mkdtempSync(join(tmpdir(), `${prefix}-`))

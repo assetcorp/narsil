@@ -7,3 +7,4 @@ export const MIN_MINUTES = 9
 export const MAX_MINUTES = 30
 export const MAX_SEED = 2 ** 31
 export const MAX_SEED_FILE_BYTES = 4_096
+export const MAX_RESOURCE_PREFIX_LENGTH = 56
