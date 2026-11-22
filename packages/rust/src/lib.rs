@@ -38,7 +38,7 @@ pub use analysis::{Language, StopWordFunction, StopWords, Token, TokenSource, To
 pub use config::{
     AdapterSetting, Bm25FieldParams, Bm25Params, EmbeddingConfig, HnswSettings, IndexConfig,
     Metric, PartitionConfig, Quantization, ScoringMode, StopWordsSetting, Storage, SynonymRule,
-    TokenizerSetting, VectorPromotion,
+    TokenizerSetting, VectorPromotion, index_config_from_stored_settings,
 };
 pub use durability::persistence::{FilesystemPersistence, MemoryPersistence, PersistenceAdapter};
 #[doc(hidden)]

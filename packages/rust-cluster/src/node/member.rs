@@ -20,7 +20,7 @@ use crate::data::DataRole;
 use crate::error::{ClusterError, ClusterResult, codes};
 use crate::message::{TransportMessage, message_types, refusal};
 use crate::node::NodeErrorHandler;
-use crate::transport::{Listening, NodeTransport, Respond, listen_handler};
+use crate::transport::{BoxFuture, Listening, NodeTransport, Respond, listen_handler};
 
 const CONTROLLER_ROLE: &str = "controller";
 const PARTITION_BYTES_FIELD: &str = "partitionBytes";
@@ -51,6 +51,7 @@ pub(super) struct NodeInner {
     pub(super) stopping: watch::Sender<bool>,
     joined: AtomicBool,
     registered: AtomicBool,
+    controller_standing: AtomicBool,
     heartbeat: Mutex<Option<Heartbeat>>,
     listening: Mutex<Option<Listening>>,
 }
@@ -118,6 +119,7 @@ impl NodeInner {
             stopping: watch::Sender::new(false),
             joined: AtomicBool::new(false),
             registered: AtomicBool::new(false),
+            controller_standing: AtomicBool::new(false),
             heartbeat: Mutex::new(None),
             listening: Mutex::new(None),
         }
@@ -140,20 +142,75 @@ impl NodeInner {
         if message.message_type == message_types::CLUSTER_PING {
             return respond.send(answer_ping(&message, node_id)).await;
         }
-        if !self.joined.load(Ordering::Acquire) || !is_controller_message(&message.message_type) {
-            return respond
-                .send(refusal(&message, node_id, &not_ready(node_id)))
-                .await;
+        let joined = self.joined.load(Ordering::Acquire);
+        if is_controller_message(&message.message_type) {
+            return match &self.controller {
+                Some(controller) if controller.is_listening() => {
+                    controller.handle(message, respond).await
+                }
+                _ if !joined => {
+                    respond
+                        .send(refusal(&message, node_id, &not_ready(node_id)))
+                        .await
+                }
+                _ => {
+                    respond
+                        .send(refusal(&message, node_id, &not_controller(node_id)))
+                        .await
+                }
+            };
         }
-        match &self.controller {
-            Some(controller) if controller.is_listening() => {
-                controller.handle(message, respond).await
+        match &self.data {
+            Some(data) if joined && DataRole::answers(&message.message_type) => {
+                data.answer(message, respond).await
             }
             _ => {
                 respond
-                    .send(refusal(&message, node_id, &not_controller(node_id)))
+                    .send(refusal(&message, node_id, &not_ready(node_id)))
                     .await
             }
+        }
+    }
+
+    async fn stand_early(&self) {
+        let Some(controller) = &self.controller else {
+            return;
+        };
+        if self.controller_standing.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        if let Err(error) = controller.start().await {
+            self.report(&error);
+        }
+    }
+
+    async fn holds_registration(&self) -> ClusterResult<bool> {
+        let registered = self.coordinator.list_nodes().await?;
+        Ok(registered.iter().any(|node| node.node_id == self.node_id()))
+    }
+
+    async fn wait_until_free_to_register(self: &Arc<Self>) -> ClusterResult<()> {
+        let mut stopping = self.stopping.subscribe();
+        let Some(data) = &self.data else {
+            return Ok(());
+        };
+        let inner = Arc::clone(self);
+        let stand_for_election = move || -> BoxFuture<'static, ()> {
+            let inner = Arc::clone(&inner);
+            Box::pin(async move { inner.stand_early().await })
+        };
+        loop {
+            data.wait_for_lost_copies(&mut stopping, &stand_for_election)
+                .await?;
+            if !self.holds_registration().await? {
+                return Ok(());
+            }
+            wait_for_earlier_registration_to_lapse(
+                &self.coordinator,
+                self.node_id(),
+                &mut stopping,
+            )
+            .await?;
         }
     }
 
@@ -253,13 +310,20 @@ impl NodeInner {
         if let Some(data) = &self.data {
             data.open().await?;
             self.abort_if_stopping()?;
+            self.wait_until_free_to_register().await?;
+            self.abort_if_stopping()?;
         }
         self.coordinator.register_node(&self.registration).await?;
         self.registered.store(true, Ordering::Release);
         self.start_heartbeat();
+        if let Some(data) = &self.data {
+            data.follow_allocations(Arc::clone(&self.transport)).await?;
+        }
         self.joined.store(true, Ordering::Release);
         self.abort_if_stopping()?;
-        if let Some(controller) = &self.controller {
+        if let Some(controller) = &self.controller
+            && !self.controller_standing.swap(true, Ordering::AcqRel)
+        {
             controller.start().await?;
         }
         Ok(())
@@ -270,6 +334,7 @@ impl NodeInner {
         if let Some(controller) = &self.controller {
             controller.stop().await;
         }
+        self.controller_standing.store(false, Ordering::Release);
         self.stop_heartbeat().await;
         if self.registered.swap(false, Ordering::AcqRel)
             && let Err(error) = self.coordinator.deregister_node(self.node_id()).await

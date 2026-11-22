@@ -16,6 +16,7 @@ import { createLinkedCluster, type LinkedCluster, type LinkedMember } from './li
 const INDEX = 'catalogue'
 const CONFIG = { language: 'english', schema: { title: 'string' } } as const
 const SETTLED_WITHIN_MS = 30_000
+const COUNT_RETRY_MS = 100
 const UNANSWERED_FOR_MS = 2_500
 const WATCH_DELIVERED_MS = 750
 const RETRY_WINDOW_MS = 30_000
@@ -188,6 +189,18 @@ async function expectTitles(node: ClusterNode, expected: ReadonlyMap<string, str
   const stored = await node.getMultiple(INDEX, [...ids])
   expect(new Map([...stored].map(([id, document]) => [id, document.title]))).toEqual(expected)
   expect(await node.countDocuments(INDEX)).toBe(expected.size)
+}
+
+async function countOnceRoutable(node: ClusterNode): Promise<number> {
+  const deadline = Date.now() + SETTLED_WITHIN_MS
+  while (true) {
+    try {
+      return await node.countDocuments(INDEX)
+    } catch (error) {
+      if (refusalOf(error).code !== 'QUERY_NO_ACTIVE_REPLICA' || Date.now() >= deadline) throw error
+    }
+    await sleep(COUNT_RETRY_MS)
+  }
 }
 
 describe('writes to a partition that is INITIALISING', () => {
@@ -375,7 +388,7 @@ describe('writes to a partition that is INITIALISING', () => {
       ]),
     )
     for (const answer of answers) expect(answer.refusals, answer.write).toEqual([])
-    expect(await router.node.countDocuments(INDEX)).toBe(writers.length * 3)
+    expect(await countOnceRoutable(router.node)).toBe(writers.length * 3)
   }, 120_000)
 
   it('copies no document into a starting target partition, and finishes the rebalance once it is ACTIVE', async () => {

@@ -31,7 +31,9 @@ use crate::message::TransportMessage;
 use crate::transport::{NodeTransport, Respond};
 
 pub(crate) use self::messages::is_controller_message;
-pub(crate) use self::metadata::index_metadata;
+pub(crate) use self::metadata::{IndexMetadata, index_metadata, stored_index_metadata};
+pub(crate) use self::settings::stored_settings_readable;
+pub(crate) use self::table::belongs_to_another_index;
 
 pub(crate) type ControllerErrorHandler = Arc<dyn Fn(&str, &ClusterError) + Send + Sync>;
 

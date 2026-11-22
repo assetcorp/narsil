@@ -71,6 +71,17 @@ pub const PARTITION_STORES_TIMEOUT_MS: u64 = 5_000;
 pub const HOLDER_RETRY_BASE_MS: u64 = 1_000;
 pub const HOLDER_RETRY_CEILING_MS: u64 = 30_000;
 
+pub const DATA_ALLOCATION_DEBOUNCE_MS: u64 = 250;
+pub const BOOTSTRAP_RETRY_BASE_MS: u64 = 1_000;
+pub const BOOTSTRAP_RETRY_MAX_MS: u64 = 5_000;
+pub const BOOTSTRAP_MAX_RETRIES: u32 = 10;
+pub const BOOTSTRAP_RESTART_DELAY_MS: u64 = 1_000;
+pub const LOST_COPY_RETRY_MS: u64 = 1_000;
+pub const SYNONYM_CHUNK_BYTES: u64 = 1_048_576;
+pub const SYNONYM_SET_KEY_PREFIX: &str = "_narsil/synonyms/";
+pub const MAX_SYNONYM_GENERATION_LENGTH: usize = 128;
+pub const MAX_SCHEMA_DEPTH: usize = 4;
+
 pub const CHANGE_CAPTURE_SPEC_VERSION: &str = "1.5";
 pub const HIDDEN_GENERATION_PREFIX: &str = "narsil-generation-";
 pub const REBALANCE_RECORD_KEY_SUFFIX: &str = "/rebalance";

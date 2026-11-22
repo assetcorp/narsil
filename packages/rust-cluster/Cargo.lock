@@ -296,6 +296,7 @@ dependencies = [
  "prost",
  "rcgen",
  "rustls-pki-types",
+ "sha2",
  "tokio",
  "tokio-rustls",
  "tonic",
