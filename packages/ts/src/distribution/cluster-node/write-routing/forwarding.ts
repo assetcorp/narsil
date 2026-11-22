@@ -3,12 +3,21 @@ import { encodeDocument } from '../../../serialization/document-encoding'
 import { decode } from '../../../serialization/msgpack'
 import type { AnyDocument } from '../../../types/schema'
 import { createForwardMessage } from '../../replication/codec'
-import type { ForwardPayload, NodeTransport, TransportMessage, WriteCondition } from '../../transport/types'
+import {
+  type ForwardPayload,
+  type NodeTransport,
+  TransportError,
+  TransportErrorCodes,
+  type TransportMessage,
+  type WriteCondition,
+} from '../../transport/types'
 import { remoteErrorDetails } from '../error-reply'
 import { sendUntilMaybeDelivered } from '../transport-failure'
 import { abandonedWriteFrom, conditionFields, withAbandonedWrite } from './abandoned-write'
 import { resolveNodeTargets } from './assignment'
 import type { WriteRoutingDeps } from './types'
+
+const CARRIER_ERROR_TYPE = 'error'
 
 export function assertForwardResponse(
   response: TransportMessage,
@@ -104,13 +113,23 @@ export async function forwardRemoveToRemote(
   assertForwardResponse(response, indexName, primaryNodeId)
 }
 
+function refuseCarrierFailure(answer: TransportMessage, target: string): TransportMessage {
+  if (answer.type !== CARRIER_ERROR_TYPE) return answer
+  throw new TransportError(
+    TransportErrorCodes.PEER_UNAVAILABLE,
+    `The listener on '${target}' failed: ${new TextDecoder().decode(answer.payload)}`,
+    { target, requestId: answer.requestId },
+  )
+}
+
 export async function sendToNode(
   nodeId: string,
   message: ReturnType<typeof createForwardMessage>,
   deps: WriteRoutingDeps,
 ): Promise<Awaited<ReturnType<NodeTransport['send']>>> {
   const targets = await resolveNodeTargets(nodeId, deps)
-  return sendUntilMaybeDelivered(targets, target => deps.transport.send(target, message), {
+  const send = async (target: string) => refuseCarrierFailure(await deps.transport.send(target, message), target)
+  return sendUntilMaybeDelivered(targets, send, {
     message: `Node '${nodeId}' did not answer a forwarded write`,
     details: { targetNodeId: nodeId },
   })
