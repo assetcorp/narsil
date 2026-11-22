@@ -32,9 +32,28 @@ function batchOutcome(result) {
   }
 }
 
+const { registerLanguage } = await load('index.mjs')
+
+async function indexConfig(schema, config = {}) {
+  const { language, stopWords, ...rest } = config
+  if (language !== undefined && language !== 'english') {
+    registerLanguage((await load(`languages/${language}.mjs`))[language])
+  }
+  return {
+    schema,
+    ...rest,
+    ...(language === undefined ? {} : { language }),
+    ...(stopWords === undefined ? {} : { stopWords: new Set(stopWords) }),
+  }
+}
+
 const operations = {
-  createIndex: ({ indexName, schema, partitionCount, replicationFactor }) =>
-    node.createIndex(indexName, { schema }, { partitionCount, replicationFactor, waitForServingMs: 30_000 }),
+  createIndex: async ({ indexName, schema, partitionCount, replicationFactor, config }) =>
+    node.createIndex(indexName, await indexConfig(schema, config), {
+      partitionCount,
+      replicationFactor,
+      waitForServingMs: 30_000,
+    }),
   insert: ({ indexName, documentId, document }) => node.insert(indexName, document, documentId ?? undefined),
   update: ({ indexName, documentId, document }) => node.update(indexName, documentId, document),
   remove: ({ indexName, documentId }) => node.remove(indexName, documentId),

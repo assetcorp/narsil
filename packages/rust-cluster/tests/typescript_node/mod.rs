@@ -153,6 +153,17 @@ impl TypescriptNode {
         partitions: u64,
         replication_factor: u64,
     ) {
+        self.create_index_with(index_name, partitions, replication_factor, Map::new())
+            .await;
+    }
+
+    pub async fn create_index_with(
+        &mut self,
+        index_name: &str,
+        partitions: u64,
+        replication_factor: u64,
+        config: Map,
+    ) {
         let schema = Value::Object(fields([("title", Value::from("string"))]));
         self.call(
             "createIndex",
@@ -161,6 +172,7 @@ impl TypescriptNode {
                 ("schema", schema),
                 ("partitionCount", Value::from(partitions)),
                 ("replicationFactor", Value::from(replication_factor)),
+                ("config", Value::Object(config)),
             ]),
         )
         .await

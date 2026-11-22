@@ -1,8 +1,7 @@
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
-use narsil::replication::{EntryOperation, PartitionCopies, ReplicatedEntry};
-use narsil::{Narsil, Value};
+use narsil::Value;
 use narsil_cluster::coordinator::etcd::EtcdCoordinator;
 use narsil_cluster::transport::NodeTransport;
 
@@ -10,10 +9,10 @@ mod data_node;
 mod ledger;
 mod support;
 
-use data_node::{Scratch, cluster_coordinator, engine_config, eventually};
+use data_node::{Scratch, cluster_coordinator, eventually};
 use ledger::{
-    LEDGER, Ledger, Member, PAUSE_BETWEEN_WRITES, document_ids, first_difference, holds_exactly,
-    placement, start_cluster, title_document,
+    DIVERGED_DOCUMENT_ID, LEDGER, Ledger, Member, PAUSE_BETWEEN_WRITES, document_ids,
+    first_difference, holds_exactly, placement, start_cluster,
 };
 
 const BOOTSTRAP_FAILED: &str = "NODE_BOOTSTRAP_FAILED";
@@ -21,7 +20,6 @@ const PRIMARY_ERROR: &str = "SNAPSHOT_SYNC_PRIMARY_ERROR";
 const SNAPSHOT_FAILED: &str = "SNAPSHOT_SYNC_SNAPSHOT_FAILED";
 const REFUSED_SYNCS_TO_WATCH: usize = 3;
 const REFUSED_SYNCS_WAIT: Duration = Duration::from_secs(60);
-const DIVERGED_DOCUMENT_ID: &str = "written-only-on-the-departed-primary";
 
 impl Member {
     fn snapshot_refusals(&self) -> usize {
@@ -40,27 +38,6 @@ impl Member {
                         .is_some_and(|cause| cause.contains(SNAPSHOT_FAILED))
             })
             .count()
-    }
-
-    fn diverge_while_stopped(&self, title: &str) -> (u64, u64) {
-        assert!(self.running.is_none(), "{} is stopped", self.node_id);
-        let engine = Narsil::open(engine_config(self.scratch.path())).expect("the engine opens");
-        let copies = PartitionCopies::new(&engine);
-        let position = copies.position(LEDGER, 0).expect("the copy has a position");
-        let entry = ReplicatedEntry {
-            seq_no: position.seq_no + 1,
-            primary_term: position.primary_term,
-            operation: EntryOperation::Index,
-            document_id: DIVERGED_DOCUMENT_ID.to_string(),
-            document: Some(title_document(title)),
-            previous_document: Some(None),
-        };
-        let appended = copies
-            .append(LEDGER, 0, std::slice::from_ref(&entry))
-            .expect("the copy takes the entry");
-        assert_eq!(appended.applied, 1, "{:?}", appended.failure);
-        engine.shutdown().expect("the engine closes");
-        (entry.seq_no, entry.primary_term)
     }
 }
 
