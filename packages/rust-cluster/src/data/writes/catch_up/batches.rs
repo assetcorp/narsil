@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use narsil::replication::ReplicatedEntry;
 
-use super::feed::run_bytes;
+use super::feed::Reserved;
 use super::state::Feed;
 use crate::controller::lock;
 use crate::data::writes::PrimaryWrites;
@@ -41,31 +41,28 @@ impl PrimaryWrites {
     }
 
     pub(super) fn next_batch(
+        &self,
         partition: &Partition,
         index_name: &str,
         from_seq_no: u64,
-    ) -> (Vec<ReplicatedEntry>, bool) {
+    ) -> Option<(Vec<ReplicatedEntry>, bool, Reserved<'_>)> {
         let log = lock(&partition.log);
-        let Some(log_end) = log.newest_seq_no() else {
-            return (Vec::new(), false);
-        };
+        let log_end = log.newest_seq_no()?;
+        let reserved = self.reserve(log.batch_bytes(index_name, from_seq_no, log_end))?;
         let batch = log.batch_from(index_name, from_seq_no, log_end);
         let reaches_log_end = batch.last().is_some_and(|last| last.seq_no == log_end);
-        (batch, reaches_log_end)
+        Some((batch, reaches_log_end, reserved))
     }
 
     pub(super) async fn send_batch(
         self: &Arc<Self>,
         partition: &Partition,
         scope: &Scope,
-        batch: &[ReplicatedEntry],
+        (batch, _reserved): (&[ReplicatedEntry], Reserved<'_>),
         replica_node_id: &str,
         feed: &Feed,
     ) -> bool {
         let Some(last) = batch.last() else {
-            return false;
-        };
-        let Some(_reserved) = self.reserve(run_bytes(&scope.index_name, batch)) else {
             return false;
         };
         let Some((_, _, sending_epoch)) = Self::cursor_state(partition, replica_node_id) else {
@@ -109,12 +106,13 @@ impl PrimaryWrites {
                 if applied >= log_end {
                     break;
                 }
-                let (batch, _) = Self::next_batch(partition, &scope.index_name, applied + 1);
+                let (batch, _, reserved) =
+                    self.next_batch(partition, &scope.index_name, applied + 1)?;
                 if self.is_stopping() || feed.is_cancelled() || batch.is_empty() {
                     return None;
                 }
                 if !self
-                    .send_batch(partition, scope, &batch, replica_node_id, feed)
+                    .send_batch(partition, scope, (&batch, reserved), replica_node_id, feed)
                     .await
                 {
                     return None;
