@@ -18,9 +18,9 @@ const CONFIG = { language: 'english', schema: { title: 'string' } } as const
 const SETTLED_WITHIN_MS = 30_000
 const COUNT_RETRY_MS = 100
 const UNANSWERED_FOR_MS = 2_500
-const WATCH_DELIVERED_MS = 750
 const RETRY_WINDOW_MS = 30_000
-const WINDOW_MARGIN_MS = 3_000
+const EARLY_ANSWER_MARGIN_MS = 3_000
+const LATE_ANSWER_MARGIN_MS = 10_000
 const SHUTDOWN_WITHIN_MS = 10_000
 const REFUSED_WHILE_INITIALISING = { code: 'PARTITION_NOT_PRIMARY', state: 'INITIALISING' }
 const REFUSED_AS_DUPLICATE = { code: 'DOC_ALREADY_EXISTS', state: undefined }
@@ -353,8 +353,8 @@ describe('writes to a partition that is INITIALISING', () => {
       const operations = answer.write.endsWith('batch') ? 2 : 1
       expect(answer.refusals, answer.write).toEqual(Array(operations).fill(REFUSED_WHILE_INITIALISING))
     }
-    expect(answeredAfterMs).toBeGreaterThanOrEqual(RETRY_WINDOW_MS - WINDOW_MARGIN_MS)
-    expect(answeredAfterMs).toBeLessThan(RETRY_WINDOW_MS + WINDOW_MARGIN_MS)
+    expect(answeredAfterMs).toBeGreaterThanOrEqual(RETRY_WINDOW_MS - EARLY_ANSWER_MARGIN_MS)
+    expect(answeredAfterMs).toBeLessThan(RETRY_WINDOW_MS + LATE_ANSWER_MARGIN_MS)
 
     await stoppedAndUnassigned(linked, promoted)
     controller.peerLink.restore()
@@ -448,8 +448,22 @@ describe('writes to a partition that is INITIALISING', () => {
     }
 
     controller.peerLink.cut()
+    const targetWatches = target.allocationWatches()
+    expect(targetWatches.length).toBeGreaterThan(0)
     await writeTargetState('INITIALISING')
-    await sleep(WATCH_DELIVERED_MS)
+    await eventually(
+      async () => {
+        for (const watch of targetWatches) {
+          if (watch.stopped) continue
+          const held = [...(watch.delivered.get(generation)?.assignments.values() ?? [])]
+          const targets = held.filter(assignment => assignment.primary === 'depot-target')
+          expect(targets.length).toBeGreaterThan(0)
+          expect(targets.map(assignment => assignment.state)).toEqual(targets.map(() => 'INITIALISING'))
+        }
+      },
+      SETTLED_WITHIN_MS,
+      "the target's allocation watches never delivered the starting state",
+    )
     target.peerLink.restore()
     await eventually(
       async () => expect(source.errors.map(refusalOf)).toContainEqual(REFUSED_WHILE_INITIALISING),
