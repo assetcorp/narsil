@@ -86,28 +86,62 @@ impl ReplicationLog {
         self.entries_from(from_seq_no.max(oldest))
     }
 
+    fn batch_entries<'l>(
+        &'l self,
+        index_name: &'l str,
+        from_seq_no: u64,
+        through_seq_no: u64,
+    ) -> impl Iterator<Item = &'l (ReplicatedEntry, u64)> {
+        let skipped = self.offset_of(from_seq_no).unwrap_or(self.entries.len());
+        let mut bound = WireBatchBound::default();
+        let mut previous: Option<&ReplicatedEntry> = None;
+        self.entries
+            .iter()
+            .skip(skipped)
+            .take_while(move |(entry, _)| {
+                let follows = previous.is_none_or(|previous| continues(previous, entry));
+                previous = Some(entry);
+                entry.seq_no <= through_seq_no
+                    && bound.takes(wire_bytes(index_name, entry), follows)
+            })
+    }
+
     pub(super) fn batch_from(
         &self,
         index_name: &str,
         from_seq_no: u64,
         through_seq_no: u64,
     ) -> Vec<ReplicatedEntry> {
-        let Some(skipped) = self.offset_of(from_seq_no) else {
-            return Vec::new();
-        };
-        let mut bound = WireBatchBound::default();
-        let mut previous: Option<&ReplicatedEntry> = None;
-        self.entries
-            .iter()
-            .skip(skipped)
-            .map(|(entry, _)| entry)
-            .take_while(|entry| {
-                let follows = previous.is_none_or(|previous| continues(previous, entry));
-                previous = Some(entry);
-                entry.seq_no <= through_seq_no
-                    && bound.takes(wire_bytes(index_name, entry), follows)
+        self.batch_entries(index_name, from_seq_no, through_seq_no)
+            .map(|(entry, _)| entry.clone())
+            .collect()
+    }
+
+    pub(super) fn batch_bytes(
+        &self,
+        index_name: &str,
+        from_seq_no: u64,
+        through_seq_no: u64,
+    ) -> u64 {
+        self.batch_entries(index_name, from_seq_no, through_seq_no)
+            .map(|(_, bytes)| *bytes)
+            .sum()
+    }
+
+    pub(super) fn batch_within(
+        &self,
+        index_name: &str,
+        from_seq_no: u64,
+        through_seq_no: u64,
+        max_bytes: u64,
+    ) -> Vec<ReplicatedEntry> {
+        let mut taken: u64 = 0;
+        self.batch_entries(index_name, from_seq_no, through_seq_no)
+            .take_while(|(_, bytes)| {
+                taken = taken.saturating_add(*bytes);
+                taken <= max_bytes
             })
-            .cloned()
+            .map(|(entry, _)| entry.clone())
             .collect()
     }
 

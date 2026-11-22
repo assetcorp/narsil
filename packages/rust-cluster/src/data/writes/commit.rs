@@ -88,8 +88,8 @@ impl PrimaryWrites {
                 Err(text) => {
                     let error =
                         rollback_failed(state.kind, scope, &applied.document_id, original, &text);
-                    unrestored.get_or_insert(error.clone());
-                    state.fail(applied.position, error);
+                    state.fail(applied.position, failed_copy_outcome(scope, &error));
+                    unrestored.get_or_insert(error);
                 }
             }
         }
@@ -108,8 +108,8 @@ impl PrimaryWrites {
                         original,
                         error.message(),
                     );
-                    unrestored.get_or_insert(error.clone());
-                    state.fail(item.position, error);
+                    state.fail(item.position, failed_copy_outcome(scope, &error));
+                    unrestored.get_or_insert(error);
                 }
                 self.take_unrestored_copy_out_of_service(scope, state, unrestored);
                 return Vec::new();
@@ -145,8 +145,8 @@ impl PrimaryWrites {
                         original,
                         &text,
                     );
-                    unrestored.get_or_insert(error.clone());
-                    state.fail(item.position, error);
+                    state.fail(item.position, failed_copy_outcome(scope, &error));
+                    unrestored.get_or_insert(error);
                 }
             }
         }
