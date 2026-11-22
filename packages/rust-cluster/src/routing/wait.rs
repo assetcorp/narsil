@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use tokio::time::{Instant, sleep};
+use tokio::time::{Instant, sleep, timeout_at};
 
 use super::WriteRouter;
 use crate::allocator::Table;
@@ -62,8 +62,9 @@ impl WriteRouter {
         if self.is_stopping() {
             return false;
         }
-        if let Ok(None) = self.view.refresh(serving_name).await {
-            return false;
+        match timeout_at(deadline, self.view.refresh(serving_name)).await {
+            Err(_) | Ok(Ok(None)) => return false,
+            Ok(_) => {}
         }
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining >= Duration::from_millis(FORWARD_RETRY_LAST_ATTEMPT_ROOM_MS) {
@@ -83,9 +84,9 @@ impl WriteRouter {
             if self.is_stopping() {
                 return false;
             }
-            match self.view.refresh(serving_name).await {
-                Ok(None) => return false,
-                Ok(Some(table)) if refusing.iter().any(|primary| moved_on(&table, primary)) => {
+            match timeout_at(deadline, self.view.refresh(serving_name)).await {
+                Err(_) | Ok(Ok(None)) => return false,
+                Ok(Ok(Some(table))) if refusing.iter().any(|primary| moved_on(&table, primary)) => {
                     return true;
                 }
                 _ => {}

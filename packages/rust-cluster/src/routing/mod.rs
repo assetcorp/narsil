@@ -106,6 +106,9 @@ impl WriteRouter {
     }
 
     async fn routable_table(&self, serving_name: &str) -> ClusterResult<Table> {
+        if let Some(local) = &self.local {
+            local.refuse_orphaned(serving_name)?;
+        }
         if let Some(table) = self.view.read(serving_name).await?
             && !table.assignments.is_empty()
         {
@@ -115,9 +118,6 @@ impl WriteRouter {
             .await?
             .is_none()
         {
-            if let Some(local) = &self.local {
-                local.refuse_orphaned(serving_name).await?;
-            }
             return Err(ClusterError::new(
                 codes::INDEX_NOT_FOUND,
                 format!("The cluster holds no index named '{serving_name}'"),

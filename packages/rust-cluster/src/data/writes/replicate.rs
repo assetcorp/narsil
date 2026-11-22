@@ -5,7 +5,7 @@ use narsil::replication::{HeldTerm, ReplicatedEntry};
 use tokio::task::JoinSet;
 
 use super::PrimaryWrites;
-use super::errors::{authority_changed, insync_removal_failed, superseded_by};
+use super::errors::{authority_changed, insync_removal_failed, lost_term, superseded_by};
 use super::scope::Scope;
 use crate::allocator::Assignment;
 use crate::constants::{
@@ -293,7 +293,7 @@ impl PrimaryWrites {
             }
             Ok(())
         };
-        match tokio::time::timeout(timeout, removal).await {
+        let removed = match tokio::time::timeout(timeout, removal).await {
             Ok(removed) => removed,
             Err(_) => Err(insync_removal_failed(
                 scope,
@@ -310,7 +310,35 @@ impl PrimaryWrites {
                 Value::Array(failed.iter().map(|id| Value::from(id.as_str())).collect()),
             )
             .with_detail("timeoutMs", Value::from(timeout.as_millis() as u64))),
+        };
+        match removed {
+            Err(error) if !lost_term(&error) => Err(self.removal_failure(scope, error).await),
+            removed => removed,
         }
+    }
+
+    async fn removal_failure(&self, scope: &Scope, error: ClusterError) -> ClusterError {
+        let refresh = self.view.refresh(&scope.index_name);
+        let _ = tokio::time::timeout(self.replication_timeout(), refresh).await;
+        if let Err(moved) = self.assert_authority(scope).await
+            && lost_term(&moved)
+        {
+            return moved;
+        }
+        if error.code() == codes::REPLICATION_INSYNC_REMOVAL_FAILED {
+            return error;
+        }
+        insync_removal_failed(
+            scope,
+            format!(
+                "Removing failed replicas from the in-sync set of index '{}' partition {} failed: {}",
+                scope.index_name,
+                scope.partition_id,
+                error.message()
+            ),
+            None,
+        )
+        .with_detail("causeCode", Value::from(error.code()))
     }
 
     pub(super) async fn replicate(

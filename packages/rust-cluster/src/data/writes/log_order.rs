@@ -157,7 +157,9 @@ impl PrimaryWrites {
         }
         let expected_seq_no = tail.seq_no + 1;
         if seq_no != expected_seq_no {
-            ordered.skipped_entries = seq_no > expected_seq_no;
+            ordered.skipped_entries = seq_no > expected_seq_no
+                && holds_checksum(&wire)
+                && wire.entry.primary_term >= tail.primary_term;
             return Err(refused(
                 codes::REPLICATION_ENTRY_INVALID,
                 &wire,
