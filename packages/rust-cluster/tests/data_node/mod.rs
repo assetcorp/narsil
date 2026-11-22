@@ -64,18 +64,36 @@ pub fn engine_config(directory: &Path) -> NarsilConfig {
     }
 }
 
-pub async fn cluster_coordinator() -> Option<Arc<EtcdCoordinator>> {
-    let endpoint = std::env::var("NARSIL_ETCD_ENDPOINT")
+pub fn etcd_endpoint() -> Option<String> {
+    std::env::var("NARSIL_ETCD_ENDPOINT")
         .ok()
-        .filter(|endpoint| !endpoint.is_empty())?;
+        .filter(|endpoint| !endpoint.is_empty())
+}
+
+pub fn unique_key_prefix() -> String {
+    format!("_narsil_data_node_{}", unique())
+}
+
+pub async fn coordinator_at(
+    endpoint: String,
+    key_prefix: String,
+    node_heartbeat_ttl_seconds: u64,
+) -> Arc<EtcdCoordinator> {
     let coordinator = EtcdCoordinator::connect(EtcdCoordinatorConfig {
         endpoints: vec![endpoint],
-        key_prefix: format!("_narsil_data_node_{}", unique()),
+        key_prefix,
+        node_heartbeat_ttl_seconds,
         ..EtcdCoordinatorConfig::default()
     })
     .await
     .expect("the coordinator connects");
-    Some(Arc::new(coordinator))
+    Arc::new(coordinator)
+}
+
+pub async fn cluster_coordinator() -> Option<Arc<EtcdCoordinator>> {
+    let endpoint = etcd_endpoint()?;
+    let default_ttl = EtcdCoordinatorConfig::default().node_heartbeat_ttl_seconds;
+    Some(coordinator_at(endpoint, unique_key_prefix(), default_ttl).await)
 }
 
 pub fn metadata_key(index: &str) -> String {
@@ -192,6 +210,16 @@ impl DataNode {
         directory: &Path,
         roles: &[&str],
     ) -> DataNode {
+        DataNode::start_configured(coordinator, node_id, directory, roles, |_| {}).await
+    }
+
+    pub async fn start_configured(
+        coordinator: &Arc<EtcdCoordinator>,
+        node_id: &str,
+        directory: &Path,
+        roles: &[&str],
+        configure: fn(&mut ClusterNodeConfig),
+    ) -> DataNode {
         let port = free_port();
         let address = format!("127.0.0.1:{port}");
         let transport = Arc::new(
@@ -228,6 +256,7 @@ impl DataNode {
                 .expect("no reporter panicked")
                 .push(error.clone());
         }));
+        configure(&mut settings);
         let node = ClusterNode::new(settings).expect("the data node's settings are valid");
         node.start().await.expect("the data node joins");
         DataNode {
