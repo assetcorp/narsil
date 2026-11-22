@@ -3,7 +3,8 @@ use std::sync::Arc;
 use super::copy_state::PartitionCopy;
 use super::logged::CopyLog;
 use super::{CopyPosition, PartitionCopies};
-use crate::engine::durable::{checkpoint_locked, reload::stored_partition};
+use crate::engine::durable::checkpoint_locked;
+use crate::engine::durable::reload::{checkpoint_moved, read_checkpointed, stored_partition};
 use crate::engine::index::IndexState;
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::index::partition::PartitionSnapshot;
@@ -78,23 +79,33 @@ impl PartitionCopies<'_> {
 
     /// Reads the partition again from its checkpoint and its write-ahead log in place of what memory holds, as
     /// the last copy of a partition must after it fails. A failure leaves the partition failed.
+    ///
+    /// The copy reads only this partition's segments and vectors from the checkpoint, and it reads them before it
+    /// takes the index's write lock, so that writes to the other partitions go on meanwhile. It holds the lock only
+    /// to replay the partition's log and put the partition in place, unless a checkpoint that committed meanwhile
+    /// moved the partition's position, in which case it reads the newer checkpoint again under the lock.
     pub fn reload_partition(&self, index: &str, partition: u32) -> Result<()> {
         let writable = self.engine.writable_index(index)?;
         let state = writable.index();
+        let read = read_checkpointed(self.engine, state, partition);
         {
             let _writer = state.lock_writes()?;
             let copy = super::copy_of(state)?;
             drop(copy.partition(&state.name, partition)?);
             let log = CopyLog::of(state, partition);
-            stored_partition(self.engine, state, partition)
-                .and_then(|stored| {
-                    let position = stored.copy.position;
-                    replace_documents(state, partition, stored.documents)?;
-                    *copy.partition(&state.name, partition)? = stored.copy;
-                    log.resume(stored.replayed.as_ref(), position)
-                })
-                .and_then(|()| checkpoint_locked(state))
-                .inspect_err(|failure| log.fail(failure))?;
+            read.and_then(|read| match checkpoint_moved(state, partition, &read)? {
+                true => read_checkpointed(self.engine, state, partition),
+                false => Ok(read),
+            })
+            .and_then(|read| stored_partition(read, state, partition))
+            .and_then(|stored| {
+                let position = stored.copy.position;
+                replace_documents(state, partition, stored.documents)?;
+                *copy.partition(&state.name, partition)? = stored.copy;
+                log.resume(stored.replayed.as_ref(), position)
+            })
+            .and_then(|()| checkpoint_locked(state))
+            .inspect_err(|failure| log.fail(failure))?;
         }
         self.engine.events.wrote(&state.name);
         Ok(())

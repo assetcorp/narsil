@@ -55,6 +55,7 @@ pub(super) struct SegmentWriter<'w, 'a> {
     pub(super) partition_id: u32,
     pub(super) pages_text: bool,
     pub(super) copy: Option<&'w ReplicatedCopy>,
+    pub(super) snapshot: &'w PartitionSnapshot,
 }
 
 impl SegmentWriter<'_, '_> {
@@ -70,7 +71,7 @@ impl SegmentWriter<'_, '_> {
         let key = segment_key(self.index_name, self.partition_id, id);
         let document_count = payload.document_count;
         if let Some(copy) = self.copy {
-            payload.write_records = copy.records_of(self.partition_id, &payload);
+            payload.write_records = copy.records_of(self.partition_id, &payload, self.snapshot)?;
         }
         let (file, frozen, paged_file) = if self.pages_text {
             let file = encode_paged_segment(&payload, tombstones)?;
