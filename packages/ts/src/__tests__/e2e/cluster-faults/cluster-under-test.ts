@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { decode, encode } from '@msgpack/msgpack'
 import { type ClusterCoordinator, createEtcdCoordinator } from '../../../distribution/coordinator'
+import { createGrpcTransport } from '../../../distribution/transport/grpc'
 import { createTcpTransport } from '../../../distribution/transport/tcp'
 import { generateTlsBundles, type TlsBundles } from '../../distribution/transport/tcp-tls/fixtures'
 import { ETCD_ROOT_PASSWORD, type EtcdMembers, startEtcdMembers } from './etcd-members'
@@ -55,13 +56,17 @@ export async function startClusterUnderTest(
           auth: { username: 'root', password: ETCD_ROOT_PASSWORD },
         }),
   })
-  const probe = createTcpTransport('fault-probe', {
+  const probeConfig = {
     host: '127.0.0.1',
     port: 0,
     ...(bundles === null
       ? {}
       : { tls: { ca: bundles.serverBundle.ca, cert: bundles.serverBundle.cert, key: bundles.serverBundle.key } }),
-  })
+  }
+  const probe =
+    settings.transport === 'grpc'
+      ? await createGrpcTransport('fault-probe', probeConfig)
+      : createTcpTransport('fault-probe', probeConfig)
 
   async function healed(indexName: string, partitionCount: number, minimumCopies: number): Promise<boolean> {
     if (!fleet.nodes.every(node => node.running())) return false

@@ -60,6 +60,22 @@ const server = createServer(
 await server.listen()
 process.stdout.write(`READY ${node.nodeId}\n`)
 
+const SOCKET_RESOURCE_TYPES = new Set(['TCPSocketWrap', 'TCPServerWrap', 'TLSWrap'])
+const SOCKET_CLOSE_GRACE_MS = 3_000
+const SOCKET_POLL_MS = 100
+
+function openSockets() {
+  return process.getActiveResourcesInfo().filter(type => SOCKET_RESOURCE_TYPES.has(type))
+}
+
+async function socketsLeftOpen() {
+  const deadline = Date.now() + SOCKET_CLOSE_GRACE_MS
+  while (openSockets().length > 0 && Date.now() < deadline) {
+    await new Promise(resolve => setTimeout(resolve, SOCKET_POLL_MS))
+  }
+  return openSockets()
+}
+
 let stopping = false
 async function stop() {
   if (stopping) return
@@ -68,6 +84,8 @@ async function stop() {
   await node.shutdown()
   await transport.shutdown()
   await coordinator.shutdown()
+  const left = await socketsLeftOpen()
+  if (left.length > 0) process.stderr.write(`SOCKETS LEFT OPEN AT SHUTDOWN: ${left.join(', ')}\n`)
   process.exit(0)
 }
 

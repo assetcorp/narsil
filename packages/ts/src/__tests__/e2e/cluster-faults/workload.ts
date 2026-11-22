@@ -19,16 +19,32 @@ export interface Reply {
   text: string
 }
 
+export const NO_FAULT = 'no fault'
+
 export interface FaultState {
   unavailable: Set<number>
   startedOn: number[]
+  generation: number
   describe(): string
+}
+
+export interface QuietWrite {
+  docId: string
+  slot: number
+  durationMs: number
 }
 
 export interface Workload {
   stop(): Promise<void>
   searchFailures(): readonly string[]
   searches(): number
+  quietWrites(): readonly QuietWrite[]
+  unansweredQuietWrites(): readonly string[]
+}
+
+interface WriteAttempt {
+  reply: Reply | null
+  timedOut: boolean
 }
 
 export async function send(base: string, method: string, path: string, body: unknown, timeoutMs: number) {
@@ -62,15 +78,22 @@ async function writeOnce(
   docId: string,
   current: LedgerDocument | null,
   next: LedgerDocument | null,
-): Promise<Reply | null> {
+): Promise<WriteAttempt> {
   const base = fleet.nodes[slot]?.base ?? ''
   const path = `/indexes/${indexName}/documents`
   try {
-    if (current === null) return await send(base, 'POST', path, { id: docId, document: next }, WRITE_TIMEOUT_MS)
-    if (next === null) return await send(base, 'DELETE', `${path}/${docId}`, undefined, WRITE_TIMEOUT_MS)
-    return await send(base, 'PATCH', `${path}/${docId}`, { document: next }, WRITE_TIMEOUT_MS)
-  } catch {
-    return null
+    if (current === null) {
+      return { reply: await send(base, 'POST', path, { id: docId, document: next }, WRITE_TIMEOUT_MS), timedOut: false }
+    }
+    if (next === null) {
+      return { reply: await send(base, 'DELETE', `${path}/${docId}`, undefined, WRITE_TIMEOUT_MS), timedOut: false }
+    }
+    return {
+      reply: await send(base, 'PATCH', `${path}/${docId}`, { document: next }, WRITE_TIMEOUT_MS),
+      timedOut: false,
+    }
+  } catch (error) {
+    return { reply: null, timedOut: error instanceof Error && error.name === 'TimeoutError' }
   }
 }
 
@@ -146,6 +169,12 @@ export function startWorkload(options: {
   let version = 0
   let searchCount = 0
   const failures: string[] = []
+  const quiet: QuietWrite[] = []
+  const unansweredQuiet: string[] = []
+
+  function quietThroughout(generationAtStart: number, describedAtStart: string): boolean {
+    return describedAtStart === NO_FAULT && faults.generation === generationAtStart && faults.describe() === NO_FAULT
+  }
 
   async function writer(writerId: number): Promise<void> {
     for (let documentNumber = 0; !stopping; documentNumber++) {
@@ -160,7 +189,20 @@ export function startWorkload(options: {
         version += 1
         const next =
           current !== null && random() < REMOVE_SHARE ? null : { title: `${SEARCH_TERM} entry ${docId}`, version }
-        const reply = await writeOnce(fleet, slot, indexName, docId, current, next)
+        const generationAtStart = faults.generation
+        const describedAtStart = faults.describe()
+        const startedAt = performance.now()
+        const { reply, timedOut } = await writeOnce(fleet, slot, indexName, docId, current, next)
+        const durationMs = performance.now() - startedAt
+        if (quietThroughout(generationAtStart, describedAtStart)) {
+          if (timedOut) {
+            unansweredQuiet.push(
+              `${docId} on slot ${slot} gave no answer within ${WRITE_TIMEOUT_MS} ms outside a fault`,
+            )
+          } else if (reply !== null && reply.status >= 200 && reply.status < 300) {
+            quiet.push({ docId, slot, durationMs })
+          }
+        }
         settle(ledger, docId, current, next, reply, slot)
         if (ledger.isRetired(docId)) break
       }
@@ -200,5 +242,7 @@ export function startWorkload(options: {
     },
     searchFailures: () => failures,
     searches: () => searchCount,
+    quietWrites: () => quiet,
+    unansweredQuietWrites: () => unansweredQuiet,
   }
 }
