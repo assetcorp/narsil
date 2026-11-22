@@ -1101,7 +1101,7 @@ A node may open its transport listener before step 2 so that a peer receives a r
 
 A node must persist the `indexUuid` alongside its local copy, in the `index_uuid` field of the [index metadata payload](../envelope.md#index-metadata-payload), so that the comparison survives a restart. A node must also record the identity on every index it bootstraps, whether it took the partition on as primary or as replica, because an index that carries none proves nothing at the next join.
 
-A node must report `NODE_BOOTSTRAP_FAILED` to its error handler each time that its sync from a partition's primary fails, and where its last retry of `cluster.bootstrap_complete` fails while the partition is in `INITIALISING`. The error's details must carry `indexName`, and they must carry the code of the cause as `innerCode` where the cause has one, so that an operator can act on the cause.
+Unless a node abandons a bootstrap, it must report `NODE_BOOTSTRAP_FAILED` to its error handler each time that its sync from a partition's primary fails or that a bootstrap attempt ends on an error that the node reports under no other code. It must report the same code where its last retry of `cluster.bootstrap_complete` fails, unless it reads the partition in a state other than `INITIALISING`. The error's details must carry `indexName` and, where the cause has a code, that code as `innerCode`, so that an operator can act on the cause.
 
 Step 3b is the only step that deletes local data, and the stored metadata is what permits it: metadata naming another index under the same name proves that the index this copy belongs to was dropped, so the copy holds documents no reader may see again.
 
@@ -1197,7 +1197,7 @@ A community adapter, whether it targets Consul, ZooKeeper, FoundationDB, or Redi
 | `NODE_NOT_READY` | A message reached a node that has yet to finish joining the cluster. |
 | `NODE_NOT_CONTROLLER` | A controller message reached a node that holds no controller lease. |
 | `NODE_ALREADY_JOINED` | A caller starts a node that is joining or has joined the cluster. |
-| `NODE_BOOTSTRAP_FAILED` | A node's sync from a partition's primary fails, or the node cannot report a bootstrap as complete, as [Joining the Cluster](#joining-the-cluster) defines. |
+| `NODE_BOOTSTRAP_FAILED` | A node cannot bootstrap a partition or report that bootstrap as complete, as [Joining the Cluster](#joining-the-cluster) defines. |
 | `CLUSTER_OPERATION_UNSUPPORTED` | A node receives an operation that it does not support, so it refuses the operation before it changes any state. |
 | `ALLOCATION_INVALID_CONFIG` | The allocator receives a `partitionCount` of 0 or below, or a `replicationFactor` below 0. |
 | `ALLOCATION_NO_DATA_NODES` | The allocator receives no node that holds the `data` role. |
