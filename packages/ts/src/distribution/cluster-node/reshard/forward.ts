@@ -9,6 +9,7 @@ import type {
   ReshardPurgePayload,
 } from '../../transport/reshard-payloads'
 import { ClusterMessageTypes } from '../../transport/types'
+import { remoteErrorDetails } from '../error-reply'
 import { resolvePartitionId, type WriteRoutingDeps } from '../write-routing'
 import { resolveNodeTargets } from '../write-routing/assignment'
 import type { ReshardCopyJob } from './state'
@@ -64,7 +65,7 @@ function assertEveryOperationApplied(reply: Record<string, unknown>, sent: Resha
     if (answer.success === true) continue
     const code = typeof answer.errorCode === 'string' ? answer.errorCode : ErrorCodes.REPLICATION_ENTRY_INVALID
     const message = typeof answer.errorMessage === 'string' ? answer.errorMessage : 'a copied document was refused'
-    throw new NarsilError(code, message, { primaryNodeId: primary })
+    throw new NarsilError(code, message, { ...remoteErrorDetails(answer.errorDetails), primaryNodeId: primary })
   }
 }
 

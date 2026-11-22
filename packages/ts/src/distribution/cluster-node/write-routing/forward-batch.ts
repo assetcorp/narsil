@@ -1,5 +1,4 @@
 import { ErrorCodes, NarsilError } from '../../../errors'
-import type { BatchResult } from '../../../types/results'
 import type { AnyDocument } from '../../../types/schema'
 import type { AllocationTable, PartitionAssignment } from '../../coordinator/types'
 import type {
@@ -13,7 +12,9 @@ import { findWriteBlock } from '../memory/write-block'
 import { estimateForwardedBytes } from '../memory/write-pressure'
 import { abandonedWriteOf } from './abandoned-write'
 import { requireAssignedPrimary, resolvePartitionId } from './assignment'
+import type { BatchWrite, WriteFailure } from './batch-write'
 import { decodeForwardedDocument } from './forwarded-document'
+import { writableAssignment } from './initialising-partition'
 import {
   applyPrimaryInsertBatch,
   applyPrimaryRemoveBatch,
@@ -154,17 +155,18 @@ async function applyRun(
       )
     }
 
-    const batchResult = await applyRunToPrimary(indexName, partitionId, run, assigned, deps, results)
-    const failedByDocId = new Map(batchResult.failed.map(failure => [failure.docId, failure.error]))
+    const writable = await writableAssignment(deps, indexName, partitionId, assigned)
+    await applyRunToPrimary(indexName, partitionId, run, writable, deps, results)
     for (const operation of run.operations) {
       if (results[operation.index] !== undefined) {
         continue
       }
-      const failure = failedByDocId.get(operation.wire.documentId)
-      results[operation.index] =
-        failure === undefined
-          ? { documentId: operation.wire.documentId, success: true, errorCode: null, errorMessage: null }
-          : failureResult(operation.wire.documentId, failure)
+      results[operation.index] = {
+        documentId: operation.wire.documentId,
+        success: true,
+        errorCode: null,
+        errorMessage: null,
+      }
     }
   } catch (err) {
     const error = err instanceof NarsilError ? err : new NarsilError(ErrorCodes.QUERY_ROUTING_FAILED, String(err))
@@ -183,32 +185,43 @@ async function applyRunToPrimary(
   assignment: PartitionAssignment,
   deps: WriteRoutingDeps,
   results: ForwardBatchOperationResult[],
-): Promise<BatchResult> {
-  if (run.operation === 'remove') {
-    const docIds: string[] = []
-    const conditions = new Map<string, WriteCondition>()
-    for (const operation of run.operations) {
-      const condition = conditionOrFailure(operation.wire, results, operation.index)
-      if (condition === null) continue
-      docIds.push(operation.wire.documentId)
-      if (condition !== undefined) conditions.set(operation.wire.documentId, condition)
+): Promise<void> {
+  const positions = new Map<BatchWrite<unknown>, number>()
+  function reportFailures(failed: readonly WriteFailure<unknown>[]): void {
+    for (const { write, error } of failed) {
+      const position = positions.get(write)
+      if (position !== undefined) results[position] = failureResult(write.docId, error)
     }
-    return applyPrimaryRemoveBatch(indexName, docIds, partitionId, assignment, deps, conditions)
+  }
+
+  if (run.operation === 'remove') {
+    const removals: BatchWrite<null>[] = []
+    for (const { index, wire } of run.operations) {
+      const condition = conditionOrFailure(wire, results, index)
+      if (condition === null) continue
+      const write: BatchWrite<null> = { docId: wire.documentId, value: null, condition }
+      removals.push(write)
+      positions.set(write, index)
+    }
+    reportFailures((await applyPrimaryRemoveBatch(indexName, removals, partitionId, assignment, deps)).failed)
+    return
   }
 
   if (run.operation === 'insert') {
-    const items: Array<{ doc: AnyDocument; docId: string }> = []
-    for (const operation of run.operations) {
-      if (conditionOrFailure(operation.wire, results, operation.index) === null) continue
-      const decodedDocument = decodeOperationDocument(operation.wire, results, operation.index)
-      if (decodedDocument !== null) {
-        items.push({ doc: decodedDocument, docId: operation.wire.documentId })
-      }
+    const inserts: BatchWrite<AnyDocument>[] = []
+    for (const { index, wire } of run.operations) {
+      if (conditionOrFailure(wire, results, index) === null) continue
+      const decodedDocument = decodeOperationDocument(wire, results, index)
+      if (decodedDocument === null) continue
+      const write: BatchWrite<AnyDocument> = { docId: wire.documentId, value: decodedDocument }
+      inserts.push(write)
+      positions.set(write, index)
     }
-    return applyPrimaryInsertBatch(indexName, items, partitionId, assignment, deps)
+    reportFailures((await applyPrimaryInsertBatch(indexName, inserts, partitionId, assignment, deps)).failed)
+    return
   }
 
-  const updates: Array<{ docId: string; document: AnyDocument; condition?: WriteCondition }> = []
+  const updates: BatchWrite<AnyDocument>[] = []
   for (const operation of run.operations) {
     const condition = conditionOrFailure(operation.wire, results, operation.index)
     if (condition === null) continue
@@ -220,17 +233,15 @@ async function applyRunToPrimary(
         operation.wire.updateFields,
         deps,
       )
-      updates.push(
-        condition === undefined
-          ? { docId: operation.wire.documentId, document: replacement }
-          : { docId: operation.wire.documentId, document: replacement, condition },
-      )
+      const write: BatchWrite<AnyDocument> = { docId: operation.wire.documentId, value: replacement, condition }
+      updates.push(write)
+      positions.set(write, operation.index)
     } catch (err) {
       const error = err instanceof NarsilError ? err : new NarsilError(ErrorCodes.CONFIG_INVALID, String(err))
       results[operation.index] = failureResult(operation.wire.documentId, error)
     }
   }
-  return applyPrimaryUpdateBatch(indexName, updates, partitionId, assignment, deps)
+  reportFailures((await applyPrimaryUpdateBatch(indexName, updates, partitionId, assignment, deps)).failed)
 }
 
 function conditionOrFailure(
