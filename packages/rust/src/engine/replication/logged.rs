@@ -16,7 +16,7 @@ pub(super) struct CopyLog<'a> {
     partition: u32,
 }
 
-fn runs_of(entries: &[ReplicatedEntry]) -> Vec<AssignedRun> {
+fn runs_of<'e>(entries: impl Iterator<Item = &'e ReplicatedEntry>) -> Vec<AssignedRun> {
     let mut runs: Vec<AssignedRun> = Vec::new();
     for entry in entries {
         let write = LogWrite {
@@ -52,15 +52,19 @@ impl<'a> CopyLog<'a> {
     }
 
     /// Appends `entries` while the caller holds the write lock.
-    pub(super) fn append(&self, entries: &[ReplicatedEntry]) -> Result<Received> {
-        if entries.is_empty() {
+    pub(super) fn append<'e>(
+        &self,
+        entries: impl IntoIterator<Item = &'e ReplicatedEntry>,
+    ) -> Result<Received> {
+        let mut entries = entries.into_iter().peekable();
+        if entries.peek().is_none() {
             return Ok(None);
         }
         if let Some(stored) = self.stored() {
             return stored.append(runs_of(entries)).map(Some);
         }
         if let Some(log) = self.index.log() {
-            log.count_applied(self.partition, entries.len() as u64);
+            log.count_applied(self.partition, entries.count() as u64);
         }
         Ok(None)
     }

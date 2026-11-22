@@ -1,7 +1,7 @@
 use super::logged::CopyLog;
 use super::primary_apply::{Candidate, PrimaryTurn, put_back};
 use super::{
-    PartitionCopies, PrimaryLimits, PrimaryRefusal, PrimaryRun, PrimaryWrite, PrimaryWritten,
+    PartitionCopies, PrimaryLimits, PrimaryRefusal, PrimaryRun, PrimaryWrite, ReplicatedEntry,
     WriteRecord,
 };
 use crate::config::validate_doc_id;
@@ -9,10 +9,9 @@ use crate::engine::index::IndexState;
 use crate::engine::vectors::HeldChunk;
 use crate::engine::writes::{check_primary_document, require_matching_doc_id};
 use crate::error::Result;
+use crate::index::partition::in_keyword_batch;
 use crate::schema::require_document_within_size_limit;
 use crate::value::Map;
-
-type Outcome = std::result::Result<PrimaryWritten, PrimaryRefusal>;
 
 enum Slot {
     Document { id: String, inserts: bool },
@@ -139,16 +138,18 @@ impl PartitionCopies<'_> {
             };
             let mut turn = PrimaryTurn::new(self.engine, state, copy, partition, limits);
             turn.start_after(from, primary_term)?;
-            let mut outcomes: Vec<Outcome> = Vec::with_capacity(candidates.len());
-            for candidate in candidates {
-                outcomes.push(candidate.and_then(|candidate| turn.apply(candidate)));
-            }
-            let entries: Vec<_> = outcomes
+            let mut outcomes = Vec::new();
+            let closed = in_keyword_batch(&state.partitions(), || {
+                outcomes = turn.apply_all(candidates);
+                Ok(())
+            });
+            let entries: Vec<&ReplicatedEntry> = outcomes
                 .iter()
                 .flatten()
-                .map(|written| written.entry.clone())
+                .map(|written| &written.entry)
                 .collect();
-            let logged = log.append(&entries);
+            let reached = entries.last().map(|entry| entry.seq_no);
+            let logged = closed.and_then(|()| log.append(entries.iter().copied()));
             match &logged {
                 Ok(_) => {
                     let mut held = copy.partition(&state.name, partition)?;
@@ -167,13 +168,13 @@ impl PartitionCopies<'_> {
                     }
                 }
             }
-            (outcomes, entries.last().map(|entry| entry.seq_no), logged)
+            (outcomes, reached, logged)
         };
         self.engine.after_write(state);
         let Some(reached) = reached else {
             return Ok(PrimaryRun {
                 outcomes,
-                failure: None,
+                failure: logged.err(),
             });
         };
         self.engine.events.wrote(&state.name);

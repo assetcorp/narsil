@@ -4,6 +4,7 @@ pub(crate) mod copy_state;
 mod logged;
 mod primary;
 mod primary_apply;
+mod primary_room;
 mod reads;
 mod replace;
 mod types;

@@ -26,7 +26,8 @@ pub(crate) use batch::{
 };
 pub(crate) use replay::{place_document, replay_delete, replay_index};
 pub(crate) use replicated::{
-    check_primary_document, check_primary_insert, check_primary_update, check_replicated_document,
+    apply_primary_insert, apply_primary_remove, apply_primary_update, check_primary_document,
+    check_replicated_document,
 };
 
 /// Gives the ID of a document inserted without one, as the engine's ID generator says.
