@@ -31,7 +31,7 @@ pub mod codes {
     /// A node follows a specification version whose major version differs from the active controller's.
     pub const NODE_VERSION_INCOMPATIBLE: &str = "NODE_VERSION_INCOMPATIBLE";
     /// A node stopped while it waited for its earlier registration to lapse, or a node that shut down was started
-    /// again.
+    /// again or asked for an operation on its copies.
     pub const NODE_NOT_JOINED: &str = "NODE_NOT_JOINED";
     /// A node that has joined the cluster, or is joining it, was started again.
     pub const NODE_ALREADY_JOINED: &str = "NODE_ALREADY_JOINED";
@@ -45,6 +45,51 @@ pub mod codes {
     pub const ALLOCATION_NO_DATA_NODES: &str = "ALLOCATION_NO_DATA_NODES";
     /// The controller could not place a partition or write an allocation table.
     pub const ALLOCATION_FAILED: &str = "ALLOCATION_FAILED";
+    /// An entry exceeds what the replication log can hold.
+    pub const REPLICATION_LOG_FULL: &str = "REPLICATION_LOG_FULL";
+    /// A replication log entry failed its checksum.
+    pub const REPLICATION_ENTRY_CORRUPT: &str = "REPLICATION_ENTRY_CORRUPT";
+    /// A replication message is malformed, out of order, or sent to a node that holds no replica of the partition.
+    pub const REPLICATION_ENTRY_INVALID: &str = "REPLICATION_ENTRY_INVALID";
+    /// A replica received a message of a term older than one that it knows.
+    pub const REPLICATION_TERM_MISMATCH: &str = "REPLICATION_TERM_MISMATCH";
+    /// A sync could not finish, or a report belongs to a sync that is no longer the replica's current one.
+    pub const REPLICATION_SYNC_FAILED: &str = "REPLICATION_SYNC_FAILED";
+    /// A write failed, and the primary could not put back what it held before the write.
+    pub const REPLICATION_ROLLBACK_FAILED: &str = "REPLICATION_ROLLBACK_FAILED";
+    /// A write may or may not have taken effect, for the reason that the error's details give.
+    pub const REPLICATION_OUTCOME_UNKNOWN: &str = "REPLICATION_OUTCOME_UNKNOWN";
+    /// A write that was sent again after its term ended met a later write to the same document, so it took no effect.
+    pub const REPLICATION_WRITE_CONFLICT: &str = "REPLICATION_WRITE_CONFLICT";
+    /// The primary could not remove a failed replica from the in-sync set while it held its term.
+    pub const REPLICATION_INSYNC_REMOVAL_FAILED: &str = "REPLICATION_INSYNC_REMOVAL_FAILED";
+    /// A write reached a node that is not the primary of the write's partition.
+    pub const PARTITION_NOT_PRIMARY: &str = "PARTITION_NOT_PRIMARY";
+    /// The write's partition has no primary.
+    pub const PARTITION_UNASSIGNED: &str = "PARTITION_UNASSIGNED";
+    /// Fewer copies are active than `waitForActiveReplicas` asks for.
+    pub const INSUFFICIENT_REPLICAS: &str = "INSUFFICIENT_REPLICAS";
+    /// The node holds no copy of the index that a request gives.
+    pub const INDEX_NOT_FOUND: &str = "INDEX_NOT_FOUND";
+    /// A node reports an orphaned copy, or a caller sends that node a read, a write, or a create for the copy's index
+    /// name.
+    pub const INDEX_ORPHANED: &str = "INDEX_ORPHANED";
+    /// The cluster owns the index and has yet to allocate it.
+    pub const QUERY_ROUTING_FAILED: &str = "QUERY_ROUTING_FAILED";
+    /// A sync request is malformed, or its term is above the primary's.
+    pub const SNAPSHOT_SYNC_REQUEST_INVALID: &str = "SNAPSHOT_SYNC_REQUEST_INVALID";
+    /// The primary could not read the allocation table for a sync.
+    pub const SNAPSHOT_SYNC_ALLOCATION_UNAVAILABLE: &str = "SNAPSHOT_SYNC_ALLOCATION_UNAVAILABLE";
+    /// A sync request came from a node that holds no copy, or reached a node that is not the partition's primary.
+    pub const SNAPSHOT_SYNC_UNAUTHORIZED: &str = "SNAPSHOT_SYNC_UNAUTHORIZED";
+    /// A sync request gives a partition without an assignment, or copies in a state that takes no sync.
+    pub const SNAPSHOT_SYNC_NOT_ASSIGNED: &str = "SNAPSHOT_SYNC_NOT_ASSIGNED";
+    /// The primary holds no copy of the index that a sync request gives.
+    pub const SNAPSHOT_SYNC_INDEX_NOT_FOUND: &str = "SNAPSHOT_SYNC_INDEX_NOT_FOUND";
+    /// The primary sends as many snapshots as its limits allow.
+    pub const SNAPSHOT_SYNC_CAPACITY_EXHAUSTED: &str = "SNAPSHOT_SYNC_CAPACITY_EXHAUSTED";
+    /// The primary could not send the snapshot that a replica needs.
+    pub const SNAPSHOT_SYNC_SNAPSHOT_FAILED: &str = "SNAPSHOT_SYNC_SNAPSHOT_FAILED";
 }
 
 /// A failure of a cluster node, a transport, or a coordinator, with the code that a peer or a caller branches on.

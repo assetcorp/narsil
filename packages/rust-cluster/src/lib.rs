@@ -4,6 +4,7 @@ mod allocator;
 mod constants;
 mod controller;
 pub mod coordinator;
+mod data;
 pub mod error;
 pub mod message;
 pub mod node;
