@@ -334,4 +334,28 @@ describe('a batch whose documents land in two partitions', () => {
     expect([...stored].sort()).toEqual([...result.succeeded].sort())
     expect(result.failed.find(failure => failure.docId === unencodable.id)?.error.code).toBe('DOC_VALIDATION_FAILED')
   }, 60_000)
+
+  it('stores every other write of a forwarded batch when one document of the same partition cannot be encoded', async () => {
+    const running = await createTestCluster()
+    cluster = running
+    await running.start(ROUTER, { roles: ['controller', 'coordinator'], durable: false })
+    await running.start('node-a', { durable: false })
+    await running.node(ROUTER).createIndex('ledger', { schema: SCHEMA }, { partitionCount: 1, replicationFactor: 0 })
+    const primary = (await running.coordinator.getAllocation('ledger'))?.assignments.get(0)?.primary
+    expect(primary).toBe('node-a')
+
+    const entries = ledgerEntries('entry', 20)
+    const unencodable = { id: 'unencodable', title: 'nested', amount: 0, extra: nestedPastEncodingLimit() }
+    const result = await running
+      .node(ROUTER)
+      .insertBatch('ledger', [...entries.slice(0, 10), unencodable, ...entries.slice(10)])
+
+    const stored = await readCopy(running.probe, 'node-a', 0, 'ledger')
+    expect([...result.succeeded].sort()).toEqual(entries.map(entry => entry.id).sort())
+    expect(result.failed.map(failure => [failure.docId, failure.error.code])).toEqual([
+      [unencodable.id, 'DOC_VALIDATION_FAILED'],
+    ])
+    expect([...stored.keys()].sort()).toEqual(entries.map(entry => entry.id).sort())
+    for (const { id, ...fields } of entries) expect(stored.get(id)).toEqual(fields)
+  }, 60_000)
 })

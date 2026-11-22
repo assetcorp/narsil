@@ -55,12 +55,16 @@ export function recordAttempt(history: AttemptHistory, error: unknown): void {
   history.mayHaveApplied ||= !cannotHaveApplied(error)
 }
 
+function decidedFromWriteRecord(error: unknown): boolean {
+  return error instanceof NarsilError && error.code === ErrorCodes.REPLICATION_WRITE_CONFLICT
+}
+
 export function finalError<E>(
   history: AttemptHistory | undefined,
   indexName: string,
   docId: string,
   error: E,
 ): E | NarsilError {
-  if (history?.abandonedAttempt !== undefined) return history.abandonedAttempt
+  if (history?.abandonedAttempt !== undefined && !decidedFromWriteRecord(error)) return history.abandonedAttempt
   return history?.interrupted === true ? interruptedOutcome(indexName, docId, error) : error
 }
