@@ -82,6 +82,9 @@ impl PrimaryWrites {
             return Ok(());
         };
         let (index_name, partition_id) = (first.index_name.clone(), first.partition_id);
+        if let Some(failure) = self.held_failure(&index_name, partition_id).await {
+            return Err(failure);
+        }
         let name = index_name.clone();
         let tail = self
             .on_copies(move |copies| copies.position(&name, partition_id))

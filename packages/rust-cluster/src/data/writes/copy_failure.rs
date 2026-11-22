@@ -73,6 +73,7 @@ enum Step {
 struct Round {
     reloaded: Option<bool>,
     resigned_term: Option<u64>,
+    removed: bool,
 }
 
 fn holds_other_in_sync_copy(assignment: &Assignment, node_id: &str) -> bool {
@@ -94,6 +95,33 @@ impl PrimaryWrites {
                 writes.failures.release(&index_name, partition_id);
             }
         });
+    }
+
+    pub(super) async fn held_failure(
+        self: &Arc<Self>,
+        index_name: &str,
+        partition_id: u32,
+    ) -> Option<ClusterError> {
+        let name = index_name.to_string();
+        let held = self
+            .on_copies(move |copies| copies.copy_failure(&name, partition_id))
+            .await;
+        if let Ok(Some(failure)) = held {
+            self.record_copy_failure(index_name, partition_id);
+            return Some(ClusterError::from(failure));
+        }
+        self.failures.is_failed(index_name, partition_id).then(|| {
+            ClusterError::new(
+                codes::REPLICATION_ENTRY_INVALID,
+                format!(
+                    "Partition {partition_id} of index '{index_name}' holds a failed copy on node '{}', which takes no entries until it syncs again from an empty copy",
+                    self.node_id
+                ),
+            )
+            .with_detail("indexName", Value::from(index_name))
+            .with_detail("partitionId", Value::from(partition_id))
+            .with_detail("nodeId", Value::from(self.node_id.as_str()))
+        })
     }
 
     pub(crate) fn copy_unlisted(&self, index_name: &str, partition_id: u32) -> bool {
@@ -182,9 +210,22 @@ impl PrimaryWrites {
             return Ok(Step::Retry);
         }
         if assignment.holds_in_sync(&self.node_id) {
-            self.remove_self(index_name, partition_id, assignment)
-                .await?;
+            if self
+                .remove_self(index_name, partition_id, assignment)
+                .await?
+            {
+                round.removed = true;
+            }
             return Ok(Step::Retry);
+        }
+        if assignment.holds_replica(&self.node_id) && !round.removed {
+            if !self
+                .remove_self(index_name, partition_id, assignment)
+                .await?
+            {
+                return Ok(Step::Retry);
+            }
+            round.removed = true;
         }
         self.empty_failed_copy(index_name, partition_id).await?;
         Ok(Step::Reset)
@@ -277,9 +318,9 @@ impl PrimaryWrites {
         index_name: &str,
         partition_id: u32,
         assignment: Assignment,
-    ) -> ClusterResult<()> {
+    ) -> ClusterResult<bool> {
         let Some(controller) = self.coordinator.lease_holder(CONTROLLER_LEASE_KEY).await? else {
-            return Ok(());
+            return Ok(false);
         };
         let scope = Scope {
             index_name: index_name.to_string(),
@@ -289,6 +330,7 @@ impl PrimaryWrites {
             index_uuid: None,
         };
         self.remove_replica(&scope, &self.node_id, &controller)
-            .await
+            .await?;
+        Ok(true)
     }
 }
