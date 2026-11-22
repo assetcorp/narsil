@@ -36,6 +36,7 @@ export interface WriteRoutingDeps {
   reshard?: ReshardState
   copyFailed?: (indexName: string, partitionId: number) => boolean
   copyUnlisted?: (indexName: string, partitionId: number) => boolean
+  vectorFieldPathsOf?: (indexName: string) => ReadonlySet<string>
   stopped?: () => boolean
   replicaFeedClock?: ReplicaFeedClock
 }
