@@ -92,23 +92,35 @@ describe.each([
       const server = await serve()
       const client = await shopWithCapture(server, true)
       const expected = new Map<string, Product>()
-      for (let at = 0; at < 30; at++) {
-        expected.set(`p${at}`, product(at))
-        await client.insert('shop', product(at), `p${at}`)
-      }
+      const firstInserts = Array.from({ length: 30 }, (_, at) => at)
+      for (const at of firstInserts) expected.set(`p${at}`, product(at))
+      const seeded = await client.insertBatch(
+        'shop',
+        firstInserts.map(at => ({ id: `p${at}`, ...product(at) })),
+      )
+      expect(seeded.failed).toEqual([])
       const copy = await exportOf(client)
-      for (let at = 0; at < 30; at += 3) {
-        expected.set(`p${at}`, product(at + 1000))
-        await client.update('shop', `p${at}`, product(at + 1000))
-      }
-      for (let at = 1; at < 30; at += 5) {
-        expected.delete(`p${at}`)
-        await client.remove('shop', `p${at}`)
-      }
-      for (let at = 30; at < 40; at++) {
-        expected.set(`p${at}`, product(at))
-        await client.insert('shop', product(at), `p${at}`)
-      }
+      const updated = firstInserts.filter(at => at % 3 === 0)
+      for (const at of updated) expected.set(`p${at}`, product(at + 1000))
+      const updates = await client.updateBatch(
+        'shop',
+        updated.map(at => ({ docId: `p${at}`, document: product(at + 1000) })),
+      )
+      expect(updates.failed).toEqual([])
+      const removed = firstInserts.filter(at => at % 5 === 1)
+      for (const at of removed) expected.delete(`p${at}`)
+      const removals = await client.removeBatch(
+        'shop',
+        removed.map(at => `p${at}`),
+      )
+      expect(removals.failed).toEqual([])
+      const laterInserts = Array.from({ length: 10 }, (_, at) => at + 30)
+      for (const at of laterInserts) expected.set(`p${at}`, product(at))
+      const appended = await client.insertBatch(
+        'shop',
+        laterInserts.map(at => ({ id: `p${at}`, ...product(at) })),
+      )
+      expect(appended.failed).toEqual([])
       await client.checkpoint('shop')
 
       const reader = createNarsilClient({ url: server.base })
