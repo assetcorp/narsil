@@ -125,13 +125,13 @@ async fn a_data_node_leads_what_it_is_given_and_never_lends_an_orphaned_copy_to_
     );
 
     coordinator
-        .drop_schema(CATALOGUE)
-        .await
-        .expect("the schema is dropped");
-    coordinator
         .delete(&metadata_key(CATALOGUE))
         .await
         .expect("the metadata is deleted");
+    coordinator
+        .drop_schema(CATALOGUE)
+        .await
+        .expect("the schema is dropped");
     eventually("the node drops the copy of the dropped index", || async {
         local_read(&data, CATALOGUE).await == Err("INDEX_NOT_FOUND".to_string())
     })
