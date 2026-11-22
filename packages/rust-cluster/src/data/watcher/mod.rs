@@ -131,13 +131,15 @@ impl WatcherContext {
                 () = self.arrived.notified() => {}
                 _ = stopping.wait_for(|stopped| *stopped) => return,
             }
+            let settles_at =
+                tokio::time::Instant::now() + Duration::from_millis(DATA_ALLOCATION_DEBOUNCE_MS);
             loop {
                 for pending in self.take_superseded_pending() {
                     self.process(&pending, true).await;
                 }
                 tokio::select! {
                     () = self.arrived.notified() => continue,
-                    () = tokio::time::sleep(Duration::from_millis(DATA_ALLOCATION_DEBOUNCE_MS)) => break,
+                    () = tokio::time::sleep_until(settles_at) => break,
                     _ = stopping.wait_for(|stopped| *stopped) => return,
                 }
             }

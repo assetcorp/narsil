@@ -4,7 +4,7 @@ use narsil::Value;
 
 use super::PrimaryWrites;
 use super::log_order::EntrySource;
-use super::partition::{Partition, Terms};
+use super::partition::Terms;
 use crate::allocator::{Assignment, Table};
 use crate::controller::lock;
 use crate::error::{ClusterError, ClusterResult, codes};
@@ -111,12 +111,14 @@ fn sender_refusal(
 }
 
 impl PrimaryWrites {
-    async fn sender_assignment(
-        &self,
-        partition: &Partition,
-        sender: &Sender<'_>,
-    ) -> ClusterResult<Assignment> {
+    async fn sender_assignment(&self, sender: &Sender<'_>) -> ClusterResult<Assignment> {
         let refusal = |table: Option<Table>| {
+            let Some(partition) = self
+                .partitions
+                .existing(sender.index_name, sender.partition_id)
+            else {
+                return sender_refusal(table.as_ref(), sender, &self.node_id, &Terms::default());
+            };
             let terms = lock(&partition.terms);
             sender_refusal(table.as_ref(), sender, &self.node_id, &terms)
         };
@@ -169,11 +171,11 @@ impl PrimaryWrites {
             primary_term: first.entry.primary_term,
             node_id: source,
         };
+        let assignment = self.sender_assignment(&sender).await?;
         let partition = self.partitions.of(&first.index_name, first.partition_id);
-        let assignment = self.sender_assignment(&partition, &sender).await?;
         partition.note_superseding(source, assignment.primary_term as u64);
         let _turn = partition.turn().await;
-        let current = self.sender_assignment(&partition, &sender).await?;
+        let current = self.sender_assignment(&sender).await?;
         partition.note_accepted(current.primary_term as u64);
         self.apply_in_log_order(&partition, run, EntrySource::Primary)
             .await?;
@@ -190,10 +192,10 @@ impl PrimaryWrites {
             primary_term: request.primary_term,
             node_id: source,
         };
+        self.sender_assignment(&sender).await?;
         let partition = self
             .partitions
             .of(&request.index_name, request.partition_id);
-        self.sender_assignment(&partition, &sender).await?;
         partition.note_superseding(source, request.primary_term);
         let _turn = partition.turn().await;
         partition.note_accepted(request.primary_term);

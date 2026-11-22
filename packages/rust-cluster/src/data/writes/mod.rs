@@ -17,11 +17,11 @@ mod term_start;
 mod view;
 
 use std::sync::Arc;
-use std::sync::atomic::AtomicU64;
 use std::time::Duration;
 
-use tokio::sync::watch;
+use tokio::sync::{Semaphore, watch};
 
+use self::catch_up::catch_up_budget;
 use self::copy_failure::CopyFailures;
 pub(crate) use self::forward::routed_partition;
 use self::partition::Partitions;
@@ -42,7 +42,7 @@ pub(crate) struct PrimaryWrites {
     view: Arc<AllocationView>,
     partitions: Partitions,
     failures: CopyFailures,
-    catch_up_bytes: AtomicU64,
+    catch_up_bytes: Semaphore,
     stopping: watch::Sender<bool>,
     on_error: Option<NodeErrorHandler>,
 }
@@ -66,7 +66,7 @@ impl PrimaryWrites {
             view: settings.view,
             partitions: Partitions::default(),
             failures: CopyFailures::default(),
-            catch_up_bytes: AtomicU64::new(0),
+            catch_up_bytes: catch_up_budget(),
             stopping: watch::Sender::new(false),
             on_error: settings.on_error,
         }
@@ -78,6 +78,7 @@ impl PrimaryWrites {
 
     pub(super) fn stop(&self) {
         self.stopping.send_replace(true);
+        self.catch_up_bytes.close();
         self.cancel_catch_up_feeds();
         self.view.stop();
     }
@@ -134,9 +135,11 @@ impl PrimaryWrites {
 
     pub(super) fn forget_index(&self, index_name: &str) {
         self.partitions.forget_index(index_name);
+        self.failures.forget_index(index_name);
     }
 
     pub(super) fn forget_partition(&self, index_name: &str, partition_id: u32) {
         self.partitions.forget_partition(index_name, partition_id);
+        self.failures.forget_partition(index_name, partition_id);
     }
 }
