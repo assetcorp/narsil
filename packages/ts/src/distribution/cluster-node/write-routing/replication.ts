@@ -1,11 +1,8 @@
 import { ErrorCodes, NarsilError } from '../../../errors'
 import { encodeDocument } from '../../../serialization/document-encoding'
 import type { AnyDocument } from '../../../types/schema'
-import { chunkByBudget } from '../../chunking'
-import { CONTROLLER_LEASE_KEY } from '../../cluster/controller/types'
-import { WIRE_BATCH_BUDGET } from '../../constants'
 import type { PartitionAssignment } from '../../coordinator/types'
-import { requestInsyncRemoval } from '../../replication/insync'
+import { chunkLogEntries } from '../../replication/entry-batches'
 import { previousTermOf, replicateBatchToReplicas, replicateToReplicas } from '../../replication/primary'
 import type { ReplicationLogEntry } from '../../replication/types'
 import { recordAcknowledgements } from '../catch-up/acknowledgements'
@@ -13,7 +10,6 @@ import { withTimeout } from '../catch-up/admission'
 import {
   admissionToWithdrawOf,
   admittedBeyondTable,
-  recordRemovalUnlessReadmitted,
   settleFencedAdmission,
   withoutRemovedReplicas,
   withUnansweredAdmissions,
@@ -21,48 +17,21 @@ import {
 import {
   type AdmissionAnswer,
   type AdmissionToWithdraw,
-  admissionGenerationOf,
   clearPendingAdmission,
   getPendingAdmissions,
   type PendingAdmission,
   pendingAdmissionOf,
 } from '../catch-up/state'
 import { untilSuperseded } from '../led-term'
-import { sendThroughTargets } from '../transport-failure'
-import { getInSyncReplicaTargets, resolveNodeTargets } from './assignment'
-import { replicationTimeoutOf, withinDeadline } from './deadline'
+import { getInSyncReplicaTargets } from './assignment'
+import { replicationTimeoutOf } from './deadline'
+import { assertPrimaryWriteAuthority, removeFailedReplicasFromInsync } from './insync-removal'
 import type { WriteRoutingDeps } from './types'
-
-type TermScope = Pick<ReplicationLogEntry, 'indexName' | 'partitionId' | 'primaryTerm'>
 
 interface FencedAdmission {
   replicaNodeId: string
   pending: PendingAdmission
   owed: AdmissionToWithdraw | undefined
-}
-
-export async function assertPrimaryWriteAuthority(entry: TermScope, deps: WriteRoutingDeps): Promise<void> {
-  const table = await deps.coordinator.getAllocation(entry.indexName)
-  const currentAssignment = table?.assignments.get(entry.partitionId)
-  const currentPrimaryNodeId = currentAssignment?.primary ?? null
-  const currentPrimaryTerm = currentAssignment?.primaryTerm ?? null
-
-  if (currentPrimaryNodeId === deps.nodeId && currentPrimaryTerm === entry.primaryTerm) {
-    return
-  }
-
-  throw new NarsilError(
-    ErrorCodes.PARTITION_NOT_PRIMARY,
-    `Primary authority changed before acknowledging write for index '${entry.indexName}' partition ${entry.partitionId}`,
-    {
-      indexName: entry.indexName,
-      partitionId: entry.partitionId,
-      localNodeId: deps.nodeId,
-      expectedPrimaryTerm: entry.primaryTerm,
-      currentPrimaryNodeId,
-      currentPrimaryTerm,
-    },
-  )
 }
 
 export function appendIndexReplicationEntry(
@@ -102,91 +71,6 @@ export function appendDeleteReplicationEntry(
   })
 }
 
-export async function removeFailedReplicasFromInsync(
-  entry: TermScope,
-  failedReplicas: string[],
-  deps: WriteRoutingDeps,
-): Promise<void> {
-  if (failedReplicas.length === 0) {
-    return
-  }
-  const timeoutMs = replicationTimeoutOf(deps)
-  await withinDeadline(
-    removeEachFailedReplica(entry, failedReplicas, deps),
-    timeoutMs,
-    () =>
-      new NarsilError(
-        ErrorCodes.REPLICATION_INSYNC_REMOVAL_FAILED,
-        `Removing failed replicas from the in-sync set of index '${entry.indexName}' partition ${entry.partitionId} did not finish within ${timeoutMs}ms`,
-        { indexName: entry.indexName, partitionId: entry.partitionId, failedReplicas, timeoutMs },
-      ),
-  )
-}
-
-async function removeEachFailedReplica(
-  entry: TermScope,
-  failedReplicas: string[],
-  deps: WriteRoutingDeps,
-): Promise<void> {
-  const controllerNodeId = await controllerForRemoval(entry, failedReplicas, deps)
-  for (const replicaNodeId of failedReplicas) {
-    const generationAtRemoval = admissionGenerationOf(deps.catchUp, entry.indexName, entry.partitionId, replicaNodeId)
-    await removeReplicaFromInsync(entry, replicaNodeId, controllerNodeId, generationAtRemoval, deps)
-  }
-}
-
-export async function controllerForRemoval(
-  entry: TermScope,
-  failedReplicas: string[],
-  deps: WriteRoutingDeps,
-): Promise<string> {
-  const controllerNodeId = await deps.coordinator.getLeaseHolder(CONTROLLER_LEASE_KEY)
-  if (controllerNodeId !== null) return controllerNodeId
-  await deps.refreshAllocation?.(entry.indexName)
-  await assertPrimaryWriteAuthority(entry, deps)
-  throw new NarsilError(
-    ErrorCodes.REPLICATION_INSYNC_REMOVAL_FAILED,
-    `Failed to remove replicas from in-sync set for index '${entry.indexName}': no active controller lease holder`,
-    { indexName: entry.indexName, partitionId: entry.partitionId, failedReplicas },
-  )
-}
-
-export async function removeReplicaFromInsync(
-  entry: TermScope,
-  replicaNodeId: string,
-  controllerNodeId: string,
-  generationAtRemoval: number,
-  deps: WriteRoutingDeps,
-  stillWanted?: () => boolean,
-): Promise<void> {
-  const accepted = await requestInsyncRemovalWithTargets(
-    entry.indexName,
-    entry.partitionId,
-    replicaNodeId,
-    entry.primaryTerm,
-    controllerNodeId,
-    deps,
-    stillWanted,
-  )
-  if (!accepted) {
-    await deps.refreshAllocation?.(entry.indexName)
-    await assertPrimaryWriteAuthority(entry, deps)
-    throw new NarsilError(
-      ErrorCodes.REPLICATION_INSYNC_REMOVAL_FAILED,
-      `Controller rejected in-sync removal for replica '${replicaNodeId}' of index '${entry.indexName}' partition ${entry.partitionId}`,
-      { indexName: entry.indexName, partitionId: entry.partitionId, replicaNodeId },
-    )
-  }
-  recordRemovalUnlessReadmitted(
-    deps.catchUp,
-    entry.indexName,
-    entry.partitionId,
-    replicaNodeId,
-    entry.primaryTerm,
-    generationAtRemoval,
-  )
-}
-
 function replicaTargetsOf(
   entry: ReplicationLogEntry,
   assignment: PartitionAssignment,
@@ -211,44 +95,6 @@ function replicaTargetsOf(
     ),
   )
   return { admitted, targets }
-}
-
-export async function requestInsyncRemovalWithTargets(
-  indexName: string,
-  partitionId: number,
-  replicaNodeId: string,
-  primaryTerm: number,
-  controllerNodeId: string,
-  deps: WriteRoutingDeps,
-  stillWanted?: () => boolean,
-): Promise<boolean> {
-  const targets = await resolveNodeTargets(controllerNodeId, deps)
-  const result = await sendThroughTargets(
-    targets,
-    async target => {
-      if (stillWanted?.() === false) {
-        throw new NarsilError(
-          ErrorCodes.REPLICATION_INSYNC_REMOVAL_FAILED,
-          `The primary no longer wants replica '${replicaNodeId}' of index '${indexName}' partition ${partitionId} removed from the in-sync set, so it sent no removal request`,
-          { indexName, partitionId, replicaNodeId, controllerNodeId },
-        )
-      }
-      return requestInsyncRemoval(
-        indexName,
-        partitionId,
-        replicaNodeId,
-        primaryTerm,
-        target,
-        deps.transport,
-        deps.nodeId,
-      )
-    },
-    {
-      message: `Controller '${controllerNodeId}' did not answer an in-sync removal request for index '${indexName}' partition ${partitionId}`,
-      details: { indexName, partitionId, replicaNodeId, controllerNodeId },
-    },
-  )
-  return result.accepted
 }
 
 export async function replicateEntry(
@@ -389,9 +235,5 @@ export async function replicateEntryBatch(
 }
 
 export function chunkReplicationEntries<T extends { entry: ReplicationLogEntry }>(items: T[]): T[][] {
-  return chunkByBudget(items, {
-    ...WIRE_BATCH_BUDGET,
-    payloadBytesOf: item => item.entry.document?.byteLength ?? 0,
-    breaksRun: (item, previous) => item.entry.seqNo !== previous.entry.seqNo + 1,
-  })
+  return chunkLogEntries(items, item => item.entry)
 }
