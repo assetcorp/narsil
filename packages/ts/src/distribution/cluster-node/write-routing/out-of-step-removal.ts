@@ -83,6 +83,22 @@ function admittedSince(scope: PrimaryWriteScope, copy: OutOfStepCopy): boolean {
   return !admissionGenerationIs(deps.catchUp, indexName, partitionId, copy.replicaNodeId, copy.generation)
 }
 
+export function copiesLeftOutOfStep(
+  scope: PrimaryWriteScope,
+  copies: OutOfStepCopy[],
+  inStep: ReadonlySet<string>,
+): string[] {
+  const { deps, indexName, partitionId, assignment } = scope
+  const unsettled = copies.filter(copy => !inStep.has(copy.replicaNodeId) && !admittedSince(scope, copy))
+  return withoutRemovedReplicas(
+    deps.catchUp,
+    indexName,
+    partitionId,
+    assignment.primaryTerm,
+    unsettled.map(copy => copy.replicaNodeId),
+  )
+}
+
 function removable(scope: PrimaryWriteScope, copy: OutOfStepCopy): boolean {
   const { deps, indexName, partitionId } = scope
   return !admittedSince(scope, copy) && !feedsReplica(deps.catchUp, indexName, partitionId, copy.replicaNodeId)
