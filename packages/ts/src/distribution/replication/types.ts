@@ -42,6 +42,7 @@ export interface ReplicationLog {
     throughSeqNo: number,
     budget: ChunkBudget<ReplicationLogEntry>,
   ): ReplicationLogEntry[]
+  getEntryBatchBytes(fromSeqNo: number, throughSeqNo: number, budget: ChunkBudget<ReplicationLogEntry>): number
   getEntry(seqNo: number): ReplicationLogEntry | undefined
   termAt(seqNo: number): number | undefined
   verifyChecksum(entry: ReplicationLogEntry): boolean
