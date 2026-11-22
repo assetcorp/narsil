@@ -6,7 +6,7 @@ use bytes::Bytes;
 use narsil::Value;
 use tokio::io::ReadHalf;
 use tokio::sync::{Notify, mpsc, oneshot};
-use tokio::task::AbortHandle;
+use tokio::task::JoinHandle;
 
 use super::frame::{
     FRAME_TYPE_RESPONSE, FRAME_TYPE_STREAM_CHUNK, FRAME_TYPE_STREAM_END, Frame, read_frame,
@@ -17,6 +17,7 @@ use crate::error::{ClusterError, ClusterResult, codes};
 use crate::message::{CARRIER_ERROR_TYPE, TransportMessage, decode_message};
 use crate::transport::ChunkHandler;
 use crate::transport::io::PeerStream;
+use crate::transport::peers::PeerLink;
 use crate::transport::run_handler::call_chunk_handler;
 
 pub(crate) struct StreamWaiter {
@@ -68,7 +69,7 @@ pub(crate) struct Connection {
     pub(crate) queue: mpsc::Sender<Outbound>,
     pending: Mutex<Pending>,
     alive: AtomicBool,
-    tasks: Mutex<Vec<AbortHandle>>,
+    tasks: Mutex<Vec<JoinHandle<()>>>,
 }
 
 pub(crate) fn peer_unavailable(target: &str, message: String) -> ClusterError {
@@ -93,9 +94,11 @@ impl Connection {
             alive: AtomicBool::new(true),
             tasks: Mutex::new(Vec::new()),
         });
-        let writing = tokio::spawn(write_frames(writer, outbound));
-        let reading = tokio::spawn(read_answers(Arc::clone(&connection), reader));
-        lock(&connection.tasks).extend([writing.abort_handle(), reading.abort_handle()]);
+        {
+            let mut tasks = lock(&connection.tasks);
+            tasks.push(tokio::spawn(write_frames(writer, outbound)));
+            tasks.push(tokio::spawn(read_answers(Arc::clone(&connection), reader)));
+        }
         connection
     }
 
@@ -194,7 +197,7 @@ impl Connection {
                 Waiter::Stream(waiter) => waiter.finish(Err(error.clone())),
             }
         }
-        for task in lock(&self.tasks).drain(..) {
+        for task in lock(&self.tasks).iter() {
             task.abort();
         }
     }
@@ -264,6 +267,30 @@ impl Connection {
                 }
             }
             _ => {}
+        }
+    }
+}
+
+impl PeerLink for Arc<Connection> {
+    fn is_usable(&self) -> bool {
+        self.is_alive()
+    }
+
+    fn is_finished(&self) -> bool {
+        lock(&self.tasks).iter().all(JoinHandle::is_finished)
+    }
+
+    fn shut_down(&self) {
+        self.close(peer_unavailable(
+            &self.target,
+            "Connection pool shutting down".to_string(),
+        ));
+    }
+
+    async fn closed(&self) {
+        let tasks = std::mem::take(&mut *lock(&self.tasks));
+        for task in tasks {
+            let _ = task.await;
         }
     }
 }
