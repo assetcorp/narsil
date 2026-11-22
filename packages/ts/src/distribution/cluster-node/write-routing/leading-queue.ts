@@ -7,7 +7,7 @@ import { assertReshardOpen } from '../reshard/block'
 import { initialisingHere, liveWritablePartition } from './initialising-partition'
 import type { PrimaryWriteScope } from './numbered-write'
 import { enqueuePartitionWrite } from './partition-queue'
-import { isOutcomeUnknown, outcomeUnknown } from './rollback'
+import { failedCopyOutcome, isOutcomeUnknown, outcomeUnknown } from './rollback'
 import { startTermInQueue } from './term-start'
 import type { WriteRoutingDeps } from './types'
 
@@ -126,6 +126,7 @@ export async function inLeadingPartitionQueue<T>(
 ): Promise<T> {
   let current = scope
   let logEndBefore: number | undefined
+  let appendedInTask = false
   let result: T
   try {
     result = await enqueuePartitionWrite(
@@ -135,13 +136,19 @@ export async function inLeadingPartitionQueue<T>(
       async hold => {
         current = { ...(await currentScope(scope)), holdQueue: hold }
         if (await startTermInQueue(current)) current = { ...(await currentScope(scope)), holdQueue: hold }
-        logEndBefore = logEndOf(current)
-        return task(current)
+        const taskStart = logEndOf(current)
+        logEndBefore = taskStart
+        try {
+          return await task(current)
+        } catch (error) {
+          appendedInTask = logEndOf(current) !== taskStart
+          throw error
+        }
       },
     )
   } catch (error) {
     if (isOutcomeUnknown(error)) throw error
-    if (copyFailedIn(current)) throw notPrimary(current)
+    if (copyFailedIn(current)) throw appendedInTask ? failedCopyOutcome(current, error) : notPrimary(current)
     if (refusedFromLocalCopy(error) && (await leadershipUnconfirmed(current))) throw notPrimary(current)
     throw error
   }

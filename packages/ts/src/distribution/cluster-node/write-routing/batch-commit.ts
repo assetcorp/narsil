@@ -4,9 +4,9 @@ import type { ReplicationLogEntry } from '../../replication/types'
 import type { WriteRecord } from '../write-records/table'
 import { markAbandoned } from './abandoned-write'
 import type { BatchWrite, WriteFailure } from './batch-write'
-import type { PrimaryWriteScope } from './numbered-write'
+import { copyFailedIn, type PrimaryWriteScope } from './numbered-write'
 import { chunkReplicationEntries, replicateEntryBatch } from './replication'
-import { settleRollback } from './rollback'
+import { failedCopyOutcome, settleRollback } from './rollback'
 import type { WriteRoutingDeps } from './types'
 
 export interface AppendedWrite<V> {
@@ -41,8 +41,9 @@ export function createGroupCommit<V>(
         committed = appended.length
       } catch (err) {
         commitError = err
+        const logged = copyFailedIn(scope) ? failedCopyOutcome(scope, err) : null
         for (const { write } of appended.splice(committed)) {
-          failed.push({ write, error: asWriteError(err, ErrorCodes.PERSISTENCE_SAVE_FAILED, write.docId) })
+          failed.push({ write, error: logged ?? asWriteError(err, ErrorCodes.PERSISTENCE_SAVE_FAILED, write.docId) })
         }
       }
     },
@@ -99,7 +100,9 @@ export async function replicateAppendedWrites<V>(
       failed.push({ write, error: asWriteError(err, ErrorCodes.DOC_VALIDATION_FAILED, write.docId) })
     }
   }
-  const answer = await settleRollback(scope, first.entry.seqNo, abortError, failedAt)
+  const answer = copyFailedIn(scope)
+    ? failedCopyOutcome(scope, abortError)
+    : await settleRollback(scope, first.entry.seqNo, abortError, failedAt)
   for (const { item, compensation } of compensated) {
     const { write } = item
     const marked = markAbandoned(answer, item.entry, compensation, item.previousRecord)
