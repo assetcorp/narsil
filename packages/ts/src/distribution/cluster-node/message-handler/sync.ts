@@ -1,12 +1,15 @@
 import { encode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../../errors'
-import { chunkByBudget } from '../../chunking'
+import type { ChunkBudget } from '../../chunking'
 import { WIRE_BATCH_BUDGET } from '../../constants'
 import type { PartitionAssignment } from '../../coordinator/types'
+import { entryByteEstimate } from '../../replication/entry-checksum'
 import { defaultSpoolDirectory, spoolSnapshotStream } from '../../replication/snapshot-spool'
 import { decideSyncTier, decodeSyncRequest } from '../../replication/sync-primary'
+import type { ReplicationLogEntry } from '../../replication/types'
 import type { RespondFn, SyncEntriesPayload, SyncRequestPayload, TransportMessage } from '../../transport/types'
 import { ReplicationMessageTypes } from '../../transport/types'
+import { releaseInFlightBytes, reserveInFlightBytesWhenFree } from '../catch-up/in-flight-bytes'
 import { isCurrentSyncSession, openSyncSession } from '../catch-up/sessions'
 import { recordReplicaPosition, recordSnapshotSyncRequest } from '../catch-up/state'
 import { holdsAnotherIndex } from '../request-identity'
@@ -109,7 +112,7 @@ export async function handleSyncRequestMessage(
           request.syncSession !== undefined,
         )
       }
-      await sendSyncEntriesResponse(message, respond, deps, log.getEntriesFrom(request.lastSeqNo + 1), syncSession)
+      await sendSyncEntriesResponse(message, respond, deps, request, request.lastSeqNo + 1, syncSession)
       return
     }
     if (fromReplica) {
@@ -150,7 +153,7 @@ export async function handleSyncRequestMessage(
         },
         afterSnapshot: async (trailingSink, build) => {
           const snapshotEnd = build.lastSeqNo ?? snapshotSeqNo
-          await sendSyncEntriesResponse(message, trailingSink, deps, log.getEntriesFrom(snapshotEnd + 1), syncSession)
+          await sendSyncEntriesResponse(message, trailingSink, deps, request, snapshotEnd + 1, syncSession)
         },
       },
     )
@@ -180,31 +183,53 @@ function currentSyncSessionOf(
   )
 }
 
-export async function sendSyncEntriesResponse(
+const SYNC_ANSWER_BATCH_BUDGET: ChunkBudget<ReplicationLogEntry> = {
+  ...WIRE_BATCH_BUDGET,
+  payloadBytesOf: entry => (entry.document?.byteLength ?? 0) + (entry.previousDocument?.byteLength ?? 0),
+  breaksRun: (entry, previous) => entry.seqNo !== previous.seqNo + 1,
+}
+
+async function sendSyncEntriesResponse(
   message: TransportMessage,
   respond: RespondFn,
   deps: DataNodeHandlerDeps,
-  entries: SyncEntriesPayload['entries'],
+  { indexName, partitionId }: SyncRequestPayload,
+  fromSeqNo: number,
   syncSession: string,
 ): Promise<void> {
-  const batches = chunkByBudget(entries, {
-    ...WIRE_BATCH_BUDGET,
-    payloadBytesOf: entry => (entry.document?.byteLength ?? 0) + (entry.previousDocument?.byteLength ?? 0),
-  })
-  if (batches.length === 0) {
-    batches.push([])
-  }
-  for (let index = 0; index < batches.length; index++) {
-    const payload: SyncEntriesPayload = {
-      entries: batches[index],
-      isLast: index === batches.length - 1,
-      syncSession,
+  const log = deps.writeDeps.getReplicationLog(indexName, partitionId)
+  const throughSeqNo = log.localLogEnd
+  let nextSeqNo = fromSeqNo
+  for (;;) {
+    const batch = log.getEntryBatch(nextSeqNo, throughSeqNo, SYNC_ANSWER_BATCH_BUDGET)
+    if (nextSeqNo <= throughSeqNo && batch[0]?.seqNo !== nextSeqNo) {
+      throw new NarsilError(
+        ErrorCodes.REPLICATION_SYNC_FAILED,
+        `Node '${deps.nodeId}' discarded entry ${nextSeqNo} of partition ${partitionId} of index '${indexName}' before it could send it, so the replica must open a new sync`,
+        { indexName, partitionId, seqNo: nextSeqNo },
+      )
     }
-    await respond({
-      type: ReplicationMessageTypes.SYNC_ENTRIES,
-      sourceId: deps.nodeId,
-      requestId: message.requestId,
-      payload: encode(payload),
-    })
+    nextSeqNo = (batch.at(-1)?.seqNo ?? nextSeqNo - 1) + 1
+    const isLast = nextSeqNo > throughSeqNo
+    const catchUp = deps.writeDeps.catchUp
+    const reservedBytes = await reserveInFlightBytesWhenFree(catchUp, batchBytesOf(batch))
+    try {
+      const payload: SyncEntriesPayload = { entries: batch, isLast, syncSession }
+      await respond({
+        type: ReplicationMessageTypes.SYNC_ENTRIES,
+        sourceId: deps.nodeId,
+        requestId: message.requestId,
+        payload: encode(payload),
+      })
+    } finally {
+      releaseInFlightBytes(catchUp, reservedBytes)
+    }
+    if (isLast) return
   }
+}
+
+function batchBytesOf(batch: readonly ReplicationLogEntry[]): number {
+  let total = 0
+  for (const entry of batch) total += entryByteEstimate(entry)
+  return total
 }

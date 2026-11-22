@@ -6,6 +6,7 @@ import type { ReplicationLogEntry } from '../../replication/types'
 import { MAX_CATCH_UP_IN_FLIGHT_BYTES } from '../constants'
 import type { WriteRoutingDeps } from '../write-routing/types'
 import { type CatchUpFeed, untilCancelled } from './feed'
+import { releaseInFlightBytes } from './in-flight-bytes'
 import type { CatchUpState, ReplicaCursor } from './state'
 
 function batchBytes(entries: ReplicationLogEntry[]): number {
@@ -62,7 +63,7 @@ export async function sendBatch(
     )
     return result.acknowledged.includes(replicaNodeId)
   })().finally(() => {
-    state.inFlightBytes -= reservedBytes
+    releaseInFlightBytes(state, reservedBytes)
   })
   const acknowledged = await untilCancelled(feed, delivery, false)
   if (!acknowledged || feed.cancelled || cursor.syncEpoch !== sendingEpoch) {
@@ -98,6 +99,6 @@ export async function sendHeldEntryAgain(
     if (result.acknowledged.includes(replicaNodeId)) return 'acknowledged'
     return result.refusedAsInvalid.includes(replicaNodeId) ? 'refused-as-invalid' : 'unconfirmed'
   } finally {
-    state.inFlightBytes -= reservedBytes
+    releaseInFlightBytes(state, reservedBytes)
   }
 }
