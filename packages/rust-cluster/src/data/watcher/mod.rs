@@ -16,6 +16,7 @@ pub(super) use self::table::partition_of;
 use self::table::{needs_seeding, process_table, seed_retained};
 use super::blocking::off_executor;
 use super::copies::LocalCopies;
+use super::writes::{AllocationView, PrimaryWrites};
 use crate::allocator::Table;
 use crate::constants::DATA_ALLOCATION_DEBOUNCE_MS;
 use crate::controller::{belongs_to_another_index, lock};
@@ -29,6 +30,7 @@ pub(super) struct WatcherContext {
     coordinator: Arc<EtcdCoordinator>,
     transport: Arc<dyn NodeTransport>,
     copies: Arc<LocalCopies>,
+    writes: Arc<PrimaryWrites>,
     on_error: Option<NodeErrorHandler>,
     state: Mutex<WatcherState>,
     arrived: Notify,
@@ -158,6 +160,8 @@ pub(super) struct WatcherSettings {
     pub(super) coordinator: Arc<EtcdCoordinator>,
     pub(super) transport: Arc<dyn NodeTransport>,
     pub(super) copies: Arc<LocalCopies>,
+    pub(super) view: Arc<AllocationView>,
+    pub(super) writes: Arc<PrimaryWrites>,
     pub(super) on_error: Option<NodeErrorHandler>,
 }
 
@@ -168,17 +172,21 @@ impl AllocationWatcher {
             coordinator: settings.coordinator,
             transport: settings.transport,
             copies: settings.copies,
+            writes: settings.writes,
             on_error: settings.on_error,
             state: Mutex::new(WatcherState::default()),
             arrived: Notify::new(),
             stopping: watch::Sender::new(false),
         });
         let receiver = Arc::downgrade(&context);
+        let view = settings.view;
         let watch = context
             .coordinator
             .watch_allocation(move |stored| {
+                let table = Table::from_stored(&stored);
+                view.observe(&table);
                 if let Some(context) = receiver.upgrade() {
-                    context.receive(Table::from_stored(&stored));
+                    context.receive(table);
                 }
             })
             .await?;

@@ -9,6 +9,7 @@ pub mod error;
 pub mod message;
 pub mod node;
 mod ordering;
+mod payload;
 pub mod transport;
 mod version;
 mod wire;

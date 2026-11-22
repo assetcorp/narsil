@@ -1,6 +1,30 @@
 use std::ops::Range;
 
-use crate::constants::MAX_SAFE_INTEGER;
+use crate::constants::{MAX_PAYLOAD_DEPTH, MAX_SAFE_INTEGER};
+
+const NIL: u8 = 0xc0;
+const FALSE: u8 = 0xc2;
+const TRUE: u8 = 0xc3;
+
+pub(crate) fn write_nil(out: &mut Vec<u8>) {
+    out.push(NIL);
+}
+
+pub(crate) fn write_bool(out: &mut Vec<u8>, flag: bool) {
+    out.push(if flag { TRUE } else { FALSE });
+}
+
+pub(crate) fn write_array_header(out: &mut Vec<u8>, length: usize) {
+    if length < 16 {
+        out.push(0x90 | length as u8);
+    } else if length < 0x1_0000 {
+        out.push(0xdc);
+        out.extend_from_slice(&(length as u16).to_be_bytes());
+    } else {
+        out.push(0xdd);
+        out.extend_from_slice(&(length as u32).to_be_bytes());
+    }
+}
 
 pub(crate) fn write_map_header(out: &mut Vec<u8>, length: usize) {
     if length < 16 {
@@ -87,9 +111,118 @@ struct Header {
     children: usize,
 }
 
+#[derive(Clone, Copy)]
+struct OpenValue {
+    remaining: usize,
+    is_map: bool,
+}
+
+impl OpenValue {
+    fn expects_key(self) -> bool {
+        self.is_map && self.remaining.is_multiple_of(2)
+    }
+}
+
+pub(crate) fn validate(bytes: &[u8]) -> Result<(), Malformed> {
+    let mut reader = Reader::new(bytes);
+    let mut open = [OpenValue {
+        remaining: 0,
+        is_map: false,
+    }; MAX_PAYLOAD_DEPTH];
+    let mut depth = 0;
+    loop {
+        if depth > 0 && open[depth - 1].expects_key() {
+            reader.read_str()?;
+            open[depth - 1].remaining -= 1;
+        }
+        let marker = reader.peek()?;
+        if matches!(marker, 0xa0..=0xbf | 0xd9..=0xdb) {
+            reader.read_str()?;
+        } else {
+            let header = reader.header()?;
+            reader.take(header.body)?;
+            if header.children > 0 {
+                if depth == MAX_PAYLOAD_DEPTH || header.children > reader.remaining() {
+                    return Err(Malformed);
+                }
+                open[depth] = OpenValue {
+                    remaining: header.children,
+                    is_map: matches!(marker, 0x80..=0x8f | 0xde | 0xdf),
+                };
+                depth += 1;
+                continue;
+            }
+        }
+        while depth > 0 {
+            open[depth - 1].remaining -= 1;
+            if open[depth - 1].remaining > 0 {
+                break;
+            }
+            depth -= 1;
+        }
+        if depth == 0 {
+            return if reader.is_finished() {
+                Ok(())
+            } else {
+                Err(Malformed)
+            };
+        }
+    }
+}
+
 impl<'a> Reader<'a> {
     pub(crate) fn new(bytes: &'a [u8]) -> Reader<'a> {
         Reader { bytes, at: 0 }
+    }
+
+    fn remaining(&self) -> usize {
+        self.bytes.len() - self.at
+    }
+
+    fn peek(&self) -> Read<u8> {
+        self.bytes.get(self.at).copied().ok_or(Malformed)
+    }
+
+    pub(crate) fn read_value(&mut self) -> Read<&'a [u8]> {
+        let start = self.at;
+        self.skip()?;
+        Ok(&self.bytes[start..self.at])
+    }
+
+    pub(crate) fn read_bool(&mut self) -> Read<bool> {
+        match self.byte()? {
+            FALSE => Ok(false),
+            TRUE => Ok(true),
+            _ => Err(Malformed),
+        }
+    }
+
+    pub(crate) fn read_array_length(&mut self) -> Read<usize> {
+        match self.byte()? {
+            marker @ 0x90..=0x9f => Ok((marker & 0x0f) as usize),
+            0xdc => self.length(2),
+            0xdd => self.length(4),
+            _ => Err(Malformed),
+        }
+    }
+
+    pub(crate) fn read_whole_number(&mut self) -> Read<u64> {
+        let signed = match self.peek()? {
+            0xca | 0xd0..=0xd3 => self.byte()?,
+            _ => return self.read_uint(),
+        };
+        let number = match signed {
+            0xca => f64::from(f32::from_be_bytes(self.be_bytes()?)),
+            0xd0 => f64::from(self.byte()? as i8),
+            0xd1 => f64::from(i16::from_be_bytes(self.be_bytes()?)),
+            0xd2 => f64::from(i32::from_be_bytes(self.be_bytes()?)),
+            _ => i64::from_be_bytes(self.be_bytes()?) as f64,
+        };
+        if number >= 0.0 && number.fract() == 0.0 && number <= MAX_SAFE_INTEGER as f64 {
+            Ok(number as u64)
+        } else {
+            Err(Malformed)
+        }
     }
 
     pub(crate) fn is_finished(&self) -> bool {

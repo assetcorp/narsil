@@ -18,12 +18,20 @@ pub mod message_types {
     pub const CLUSTER_PING: &str = "cluster.ping";
     /// The answer to a `cluster.ping`.
     pub const CLUSTER_PONG: &str = "cluster.pong";
+    /// A client mutation that another node forwards to the partition's primary.
+    pub const REPLICATION_FORWARD: &str = "replication.forward";
+    /// Many client mutations that another node forwards to a primary of their partitions.
+    pub const REPLICATION_FORWARD_BATCH: &str = "replication.forward_batch";
     /// A replication log entry from a primary.
     pub const REPLICATION_ENTRY: &str = "replication.entry";
     /// Contiguous replication log entries from a primary.
     pub const REPLICATION_ENTRY_BATCH: &str = "replication.entry_batch";
     /// The start of a new primary term.
     pub const REPLICATION_TERM_START: &str = "replication.term_start";
+    /// A copy's answer to the start of a term, with its highest entry.
+    pub const REPLICATION_TERM_START_ACK: &str = "replication.term_start_ack";
+    /// A replica's acknowledgement of replication log entries.
+    pub const REPLICATION_ACK: &str = "replication.ack";
     /// A primary's request that the controller admit a caught-up replica to the in-sync set.
     pub const REPLICATION_INSYNC_ADD: &str = "replication.insync_add";
     /// A request that the controller drop a replica from the in-sync set.
