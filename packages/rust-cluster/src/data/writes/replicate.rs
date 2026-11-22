@@ -5,7 +5,7 @@ use narsil::replication::{HeldTerm, ReplicatedEntry};
 use tokio::task::JoinSet;
 
 use super::PrimaryWrites;
-use super::errors::{authority_changed, insync_removal_failed};
+use super::errors::{authority_changed, insync_removal_failed, superseded_by};
 use super::scope::Scope;
 use crate::allocator::Assignment;
 use crate::constants::{
@@ -147,6 +147,8 @@ impl PrimaryWrites {
 
     pub(super) async fn superseded(&self, scope: &Scope) -> ClusterError {
         let mut changes = self.view.changes();
+        let partition = self.partitions.of(&scope.index_name, scope.partition_id);
+        let mut superseding = partition.superseding.subscribe();
         loop {
             if let Some(assignment) = self
                 .view
@@ -156,7 +158,18 @@ impl PrimaryWrites {
             {
                 return authority_changed(scope, &self.node_id, Some(&assignment));
             }
-            if changes.changed().await.is_err() {
+            if let Some(newer) = superseding
+                .borrow_and_update()
+                .as_ref()
+                .filter(|newer| newer.primary_term > scope.primary_term)
+            {
+                return superseded_by(scope, &self.node_id, &newer.node_id, newer.primary_term);
+            }
+            let changed = tokio::select! {
+                changed = changes.changed() => changed.is_ok(),
+                changed = superseding.changed() => changed.is_ok(),
+            };
+            if !changed {
                 std::future::pending::<()>().await;
             }
         }

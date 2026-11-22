@@ -84,21 +84,34 @@ fn changed_authority(
     current: Option<&Assignment>,
     message: String,
 ) -> ClusterError {
+    let primary = optional_text(current.and_then(|assignment| assignment.primary.as_deref()));
+    let term = current.map_or(Value::Null, |assignment| {
+        Value::Number(assignment.primary_term)
+    });
+    authority_moved(scope, node_id, primary, term, message)
+}
+
+fn authority_moved(
+    scope: &Scope,
+    node_id: &str,
+    primary: Value,
+    primary_term: Value,
+    message: String,
+) -> ClusterError {
     ClusterError::new(codes::PARTITION_NOT_PRIMARY, message)
         .with_detail("indexName", Value::from(scope.index_name.as_str()))
         .with_detail("partitionId", Value::from(scope.partition_id))
         .with_detail("localNodeId", Value::from(node_id))
         .with_detail("expectedPrimaryTerm", Value::from(scope.primary_term))
-        .with_detail(
-            "currentPrimaryNodeId",
-            optional_text(current.and_then(|assignment| assignment.primary.as_deref())),
-        )
-        .with_detail(
-            "currentPrimaryTerm",
-            current.map_or(Value::Null, |assignment| {
-                Value::Number(assignment.primary_term)
-            }),
-        )
+        .with_detail("currentPrimaryNodeId", primary)
+        .with_detail("currentPrimaryTerm", primary_term)
+}
+
+fn authority_changed_message(scope: &Scope) -> String {
+    format!(
+        "Primary authority changed before acknowledging write for index '{}' partition {}",
+        scope.index_name, scope.partition_id
+    )
 }
 
 pub(super) fn authority_changed(
@@ -106,11 +119,22 @@ pub(super) fn authority_changed(
     node_id: &str,
     current: Option<&Assignment>,
 ) -> ClusterError {
-    let message = format!(
-        "Primary authority changed before acknowledging write for index '{}' partition {}",
-        scope.index_name, scope.partition_id
-    );
-    changed_authority(scope, node_id, current, message)
+    changed_authority(scope, node_id, current, authority_changed_message(scope))
+}
+
+pub(super) fn superseded_by(
+    scope: &Scope,
+    node_id: &str,
+    primary_node_id: &str,
+    primary_term: u64,
+) -> ClusterError {
+    authority_moved(
+        scope,
+        node_id,
+        Value::from(primary_node_id),
+        Value::from(primary_term),
+        authority_changed_message(scope),
+    )
 }
 
 pub(super) fn no_longer_leads_term(

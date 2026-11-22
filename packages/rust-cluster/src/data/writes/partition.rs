@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::sync::{Arc, Mutex};
 
-use tokio::sync::OwnedMutexGuard;
+use tokio::sync::{OwnedMutexGuard, watch};
 use tokio::task::JoinHandle;
 
 use super::log::ReplicationLog;
@@ -26,11 +26,18 @@ impl Terms {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct SupersedingPrimary {
+    pub(super) node_id: String,
+    pub(super) primary_term: u64,
+}
+
 #[derive(Default)]
 pub(super) struct Partition {
     queue: Arc<tokio::sync::Mutex<()>>,
     pub(super) log: Mutex<ReplicationLog>,
     pub(super) terms: Mutex<Terms>,
+    pub(super) superseding: watch::Sender<Option<SupersedingPrimary>>,
 }
 
 pub(super) struct QueueTurn {
@@ -57,6 +64,27 @@ impl Partition {
         QueueTurn {
             guard: Some(Arc::clone(&self.queue).lock_owned().await),
         }
+    }
+
+    pub(super) fn note_superseding(&self, node_id: &str, primary_term: u64) {
+        self.superseding.send_if_modified(|held| {
+            if held
+                .as_ref()
+                .is_some_and(|held| held.primary_term >= primary_term)
+            {
+                return false;
+            }
+            *held = Some(SupersedingPrimary {
+                node_id: node_id.to_string(),
+                primary_term,
+            });
+            true
+        });
+    }
+
+    pub(super) fn note_accepted(&self, primary_term: u64) {
+        let mut terms = lock(&self.terms);
+        terms.accepted = terms.accepted.max(primary_term);
     }
 }
 

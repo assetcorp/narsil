@@ -15,6 +15,7 @@ use data_node::{
 use support::{Decoded, decode, write_binary, write_map_header, write_text, write_unsigned};
 
 const NODE_ID: &str = "primary-a";
+const RUST_FORWARDER: &str = "rust-test-forwarder";
 const ORDERS: &str = "orders";
 const ORDERS_UUID: &str = "uuid-of-orders";
 const PARTITIONS: u64 = 3;
@@ -173,7 +174,7 @@ impl Forwarder {
             .transport
             .send(
                 &self.target,
-                TransportMessage::new(message_type, "typescript-forwarder", request_id, payload),
+                TransportMessage::new(message_type, RUST_FORWARDER, request_id, payload),
             )
             .await
             .expect("the primary answers the forward");
@@ -274,7 +275,7 @@ async fn primary_with_forwarder(
     })
     .await;
     let transport = TcpTransport::new(
-        "typescript-forwarder",
+        RUST_FORWARDER,
         TcpTransportConfig {
             host: "127.0.0.1".to_string(),
             port: 0,
