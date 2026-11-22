@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
-import { GH_CALL_TIMEOUT_MS, MAX_SEED } from './fault-campaign/constants.mjs'
+import { GH_CALL_TIMEOUT_MS, MAX_OPEN_ISSUE_PAGES, MAX_SEED } from './fault-campaign/constants.mjs'
 import { CAMPAIGN_CHECKS, OUTCOMES_FILE, readOutcomes } from './fault-campaign/outcomes.mjs'
 
 const packageDirectory = fileURLToPath(new URL('..', import.meta.url))
@@ -14,6 +14,8 @@ const RUN_ID_PATTERN = /^\d+$/
 const ARTIFACT_URL_PATTERN =
   /^https:\/\/[A-Za-z0-9.-]+\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/actions\/runs\/\d+\/artifacts\/\d+$/
 const TRIAGE_LABEL = 'needs-triage'
+const CAMPAIGN_ISSUE_AUTHOR = 'github-actions[bot]'
+const ISSUES_PER_PAGE = 100
 const ARTIFACT_NAME = 'narsil-cluster-fault-failures'
 const GH_OUTPUT_LIMIT_BYTES = 256 * 1024 * 1024
 const CHECK_NAMES = new Set([
@@ -68,25 +70,36 @@ function gh(args, input) {
   return result.stdout
 }
 
-function openIssues() {
-  if (values['open-issues'] !== undefined) return JSON.parse(readFileSync(values['open-issues'], 'utf8'))
+function openIssuePage(page) {
   const output = spawnSync(
     'gh',
     [
       'api',
-      '--paginate',
-      `repos/${repository}/issues?state=open&per_page=100`,
+      `repos/${repository}/issues?state=open&sort=created&direction=asc&per_page=${ISSUES_PER_PAGE}&page=${page}`,
       '--jq',
-      '.[] | select(.pull_request == null) | {number, body}',
+      `[length, [.[] | select(.pull_request == null and .user.login == "${CAMPAIGN_ISSUE_AUTHOR}") | {number, body, user: {login: .user.login}}]]`,
     ],
     { encoding: 'utf8', timeout: GH_CALL_TIMEOUT_MS, maxBuffer: GH_OUTPUT_LIMIT_BYTES },
   )
   if (output.error !== undefined) throw output.error
   if (output.status !== 0) throw new Error(`gh api exited with ${output.status}: ${output.stderr.slice(0, 2_000)}`)
-  return output.stdout
-    .split('\n')
-    .filter(line => line.length > 0)
-    .map(line => JSON.parse(line))
+  const [count, issues] = JSON.parse(output.stdout)
+  if (!Number.isSafeInteger(count) || !Array.isArray(issues))
+    throw new Error('gh api returned a page of an unknown shape')
+  return { count, issues }
+}
+
+function openIssues() {
+  if (values['open-issues'] !== undefined) return JSON.parse(readFileSync(values['open-issues'], 'utf8'))
+  const issues = []
+  for (let page = 1; page <= MAX_OPEN_ISSUE_PAGES; page++) {
+    const { count, issues: found } = openIssuePage(page)
+    issues.push(...found)
+    if (count < ISSUES_PER_PAGE) return issues
+  }
+  throw new Error(
+    `The repository fills all ${MAX_OPEN_ISSUE_PAGES} pages of open issues that this script reads, so it stops before reading the rest`,
+  )
 }
 
 function marker(seed) {
@@ -96,6 +109,7 @@ function marker(seed) {
 function issueFor(issues, seed) {
   const found = issues
     .filter(issue => Number.isSafeInteger(issue?.number) && typeof issue.body === 'string')
+    .filter(issue => issue.user?.login === CAMPAIGN_ISSUE_AUTHOR)
     .filter(issue => issue.body.includes(marker(seed)))
     .sort((left, right) => left.number - right.number)
   return found[0]?.number ?? null
