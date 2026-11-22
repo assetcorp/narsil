@@ -40,13 +40,19 @@ jobs:
       matrix:
         include: >-
           ${{ fromJSON(github.event_name == 'push' && '[
-          {"label": "linux-x64", "runner": "ubuntu-latest", "parts": 1, "shard": 1},
+          {"label": "linux-x64", "runner": "ubuntu-latest", "parts": 4, "shard": 1},
+          {"label": "linux-x64", "runner": "ubuntu-latest", "parts": 4, "shard": 2},
+          {"label": "linux-x64", "runner": "ubuntu-latest", "parts": 4, "shard": 3},
+          {"label": "linux-x64", "runner": "ubuntu-latest", "parts": 4, "shard": 4},
           {"label": "win32-x64", "runner": "windows-latest", "parts": 4, "shard": 1},
           {"label": "win32-x64", "runner": "windows-latest", "parts": 4, "shard": 2},
           {"label": "win32-x64", "runner": "windows-latest", "parts": 4, "shard": 3},
           {"label": "win32-x64", "runner": "windows-latest", "parts": 4, "shard": 4}
           ]' || '[
-          {"label": "linux-x64", "runner": "ubuntu-latest", "parts": 1, "shard": 1},
+          {"label": "linux-x64", "runner": "ubuntu-latest", "parts": 4, "shard": 1},
+          {"label": "linux-x64", "runner": "ubuntu-latest", "parts": 4, "shard": 2},
+          {"label": "linux-x64", "runner": "ubuntu-latest", "parts": 4, "shard": 3},
+          {"label": "linux-x64", "runner": "ubuntu-latest", "parts": 4, "shard": 4},
           {"label": "darwin-arm64", "runner": "macos-15", "parts": 1, "shard": 1},
           {"label": "win32-x64", "runner": "windows-latest", "parts": 4, "shard": 1},
           {"label": "win32-x64", "runner": "windows-latest", "parts": 4, "shard": 2},
@@ -115,11 +121,12 @@ jobs:
           NARSIL_ETCD_ENDPOINT: ${{ matrix.label == 'linux-x64' && 'http://127.0.0.1:2379' || '' }}
         run: cargo test --locked --no-fail-fast
 
-      - name: Test part ${{ matrix.shard }} of ${{ matrix.parts }} against the TypeScript transports
+      - name: Test part ${{ matrix.shard }} of ${{ matrix.parts }} against the TypeScript transports and etcd
         if: matrix.parts != 1
         working-directory: packages/rust-cluster
         shell: bash
         env:
+          NARSIL_ETCD_ENDPOINT: ${{ matrix.label == 'linux-x64' && 'http://127.0.0.1:2379' || '' }}
           PART: ${{ matrix.shard }}
           PARTS: ${{ matrix.parts }}
         run: |
