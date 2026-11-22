@@ -4,7 +4,14 @@ import { closeSync, constants, openSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
-import { MAX_MINUTES, MAX_SEED, MIN_MINUTES, RUN_BUDGET_MS } from './fault-campaign/constants.mjs'
+import {
+  MAX_MINUTES,
+  MAX_SEED,
+  MIN_MINUTES,
+  PASSES_TO_RETIRE_A_SEED,
+  REPLAY_SHARE_OF_BUDGET,
+  RUN_BUDGET_MS,
+} from './fault-campaign/constants.mjs'
 import { ensureDirectory, readSeeds, saveSeed } from './fault-campaign/seeds.mjs'
 
 const packageDirectory = fileURLToPath(new URL('..', import.meta.url))
@@ -55,37 +62,55 @@ async function runSeed(seed) {
   }
 }
 
+async function runAndRecord(seed, saved) {
+  const passesInARow = saved?.passesInARow ?? 0
+  const record = { seed, lastStartedAt: Date.now(), pending: true, passesInARow }
+  saveSeed(seedDirectory, record)
+  const passed = await runSeed(seed)
+  if (passed) rmSync(join(logDirectory, `seed-${seed}.log`), { force: true })
+  if (passed && saved === undefined) {
+    rmSync(join(seedDirectory, `${seed}.json`), { force: true })
+    console.log(`seed ${seed} passed`)
+  } else if (passed && passesInARow + 1 >= PASSES_TO_RETIRE_A_SEED) {
+    rmSync(join(seedDirectory, `${seed}.json`), { force: true })
+    console.log(`seed ${seed} passed ${PASSES_TO_RETIRE_A_SEED} times in a row, so the campaign retires it`)
+  } else {
+    const passes = passed ? passesInARow + 1 : 0
+    saveSeed(seedDirectory, { ...record, pending: false, passed, passesInARow: passes })
+    console.log(`seed ${seed} ${passed ? `passed, ${passes} of ${PASSES_TO_RETIRE_A_SEED} passes in a row` : 'failed'}`)
+  }
+  return passed
+}
+
 async function campaign(replayOnly, deadline) {
   ensureDirectory(campaignDirectory)
   ensureDirectory(seedDirectory)
   ensureDirectory(logDirectory)
   const saved = readSeeds(seedDirectory)
   const known = new Set(saved.map(record => record.seed))
+  const replayDeadline = replayOnly
+    ? deadline
+    : performance.now() + (deadline - performance.now()) * REPLAY_SHARE_OF_BUDGET
+  const fits = limit => !interrupted && performance.now() + RUN_BUDGET_MS <= limit
   const failing = []
   let replayed = 0
   let completed = 0
-  console.log(`Replaying ${saved.length} saved seeds before trying new seeds`)
-  while (!interrupted && performance.now() + RUN_BUDGET_MS <= deadline) {
-    const previous = saved[replayed]
-    if (previous === undefined && replayOnly) break
-    const seed = previous?.seed ?? randomInt(0, MAX_SEED)
-    const path = join(seedDirectory, `${seed}.json`)
-    const existed = known.has(seed)
-    const record = { seed, lastStartedAt: Date.now(), pending: true }
-    saveSeed(seedDirectory, record)
-    const passed = await runSeed(seed)
+  console.log(`Replaying ${saved.length} saved seeds, oldest first, before trying new seeds`)
+  while (replayed < saved.length && fits(replayDeadline)) {
+    const record = saved[replayed]
+    replayed += 1
+    if (!(await runAndRecord(record.seed, record))) failing.push(record.seed)
     completed += 1
-    if (passed && !existed) rmSync(path, { force: true })
-    else saveSeed(seedDirectory, { ...record, pending: false, passed })
-    if (!passed) {
-      failing.push(seed)
-      known.add(seed)
-    } else rmSync(join(logDirectory, `seed-${seed}.log`), { force: true })
-    console.log(`seed ${seed} ${passed ? 'passed' : 'failed'}`)
-    if (previous !== undefined) replayed += 1
   }
   if (replayed < saved.length)
-    console.log(`The budget left ${saved.length - replayed} saved seeds for the next campaign`)
+    console.log(`The replay share of the budget left ${saved.length - replayed} saved seeds for the next campaign`)
+  while (!replayOnly && fits(deadline)) {
+    const seed = randomInt(0, MAX_SEED)
+    if (known.has(seed)) continue
+    known.add(seed)
+    if (!(await runAndRecord(seed, undefined))) failing.push(seed)
+    completed += 1
+  }
   if (completed === 0 && (!replayOnly || saved.length > 0)) throw new Error('The budget allowed no completed seeds')
   if (failing.length > 0) {
     console.error(`Failing seeds: ${failing.join(', ')}. Replay with NARSIL_FAULT_CAMPAIGN=1 NARSIL_FAULT_SEED=<seed>`)
