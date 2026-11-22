@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use super::build::recovered_index;
-use super::load::{grow_partitions, is_dead, load_partition};
+use super::load::{grow_partitions, holds_paged_text, is_dead, load_partition};
 use super::load_source::CheckpointSource;
 use super::recover::apply_entry;
 use crate::durability::archive_pins::PinnedCheckpoint;
@@ -15,9 +15,13 @@ use crate::engine::memory::{MemoryGuard, require_reload_memory};
 use crate::engine::replication::copy_state::{PartitionCopy, ReplicatedCopy};
 use crate::engine::vectors::paths::set_value_at;
 use crate::error::{ErrorCode, NarsilError, Result};
-use crate::format::manifest::{DecodedManifest, PartitionCheckpoint, SegmentManifest};
+use crate::format::manifest::{
+    DecodedManifest, PartitionCheckpoint, PartitionEntry, SegmentManifest,
+};
+use crate::format::manifest_refs::FileRef;
 use crate::format::vector_file::{VECTOR_FILE_ENVELOPE_VERSION, decode_vector_file};
 use crate::format::wal::LogEntry;
+use crate::index::paged::{PagedListing, resident_section_bytes};
 use crate::value::{Map, Value};
 
 /// One partition as its checkpoint and its write-ahead log hold it.
@@ -86,6 +90,40 @@ fn reserve_reload_memory(
     require_reload_memory(&index.name, partition, needed_bytes)?;
     memory.admit(needed_bytes);
     Ok(())
+}
+
+pub(crate) fn segment_bytes_held(
+    source: &dyn CheckpointSource,
+    index: &IndexState,
+    file: &FileRef,
+) -> Result<u64> {
+    let paged_path = match holds_paged_text(source, index, &file.key)? {
+        true => source.paged_path_of(&file.key)?,
+        false => None,
+    };
+    match paged_path {
+        Some(path) => resident_section_bytes(&PagedListing {
+            key: file.key.clone(),
+            path,
+            bytes: file.bytes,
+            checksum: file.checksum,
+        }),
+        None => Ok(file.bytes),
+    }
+}
+
+fn reserve_segment_memory(
+    store: &dyn CheckpointSource,
+    memory: &MemoryGuard,
+    index: &IndexState,
+    entry: &PartitionEntry,
+) -> Result<()> {
+    let mut held_bytes = 0u64;
+    for listed in &entry.segments {
+        held_bytes = held_bytes.saturating_add(segment_bytes_held(store, index, &listed.file)?);
+    }
+    let decoded_bytes = held_bytes.saturating_mul(LOAD_PROCESS_BYTES_PER_STORED_BYTE);
+    reserve_reload_memory(memory, index, entry.partition_id, decoded_bytes)
 }
 
 fn attach_checkpoint_vectors(
@@ -189,6 +227,7 @@ pub(crate) fn read_checkpointed(
             .iter()
             .find(|entry| entry.partition_id == partition);
         if let Some(entry) = listed {
+            reserve_segment_memory(backing, &engine.memory, &stored, entry)?;
             load_partition(backing, &stored, entry, &manifest.schema)?;
         }
     }
