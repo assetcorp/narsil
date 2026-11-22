@@ -1,3 +1,4 @@
+import { ErrorCodes, NarsilError } from '../../../errors'
 import { previousTermOf, replicateBatchToReplicas } from '../../replication/primary'
 import { createTermStartMessage, type TermStartPayload, termStartAckOf } from '../../replication/term-start-codec'
 import type { ReplicationLog } from '../../replication/types'
@@ -5,50 +6,96 @@ import { type OutOfStepRemoval, partitionKey } from '../catch-up/state'
 import { sendThroughTargets } from '../transport-failure'
 import { getInSyncReplicaTargets, resolveNodeTargets } from './assignment'
 import { replicationTimeoutOf, withinDeadline } from './deadline'
+import { removeFailedReplicasFromInsync } from './insync-removal'
 import type { PrimaryWriteScope } from './numbered-write'
 import {
   claimOutOfStepRemoval,
+  copiesLeftOutOfStep,
   type OutOfStepCopy,
   outOfStepCopyOf,
   removeOutOfStepCopies,
 } from './out-of-step-removal'
 import { chunkReplicationEntries } from './replication'
 
+function releaseStartedTerm(scope: PrimaryWriteScope, previousTerm: number): void {
+  const { startedTerms } = scope.deps.catchUp
+  const key = partitionKey(scope.indexName, scope.partitionId)
+  if (startedTerms.get(key) !== scope.assignment.primaryTerm) return
+  if (previousTerm === 0) startedTerms.delete(key)
+  else startedTerms.set(key, previousTerm)
+}
+
+function startAbandoned(scope: PrimaryWriteScope): boolean {
+  const { deps, indexName, partitionId, assignment } = scope
+  return (
+    deps.stopped?.() === true ||
+    deps.catchUp.stopped ||
+    deps.catchUp.startedTerms.get(partitionKey(indexName, partitionId)) !== assignment.primaryTerm
+  )
+}
+
+function abandonedStartError(scope: PrimaryWriteScope): NarsilError {
+  const { deps, indexName, partitionId, assignment } = scope
+  return new NarsilError(
+    ErrorCodes.PARTITION_NOT_PRIMARY,
+    `Node '${deps.nodeId}' stopped serving partition ${partitionId} of index '${indexName}' while it started term ${assignment.primaryTerm}`,
+    { indexName, partitionId, localNodeId: deps.nodeId, primaryTerm: assignment.primaryTerm },
+  )
+}
+
+async function removeUnsettledCopies(scope: PrimaryWriteScope, copies: OutOfStepCopy[], inStep: ReadonlySet<string>) {
+  if (startAbandoned(scope)) throw abandonedStartError(scope)
+  const { deps, indexName, partitionId, assignment } = scope
+  await removeFailedReplicasFromInsync(
+    { indexName, partitionId, primaryTerm: assignment.primaryTerm },
+    copiesLeftOutOfStep(scope, copies, inStep),
+    deps,
+  )
+}
+
 export async function startTermInQueue(scope: PrimaryWriteScope): Promise<boolean> {
   const { deps, indexName, partitionId, assignment } = scope
   const key = partitionKey(indexName, partitionId)
-  if ((deps.catchUp.startedTerms.get(key) ?? 0) >= assignment.primaryTerm) return false
+  const previousTerm = deps.catchUp.startedTerms.get(key) ?? 0
+  if (previousTerm >= assignment.primaryTerm) return false
   deps.catchUp.startedTerms.set(key, assignment.primaryTerm)
-  const copies = getInSyncReplicaTargets(assignment, deps.nodeId)
-  if (copies.length === 0) return false
+  const replicaNodeIds = getInSyncReplicaTargets(assignment, deps.nodeId)
+  if (replicaNodeIds.length === 0) return false
+  const copies = replicaNodeIds.map(replicaNodeId => outOfStepCopyOf(scope, replicaNodeId))
+  const inStep = new Set<string>()
   const removal = claimOutOfStepRemoval(scope)
-  const work = startTermOnCopies(scope, copies, removal).catch(() => undefined)
+  const work = startTermOnCopies(scope, copies, inStep, removal).catch(() => undefined)
   await withinDeadline(work, replicationTimeoutOf(deps), () => new Error('The term start outlasted its hold')).catch(
     () => undefined,
   )
+  try {
+    await removeUnsettledCopies(scope, copies, inStep)
+  } catch (error) {
+    releaseStartedTerm(scope, previousTerm)
+    throw error
+  }
   return true
 }
 
 async function startTermOnCopies(
   scope: PrimaryWriteScope,
-  copies: string[],
+  copies: OutOfStepCopy[],
+  inStep: Set<string>,
   removal: OutOfStepRemoval | undefined,
 ): Promise<void> {
-  let outOfStep: Array<OutOfStepCopy | null> = []
+  let outOfStep: OutOfStepCopy[] = []
   try {
-    outOfStep = await settleCopies(scope, copies)
+    outOfStep = await settleCopies(scope, copies, inStep)
   } finally {
-    if (removal !== undefined) {
-      await removeOutOfStepCopies(
-        scope,
-        removal,
-        outOfStep.filter(copy => copy !== null),
-      )
-    }
+    if (removal !== undefined) await removeOutOfStepCopies(scope, removal, outOfStep)
   }
 }
 
-async function settleCopies(scope: PrimaryWriteScope, copies: string[]): Promise<Array<OutOfStepCopy | null>> {
+async function settleCopies(
+  scope: PrimaryWriteScope,
+  copies: OutOfStepCopy[],
+  inStep: Set<string>,
+): Promise<OutOfStepCopy[]> {
   const { deps, indexName, partitionId, assignment } = scope
   const log = deps.getReplicationLog(indexName, partitionId)
   const lastSeqNo = log.localLogEnd
@@ -60,13 +107,14 @@ async function settleCopies(scope: PrimaryWriteScope, copies: string[]): Promise
     lastPrimaryTerm: lastSeqNo === 0 ? 0 : (log.termAt(lastSeqNo) ?? 0),
   }
   if (scope.indexUuid !== undefined) request.indexUuid = scope.indexUuid
-  return Promise.all(
+  const settled = await Promise.all(
     copies.map(async copy => {
-      const beforeRequest = outOfStepCopyOf(scope, copy)
-      const inStep = await settleCopy(scope, log, request, copy).catch(() => false)
-      return inStep ? null : beforeRequest
+      const settledInStep = await settleCopy(scope, log, request, copy.replicaNodeId).catch(() => false)
+      if (settledInStep) inStep.add(copy.replicaNodeId)
+      return settledInStep ? null : copy
     }),
   )
+  return settled.filter(copy => copy !== null)
 }
 
 async function settleCopy(
