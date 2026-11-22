@@ -1,10 +1,12 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use narsil::replication::ReplicatedEntry;
+
 use super::PrimaryWrites;
 use super::errors::{ROLLBACK_OPEN, TERM_ENDED, lost_term, no_longer_leads_term, outcome_unknown};
+use super::log::chunked;
 use super::partition::QueueTurn;
-use super::replicate::chunked;
 use super::scope::Scope;
 use crate::allocator::Assignment;
 use crate::constants::{ROLLBACK_RETRY_DELAY_CAP_MS, ROLLBACK_RETRY_INITIAL_DELAY_MS};
@@ -45,13 +47,13 @@ impl PrimaryWrites {
     }
 
     async fn send_rollback(
-        self: &Arc<Self>,
-        scope: &Scope,
-        entries: &[narsil::replication::ReplicatedEntry],
+        self: Arc<Self>,
+        scope: Scope,
+        entries: Vec<ReplicatedEntry>,
     ) -> ClusterResult<()> {
-        let assignment = self.leading_assignment(scope).await?;
-        for chunk in chunked(entries) {
-            self.replicate(scope, &assignment, chunk).await?;
+        let assignment = self.leading_assignment(&scope).await?;
+        for chunk in chunked(&scope.index_name, &entries) {
+            self.replicate(&scope, &assignment, chunk).await?;
         }
         Ok(())
     }
@@ -59,14 +61,15 @@ impl PrimaryWrites {
     async fn try_rollback(
         self: &Arc<Self>,
         scope: &Scope,
-        entries: &[narsil::replication::ReplicatedEntry],
+        entries: Vec<ReplicatedEntry>,
         delay_ms: u64,
     ) -> ClusterResult<bool> {
         let timeout = self.replication_timeout();
-        match tokio::time::timeout(timeout, self.send_rollback(scope, entries)).await {
-            Ok(Ok(())) => return Ok(true),
-            Ok(Err(error)) if lost_term(&error) => return Err(error),
-            Ok(Err(_)) | Err(_) => {}
+        let attempt = tokio::spawn(Arc::clone(self).send_rollback(scope.clone(), entries));
+        match tokio::time::timeout(timeout, attempt).await {
+            Ok(Ok(Ok(()))) => return Ok(true),
+            Ok(Ok(Err(error))) if lost_term(&error) => return Err(error),
+            Ok(Ok(Err(_)) | Err(_)) | Err(_) => {}
         }
         tokio::time::sleep(Duration::from_millis(delay_ms)).await;
         Ok(false)
@@ -79,12 +82,12 @@ impl PrimaryWrites {
             if self.is_stopping() {
                 return RollbackEnd::Stopped;
             }
-            let entries = lock(&partition.log).entries_from(from_seq_no);
+            let entries = lock(&partition.log).retained_from(from_seq_no);
             let Some(entries) = entries.filter(|entries| !entries.is_empty()) else {
                 return RollbackEnd::Superseded;
             };
             let tried = tokio::select! {
-                tried = self.try_rollback(&scope, &entries, delay_ms) => tried,
+                tried = self.try_rollback(&scope, entries, delay_ms) => tried,
                 superseded = self.superseded(&scope) => Err(superseded),
             };
             match tried {

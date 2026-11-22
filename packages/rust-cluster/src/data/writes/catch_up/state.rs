@@ -152,6 +152,30 @@ impl CatchUp {
         self.last_claim
     }
 
+    pub(in crate::data::writes) fn sync_epochs(&self, replicas: &[String]) -> Vec<(String, u64)> {
+        replicas
+            .iter()
+            .filter_map(|replica| {
+                let cursor = self.cursors.get(replica)?;
+                Some((replica.clone(), cursor.sync_epoch))
+            })
+            .collect()
+    }
+
+    pub(in crate::data::writes) fn raise_acknowledged(
+        &mut self,
+        replica_node_id: &str,
+        sync_epoch: u64,
+        seq_no: u64,
+    ) {
+        if let Some(cursor) = self.cursors.get_mut(replica_node_id)
+            && cursor.sync_epoch == sync_epoch
+        {
+            cursor.applied_seq_no = cursor.applied_seq_no.max(seq_no);
+            cursor.confirmed = true;
+        }
+    }
+
     pub(in crate::data::writes) fn open_session(
         &mut self,
         replica_node_id: &str,

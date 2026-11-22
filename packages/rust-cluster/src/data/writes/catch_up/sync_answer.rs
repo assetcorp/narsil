@@ -1,13 +1,13 @@
 use std::sync::Arc;
 
 use narsil::Value;
-use narsil::replication::{CopyPosition, HeldTerm, ReplicatedEntry};
+use narsil::replication::{CopyPosition, HeldTerm};
 
+use super::feed::run_bytes;
 use crate::allocator::{ACTIVE, Assignment, INITIALISING, MIGRATING, Table};
 use crate::controller::lock;
 use crate::data::writes::PrimaryWrites;
 use crate::data::writes::partition::Partition;
-use crate::data::writes::replicate::chunked;
 use crate::error::{ClusterError, ClusterResult, codes};
 use crate::message::{TransportMessage, message_types, refusal};
 use crate::payload::entry::WireEntry;
@@ -15,10 +15,7 @@ use crate::payload::sync::{SyncRequest, decode_sync_request, encode_sync_entries
 use crate::transport::Respond;
 
 enum Tier {
-    Incremental {
-        entries: Vec<ReplicatedEntry>,
-        log_end: u64,
-    },
+    Incremental { from: u64, log_end: u64 },
     Snapshot,
 }
 
@@ -133,28 +130,26 @@ fn tier_from_log(
 ) -> Tier {
     let log = lock(&partition.log);
     let log_end = log.newest_seq_no().unwrap_or(position.seq_no);
-    let all_from = |from: u64| -> Option<Vec<ReplicatedEntry>> {
-        if from > log_end {
-            return Some(Vec::new());
-        }
-        log.entries_from(from)
-            .filter(|entries| entries.last().is_some_and(|last| last.seq_no == log_end))
+    let retains_from = |from: u64| {
+        from > log_end
+            || log
+                .oldest_seq_no()
+                .is_some_and(|oldest| oldest <= from && from <= log_end)
     };
     let last_seq_no = request.last_seq_no;
-    let entries = if last_seq_no == 0 {
+    let from = if last_seq_no == 0 {
         let discarded_none = match log.oldest_seq_no() {
             Some(oldest) => oldest == 1,
             None => position.seq_no == 0,
         };
-        discarded_none.then(|| all_from(1)).flatten()
+        discarded_none.then_some(1)
     } else {
         let term = log.term_at(last_seq_no).or(held);
         (last_seq_no <= log_end && term == Some(request.last_primary_term))
-            .then(|| all_from(last_seq_no + 1))
-            .flatten()
+            .then_some(last_seq_no + 1)
     };
-    match entries {
-        Some(entries) => Tier::Incremental { entries, log_end },
+    match from.filter(|from| retains_from(*from)) {
+        Some(from) => Tier::Incremental { from, log_end },
         None => Tier::Snapshot,
     }
 }
@@ -246,23 +241,42 @@ impl PrimaryWrites {
         &self,
         message: &TransportMessage,
         respond: &Respond,
+        partition: &Partition,
         request: &SyncRequest,
-        entries: &[ReplicatedEntry],
+        (from, log_end): (u64, u64),
         sync_session: &str,
-    ) {
-        let mut batches = chunked(entries);
-        if batches.is_empty() {
-            batches.push(&[]);
-        }
-        let count = batches.len();
-        for (at, batch) in batches.into_iter().enumerate() {
+    ) -> ClusterResult<()> {
+        let index_name = request.index_name.as_str();
+        let mut next = from;
+        loop {
+            let batch = if next > log_end {
+                Vec::new()
+            } else {
+                lock(&partition.log).batch_from(index_name, next, log_end)
+            };
+            let first = batch.first().map(|entry| entry.seq_no);
+            if next <= log_end && first != Some(next) {
+                return Err(refused(
+                    codes::REPLICATION_SYNC_FAILED,
+                    request,
+                    format!(
+                        "Node '{}' discarded entry {next} of partition {} of index '{index_name}' before it could send it, so the replica must open a new sync",
+                        self.node_id, request.partition_id
+                    ),
+                ));
+            }
+            let Some(_reserved) = self.reserve_when_free(run_bytes(index_name, &batch)).await
+            else {
+                return Ok(());
+            };
+            next = batch.last().map_or(next, |last| last.seq_no + 1);
             let wire: Vec<WireEntry> = batch
-                .iter()
-                .map(|entry| {
-                    WireEntry::of(&request.index_name, request.partition_id, entry.clone())
-                })
+                .into_iter()
+                .map(|entry| WireEntry::of(index_name, request.partition_id, entry))
                 .collect();
-            let payload = encode_sync_entries(&wire, at + 1 == count, sync_session);
+            let is_last = next > log_end;
+            let payload = encode_sync_entries(&wire, is_last, sync_session);
+            drop(wire);
             respond
                 .send(TransportMessage::new(
                     message_types::REPLICATION_SYNC_ENTRIES,
@@ -271,6 +285,9 @@ impl PrimaryWrites {
                     payload,
                 ))
                 .await;
+            if is_last {
+                return Ok(());
+            }
         }
     }
 
@@ -299,7 +316,7 @@ impl PrimaryWrites {
         let sync_session = self.current_session(&partition, &request, source, &assignment)?;
         let from_replica = source != self.node_id;
         match tier {
-            Tier::Incremental { entries, log_end } => {
+            Tier::Incremental { from, log_end } => {
                 if from_replica {
                     lock(&partition.catch_up).record_position(
                         source,
@@ -308,9 +325,9 @@ impl PrimaryWrites {
                         request.sync_session.is_some(),
                     );
                 }
-                self.send_sync_entries(message, respond, &request, &entries, &sync_session)
-                    .await;
-                Ok(())
+                let span = (from, log_end);
+                self.send_sync_entries(message, respond, &partition, &request, span, &sync_session)
+                    .await
             }
             Tier::Snapshot => {
                 if from_replica {

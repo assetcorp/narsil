@@ -25,17 +25,12 @@ impl WireEntry {
     }
 
     pub(crate) fn byte_estimate(&self) -> u64 {
-        let previous = match &self.entry.previous_document {
-            Some(Some(document)) => document.len(),
-            _ => 0,
-        };
-        let document = self.entry.document.as_ref().map_or(0, Vec::len);
-        (crate::constants::REPLICATION_ENTRY_FIXED_OVERHEAD_BYTES
-            + self.index_name.len()
-            + self.entry.document_id.len()
-            + document
-            + previous) as u64
+        entry_byte_estimate(&self.index_name, &self.entry)
     }
+}
+
+pub(crate) fn entry_byte_estimate(index_name: &str, entry: &ReplicatedEntry) -> u64 {
+    entry.byte_estimate(index_name)
 }
 
 pub(crate) fn write_entry(out: &mut Vec<u8>, wire: &WireEntry) {

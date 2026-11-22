@@ -5,6 +5,7 @@ use narsil::replication::{HeldTerm, ReplicatedEntry};
 use tokio::task::JoinSet;
 
 use super::PrimaryWrites;
+use super::catch_up::in_sync_targets_with;
 use super::errors::{authority_changed, insync_removal_failed, lost_term, superseded_by};
 use super::scope::Scope;
 use crate::allocator::Assignment;
@@ -14,15 +15,6 @@ use crate::error::{ClusterError, ClusterResult, codes};
 use crate::message::{TransportMessage, message_types};
 use crate::payload::ack::{acknowledged_seq_no, encode_insync_remove, insync_confirmed};
 use crate::payload::entry::{WireEntry, encode_entry_run};
-use crate::wire_size::wire_batches;
-
-pub(super) fn chunked(entries: &[ReplicatedEntry]) -> Vec<&[ReplicatedEntry]> {
-    wire_batches(
-        entries,
-        |entry| entry.document.as_ref().map_or(0, Vec::len),
-        |previous, entry| entry.seq_no == previous.seq_no + 1,
-    )
-}
 
 pub(super) fn acknowledges(
     answer: &TransportMessage,
@@ -35,13 +27,7 @@ pub(super) fn acknowledges(
 }
 
 pub(super) fn in_sync_targets(assignment: &Assignment, node_id: &str) -> Vec<String> {
-    let mut targets: Vec<String> = Vec::new();
-    for replica in &assignment.in_sync_set {
-        if replica != node_id && assignment.holds_replica(replica) && !targets.contains(replica) {
-            targets.push(replica.clone());
-        }
-    }
-    targets
+    in_sync_targets_with(assignment, node_id, &[])
 }
 
 impl PrimaryWrites {
@@ -336,10 +322,19 @@ impl PrimaryWrites {
         };
         let partition = self.partitions.of(&scope.index_name, scope.partition_id);
         let targets = self.replica_targets(&partition, scope, assignment);
+        let epochs = lock(&partition.catch_up).sync_epochs(&targets.replicas);
         let sent = tokio::select! {
             sent = self.send_entries(scope, entries, &targets.replicas) => sent?,
             superseded = self.superseded(scope) => return Err(superseded),
         };
+        {
+            let mut catch_up = lock(&partition.catch_up);
+            for (replica, sync_epoch) in &epochs {
+                if sent.contains(&(replica.clone(), true)) {
+                    catch_up.raise_acknowledged(replica, *sync_epoch, last.seq_no);
+                }
+            }
+        }
         let failed: Vec<String> = sent
             .into_iter()
             .filter(|(_, acknowledged)| !acknowledged)

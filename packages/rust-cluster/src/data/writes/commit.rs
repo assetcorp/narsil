@@ -6,8 +6,8 @@ use narsil::replication::{PrimaryRefusal, PrimaryWrite, ReplicatedEntry, WriteRe
 
 use super::PrimaryWrites;
 use super::errors::{abandoned_with_term, failed_copy_outcome, rollback_failed};
+use super::log::chunked;
 use super::partition::QueueTurn;
-use super::replicate::chunked;
 use super::run::{AppliedWrite, RunState, decoded_document, refusal_of};
 use super::scope::Scope;
 use crate::error::ClusterError;
@@ -73,6 +73,7 @@ impl PrimaryWrites {
     ) -> Vec<Compensating> {
         let mut writes = Vec::new();
         let mut items = Vec::new();
+        let mut unrestored = None;
         for (applied, failed) in abandoned.into_iter().rev() {
             match compensation_of(state.kind, &applied) {
                 Ok(write) => {
@@ -87,11 +88,13 @@ impl PrimaryWrites {
                 Err(text) => {
                     let error =
                         rollback_failed(state.kind, scope, &applied.document_id, original, &text);
+                    unrestored.get_or_insert(error.clone());
                     state.fail(applied.position, error);
                 }
             }
         }
         if writes.is_empty() {
+            self.take_unrestored_copy_out_of_service(scope, state, unrestored);
             return items;
         }
         let run = match self.engine_write(scope, writes, state.limits).await {
@@ -105,8 +108,10 @@ impl PrimaryWrites {
                         original,
                         error.message(),
                     );
+                    unrestored.get_or_insert(error.clone());
                     state.fail(item.position, error);
                 }
+                self.take_unrestored_copy_out_of_service(scope, state, unrestored);
                 return Vec::new();
             }
         };
@@ -140,6 +145,7 @@ impl PrimaryWrites {
                         original,
                         &text,
                     );
+                    unrestored.get_or_insert(error.clone());
                     state.fail(item.position, error);
                 }
             }
@@ -148,7 +154,19 @@ impl PrimaryWrites {
         if let Some(failure) = run.failure {
             self.note_copy_failure(scope, state, failure.into());
         }
+        self.take_unrestored_copy_out_of_service(scope, state, unrestored);
         kept
+    }
+
+    fn take_unrestored_copy_out_of_service(
+        self: &Arc<Self>,
+        scope: &Scope,
+        state: &mut RunState<'_>,
+        unrestored: Option<ClusterError>,
+    ) {
+        if let Some(cause) = unrestored {
+            self.note_copy_failure(scope, state, cause);
+        }
     }
 
     pub(super) async fn replicate_applied(
@@ -161,7 +179,7 @@ impl PrimaryWrites {
         let applied = std::mem::take(&mut state.applied);
         let mut replicated = 0;
         let mut abort = None;
-        for chunk in chunked(&entries) {
+        for chunk in chunked(&scope.index_name, &entries) {
             match self.replicate(scope, &scope.assignment, chunk).await {
                 Ok(()) => replicated += chunk.len(),
                 Err(error) => {
