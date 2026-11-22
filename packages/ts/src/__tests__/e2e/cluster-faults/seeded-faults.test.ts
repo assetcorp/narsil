@@ -6,6 +6,7 @@ import {
   describeFault,
   type FaultPlan,
   isEtcdFault,
+  isWipe,
   type PlannedFault,
   pullRequestPlan,
   seededRandom,
@@ -21,6 +22,8 @@ const REPLICATION_FACTOR = 1
 const INDEX_NAME = 'ledger'
 const ETCD_OUTAGE_MEMBERS = [1, 2]
 const WORKLOAD_STREAM_SALT = 0x5bd1e995
+const CLIENT_DRAIN_MS = 2_000
+const REST_AFTER_RESTART_MS = 15_000
 const SLOW_WRITE_MEDIAN_MULTIPLE = 100
 const SLOW_WRITE_FLOOR_MS = 5_000
 const MIN_QUIET_WRITES_FOR_LATENCY = 20
@@ -84,7 +87,7 @@ describe('a three-node cluster on three etcd members under seeded faults', () =>
     if (cluster === null) return
     const { fleet, etcd } = cluster
     const { kind, holdMs } = fault
-    const slot = kind === 'wipe' && alone ? await primarySlotOf(fault.slot % PARTITION_COUNT, fault.slot) : fault.slot
+    const slot = isWipe(kind) && alone ? await primarySlotOf(fault.slot % PARTITION_COUNT, fault.slot) : fault.slot
     if (slot !== fault.slot)
       console.log(`the wipe goes to slot ${slot}, the primary of partition ${fault.slot % PARTITION_COUNT}`)
     await sleep(fault.startAfterMs)
@@ -99,11 +102,20 @@ describe('a three-node cluster on three etcd members under seeded faults', () =>
         for (const member of ETCD_OUTAGE_MEMBERS) await etcd.stop(member)
         await sleep(holdMs)
         for (const member of ETCD_OUTAGE_MEMBERS) await etcd.start(member)
-      } else if (kind === 'kill' || kind === 'wipe') {
-        await fleet.kill(slot)
-        if (kind === 'wipe') await fleet.wipe(slot)
+      } else if (kind === 'kill' || isWipe(kind)) {
+        if (fault.clientsRest === true) {
+          faults.resting = true
+          await sleep(CLIENT_DRAIN_MS)
+        }
+        if (kind === 'stop-wipe') await fleet.stop(slot)
+        else await fleet.kill(slot)
+        if (isWipe(kind)) await fleet.wipe(slot)
         await sleep(holdMs)
         await fleet.start(slot)
+        if (fault.clientsRest === true) {
+          await sleep(REST_AFTER_RESTART_MS)
+          faults.resting = false
+        }
       } else if (kind === 'pause') {
         fleet.pause(slot)
         await sleep(holdMs)
@@ -119,6 +131,7 @@ describe('a three-node cluster on three etcd members under seeded faults', () =>
       }
     } finally {
       faults.unavailable.delete(slot)
+      if (fault.clientsRest === true) faults.resting = false
     }
   }
 

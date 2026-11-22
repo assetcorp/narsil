@@ -57,7 +57,7 @@ function runSeed(seed) {
   const logPath = join(logDirectory, `seed-${seed}.log`)
   const log = openSync(logPath, 'w')
   return new Promise(resolve => {
-    const child = spawn('pnpm', ['exec', 'vitest', 'run', TEST_FILE, '--silent=false'], {
+    const child = spawn('pnpm', ['exec', 'vitest', 'run', TEST_FILE, '--silent=false', '--reporter=verbose'], {
       cwd: packageDirectory,
       env: { ...process.env, NARSIL_FAULT_CAMPAIGN: '1', NARSIL_FAULT_SEED: String(seed) },
       stdio: ['ignore', log, log],
