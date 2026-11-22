@@ -119,12 +119,11 @@ export async function restartBootstrapWhileOutOfSync(
   try {
     table = await config.coordinator.getAllocation(indexName)
   } catch (error) {
-    if (config.onError !== undefined) {
-      config.onError(error)
+    if (state.stopped) {
+      return
     }
-    if (!state.stopped) {
-      void restartBootstrapWhileOutOfSync(state, config, indexName, partitionId)
-    }
+    config.onError?.(error)
+    void restartBootstrapWhileOutOfSync(state, config, indexName, partitionId)
     return
   }
 

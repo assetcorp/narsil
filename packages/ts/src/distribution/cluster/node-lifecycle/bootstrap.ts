@@ -3,8 +3,9 @@ import { generateId } from '../../../core/id-generator'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import { decode } from '../../../serialization/msgpack'
 import type { ClusterCoordinator } from '../../coordinator/types'
+import { isRecord } from '../../payload-guards'
 import type { BootstrapCompletePayload, NodeTransport, TransportMessage } from '../../transport/types'
-import { ClusterMessageTypes } from '../../transport/types'
+import { ClusterMessageTypes, TransportError } from '../../transport/types'
 import { CONTROLLER_LEASE_KEY } from '../controller/types'
 import type { PartitionBootstrapState } from './types'
 
@@ -49,15 +50,18 @@ async function resolveControllerTargets(coordinator: ClusterCoordinator, control
  * Tells the controller that this node has finished the sync protocol for a partition, and reports the answer.
  *
  * The node finds the controller through the controller lease, and it tries the controller's node id before the
- * address its registration gives, because either may reach it. A controller that cannot be reached, or that refuses
- * the report, leaves the result `false`, and the caller retries.
+ * address that its registration gives, because either may reach it. The caller must retry both where the result is
+ * `false` and where the call throws, because each of them can pass once the controller or the coordinator recovers.
  *
  * @param indexName - The index the partition is part of.
  * @param partitionId - The partition's id within that index.
  * @param nodeId - This node's own id, which the controller compares with the assignment.
  * @param coordinator - The cluster coordinator, which names the controller and holds the assignment.
  * @param transport - The node transport this function sends the report over.
- * @returns True when the controller accepted the report, and false otherwise.
+ * @returns True when the controller accepted the report, and false where no node holds the controller lease, the
+ * table has no such partition, or the controller declined the report without a code.
+ * @throws The coordinator's error where a read fails, the last transport error where the node couldn't reach the
+ * controller at any target, and a {@link NarsilError} with the controller's code where it answered with an error.
  */
 export async function reportBootstrapComplete(
   indexName: string,
@@ -90,25 +94,43 @@ export async function reportBootstrapComplete(
     payload: encode(payload),
   }
 
+  let sendFailure: unknown
   for (const target of await resolveControllerTargets(coordinator, controllerNodeId)) {
+    let response: TransportMessage
     try {
-      const response = await transport.send(target, message)
-      return isAcceptedResponse(response)
-    } catch (_) {}
+      response = await transport.send(target, message)
+    } catch (error) {
+      sendFailure = error
+      continue
+    }
+    return readCompletionAnswer(response, controllerNodeId)
   }
-  return false
+  throw sendFailure
 }
 
-function isAcceptedResponse(response: TransportMessage): boolean {
+function readCompletionAnswer(response: TransportMessage, controllerNodeId: string): boolean {
+  let decoded: unknown
   try {
-    const decoded = decode(response.payload)
-    if (decoded === null || typeof decoded !== 'object' || Array.isArray(decoded)) {
-      return false
-    }
-    return (decoded as Record<string, unknown>).accepted === true
+    decoded = decode(response.payload)
   } catch (_) {
     return false
   }
+  if (!isRecord(decoded)) {
+    return false
+  }
+  if (!response.type.endsWith('.error') && decoded.error !== true) {
+    return decoded.accepted === true
+  }
+  if (typeof decoded.code !== 'string' || decoded.code === '') {
+    return false
+  }
+  throw new NarsilError(
+    decoded.code,
+    typeof decoded.message === 'string'
+      ? decoded.message
+      : `Controller '${controllerNodeId}' refused the bootstrap completion report`,
+    { controllerNodeId },
+  )
 }
 
 async function partitionAwaitsBootstrapReport(
@@ -144,7 +166,9 @@ async function partitionAwaitsBootstrapReport(
  * @param bootstrapRetryMaxMs - The longest backoff interval the doubling reaches.
  * @param bootstrapMaxRetries - How many further attempts follow the first one.
  * @param onBootstrapPartition - Runs the sync protocol, and reports whether the partition is now in sync.
- * @param onError - Called with a coded error whenever a sync attempt or the whole report sequence fails.
+ * @param onError - Called with `NODE_BOOTSTRAP_FAILED` whenever a sync attempt throws or the last completion report
+ * fails, unless the caller has abandoned the bootstrap. The `innerCode` detail carries the cause's code where the
+ * cause has one.
  * @returns True once the partition is in sync, and for a primary once the allocation table records it, and false
  * otherwise.
  */
@@ -206,16 +230,7 @@ async function runBootstrapSyncAttempt(
     if (state.aborted) {
       return false
     }
-    if (onError !== undefined) {
-      const cause = error instanceof Error ? error.message : String(error)
-      onError(
-        new NarsilError(
-          ErrorCodes.NODE_BOOTSTRAP_FAILED,
-          `Bootstrap sync failed for ${state.indexName}:${state.partitionId}`,
-          { indexName: state.indexName, partitionId: state.partitionId, cause },
-        ),
-      )
-    }
+    onError?.(bootstrapFailure(state, `Bootstrap sync failed for ${state.indexName}:${state.partitionId}`, error))
     return false
   }
 }
@@ -230,6 +245,7 @@ async function retryReportBootstrapComplete(
   bootstrapMaxRetries: number,
   onError?: (error: unknown) => void,
 ): Promise<boolean> {
+  let lastFailure: unknown
   for (let attempt = 0; attempt <= bootstrapMaxRetries; attempt++) {
     if (state.aborted) {
       return false
@@ -239,10 +255,13 @@ async function retryReportBootstrapComplete(
       return true
     }
 
-    const accepted = await reportBootstrapComplete(state.indexName, state.partitionId, nodeId, coordinator, transport)
-
-    if (accepted) {
-      return true
+    try {
+      if (await reportBootstrapComplete(state.indexName, state.partitionId, nodeId, coordinator, transport)) {
+        return true
+      }
+      lastFailure = undefined
+    } catch (error) {
+      lastFailure = error
     }
 
     if (!(await partitionAwaitsBootstrapReport(state, coordinator))) {
@@ -255,17 +274,29 @@ async function retryReportBootstrapComplete(
     }
   }
 
-  if (onError !== undefined) {
-    onError(
-      new NarsilError(
-        ErrorCodes.NODE_BOOTSTRAP_FAILED,
-        `Failed to report bootstrap completion for ${state.indexName}:${state.partitionId} after ${bootstrapMaxRetries + 1} attempts`,
-        { indexName: state.indexName, partitionId: state.partitionId },
-      ),
-    )
+  if (state.aborted) {
+    return false
   }
+  onError?.(
+    bootstrapFailure(
+      state,
+      `Failed to report bootstrap completion for ${state.indexName}:${state.partitionId} after ${bootstrapMaxRetries + 1} attempts`,
+      lastFailure,
+    ),
+  )
 
   return false
+}
+
+function bootstrapFailure(state: PartitionBootstrapState, message: string, failure: unknown): NarsilError {
+  const details: Record<string, unknown> = { indexName: state.indexName, partitionId: state.partitionId }
+  if (failure !== undefined) {
+    details.cause = failure instanceof Error ? failure.message : String(failure)
+  }
+  if (failure instanceof NarsilError || failure instanceof TransportError) {
+    details.innerCode = failure.code
+  }
+  return new NarsilError(ErrorCodes.NODE_BOOTSTRAP_FAILED, message, details)
 }
 
 function waitWithAbort(state: PartitionBootstrapState, ms: number): Promise<void> {
