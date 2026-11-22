@@ -18,6 +18,8 @@ pub(super) enum Step {
 
 pub(super) struct Round {
     claim: u64,
+    index_uuid: Option<String>,
+    uuid_recorded: bool,
     missing: bool,
     reloaded: Option<bool>,
     resigned_term: Option<u64>,
@@ -28,6 +30,8 @@ impl Round {
     pub(super) fn new(claim: u64) -> Round {
         Round {
             claim,
+            index_uuid: None,
+            uuid_recorded: false,
             missing: false,
             reloaded: None,
             resigned_term: None,
@@ -51,6 +55,7 @@ impl PrimaryWrites {
         index_name: &str,
         partition_id: u32,
     ) -> ClusterResult<Step> {
+        self.record_index_uuid(round, index_name).await?;
         round.missing = self.failures.is_missing(index_name, partition_id);
         let assignment = table
             .as_ref()
@@ -114,6 +119,18 @@ impl PrimaryWrites {
         Ok(Step::Reset)
     }
 
+    async fn record_index_uuid(&self, round: &mut Round, index_name: &str) -> ClusterResult<()> {
+        if round.uuid_recorded {
+            return Ok(());
+        }
+        let name = index_name.to_string();
+        round.index_uuid = self
+            .on_copies(move |copies| copies.local_uuid(&name))
+            .await?;
+        round.uuid_recorded = true;
+        Ok(())
+    }
+
     async fn empty_failed_copy(
         &self,
         round: &Round,
@@ -125,16 +142,26 @@ impl PrimaryWrites {
         }
         let partition = self.partitions.of(index_name, partition_id);
         let _turn = partition.turn().await;
+        if !self
+            .failures
+            .is_current(index_name, partition_id, round.claim)
+        {
+            return Ok(());
+        }
+        let Some(index_uuid) = round.index_uuid.clone() else {
+            lock(&partition.log).clear();
+            return Ok(());
+        };
         let name = index_name.to_string();
         let emptied = self
-            .on_copies(move |copies| copies.empty_partition(&name, partition_id))
+            .on_copies(move |copies| copies.empty_partition(&name, &index_uuid, partition_id))
             .await;
-        if let Err(error) = emptied
-            && error.code() != codes::INDEX_NOT_FOUND
-        {
-            return Err(error);
+        match emptied {
+            Ok(true) => lock(&partition.log).clear(),
+            Ok(false) => {}
+            Err(error) if error.code() == codes::INDEX_NOT_FOUND => {}
+            Err(error) => return Err(error),
         }
-        lock(&partition.log).clear();
         Ok(())
     }
 
@@ -147,10 +174,19 @@ impl PrimaryWrites {
         }
         let partition = self.partitions.of(index_name, partition_id);
         let turn = partition.turn().await;
+        let Some(index_uuid) = round.index_uuid.clone().filter(|_| {
+            self.failures
+                .is_current(index_name, partition_id, round.claim)
+        }) else {
+            return false;
+        };
         let name = index_name.to_string();
         let reloaded = self
-            .on_copies(move |copies| copies.reload_partition(&name, partition_id))
+            .on_copies(move |copies| copies.reload_partition(&name, &index_uuid, partition_id))
             .await;
+        if matches!(reloaded, Ok(false)) {
+            return false;
+        }
         lock(&partition.log).clear();
         drop(turn);
         if let Err(error) = &reloaded {
