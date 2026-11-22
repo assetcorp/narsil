@@ -218,7 +218,9 @@ impl DataNode {
                 extra: Map::new(),
             },
         );
-        settings.data = Some(DataNodeConfig::new(engine_config(directory)));
+        if roles.contains(&"data") {
+            settings.data = Some(DataNodeConfig::new(engine_config(directory)));
+        }
         let reported = Arc::new(Mutex::new(Vec::new()));
         let sink = Arc::clone(&reported);
         settings.on_error = Some(Arc::new(move |error| {

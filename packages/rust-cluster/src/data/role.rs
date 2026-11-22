@@ -112,6 +112,7 @@ impl DataRole {
                 return Err(error);
             }
         };
+        writes.start();
         if let Some(previous) = lock(&self.writes).replace(writes) {
             previous.stop();
         }
@@ -130,10 +131,17 @@ impl DataRole {
                 | message_types::REPLICATION_ENTRY
                 | message_types::REPLICATION_ENTRY_BATCH
                 | message_types::REPLICATION_TERM_START
+                | message_types::REPLICATION_SYNC_REQUEST
         )
     }
 
     pub(crate) async fn answer(&self, message: TransportMessage, respond: Respond) {
+        if message.message_type == message_types::REPLICATION_SYNC_REQUEST {
+            return match self.primary_writes() {
+                Ok(writes) => writes.answer_sync_request(&message, &respond).await,
+                Err(error) => respond.send(refusal(&message, &self.node_id, &error)).await,
+            };
+        }
         let reply = match message.message_type.as_str() {
             message_types::REPLICATION_FORWARD => match self.primary_writes() {
                 Ok(writes) => writes.answer_forward(&message).await,

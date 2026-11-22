@@ -27,14 +27,14 @@ impl WatcherContext {
         }
     }
 
-    async fn controller_targets(&self, controller_node_id: &str) -> Vec<String> {
-        let mut targets = vec![controller_node_id.to_string()];
+    pub(super) async fn node_targets(&self, node_id: &str) -> Vec<String> {
+        let mut targets = vec![node_id.to_string()];
         if let Ok(nodes) = self.coordinator.list_nodes().await
-            && let Some(controller) = nodes.iter().find(|node| node.node_id == controller_node_id)
-            && !controller.address.is_empty()
-            && controller.address != controller_node_id
+            && let Some(node) = nodes.iter().find(|node| node.node_id == node_id)
+            && !node.address.is_empty()
+            && node.address != node_id
         {
-            targets.push(controller.address.clone());
+            targets.push(node.address.clone());
         }
         targets
     }
@@ -74,7 +74,7 @@ impl WatcherContext {
         };
         let report = self.completion_report(key, assignment.primary_term)?;
         let mut send_failure = None;
-        for target in self.controller_targets(&controller_node_id).await {
+        for target in self.node_targets(&controller_node_id).await {
             match self.transport.send(&target, report.clone()).await {
                 Ok(answer) => return completion_answer(&answer, &controller_node_id),
                 Err(error) => send_failure = Some(error),

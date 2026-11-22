@@ -7,6 +7,7 @@ use crate::coordinator::AllocationTable;
 pub(crate) const UNASSIGNED: &str = "UNASSIGNED";
 pub(crate) const INITIALISING: &str = "INITIALISING";
 pub(crate) const ACTIVE: &str = "ACTIVE";
+pub(crate) const MIGRATING: &str = "MIGRATING";
 
 const ASSIGNMENT_FIELDS: [&str; 10] = [
     "primary",

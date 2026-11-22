@@ -42,7 +42,10 @@ fn schema_unreadable(index_name: &str, node_id: &str, cause: &str) -> ClusterErr
 }
 
 impl WatcherContext {
-    async fn drop_superseded_copy(self: &Arc<Self>, index_name: &str) -> ClusterResult<()> {
+    pub(super) async fn drop_superseded_copy(
+        self: &Arc<Self>,
+        index_name: &str,
+    ) -> ClusterResult<()> {
         let (copies, name) = (Arc::clone(&self.copies), index_name.to_string());
         let Some(local_uuid) = off_executor(move || copies.local_uuid(&name)).await?? else {
             return Ok(());
@@ -61,7 +64,7 @@ impl WatcherContext {
         Ok(())
     }
 
-    async fn checked_schema(
+    pub(super) async fn checked_schema(
         self: &Arc<Self>,
         index_name: &str,
         expected: &Value,

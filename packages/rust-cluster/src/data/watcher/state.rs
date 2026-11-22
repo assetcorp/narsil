@@ -12,6 +12,14 @@ pub(super) type PartitionKey = (String, u32);
 pub(super) struct Tracked {
     pub(super) is_primary: bool,
     pub(super) primary_term: f64,
+    pub(super) primary_node_id: Option<String>,
+    pub(super) in_sync: bool,
+}
+
+pub(super) struct AwaitedAdmission {
+    pub(super) id: u64,
+    pub(super) primary_node_id: String,
+    pub(super) primary_term: f64,
 }
 
 pub(super) struct BootstrapSlot {
@@ -31,6 +39,7 @@ pub(super) struct WatcherState {
     pub(super) stopped: bool,
     pub(super) tracked: HashMap<PartitionKey, Tracked>,
     pub(super) bootstraps: HashMap<PartitionKey, BootstrapSlot>,
+    pub(super) awaited: HashMap<PartitionKey, AwaitedAdmission>,
     pub(super) retained: HashSet<PartitionKey>,
     pub(super) seeded: HashSet<String>,
     pub(super) index_uuids: HashMap<String, String>,
@@ -45,11 +54,16 @@ impl WatcherState {
             slot.abort();
         }
     }
+
+    pub(super) fn forget_awaited(&mut self, key: &PartitionKey) {
+        self.awaited.remove(key);
+    }
 }
 
 pub(super) enum Action {
     Bootstrap {
         key: PartitionKey,
+        primary_node_id: String,
         primary_term: f64,
     },
     HoldPartition(PartitionKey),

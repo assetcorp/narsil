@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::{OwnedMutexGuard, watch};
 use tokio::task::JoinHandle;
 
+use super::catch_up::CatchUp;
 use super::log::ReplicationLog;
 use crate::controller::lock;
 
@@ -38,6 +39,7 @@ pub(super) struct Partition {
     pub(super) log: Mutex<ReplicationLog>,
     pub(super) terms: Mutex<Terms>,
     pub(super) superseding: watch::Sender<Option<SupersedingPrimary>>,
+    pub(super) catch_up: Mutex<CatchUp>,
 }
 
 pub(super) struct QueueTurn {
@@ -102,11 +104,30 @@ impl Partitions {
         )
     }
 
+    pub(super) fn held(&self) -> Vec<(PartitionKey, Arc<Partition>)> {
+        lock(&self.held)
+            .iter()
+            .map(|(key, partition)| (key.clone(), Arc::clone(partition)))
+            .collect()
+    }
+
     pub(super) fn forget_index(&self, index_name: &str) {
-        lock(&self.held).retain(|key, _| key.0 != index_name);
+        lock(&self.held).retain(|key, partition| {
+            let kept = key.0 != index_name;
+            if !kept {
+                lock(&partition.catch_up).cancel_feeds();
+            }
+            kept
+        });
     }
 
     pub(super) fn forget_partition(&self, index_name: &str, partition_id: u32) {
-        lock(&self.held).retain(|key, _| key.0 != index_name || key.1 != partition_id);
+        lock(&self.held).retain(|key, partition| {
+            let kept = key.0 != index_name || key.1 != partition_id;
+            if !kept {
+                lock(&partition.catch_up).cancel_feeds();
+            }
+            kept
+        });
     }
 }

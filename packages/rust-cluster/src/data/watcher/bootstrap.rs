@@ -4,6 +4,7 @@ use narsil::Value;
 use tokio::sync::watch;
 
 use super::WatcherContext;
+use super::admission_wait::{AfterBootstrap, after_replica_sync};
 use super::state::{Abort, BootstrapSlot, PartitionKey, Tracked};
 use crate::allocator::INITIALISING;
 use crate::constants::{
@@ -15,6 +16,13 @@ use crate::error::{ClusterError, codes};
 
 const JITTER_FLOOR: f64 = 0.5;
 const JITTER_SPAN: f64 = 0.5;
+
+struct Bootstrap {
+    key: PartitionKey,
+    id: u64,
+    primary_node_id: String,
+    primary_term: f64,
+}
 
 fn random_fraction() -> f64 {
     let mut bytes = [0u8; 8];
@@ -47,24 +55,34 @@ fn bootstrap_failure(
 }
 
 impl WatcherContext {
-    pub(super) fn start_bootstrap(self: &Arc<Self>, key: PartitionKey, primary_term: f64) {
+    pub(super) fn start_bootstrap(
+        self: &Arc<Self>,
+        key: PartitionKey,
+        primary_node_id: String,
+        primary_term: f64,
+    ) {
         let mut state = lock(&self.state);
         if state.stopped {
             return;
         }
         state.abort_bootstrap(&key);
+        state.forget_awaited(&key);
         state.next_bootstrap_id += 1;
         let id = state.next_bootstrap_id;
         let (abort, aborted) = watch::channel(false);
-        let task =
-            tokio::spawn(Arc::clone(self).run_bootstrap(key.clone(), id, Abort::new(aborted)));
-        state.tracked.insert(
-            key.clone(),
-            Tracked {
-                is_primary: true,
-                primary_term,
-            },
-        );
+        state.tracked.entry(key.clone()).or_insert_with(|| Tracked {
+            is_primary: primary_node_id == self.node_id,
+            primary_term,
+            primary_node_id: Some(primary_node_id.clone()),
+            in_sync: false,
+        });
+        let bootstrap = Bootstrap {
+            key: key.clone(),
+            id,
+            primary_node_id,
+            primary_term,
+        };
+        let task = tokio::spawn(Arc::clone(self).run_bootstrap(bootstrap, Abort::new(aborted)));
         state.bootstraps.insert(
             key,
             BootstrapSlot {
@@ -75,27 +93,57 @@ impl WatcherContext {
         );
     }
 
-    async fn run_bootstrap(self: Arc<Self>, key: PartitionKey, id: u64, mut abort: Abort) {
-        let succeeded = self.bootstrap_partition(&key, &mut abort).await;
-        let restart = {
+    async fn run_bootstrap(self: Arc<Self>, bootstrap: Bootstrap, mut abort: Abort) {
+        let Bootstrap {
+            key,
+            id,
+            primary_node_id,
+            primary_term,
+        } = bootstrap;
+        let succeeded = self
+            .bootstrap_partition(&key, &primary_node_id, &mut abort)
+            .await;
+        let syncs_replica = primary_node_id != self.node_id;
+        let next = {
             let mut state = lock(&self.state);
             let current = state.bootstraps.get(&key).is_some_and(|slot| slot.id == id);
             if current {
                 state.bootstraps.remove(&key);
             }
-            let restart = !succeeded && current && !state.stopped;
-            if restart {
+            if !current || state.stopped {
+                AfterBootstrap::Settled
+            } else if !succeeded {
                 state.tracked.remove(&key);
+                state.forget_awaited(&key);
+                AfterBootstrap::Restart
+            } else if syncs_replica {
+                after_replica_sync(&mut state, &key, &primary_node_id, primary_term)
+            } else {
+                AfterBootstrap::Settled
             }
-            restart
         };
-        if restart {
-            self.restart_while_primary_initialising(key).await;
+        match next {
+            AfterBootstrap::Settled => {}
+            AfterBootstrap::Restart if syncs_replica => self.restart_while_out_of_sync(key).await,
+            AfterBootstrap::Restart => self.restart_while_primary_initialising(key).await,
+            AfterBootstrap::AwaitAdmission(id) => self.wait_for_admission(key, id).await,
         }
     }
 
-    async fn attempt_once(self: &Arc<Self>, key: &PartitionKey, abort: &mut Abort) -> bool {
-        match abort.unless_aborted(self.prepare_primary(key)).await {
+    async fn attempt_once(
+        self: &Arc<Self>,
+        key: &PartitionKey,
+        primary_node_id: &str,
+        abort: &mut Abort,
+    ) -> bool {
+        let attempt = async {
+            if primary_node_id == self.node_id {
+                self.prepare_primary(key).await
+            } else {
+                self.sync_replica(key, primary_node_id).await
+            }
+        };
+        match abort.unless_aborted(attempt).await {
             None => false,
             Some(Ok(prepared)) => prepared,
             Some(Err(error)) => {
@@ -106,17 +154,22 @@ impl WatcherContext {
         }
     }
 
-    async fn bootstrap_partition(self: &Arc<Self>, key: &PartitionKey, abort: &mut Abort) -> bool {
+    async fn bootstrap_partition(
+        self: &Arc<Self>,
+        key: &PartitionKey,
+        primary_node_id: &str,
+        abort: &mut Abort,
+    ) -> bool {
         for attempt in 0..=BOOTSTRAP_MAX_RETRIES {
             if abort.is_aborted() {
                 return false;
             }
-            let prepared = self.attempt_once(key, abort).await;
+            let prepared = self.attempt_once(key, primary_node_id, abort).await;
             if abort.is_aborted() {
                 return false;
             }
             if prepared {
-                if !self.awaits_bootstrap_report(key).await {
+                if primary_node_id != self.node_id || !self.awaits_bootstrap_report(key).await {
                     return true;
                 }
                 return self.report_with_retries(key, abort).await;
@@ -192,7 +245,7 @@ impl WatcherContext {
             if lock(&self.state).bootstraps.contains_key(&key) {
                 return;
             }
-            self.start_bootstrap(key, assignment.primary_term);
+            self.start_bootstrap(key, self.node_id.clone(), assignment.primary_term);
             return;
         }
     }

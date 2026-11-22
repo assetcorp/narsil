@@ -1,8 +1,11 @@
+mod admission_wait;
 mod bootstrap;
 mod cleanup;
 mod primary;
+mod replica_sync;
 mod report;
 mod state;
+mod sync_frames;
 mod table;
 
 use std::sync::{Arc, Mutex};
@@ -88,7 +91,11 @@ impl WatcherContext {
     async fn run_actions(self: &Arc<Self>, actions: Vec<Action>) {
         for action in actions {
             match action {
-                Action::Bootstrap { key, primary_term } => self.start_bootstrap(key, primary_term),
+                Action::Bootstrap {
+                    key,
+                    primary_node_id,
+                    primary_term,
+                } => self.start_bootstrap(key, primary_node_id, primary_term),
                 Action::HoldPartition(key) => self.hold_partition(key).await,
                 Action::RemovePartition(key) => self.remove_partition(key).await,
                 Action::ReleaseTornDown(index_name) => self.release_torn_down(index_name).await,
@@ -218,6 +225,7 @@ impl AllocationWatcher {
             state.stopped = true;
             state.pending.clear();
             state.arrivals.clear();
+            state.awaited.clear();
             state
                 .bootstraps
                 .drain()

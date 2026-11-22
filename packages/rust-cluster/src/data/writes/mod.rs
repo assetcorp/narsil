@@ -1,3 +1,4 @@
+mod catch_up;
 mod commit;
 mod condition;
 mod copy_failure;
@@ -11,10 +12,12 @@ mod replicate;
 mod rollback;
 mod run;
 mod scope;
+mod sync_apply;
 mod term_start;
 mod view;
 
 use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
 use std::time::Duration;
 
 use tokio::sync::watch;
@@ -38,6 +41,7 @@ pub(crate) struct PrimaryWrites {
     view: Arc<AllocationView>,
     partitions: Partitions,
     failures: CopyFailures,
+    catch_up_bytes: AtomicU64,
     stopping: watch::Sender<bool>,
     on_error: Option<NodeErrorHandler>,
 }
@@ -61,13 +65,19 @@ impl PrimaryWrites {
             view: settings.view,
             partitions: Partitions::default(),
             failures: CopyFailures::default(),
+            catch_up_bytes: AtomicU64::new(0),
             stopping: watch::Sender::new(false),
             on_error: settings.on_error,
         }
     }
 
+    pub(super) fn start(self: &Arc<Self>) {
+        self.start_catch_up_pump();
+    }
+
     pub(super) fn stop(&self) {
         self.stopping.send_replace(true);
+        self.cancel_catch_up_feeds();
         self.view.stop();
     }
 

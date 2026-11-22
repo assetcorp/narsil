@@ -40,6 +40,16 @@ pub(super) fn chunked(entries: &[ReplicatedEntry]) -> Vec<&[ReplicatedEntry]> {
     chunks
 }
 
+pub(super) fn acknowledges(
+    answer: &TransportMessage,
+    index_name: &str,
+    partition_id: u32,
+    seq_no: u64,
+) -> bool {
+    answer.message_type == message_types::REPLICATION_ACK
+        && acknowledged_seq_no(&answer.payload, index_name, partition_id) == Some(seq_no)
+}
+
 pub(super) fn in_sync_targets(assignment: &Assignment, node_id: &str) -> Vec<String> {
     let mut targets: Vec<String> = Vec::new();
     for replica in &assignment.in_sync_set {
@@ -90,18 +100,14 @@ impl PrimaryWrites {
         }))
     }
 
-    pub(super) async fn send_entries(
-        self: &Arc<Self>,
+    pub(super) async fn entry_message(
+        &self,
         scope: &Scope,
         entries: &[ReplicatedEntry],
-        targets: &[String],
-    ) -> ClusterResult<Vec<(String, bool)>> {
-        let (Some(first), Some(last)) = (entries.first(), entries.last()) else {
-            return Ok(Vec::new());
+    ) -> ClusterResult<Option<TransportMessage>> {
+        let Some(first) = entries.first() else {
+            return Ok(None);
         };
-        if targets.is_empty() {
-            return Ok(Vec::new());
-        }
         let previous = self.term_at(scope, first.seq_no.saturating_sub(1)).await;
         let wire: Vec<WireEntry> = entries
             .iter()
@@ -113,7 +119,24 @@ impl PrimaryWrites {
         } else {
             message_types::REPLICATION_ENTRY_BATCH
         };
-        let message = self.message(message_type, payload)?;
+        Ok(Some(self.message(message_type, payload)?))
+    }
+
+    pub(super) async fn send_entries(
+        self: &Arc<Self>,
+        scope: &Scope,
+        entries: &[ReplicatedEntry],
+        targets: &[String],
+    ) -> ClusterResult<Vec<(String, bool)>> {
+        let Some(last) = entries.last() else {
+            return Ok(Vec::new());
+        };
+        if targets.is_empty() {
+            return Ok(Vec::new());
+        }
+        let Some(message) = self.entry_message(scope, entries).await? else {
+            return Ok(Vec::new());
+        };
         let mut sends = JoinSet::new();
         for replica in targets {
             let (writes, message, replica) = (Arc::clone(self), message.clone(), replica.clone());
@@ -121,11 +144,7 @@ impl PrimaryWrites {
                 (scope.index_name.clone(), scope.partition_id, last.seq_no);
             sends.spawn(async move {
                 let acknowledged = match writes.send_to_node(&replica, &message).await {
-                    Ok(answer) => {
-                        answer.message_type == message_types::REPLICATION_ACK
-                            && acknowledged_seq_no(&answer.payload, &index_name, partition_id)
-                                == Some(seq_no)
-                    }
+                    Ok(answer) => acknowledges(&answer, &index_name, partition_id, seq_no),
                     Err(_) => false,
                 };
                 (replica, acknowledged)
@@ -211,6 +230,8 @@ impl PrimaryWrites {
         replica_node_id: &str,
         controller_node_id: &str,
     ) -> ClusterResult<()> {
+        let partition = self.partitions.of(&scope.index_name, scope.partition_id);
+        let generation_at_removal = partition.generation_of(replica_node_id);
         let payload = encode_insync_remove(
             &scope.index_name,
             scope.partition_id,
@@ -248,14 +269,19 @@ impl PrimaryWrites {
                 Some(replica_node_id),
             ));
         }
-        let partition = self.partitions.of(&scope.index_name, scope.partition_id);
-        lock(&partition.terms)
-            .removed
-            .insert(replica_node_id.to_string(), scope.primary_term);
+        partition.record_removal_unless_readmitted(
+            replica_node_id,
+            scope.primary_term,
+            generation_at_removal,
+        );
         Ok(())
     }
 
-    async fn remove_failed(&self, scope: &Scope, failed: &[String]) -> ClusterResult<()> {
+    pub(super) async fn remove_failed(
+        &self,
+        scope: &Scope,
+        failed: &[String],
+    ) -> ClusterResult<()> {
         if failed.is_empty() {
             return Ok(());
         }
@@ -297,15 +323,9 @@ impl PrimaryWrites {
             return Ok(());
         };
         let partition = self.partitions.of(&scope.index_name, scope.partition_id);
-        let targets: Vec<String> = {
-            let terms = lock(&partition.terms);
-            in_sync_targets(assignment, &self.node_id)
-                .into_iter()
-                .filter(|replica| !terms.removed_under(replica, scope.primary_term))
-                .collect()
-        };
+        let targets = self.replica_targets(&partition, scope, assignment);
         let sent = tokio::select! {
-            sent = self.send_entries(scope, entries, &targets) => sent?,
+            sent = self.send_entries(scope, entries, &targets.replicas) => sent?,
             superseded = self.superseded(scope) => return Err(superseded),
         };
         let failed: Vec<String> = sent
@@ -313,7 +333,8 @@ impl PrimaryWrites {
             .filter(|(_, acknowledged)| !acknowledged)
             .map(|(replica, _)| replica)
             .collect();
-        self.remove_failed(scope, &failed).await?;
+        self.remove_in_sync_failures(&partition, scope, &failed, assignment, &targets.admitted)
+            .await?;
         self.assert_authority(scope).await?;
         lock(&partition.log).advance_commit_point(last.seq_no);
         Ok(())
