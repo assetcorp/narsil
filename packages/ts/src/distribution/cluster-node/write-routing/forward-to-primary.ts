@@ -8,6 +8,7 @@ import type { ForwardBatchOperation, ForwardBatchPayload } from '../../transport
 import { forwardInterrupted, forwardUnsent, unsentAfter } from '../transport-failure'
 import { abandonedWriteFrom, conditionFields, withAbandonedWrite } from './abandoned-write'
 import type { BatchOutcome, BatchWrite, WriteFailure } from './batch-write'
+import { unsentAfterWindow, windowClosed, windowEndedOutcome } from './forward-window'
 import {
   assertForwardResponse,
   forwardInsertToRemote,
@@ -71,13 +72,18 @@ async function forwardSingleWrite(
   }
 }
 
+export interface ForwardTarget {
+  primaryNodeId: string
+  indexUuid: string | undefined
+  deadline: number
+}
+
 export async function forwardBatchToRemote<V extends AnyDocument | null>(
   indexName: string,
   operation: ForwardedOperation,
   writes: BatchWrite<V>[],
-  primaryNodeId: string,
+  { primaryNodeId, indexUuid, deadline }: ForwardTarget,
   deps: WriteRoutingDeps,
-  indexUuid?: string,
 ): Promise<BatchOutcome<V>> {
   const succeeded: BatchWrite<V>[] = []
   const failed: WriteFailure<V>[] = []
@@ -85,6 +91,10 @@ export async function forwardBatchToRemote<V extends AnyDocument | null>(
   const [only] = writes
   if (only === undefined) {
     return { succeeded, failed }
+  }
+
+  if (windowClosed(deadline)) {
+    return { succeeded, failed: unsentAfterWindow(indexName, writes) }
   }
 
   if (writes.length === 1) {
@@ -104,6 +114,10 @@ export async function forwardBatchToRemote<V extends AnyDocument | null>(
   }
   let undelivered: unknown
   for (const planned of chunkOutgoing(writes.map(write => toOutgoing(operation, write)))) {
+    if (windowClosed(deadline)) {
+      for (const { write } of planned) failed.push({ write, error: windowEndedOutcome(indexName, write.docId) })
+      continue
+    }
     if (undelivered !== undefined) {
       for (const { write } of planned) failed.push({ write, error: toForwardError(undelivered, write.docId) })
       continue

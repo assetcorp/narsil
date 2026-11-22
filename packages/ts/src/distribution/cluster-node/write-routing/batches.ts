@@ -9,6 +9,7 @@ import { routableAllocation } from '../routable-allocation'
 import { requireAssignedPrimary, resolvePartitionId } from './assignment'
 import type { BatchOutcome, BatchWrite, WriteFailure } from './batch-write'
 import { type ForwardedOperation, forwardBatchToRemote } from './forward-to-primary'
+import { unsentAfterWindow, windowClosed } from './forward-window'
 import { writableAssignment } from './initialising-partition'
 import { writeLocalOnly } from './numbered-write'
 import { retryEachPartition, settleEqualInserts, settleNothing } from './primary-change'
@@ -86,12 +87,17 @@ async function routeWrites<V extends AnyDocument | null>(
   writes: BatchWrite<V>[],
   applyAsPrimary: ApplyAsPrimary<V>,
   fallbackCode: NarsilErrorCode,
+  deadline: number,
 ): Promise<BatchOutcome<V>> {
   const table = await requireRoutableTable(deps, indexName)
   const { localGroups, remoteGroups, failed } = routeBatchWrites(table, indexName, writes, deps.nodeId)
   const succeeded: BatchWrite<V>[] = []
 
   for (const [partitionId, group] of localGroups) {
+    if (windowClosed(deadline)) {
+      for (const unsent of unsentAfterWindow(indexName, group.writes)) failed.push(unsent)
+      continue
+    }
     try {
       const assignment = await writableAssignment(deps, indexName, partitionId, group.assignment)
       const result = await applyAsPrimary(group.writes, partitionId, assignment)
@@ -104,7 +110,8 @@ async function routeWrites<V extends AnyDocument | null>(
   }
 
   for (const [primaryNodeId, forwarded] of remoteGroups) {
-    const result = await forwardBatchToRemote(indexName, operation, forwarded, primaryNodeId, deps, table.indexUuid)
+    const target = { primaryNodeId, indexUuid: table.indexUuid, deadline }
+    const result = await forwardBatchToRemote(indexName, operation, forwarded, target, deps)
     for (const write of result.succeeded) succeeded.push(write)
     for (const failure of result.failed) failed.push(failure)
   }
@@ -161,7 +168,8 @@ async function routeAdmittedInsertBatch(
     indexName,
     table,
     writes,
-    pending => routeWrites(deps, indexName, 'insert', pending, applyAsPrimary, ErrorCodes.DOC_VALIDATION_FAILED),
+    (pending, deadline) =>
+      routeWrites(deps, indexName, 'insert', pending, applyAsPrimary, ErrorCodes.DOC_VALIDATION_FAILED, deadline),
     settleEqualInserts(deps, indexName),
     true,
   )
@@ -185,7 +193,8 @@ export async function routeRemoveBatch(
     indexName,
     table,
     writes,
-    pending => routeWrites(deps, indexName, 'remove', pending, applyAsPrimary, ErrorCodes.QUERY_ROUTING_FAILED),
+    (pending, deadline) =>
+      routeWrites(deps, indexName, 'remove', pending, applyAsPrimary, ErrorCodes.QUERY_ROUTING_FAILED, deadline),
     settleNothing,
   )
 }
@@ -222,7 +231,8 @@ async function routeAdmittedUpdateBatch(
     indexName,
     table,
     writes,
-    pending => routeWrites(deps, indexName, 'update', pending, applyAsPrimary, ErrorCodes.DOC_VALIDATION_FAILED),
+    (pending, deadline) =>
+      routeWrites(deps, indexName, 'update', pending, applyAsPrimary, ErrorCodes.DOC_VALIDATION_FAILED, deadline),
     settleNothing,
   )
 }

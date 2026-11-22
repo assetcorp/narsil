@@ -1,5 +1,6 @@
 import { describeError, ErrorCodes, NarsilError } from '../../../errors'
 import { PRIMARY_CHANGE_RETRY_WINDOW_MS } from '../constants'
+import type { BatchWrite, WriteFailure } from './batch-write'
 
 export const WINDOW_ENDED: unique symbol = Symbol('forward window ended')
 
@@ -22,6 +23,18 @@ export function windowEndedOutcome(indexName: string, docId: string): NarsilErro
     `This node stopped waiting for the primary of index '${indexName}' to answer the write to document '${docId}' once ${PRIMARY_CHANGE_RETRY_WINDOW_MS}ms had passed, so the write may or may not have taken effect. Read the document before you retry the write.`,
     { indexName, docId, reason: 'forward_window_ended' },
   )
+}
+
+export function windowClosed(deadline: number): boolean {
+  return Date.now() >= deadline
+}
+
+export function requireOpenWindow(deadline: number, indexName: string, docId: string): void {
+  if (windowClosed(deadline)) throw windowEndedOutcome(indexName, docId)
+}
+
+export function unsentAfterWindow<V>(indexName: string, writes: readonly BatchWrite<V>[]): WriteFailure<V>[] {
+  return writes.map(write => ({ write, error: windowEndedOutcome(indexName, write.docId) }))
 }
 
 export function interruptedOutcome(indexName: string, docId: string, error: unknown): NarsilError {
