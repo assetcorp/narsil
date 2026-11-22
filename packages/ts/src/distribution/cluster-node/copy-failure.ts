@@ -9,8 +9,8 @@ import { COPY_FAILURE_ATTEMPTS, COPY_FAILURE_RETRY_DELAY_MS } from './constants'
 import type { ClusterLocalEngine } from './local-engine'
 import { sendThroughTargets } from './transport-failure'
 import { resolveNodeTargets } from './write-routing/assignment'
+import { requestInsyncRemovalWithTargets } from './write-routing/insync-removal'
 import { enqueuePartitionWrite } from './write-routing/partition-queue'
-import { requestInsyncRemovalWithTargets } from './write-routing/replication'
 import type { WriteRoutingDeps } from './write-routing/types'
 
 export interface CopyFailureDeps {
