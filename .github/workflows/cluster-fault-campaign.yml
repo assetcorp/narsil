@@ -17,6 +17,9 @@ jobs:
     name: Replay every seed of faults that once failed, then try new seeds on the TCP and gRPC carriers
     runs-on: ubuntu-24.04
     timeout-minutes: 44
+    permissions:
+      contents: read
+      issues: write
 
     steps:
       - name: Reserve four minutes for saving the campaign evidence
@@ -59,6 +62,7 @@ jobs:
           key: cluster-fault-seeds-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Upload the failing seeds and their logs
+        id: upload
         if: ${{ failure() || cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -67,3 +71,11 @@ jobs:
             packages/ts/fault-campaign/failing-seeds
             packages/ts/fault-campaign/logs
           if-no-files-found: ignore
+
+      - name: Open, update, or close an issue for each seed that failed or retired
+        if: ${{ !cancelled() }}
+        working-directory: packages/ts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NARSIL_FAULT_ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+        run: node scripts/fault-campaign-issues.mjs
