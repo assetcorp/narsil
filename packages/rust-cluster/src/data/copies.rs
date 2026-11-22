@@ -2,8 +2,9 @@ use std::collections::{BTreeSet, HashSet};
 use std::sync::Mutex;
 
 use narsil::replication::{CopyPosition, PartitionCopies};
-use narsil::{ErrorCode, IndexConfig, Map, Narsil, NarsilConfig, NarsilError, Value};
+use narsil::{ErrorCode, IndexConfig, Map, Narsil, NarsilError, Value};
 
+use super::config::DataNodeConfig;
 use crate::controller::lock;
 use crate::error::{ClusterError, ClusterResult, codes};
 
@@ -29,10 +30,32 @@ fn unless_gone(outcome: narsil::Result<()>) -> ClusterResult<()> {
 }
 
 impl LocalCopies {
-    pub(super) fn open(node_id: String, config: NarsilConfig) -> ClusterResult<LocalCopies> {
+    pub(super) fn open(node_id: String, config: DataNodeConfig) -> ClusterResult<LocalCopies> {
+        let DataNodeConfig {
+            engine,
+            tokenizers,
+            stop_words,
+            embedding_adapters,
+            rerank_adapters,
+        } = config;
+        let engine = Narsil::open_with(engine, move |engine| {
+            for (name, tokenizer) in tokenizers {
+                engine.register_tokenizer(&name, tokenizer)?;
+            }
+            for (name, words) in stop_words {
+                engine.register_stop_words(&name, words)?;
+            }
+            for (name, adapter) in embedding_adapters {
+                engine.register_embedding_adapter(&name, adapter)?;
+            }
+            for (name, adapter) in rerank_adapters {
+                engine.register_rerank_adapter(&name, adapter)?;
+            }
+            Ok(())
+        })?;
         Ok(LocalCopies {
             node_id,
-            engine: Narsil::open(config)?,
+            engine,
             orphaned: Mutex::new(HashSet::new()),
             unreadable: Mutex::new(HashSet::new()),
             explicit_drop: Mutex::new(()),

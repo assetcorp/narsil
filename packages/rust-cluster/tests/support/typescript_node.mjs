@@ -9,6 +9,30 @@ const { createClusterNode } = await load('distribution.mjs')
 const { createEtcdCoordinator } = await load('distribution/coordinator/etcd.mjs')
 const { createTcpTransport } = await load('distribution/transport/tcp.mjs')
 
+const { registerLanguage, registerStopWords, registerTokenizer } = await load('index.mjs')
+
+function letterShape(text) {
+  const letters = [...text.toLowerCase()]
+  const count = wanted => letters.filter(letter => letter === wanted).length
+  return Float32Array.from([count('a'), count('o'), letters.length])
+}
+
+registerStopWords('fleet-words', new Set(['zebra', 'garage']))
+registerTokenizer('pipe-separated', {
+  tokenize: text =>
+    text
+      .split('|')
+      .map(part => part.trim().toLowerCase())
+      .filter(part => part.length > 0)
+      .map((token, position) => ({ token, position })),
+})
+const embeddingAdapters = {
+  'letter-shape': {
+    dimensions: 3,
+    embed: async text => letterShape(text),
+  },
+}
+
 const coordinator = await createEtcdCoordinator({
   endpoints: [endpoint],
   keyPrefix,
@@ -21,7 +45,7 @@ const node = await createClusterNode({
   nodeId,
   address: `127.0.0.1:${port}`,
   roles: roleList.split(','),
-  engine: { workers: { enabled: false } },
+  engine: { workers: { enabled: false }, embeddingAdapters },
 })
 await node.start()
 
@@ -32,8 +56,6 @@ function batchOutcome(result) {
   }
 }
 
-const { registerLanguage } = await load('index.mjs')
-
 async function indexConfig(schema, config = {}) {
   const { language, stopWords, ...rest } = config
   if (language !== undefined && language !== 'english') {
@@ -43,7 +65,7 @@ async function indexConfig(schema, config = {}) {
     schema,
     ...rest,
     ...(language === undefined ? {} : { language }),
-    ...(stopWords === undefined ? {} : { stopWords: new Set(stopWords) }),
+    ...(stopWords === undefined ? {} : { stopWords: Array.isArray(stopWords) ? new Set(stopWords) : stopWords }),
   }
 }
 

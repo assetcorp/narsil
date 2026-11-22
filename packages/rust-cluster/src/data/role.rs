@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use narsil::{Map, NarsilConfig};
+use narsil::Map;
 use tokio::sync::watch;
 
 use super::blocking::off_executor;
@@ -21,7 +21,7 @@ use crate::transport::{BoxFuture, NodeTransport, Respond};
 pub(crate) struct DataRole {
     node_id: String,
     coordinator: Arc<EtcdCoordinator>,
-    engine: NarsilConfig,
+    config: DataNodeConfig,
     on_error: Option<NodeErrorHandler>,
     settled: Mutex<Option<Arc<LocalCopies>>>,
     watcher: tokio::sync::Mutex<Option<AllocationWatcher>>,
@@ -38,7 +38,7 @@ impl DataRole {
         DataRole {
             node_id,
             coordinator,
-            engine: config.engine,
+            config,
             on_error,
             settled: Mutex::new(None),
             watcher: tokio::sync::Mutex::new(None),
@@ -47,8 +47,8 @@ impl DataRole {
     }
 
     pub(crate) async fn open(&self) -> ClusterResult<()> {
-        let (node_id, engine) = (self.node_id.clone(), self.engine.clone());
-        let copies = Arc::new(off_executor(move || LocalCopies::open(node_id, engine)).await??);
+        let (node_id, config) = (self.node_id.clone(), self.config.clone());
+        let copies = Arc::new(off_executor(move || LocalCopies::open(node_id, config)).await??);
         let on_error = self.on_error.as_ref();
         match settle_local_indexes(&self.coordinator, &copies, &self.node_id, on_error).await {
             Ok(()) => {
