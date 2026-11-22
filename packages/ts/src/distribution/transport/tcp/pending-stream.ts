@@ -1,7 +1,6 @@
+import { carrierFailureOf } from '../carrier-error'
 import { TransportError, TransportErrorCodes } from '../types'
 import { decodeTransportMessage } from './framing'
-
-const CARRIER_ERROR_TYPE = 'error'
 
 export interface PendingStream {
   target: string
@@ -78,14 +77,9 @@ export function answerPendingStream(pending: PendingStream, requestId: string, d
     )
     return
   }
-  if (message.type === CARRIER_ERROR_TYPE) {
-    pending.fail(
-      new TransportError(
-        TransportErrorCodes.PEER_UNAVAILABLE,
-        `The listener on '${target}' failed: ${new TextDecoder().decode(message.payload)}`,
-        { target, requestId },
-      ),
-    )
+  const carrierFailure = carrierFailureOf(message, target)
+  if (carrierFailure !== null) {
+    pending.fail(carrierFailure)
     return
   }
   deliverStreamChunk(pending, message.payload)
