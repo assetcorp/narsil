@@ -169,7 +169,7 @@ impl DataRole {
         respond.send(reply).await;
     }
 
-    fn primary_writes(&self) -> ClusterResult<Arc<PrimaryWrites>> {
+    pub(crate) fn primary_writes(&self) -> ClusterResult<Arc<PrimaryWrites>> {
         lock(&self.writes)
             .clone()
             .ok_or_else(|| not_ready(&self.node_id))

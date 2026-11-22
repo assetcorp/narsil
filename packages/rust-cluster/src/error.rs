@@ -76,6 +76,14 @@ pub mod codes {
     pub const INDEX_ORPHANED: &str = "INDEX_ORPHANED";
     /// The cluster owns the index and has yet to allocate it.
     pub const QUERY_ROUTING_FAILED: &str = "QUERY_ROUTING_FAILED";
+    /// No node that holds the copy could take the request, because the transport could not reach it.
+    pub const QUERY_NO_ACTIVE_REPLICA: &str = "QUERY_NO_ACTIVE_REPLICA";
+    /// The node that holds the copy did not answer within the transport's deadline.
+    pub const QUERY_NODE_TIMEOUT: &str = "QUERY_NODE_TIMEOUT";
+    /// A document or a document id breaks the rules that every Narsil engine stores documents under.
+    pub const DOC_VALIDATION_FAILED: &str = "DOC_VALIDATION_FAILED";
+    /// An insert names a document id that the index holds.
+    pub const DOC_ALREADY_EXISTS: &str = "DOC_ALREADY_EXISTS";
     /// A sync request is malformed, or its term is above the primary's.
     pub const SNAPSHOT_SYNC_REQUEST_INVALID: &str = "SNAPSHOT_SYNC_REQUEST_INVALID";
     /// The primary could not read the allocation table for a sync.

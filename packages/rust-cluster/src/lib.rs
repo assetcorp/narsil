@@ -10,6 +10,7 @@ pub mod message;
 pub mod node;
 mod ordering;
 mod payload;
+mod routing;
 pub mod transport;
 mod version;
 mod wire;

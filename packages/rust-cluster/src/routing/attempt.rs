@@ -1,0 +1,91 @@
+use std::collections::BTreeMap;
+use std::sync::Arc;
+
+use narsil::Value;
+
+use super::WriteRouter;
+use super::write::{Attempted, PendingWrite, Refused};
+use crate::data::routed_partition;
+use crate::error::{ClusterError, ClusterResult, codes};
+use crate::payload::forward::ForwardRequest;
+
+fn unassigned(serving_name: &str, partition_id: u32) -> ClusterError {
+    ClusterError::new(
+        codes::PARTITION_UNASSIGNED,
+        format!("No primary assigned for partition {partition_id} of index '{serving_name}'"),
+    )
+    .with_detail("indexName", Value::from(serving_name))
+    .with_detail("partitionId", Value::from(partition_id))
+}
+
+impl WriteRouter {
+    async fn apply_here(
+        &self,
+        serving_name: &str,
+        index_uuid: Option<String>,
+        writes: &[PendingWrite],
+    ) -> Vec<(usize, Attempted)> {
+        let positions = writes.iter().map(|write| write.position);
+        let Some(local) = &self.local else {
+            let error = crate::node::not_ready(&self.node_id);
+            return positions
+                .map(|position| (position, Err(Refused::of(error.clone()))))
+                .collect();
+        };
+        let request = ForwardRequest {
+            index_name: serving_name.to_string(),
+            index_uuid,
+            operations: writes.iter().map(PendingWrite::forward_operation).collect(),
+        };
+        let outcomes = local.apply_client_writes(request).await;
+        positions
+            .zip(outcomes)
+            .map(|(position, outcome)| (position, outcome.map_err(Refused::from_failure)))
+            .collect()
+    }
+
+    pub(super) async fn attempt(
+        self: Arc<Self>,
+        serving_name: Arc<str>,
+        writes: Vec<PendingWrite>,
+    ) -> ClusterResult<Vec<(usize, Attempted)>> {
+        let table = self.routable_table(&serving_name).await?;
+        let partition_count = table.assignments.len();
+        let mut outcomes = Vec::with_capacity(writes.len());
+        let mut here = Vec::new();
+        let mut remote: BTreeMap<String, Vec<PendingWrite>> = BTreeMap::new();
+        for write in writes {
+            let partition_id = routed_partition(write.document_id(), partition_count);
+            let primary = table
+                .assignments
+                .get(f64::from(partition_id))
+                .and_then(|assignment| assignment.primary.clone());
+            match primary {
+                None => outcomes.push((
+                    write.position,
+                    Err(Refused::of(unassigned(&serving_name, partition_id))),
+                )),
+                Some(primary) if primary == self.node_id => here.push(write),
+                Some(primary) => remote.entry(primary).or_default().push(write),
+            }
+        }
+        if !here.is_empty() {
+            let applied = self
+                .apply_here(&serving_name, table.index_uuid.clone(), &here)
+                .await;
+            outcomes.extend(applied);
+        }
+        for (primary, forwarded) in remote {
+            let answered = self
+                .forward_to(
+                    &serving_name,
+                    table.index_uuid.as_deref(),
+                    &primary,
+                    &forwarded,
+                )
+                .await;
+            outcomes.extend(answered);
+        }
+        Ok(outcomes)
+    }
+}

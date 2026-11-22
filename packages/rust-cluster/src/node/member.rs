@@ -20,6 +20,7 @@ use crate::data::DataRole;
 use crate::error::{ClusterError, ClusterResult, codes};
 use crate::message::{TransportMessage, message_types, refusal};
 use crate::node::NodeErrorHandler;
+use crate::routing::WriteRouter;
 use crate::transport::{BoxFuture, Listening, NodeTransport, Respond, listen_handler};
 
 const CONTROLLER_ROLE: &str = "controller";
@@ -54,6 +55,7 @@ pub(super) struct NodeInner {
     controller_standing: AtomicBool,
     heartbeat: Mutex<Option<Heartbeat>>,
     listening: Mutex<Option<Listening>>,
+    router: Mutex<Option<Arc<WriteRouter>>>,
 }
 
 fn not_controller(node_id: &str) -> ClusterError {
@@ -122,7 +124,37 @@ impl NodeInner {
             controller_standing: AtomicBool::new(false),
             heartbeat: Mutex::new(None),
             listening: Mutex::new(None),
+            router: Mutex::new(None),
         }
+    }
+
+    pub(super) fn router(&self) -> ClusterResult<Arc<WriteRouter>> {
+        lock(&self.router).clone().ok_or_else(|| {
+            let node_id = self.node_id();
+            node_error(
+                codes::NODE_NOT_JOINED,
+                format!("Node '{node_id}' has not joined the cluster, so it routes no write"),
+                node_id,
+            )
+        })
+    }
+
+    async fn start_routing(&self) -> ClusterResult<()> {
+        let local = match &self.data {
+            Some(data) => Some(data.primary_writes()?),
+            None => None,
+        };
+        let router = WriteRouter::start(
+            self.node_id().to_string(),
+            Arc::clone(&self.coordinator),
+            Arc::clone(&self.transport),
+            local,
+        )
+        .await?;
+        if let Some(previous) = lock(&self.router).replace(router) {
+            previous.stop();
+        }
+        Ok(())
     }
 
     pub(super) fn node_id(&self) -> &str {
@@ -319,6 +351,7 @@ impl NodeInner {
         if let Some(data) = &self.data {
             data.follow_allocations(Arc::clone(&self.transport)).await?;
         }
+        self.start_routing().await?;
         self.joined.store(true, Ordering::Release);
         self.abort_if_stopping()?;
         if let Some(controller) = &self.controller
@@ -331,6 +364,9 @@ impl NodeInner {
 
     pub(super) async fn leave(&self) {
         self.joined.store(false, Ordering::Release);
+        if let Some(router) = lock(&self.router).take() {
+            router.stop();
+        }
         if let Some(controller) = &self.controller {
             controller.stop().await;
         }
