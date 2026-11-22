@@ -10,8 +10,8 @@ use narsil::replication::{
     ReplicatedEntry, WriteRecord,
 };
 use narsil::{
-    DurabilityConfig, DurabilityMode, ErrorCode, IndexConfig, Map, Narsil, NarsilConfig, Storage,
-    Value, decode_msgpack,
+    DurabilityConfig, DurabilityMode, ErrorCode, IndexConfig, Map, Narsil, NarsilConfig,
+    Quantization, Storage, Value, VectorPromotion, decode_msgpack,
 };
 use support::{ScratchDirectory, WHOLE_DOCUMENT};
 
@@ -659,5 +659,86 @@ fn write_records_that_only_saved_segments_hold_answer_after_checkpoints_and_rest
                 .unwrap(),
             Some(order(&ids[1], 40))
         );
+    }
+}
+
+fn promoted_vectors(storage: Storage, quantization: Quantization) -> Option<VectorPromotion> {
+    Some(VectorPromotion {
+        threshold: Some(2),
+        storage: Some(storage),
+        quantization: Some(quantization),
+        ..VectorPromotion::default()
+    })
+}
+
+#[test]
+fn a_partition_reloads_its_checkpointed_vectors_in_every_vector_layout() {
+    let layouts = [
+        None,
+        promoted_vectors(Storage::Disk, Quantization::None),
+        promoted_vectors(Storage::Memory, Quantization::Osq8),
+    ];
+    for promotion in layouts {
+        let root = ScratchDirectory::new("assigned-reload-vectors");
+        let mut engine = small_segment_engine(root.path());
+        let config = IndexConfig {
+            vector_promotion: promotion,
+            ..index_config(Storage::Memory)
+        };
+        PartitionCopies::new(&engine)
+            .create_index(INDEX, config, UUID, PARTITIONS)
+            .expect("the copy is created");
+        let mut held: BTreeMap<String, Map> = BTreeMap::new();
+        let mut reached = vec![0_u64; PARTITIONS as usize];
+        let mut send = |engine: &Narsil, id: &str, document: Option<Map>| {
+            let partition = partition_of(id);
+            let seq_no = &mut reached[partition as usize];
+            *seq_no += 1;
+            let sent = entry(id, *seq_no, 2, document.as_ref().map(encoded));
+            let applied = PartitionCopies::new(engine)
+                .append(INDEX, partition, &[sent])
+                .expect("the entry applies");
+            assert_eq!((applied.applied, applied.failure), (1, None));
+        };
+        for number in 0..20 {
+            let id = format!("order-{number}");
+            send(&engine, &id, Some(order(&id, number)));
+            held.insert(id.clone(), order(&id, number));
+        }
+        engine.checkpoint(INDEX).expect("the checkpoint commits");
+        let partition = partition_of("order-1");
+        let mut ids = held
+            .keys()
+            .filter(|id| partition_of(id) == partition)
+            .cloned();
+        let updated = ids.next().expect("the partition holds an order");
+        let removed = ids.next().expect("the partition holds two orders");
+        send(&engine, &updated, Some(order(&updated, 70)));
+        held.insert(updated.clone(), order(&updated, 70));
+        send(&engine, &removed, None);
+        held.remove(&removed);
+
+        PartitionCopies::new(&engine)
+            .reload_partition(INDEX, partition)
+            .expect("the partition reloads");
+        for restarted in [false, true] {
+            if restarted {
+                engine.shutdown().expect("the engine shuts down");
+                drop(engine);
+                engine = small_segment_engine(root.path());
+            }
+            for number in 0..20 {
+                let id = format!("order-{number}");
+                let stored = engine
+                    .get_with(INDEX, &id, Some(&WHOLE_DOCUMENT))
+                    .expect("the read answers");
+                assert_eq!(
+                    stored.as_ref(),
+                    held.get(&id),
+                    "{id} after a restart: {restarted}"
+                );
+            }
+        }
+        engine.shutdown().expect("the engine shuts down");
     }
 }

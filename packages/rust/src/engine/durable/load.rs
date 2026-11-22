@@ -220,15 +220,14 @@ pub(crate) fn load_partition(
     Ok(())
 }
 
+pub(super) fn is_dead(dead: Option<&[u8]>, position: usize) -> bool {
+    dead.and_then(|bits| bits.get(position >> 3))
+        .is_some_and(|byte| (byte >> (position & 7)) & 1 == 1)
+}
+
 pub(super) fn dead_count(dead: Option<&[u8]>, count: u32) -> u64 {
-    let Some(bits) = dead else {
-        return 0;
-    };
     (0..count as usize)
-        .filter(|&position| {
-            bits.get(position >> 3)
-                .is_some_and(|byte| (byte >> (position & 7)) & 1 == 1)
-        })
+        .filter(|&position| is_dead(dead, position))
         .count() as u64
 }
 
@@ -275,7 +274,7 @@ pub(super) fn read_graph_parts(
     assemble_graph_parts(parts).map(Some)
 }
 
-pub(crate) fn load_vector_field(
+fn load_vector_field(
     store: &dyn CheckpointSource,
     index: &IndexState,
     listed: &VectorFieldRef,
