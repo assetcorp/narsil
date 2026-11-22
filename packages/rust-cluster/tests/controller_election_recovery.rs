@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use narsil::Map;
+use narsil::{Map, Value};
 use narsil_cluster::SPEC_VERSION;
 use narsil_cluster::coordinator::etcd::{EtcdCoordinator, EtcdCoordinatorConfig};
 use narsil_cluster::coordinator::{NodeCapacity, NodeRegistration};
@@ -82,14 +82,26 @@ async fn a_panicking_error_callback_does_not_abandon_controller_election() {
     let node = ClusterNode::new(settings).expect("the node settings are valid");
     node.start().await.expect("the node joins as a standby");
     let mut watches = Vec::new();
-    for _ in 0..WATCH_LIMIT {
-        watches.push(
-            coordinator
-                .watch_nodes(|_| {})
-                .await
-                .expect("the application fills the coordinator's watch slots"),
+    let refusal = loop {
+        assert!(
+            watches.len() < WATCH_LIMIT,
+            "the coordinator opens more than {WATCH_LIMIT} watches"
         );
-    }
+        match coordinator.watch_nodes(|_| {}).await {
+            Ok(watch) => watches.push(watch),
+            Err(refusal) => break refusal,
+        }
+    };
+    assert_eq!(refusal.code(), "CONFIG_INVALID");
+    assert_eq!(
+        refusal.details().get("currentCount"),
+        Some(&Value::from(WATCH_LIMIT as f64)),
+        "{refusal:?}"
+    );
+    assert!(
+        !watches.is_empty(),
+        "the application fills at least one of the coordinator's watch slots"
+    );
     holder
         .release_lease(CONTROLLER_KEY)
         .await

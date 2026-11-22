@@ -7,17 +7,16 @@ import type { ReplicationLog } from '../replication/types'
 import { clearBootstrapSyncIndex, createBootstrapSyncState, hasCompletedBootstrapSync } from './bootstrap-sync'
 import { startCatchUpPump, stopCatchUpPump } from './catch-up'
 import { createClusterNamespace } from './cluster-namespace'
-import { createNodeController } from './controller-role'
-import { createCopyFailures } from './copy-failure'
+import { createControllerTenure, createNodeController } from './controller-role'
 import { decommissionNode } from './decommission'
 import { createClusterDeviceSync } from './device-sync'
 import { createAllocationErrorForwarder, createErrorForwarder } from './error-forwarding'
 import { servingNameOf } from './generation-routing'
 import { forgetClosedCopy, forgetDroppedCopy } from './local-copy-state'
 import { type ClusterLocalEngine, createClusterLocalEngine } from './local-engine'
-import { orphanedIndexError, settleLocalIndexes } from './local-index-reconcile'
 import { seedReopenedPrimaryLogs } from './local-replication'
 import { bindNodeSources } from './node-bindings'
+import { createNodeCopies } from './node-copies'
 import { resolveNodeId } from './node-identity'
 import { createNodeLifecycle } from './node-lifecycle'
 import { createClusterNodeOperations } from './node-operations'
@@ -43,14 +42,14 @@ import { validateClusterNodeConfig } from './validate-config'
 /**
  * Builds one node of a cluster, ready to join.
  *
- * The node is idle until you call {@link ClusterNode.start}, which registers
+ * The node is idle until you call {@link ClusterNodeLifecycle.start}, which registers
  * it, takes on the partitions the controller allocates to it, and starts
  * answering. A node whose roles include `controller` stands for election and
  * runs allocation for the whole cluster while it holds the lease.
  *
  * @param callerConfig - The coordinator, the transport, this node's address, and the
  * settings for the engine it runs locally.
- * @returns The node, ready for {@link ClusterNode.start}.
+ * @returns The node, ready for {@link ClusterNodeLifecycle.start}.
  *
  * @public
  */
@@ -112,7 +111,6 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
   const hasControllerRole = roles.includes('controller')
   const controllerTransport = hasDataRole ? createMultiplexedControllerTransport(config.transport, nodeId) : null
 
-  const orphanedIndexes = new Set<string>()
   const heldPartitionWrites = createSettlingWrites(forwardOnError)
 
   let controller: ControllerNode | null = null
@@ -122,20 +120,17 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
   let serving = false
   let isShutdown = false
 
-  const copyFailures = createCopyFailures({
-    engine,
+  const localCopies = createNodeCopies({
+    ...cleanupDeps,
     writeDeps,
     forgetPartitionLog: (indexName, partitionId) => {
       clearBootstrapSyncIndex(bootstrapSyncState, indexName, partitionId)
       replicationLogs.delete(buildReplicationLogKey(indexName, partitionId))
     },
     isShutdown: () => isShutdown,
-    onError: forwardOnError,
+    settleAdopted: indexName => analysisView.settle(indexName),
+    standForElection: () => controllerTenure.standEarly(),
   })
-  writeDeps.copyFailed = copyFailures.isFailed
-  writeDeps.copyUnlisted = copyFailures.isUnlisted
-  writeDeps.stopped = () => isShutdown
-  engine.isolateCopyFailures(copyFailures.record)
 
   const bootstrapPartition = createPartitionBootstrap({
     nodeId,
@@ -147,6 +142,8 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
     getReplicationLog,
     seedReplicationLog,
     partitionWriteQueues: writeDeps.partitionWriteQueues,
+    canListCopy: localCopies.canList,
+    failMissingCopy: localCopies.failures.recordMissing,
     onError: forwardOnError,
     snapshotSpoolDirectory: snapshotSpool.path,
   })
@@ -160,7 +157,8 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
     reshard,
     bootstrapSyncState,
     replicationLogs,
-    copyFailures,
+    copyFailures: localCopies.failures,
+    beforeRegistration: hasDataRole ? localCopies.awaitLostCopies : undefined,
     bootstrapPartition,
     trackHeldPartitionWrite: heldPartitionWrites.track,
     cleanupDeps,
@@ -174,9 +172,7 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
 
   const operationTracker = createClusterOperationTracker({
     guard: guardShutdown,
-    assertIndex(indexName) {
-      if (orphanedIndexes.has(indexName)) throw orphanedIndexError(nodeId, indexName)
-    },
+    assertIndex: localCopies.assertClaimed,
   })
   const trackOp = operationTracker.track
   const transitionIndex = operationTracker.transition
@@ -187,7 +183,7 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
     isController: () => controller?.isActive ?? false,
     guard: guardShutdown,
     trackOp,
-    isOrphaned: indexName => orphanedIndexes.has(indexName),
+    isOrphaned: localCopies.isOrphaned,
     onError: forwardOnError,
   })
   const backups = createBackupService({
@@ -207,6 +203,8 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
         backups.controllerMessages(message, respond) || suggestions.controllerMessages(message, respond),
     })
   }
+
+  const controllerTenure = createControllerTenure(() => controller, backups.start, forwardOnError)
 
   const readBase = { config: routingConfig, nodeId, engine, resolveNodeTargets, searchContexts }
   const readViews = createReadViews(readBase, config.coordinator, engine, forwardOnError)
@@ -268,11 +266,9 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
       coordinator: config.coordinator,
       forgetIndex: (indexName: string) => {
         deleteIndexReplicationLogs(replicationLogs, indexName)
-        if (engine.listIndexes().every(index => index.name !== indexName)) {
-          orphanedIndexes.delete(indexName)
-        }
+        localCopies.forgetIndex(indexName)
       },
-      isOrphaned: (indexName: string) => orphanedIndexes.has(indexName),
+      isOrphaned: localCopies.isOrphaned,
       suggestionHooks: suggestions.hooks,
     }),
     ...deviceSync.operations(trackOp),
@@ -285,19 +281,14 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
       await readViews.start()
       await deviceSync.start()
 
-      const reconcileDeps = { engine, coordinator: config.coordinator, nodeId, onError: forwardOnError }
-      await settleLocalIndexes(reconcileDeps, orphanedIndexes, analysisView.settle)
+      await localCopies.settle()
 
-      unregisterNotReadyHandler = await listenUntilJoined(config, nodeId, hasDataRole)
+      unregisterNotReadyHandler = await listenUntilJoined(config, nodeId, controllerTransport)
 
       await memoryReporting.start()
-      await lifecycle.join()
+      await controllerTenure.withdrawOnFailure(lifecycle.join())
       await suggestions.start()
-
-      if (controller !== null) {
-        await controller.start()
-        backups.start()
-      }
+      await controllerTenure.start()
 
       unregisterHandler = await listenForPeers({
         config,
@@ -317,6 +308,7 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
               searchContexts,
               snapshotSpoolDirectory: snapshotSpool.path,
               backups: backups.primary,
+              isOrphaned: localCopies.isOrphaned,
               isBootstrapSynced: (indexName: string, partitionId: number) =>
                 hasCompletedBootstrapSync(bootstrapSyncState, indexName, partitionId),
               onError: forwardOnError,

@@ -12,7 +12,7 @@ use super::table::{
 };
 use super::{Inner, lock};
 use crate::allocator::{AllocationRequest, Table, allocate, holds_data_role};
-use crate::constants::{ALLOCATION_CAS_ATTEMPTS, ALLOCATION_RETRY_DELAY_MS};
+use crate::constants::{ALLOCATION_CAS_ATTEMPTS, ALLOCATION_RETRY_DELAY_MS, HOLDER_RETRY_BASE_MS};
 use crate::coordinator::{NodeRegistration, SchemaEvent};
 use crate::error::{ClusterError, ClusterResult, codes};
 use crate::transport::BoxFuture;
@@ -22,7 +22,14 @@ fn any_data_node(nodes: &[NodeRegistration]) -> bool {
     nodes.iter().any(holds_data_role)
 }
 
-fn lost_every_attempt(index_name: &str) -> ClusterError {
+fn compatible(nodes: Vec<NodeRegistration>) -> Vec<NodeRegistration> {
+    nodes
+        .into_iter()
+        .filter(|node| shares_major_version(&node.version))
+        .collect()
+}
+
+pub(super) fn lost_every_attempt(index_name: &str) -> ClusterError {
     ClusterError::new(
         codes::ALLOCATION_FAILED,
         format!("Allocation for index '{index_name}' lost {ALLOCATION_CAS_ATTEMPTS} compare-and-set attempts"),
@@ -64,11 +71,7 @@ impl Inner {
     }
 
     pub(super) async fn compatible_nodes(&self) -> ClusterResult<Vec<NodeRegistration>> {
-        let nodes = self.coordinator().list_nodes().await?;
-        Ok(nodes
-            .into_iter()
-            .filter(|node| shares_major_version(&node.version))
-            .collect())
+        Ok(compatible(self.coordinator().list_nodes().await?))
     }
 
     fn known_indexes(&self) -> Vec<String> {
@@ -87,10 +90,17 @@ impl Inner {
         if !self.is_active() {
             return Ok(());
         }
-        let nodes = self.compatible_nodes().await?;
-        if !any_data_node(&nodes) || !self.is_active() {
+        let schemas_listed = lock(&self.state).schemas_listed;
+        if !schemas_listed {
+            self.list_known_indexes().await?;
+        }
+        let registered = self.coordinator().list_nodes().await?;
+        if !self.is_active() {
             return Ok(());
         }
+        let registered_ids: HashSet<String> =
+            registered.iter().map(|node| node.node_id.clone()).collect();
+        let nodes = compatible(registered);
         let nodes_for =
             nodes_for_each_index(self.coordinator(), nodes, &self.known_indexes()).await?;
         let mut departures = DepartureRun::start(nodes_for.every_node());
@@ -105,13 +115,14 @@ impl Inner {
             };
             visited.insert(index_name.clone());
             let placeable = nodes_for.for_index(&index_name);
-            if !any_data_node(placeable) {
-                continue;
-            }
-            let outcome = match self
-                .run_for_index(&index_name, placeable, Some(&mut departures))
-                .await
-            {
+            let placed = if any_data_node(placeable) {
+                self.run_for_index(&index_name, placeable, Some(&mut departures))
+                    .await
+            } else {
+                self.fail_over_without_placement(&index_name, &registered_ids, &mut departures)
+                    .await
+            };
+            let outcome = match placed {
                 Ok(()) => {
                     self.recover_index_partitions(&index_name, placeable, &mut departures)
                         .await
@@ -127,6 +138,7 @@ impl Inner {
             return Ok(());
         }
         self.finish_departure_run(departures);
+        self.schedule_holder_retry(HOLDER_RETRY_BASE_MS);
         if any_failed && self.is_active() {
             self.schedule_allocation(ALLOCATION_RETRY_DELAY_MS);
         }
@@ -199,16 +211,17 @@ impl Inner {
         Err(lost_every_attempt(index_name))
     }
 
-    async fn recover_index_partitions(
+    pub(super) async fn recover_index_partitions(
         &self,
         index_name: &str,
         nodes: &[NodeRegistration],
         departures: &mut DepartureRun,
     ) -> ClusterResult<()> {
-        if self
+        let outcome = self
             .recover_unassigned_partitions(index_name, nodes)
-            .await?
-        {
+            .await?;
+        lock(&self.state).await_holders(index_name, outcome.ask_again);
+        if outcome.promoted && any_data_node(nodes) {
             self.run_for_index(index_name, nodes, Some(departures))
                 .await?;
         }

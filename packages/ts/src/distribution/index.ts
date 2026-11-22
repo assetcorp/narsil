@@ -27,7 +27,12 @@ export {
 } from './cluster-node'
 export type { ClusterEngineOptions } from './cluster-node/server-engine'
 export { clusterNodeEngine } from './cluster-node/server-engine'
-export type { ClusterNodeChanges, ClusterNodeSearchSettings, ClusterNodeSyncSettings } from './cluster-node/types'
+export type {
+  ClusterNodeChanges,
+  ClusterNodeLifecycle,
+  ClusterNodeSearchSettings,
+  ClusterNodeSyncSettings,
+} from './cluster-node/types'
 export type {
   ClusterHealth,
   ClusterHealthStatus,

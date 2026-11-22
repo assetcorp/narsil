@@ -1,5 +1,6 @@
 mod assignment;
 mod deciders;
+mod departed_nodes;
 mod initial;
 mod leadership;
 mod lost_nodes;
@@ -13,7 +14,10 @@ use std::collections::{HashMap, HashSet};
 
 use narsil::Value;
 
-pub(crate) use assignment::{ACTIVE, Assignment, Assignments, INITIALISING, Table, UNASSIGNED};
+pub(crate) use assignment::{
+    ACTIVE, Assignment, Assignments, INITIALISING, MIGRATING, Table, UNASSIGNED,
+};
+pub(crate) use departed_nodes::assignments_without_departed_nodes;
 pub(crate) use lost_nodes::{LostNodes, handle_lost_nodes};
 
 use self::deciders::Deciders;

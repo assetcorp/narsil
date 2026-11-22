@@ -425,7 +425,7 @@ stateDiagram-v2
 |-------|---------|
 | `UNASSIGNED` | No node holds this partition, which happens when an index is first created and when the primary and every replica are lost. |
 | `INITIALISING` | A node is bootstrapping the partition, by incremental catch-up or by snapshot transfer. It serves no reads and accepts no writes while it does. |
-| `ACTIVE` | The partition is fully operational. The primary accepts writes and serves reads, and each replica serves reads and receives replication entries. |
+| `ACTIVE` | The partition is fully operational. The primary accepts writes and serves reads. Each replica receives replication entries, but only a replica in the in-sync set serves reads. |
 | `MIGRATING` | Reserved. The controller writes no partition in this state, and a reader must accept it. |
 | `DECOMMISSIONING` | Reserved. The controller writes no partition in this state, and a reader must accept it. |
 
@@ -1070,7 +1070,9 @@ A node below specification version 1.1 drops `fields` when it reads the settings
 
 ```text
 1. The node starts and opens a cluster coordinator connection.
-2. The node calls registerNode with its registration.
+2. The node calls registerNode with its registration. A node with
+   the data role must first settle its local copies as step 3
+   defines and then wait as Lost Copy defines.
 3. For each index it holds locally, the node reads the stored
    metadata with get('_narsil/index/{indexName}/config') and
    compares the stored indexUuid with the one it persisted:
@@ -1101,15 +1103,33 @@ A node may open its transport listener before step 2 so that a peer receives a r
 
 A node must persist the `indexUuid` alongside its local copy, in the `index_uuid` field of the [index metadata payload](../envelope.md#index-metadata-payload), so that the comparison survives a restart. A node must also record the identity on every index it bootstraps, whether it took the partition on as primary or as replica, because an index that carries none proves nothing at the next join.
 
+Unless a node abandons a bootstrap or finds that a caller dropped the index, it must report `NODE_BOOTSTRAP_FAILED` to its error handler each time that its sync from a partition's primary fails or that a bootstrap attempt fails for a reason that the node reports under no other code. It must report the same code where its last retry of `cluster.bootstrap_complete` fails, unless it reads the partition in a state other than `INITIALISING`. The error's details must carry `indexName` and, where the cause has a code, that code as `innerCode`, so that an operator can act on the cause. A node that abandons a bootstrap must end it without reporting a failure.
+
+When the bootstrap of a primary ends without success and no later bootstrap replaces it, the node must wait 1,000 ms and then read the allocation table from the cluster coordinator, because the watch may deliver no further change for that partition. It must start the bootstrap again where the node is the primary of that partition in `INITIALISING` under that table and has no bootstrap of the partition under way. Where the read fails, the node must repeat the wait and the read until a read succeeds or the node stops.
+
 Step 3b is the only step that deletes local data, and the stored metadata is what permits it: metadata naming another index under the same name proves that the index this copy belongs to was dropped, so the copy holds documents no reader may see again.
 
 Three rules govern an orphaned copy:
 
 - The node must neither serve it nor adopt it into an index of the same name, because an index created again under a dropped name holds different documents.
-- The node must report it, naming the index and the reason the adoption failed, so that an operator can act on it.
+- The node must report it under `INDEX_ORPHANED`, with the index and the reason that the adoption failed, so that an operator can act on it. While the copy is orphaned, the node must raise the same code for every read, write, and create that a caller sends it for that index name.
 - The node must keep the data. Absent metadata follows equally from a dropped index, an unreachable coordinator, and a coordinator restored from a backup, and in the last two cases the local copy is the only one left.
 
 An operator deletes an orphaned copy explicitly, and every automatic path leaves it alone.
+
+### Lost Copy
+
+A node with the `data` role can start without a copy that the allocation table assigns to it, for example after it loses its durability directory. Once any earlier registration under its `nodeId` lapses, and before it registers, the node must read the schema, the metadata, and the allocation table of each index from the cluster coordinator. It must wait while it lacks the copy of any partition that meets all three of these conditions:
+
+- The coordinator holds a schema and metadata for the index, and the table belongs to that index, as it does unless the table and the metadata both carry an `indexUuid` and the two differ.
+- The table gives the node as the partition's `primary` or as a member of its `inSyncSet`.
+- The partition is in a state other than `UNASSIGNED`, and it has last holders where that state is `INITIALISING`, because a partition in `INITIALISING` without them holds no acknowledged write.
+
+A node holds a copy where it adopts the index and can list the partition under the rules of [cluster.partition_stores](transport.md#clusterpartition_stores). An adopted index whose metadata has no `held_partitions` counts as a copy of every partition that the table assigns to the node, because such an index records nothing about an empty partition.
+
+While it waits, the node must make these reads again 1,000 ms after each attempt, whether the attempt succeeds or fails, until no such partition remains or the node stops. Where step 3 leaves a copy orphaned because a read from the coordinator fails, the node must repeat step 3 for that copy before each attempt. The controller treats the unregistered node as failed, so it fails each such partition over, or it records the last holders, before the node returns. A node with the `controller` role must stand for election while it waits, because it can be the only controller. The node must report `NODE_COPY_MISSING` to its error handler once for each such copy, with `indexName` and `partitionId` in the error's details.
+
+A node that the controller promotes from `lastHolders` while it lacks the copy must never create an empty copy or list the partition in `cluster.partition_stores`. It must fail the copy as [Copy Failure](replication.md#copy-failure) defines and count its reload as failed, so that the other holders stay on record and the controller never promotes an empty reload.
 
 ### Leaving the Cluster Gracefully
 
@@ -1142,6 +1162,8 @@ A node that deregisters without draining first counts as a failed node, so the c
    of those nodes rejoins, or an operator rebuilds the data from
    the system of record.
 ```
+
+Where no registered node can take a copy, the controller must also handle each unregistered node as steps 3 and 4 define, except that it promotes no replica and places no copy. It must therefore move each partition that such a node led to `UNASSIGNED` with its last holders and then remove the node from every in-sync set, so that a node that waits as [Lost Copy](#lost-copy) defines can register. A partition in `INITIALISING` without last holders is the exception, because it waits for a node that can take an empty copy.
 
 ---
 
@@ -1198,6 +1220,13 @@ A community adapter, whether it targets Consul, ZooKeeper, FoundationDB, or Redi
 |------|-------------|
 | `NODE_NOT_READY` | A message reached a node that has yet to finish joining the cluster. |
 | `NODE_NOT_CONTROLLER` | A controller message reached a node that holds no controller lease. |
+| `NODE_ALREADY_JOINED` | A caller starts a node that is joining or has joined the cluster. |
+| `NODE_BOOTSTRAP_FAILED` | A node cannot bootstrap a partition or report that bootstrap as complete, as [Joining the Cluster](#joining-the-cluster) defines. |
+| `NODE_COPY_MISSING` | A node starts without a copy that the allocation table assigns to it as primary or as an in-sync replica, as [Lost Copy](#lost-copy) defines. |
+| `CLUSTER_OPERATION_UNSUPPORTED` | A node receives an operation that it does not support, so it refuses the operation before it changes any state. |
+| `ALLOCATION_INVALID_CONFIG` | The allocator receives a `partitionCount` of 0 or below, or a `replicationFactor` below 0. |
+| `ALLOCATION_NO_DATA_NODES` | The allocator receives no node that holds the `data` role. |
+| `INDEX_ORPHANED` | A node reports an orphaned copy, or a caller sends that node a read, a write, or a create for the copy's index name. |
 | `CLUSTER_WRITE_BLOCKED` | An insert or an update targets an index that has a copy on a node reporting `full`, or a node refuses it under its bound on the bytes of writes in progress. |
 | `COORDINATOR_AUTH_FAILED` | etcd refuses the username or the password that the coordinator presents. |
 | `NODE_VERSION_INCOMPATIBLE` | A node's specification version has a major version other than the active controller's, so the node cannot join the cluster. |

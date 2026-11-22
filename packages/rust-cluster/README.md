@@ -2,7 +2,7 @@
 
 `delali-narsil-cluster` connects a Rust process to a Narsil cluster that TypeScript nodes also belong to. It holds the TCP and gRPC node transports, which send the same bytes as the TypeScript transports, and the etcd coordinator, which writes the same records under the same keys. [The distribution specification](https://github.com/assetcorp/narsil/tree/main/packages/spec/distribution) defines both, and the crate's tests check each one against a TypeScript node.
 
-A `ClusterNode` joins the cluster the way a TypeScript node does. It refuses to join while the active controller follows another major specification version, waits for an earlier registration under its id to lapse, registers in etcd, and writes its registration again on every heartbeat. It answers `cluster.ping` over either transport, and it refuses every request that it cannot serve with `NODE_NOT_READY`, so that a TypeScript peer that reaches it receives a stated refusal.
+A `ClusterNode` joins the cluster the way a TypeScript node does. It refuses to join while the active controller follows another major specification version, waits for an earlier registration under its id to lapse, registers in etcd, and writes its registration again on every heartbeat. It answers `cluster.ping` over either transport, and it refuses with `NODE_NOT_READY` every request of a type that the specification defines and that it cannot serve yet, such as a query, so that a TypeScript peer that reaches it receives a stated refusal. Once it has joined, it sends no reply to a request whose type the specification does not define, as the specification requires, so the sender's wait for that request ends at the sender's timeout.
 
 ## Build requirements
 
@@ -63,7 +63,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## What a Rust node does in a cluster
 
-A Rust node takes the `coordinator` role, the `controller` role, or both. `ClusterNode::new` refuses the `data` role with `CONFIG_INVALID`, because a Rust node holds no index and replicates no write yet, so every partition of every index stays on the TypeScript data nodes.
+A Rust node takes any of the `data`, `coordinator`, and `controller` roles. A node with the `data` role needs `ClusterNodeConfig::data`, which holds the settings of the engine that it keeps its copies in. `ClusterNode::new` refuses the role without those settings, and those settings without the role, with `CONFIG_INVALID`.
+
+As a data node joins, it compares the UUID of each copy that it holds with the UUID that etcd holds for that index name. It adopts a copy with the same UUID, and it drops a copy with another UUID, because the cluster created another index under that name. Where etcd holds no metadata for the name, or the node can't read it, the copy is orphaned. The node reports an orphaned copy through `on_error` with `INDEX_ORPHANED`, keeps its data, and answers every read of that name with the same code until you call `ClusterNode::drop_orphaned_copy`.
 
 A node with the `controller` role stands for the controller lease against every other controller node, Rust or TypeScript, and takes the lease over once its holder stops renewing it. While it holds the lease, it places the partitions of each index on the data nodes, moves the partitions of a data node that leaves the cluster to the node's in-sync replicas, gives an unserved partition back to a returning node that holds its data, and tears down the allocation of a dropped index. It answers `replication.insync_add`, `replication.insync_remove`, `replication.primary_resign`, and `cluster.bootstrap_complete` with the same checks and the same etcd writes as a TypeScript controller. A data node that follows another major specification version receives no partition from it.
 

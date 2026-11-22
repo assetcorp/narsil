@@ -1,5 +1,6 @@
 mod payload;
 mod restore_vector;
+mod stored;
 mod types;
 mod validate;
 
@@ -8,6 +9,7 @@ pub(crate) use payload::{
     restored_config_fields, synonym_rules_payload,
 };
 pub(crate) use restore_vector::restored_embedding;
+pub use stored::index_config_from_stored_settings;
 pub use types::{
     AdapterSetting, Bm25FieldParams, Bm25Params, EmbeddingConfig, HnswSettings, IndexConfig,
     Metric, PartitionConfig, Quantization, ScoringMode, StopWordsSetting, Storage, SynonymRule,

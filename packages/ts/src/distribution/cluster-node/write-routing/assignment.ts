@@ -2,6 +2,7 @@ import { fnv1a } from '../../../core/hash'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import type { AllocationTable, PartitionAssignment } from '../../coordinator/types'
 import { routableAllocation } from '../routable-allocation'
+import { initialisingHere, liveWritablePartition } from './initialising-partition'
 import type { PrimaryAssignmentResolution, WriteRoutingDeps } from './types'
 
 export function resolvePartitionId(docId: string, partitionCount: number): number {
@@ -73,6 +74,9 @@ export async function resolvePrimaryAssignment(
     )
   }
 
+  if (initialisingHere(assignment, deps.nodeId)) {
+    return { ...(await liveWritablePartition(deps, indexName, partitionId)), partitionId }
+  }
   return { table, partitionId, assignment }
 }
 

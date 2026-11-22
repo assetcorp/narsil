@@ -144,7 +144,7 @@ export interface ClusterNamespace {
 }
 
 // @public
-export interface ClusterNode extends ClusterNodeSearchSettings, ClusterNodeSyncSettings, ClusterNodeChanges {
+export interface ClusterNode extends ClusterNodeSearchSettings, ClusterNodeSyncSettings, ClusterNodeChanges, ClusterNodeLifecycle {
     changeAnalysis(indexName: string, change: AnalysisChange): Promise<void>;
     checkpoint(indexName: string): Promise<void>;
     clear(indexName: string): Promise<void>;
@@ -152,9 +152,6 @@ export interface ClusterNode extends ClusterNodeSearchSettings, ClusterNodeSyncS
     cluster: ClusterNamespace;
     countDocuments(indexName: string): Promise<number>;
     createIndex(name: string, config: IndexConfig, options?: CreateIndexOptions): Promise<void>;
-    decommission(options?: {
-        signal?: AbortSignal;
-    }): Promise<void>;
     dropIndex(name: string): Promise<void>;
     get(indexName: string, docId: string, options?: GetOptions): Promise<AnyDocument | undefined>;
     getMemoryStats(): Promise<MemoryStats>;
@@ -178,8 +175,6 @@ export interface ClusterNode extends ClusterNodeSearchSettings, ClusterNodeSyncS
     remove(indexName: string, docId: string): Promise<void>;
     removeBatch(indexName: string, docIds: string[]): Promise<BatchResult>;
     readonly roles: ReadonlyArray<NodeRole>;
-    shutdown(): Promise<void>;
-    start(): Promise<void>;
     suggest(indexName: string, params: SuggestParams): Promise<SuggestResult>;
     update(indexName: string, docId: string, document: AnyDocument): Promise<void>;
     updateBatch(indexName: string, updates: Array<{
@@ -221,6 +216,15 @@ export interface ClusterNodeInfo {
     nodeId: string;
     roles: ReadonlyArray<NodeRole>;
     status: string;
+}
+
+// @public
+export interface ClusterNodeLifecycle {
+    decommission(options?: {
+        signal?: AbortSignal;
+    }): Promise<void>;
+    shutdown(): Promise<void>;
+    start(): Promise<void>;
 }
 
 // @public

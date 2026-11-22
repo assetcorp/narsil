@@ -7,7 +7,7 @@ use crate::format::keyword_columns::{
     write_boolean_columns, write_enum_columns, write_field_lengths, write_geopoint_columns,
     write_partial_words, write_pattern_columns, write_surface_forms, write_value_columns,
 };
-use crate::format::keyword_segment::KeywordSegment;
+use crate::format::keyword_segment::{KeywordSegment, WriteRecords};
 use crate::util::bytes::{offset_entry, u32_bytes, u64_bytes};
 use crate::value::{Value, write_array_header, write_string, write_uint};
 
@@ -164,6 +164,14 @@ pub(crate) fn surface_section(segment: &KeywordSegment) -> Option<PlannedSection
     ))
 }
 
+/// Returns the two sections that hold the write record of each document, which come before `surfaceForms`.
+pub(crate) fn write_record_sections(records: &WriteRecords) -> [PlannedSection; 2] {
+    [
+        planned("seqNos", u64_bytes(&records.seq_nos)),
+        planned("primaryTerms", u64_bytes(&records.primary_terms)),
+    ]
+}
+
 /// Returns the head fields of a paged segment that holds `segment`'s documents and lists `tombstones`.
 pub(crate) fn head_of(segment: &KeywordSegment, tombstones: Vec<String>) -> PagedHead {
     PagedHead {
@@ -218,8 +226,7 @@ pub(crate) fn encode_paged_segment(
     sections.push(planned("removalOffsets", lists.removal_offsets));
     sections.push(planned("removals", lists.removals));
     if let Some(records) = &segment.write_records {
-        sections.push(planned("seqNos", u64_bytes(&records.seq_nos)));
-        sections.push(planned("primaryTerms", u64_bytes(&records.primary_terms)));
+        sections.extend(write_record_sections(records));
     }
     sections.extend(surface_section(segment));
     let plans: Vec<SectionPlan> = sections.iter().map(SectionPlan::of).collect();

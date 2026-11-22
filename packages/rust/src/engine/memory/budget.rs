@@ -48,6 +48,12 @@ fn megabytes(bytes: u64) -> u64 {
     bytes.div_ceil(MEGABYTE_BYTES)
 }
 
+fn shortfall_after_release(needed_bytes: u64, keeps_memory_in_use: bool) -> Option<Shortfall> {
+    shortfall_of(needed_bytes, true)?;
+    let released = release_free_pages();
+    shortfall_of(needed_bytes, released || keeps_memory_in_use)
+}
+
 /// Refuses a restore of `index_name` with `RESTORE_MEMORY_EXCEEDED` where loading `footprint_bytes` would pass
 /// the process's memory limit, after the allocator hands its free pages back. A restore that `replaces_index`
 /// counts the memory in use, which the old index keeps until the swap.
@@ -56,11 +62,7 @@ pub(crate) fn require_restore_memory(
     footprint_bytes: u64,
     replaces_index: bool,
 ) -> Result<()> {
-    if shortfall_of(footprint_bytes, true).is_none() {
-        return Ok(());
-    }
-    let released = release_free_pages();
-    let Some(shortfall) = shortfall_of(footprint_bytes, released || replaces_index) else {
+    let Some(shortfall) = shortfall_after_release(footprint_bytes, replaces_index) else {
         return Ok(());
     };
     let outcome = match replaces_index {
@@ -83,11 +85,7 @@ pub(crate) fn require_restore_memory(
 /// Refuses an analysis change of `index_name` with `ANALYSIS_REBUILD_MEMORY_EXCEEDED` where a second copy of its
 /// `term_bytes` of terms would pass the process's memory limit, after the allocator hands its free pages back.
 pub(crate) fn require_analysis_rebuild_memory(index_name: &str, term_bytes: u64) -> Result<()> {
-    if shortfall_of(term_bytes, true).is_none() {
-        return Ok(());
-    }
-    let released = release_free_pages();
-    let Some(shortfall) = shortfall_of(term_bytes, released) else {
+    let Some(shortfall) = shortfall_after_release(term_bytes, false) else {
         return Ok(());
     };
     Err(NarsilError::new(
@@ -99,4 +97,27 @@ pub(crate) fn require_analysis_rebuild_memory(index_name: &str, term_bytes: u64)
         ),
     )
     .with_details(shortfall.details(index_name)))
+}
+
+pub(crate) fn require_reload_memory(
+    index_name: &str,
+    partition: u32,
+    needed_bytes: u64,
+) -> Result<()> {
+    let Some(shortfall) = shortfall_after_release(needed_bytes, true) else {
+        return Ok(());
+    };
+    let details = shortfall
+        .details(index_name)
+        .into_iter()
+        .chain([("partitionId", Value::from(partition))]);
+    Err(NarsilError::new(
+        ErrorCode::PERSISTENCE_LOAD_FAILED,
+        format!(
+            "Partition {partition} of index \"{index_name}\" needs about {} MB more process memory to read its checkpoint again, and this process has {} MB free, so the partition stays failed. Give the process more memory, then reload the partition again",
+            megabytes(shortfall.needed_bytes),
+            megabytes(shortfall.available_bytes)
+        ),
+    )
+    .with_details(details))
 }

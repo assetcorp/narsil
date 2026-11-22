@@ -55,12 +55,16 @@ impl DurabilityStore {
     }
 
     /// Records whether the index writes a previous document into each log entry, so that each partition log opens
-    /// every new segment with the framing version that such entries need.
-    pub(crate) fn note_previous_documents(&self, index_name: &str, records: bool) {
+    /// every new segment with the framing version that such entries need, and whether the index is a cluster copy,
+    /// whose partition logs fail one at a time.
+    pub(crate) fn note_metadata(&self, index_name: &str, metadata: &IndexMetadata) {
         if let Ok(state) = self.inner.index_state(index_name) {
             state
                 .records_previous_documents
-                .store(records, Ordering::Release);
+                .store(metadata.records_previous_documents(), Ordering::Release);
+            state
+                .fails_partitions_alone
+                .store(metadata.index_uuid().is_some(), Ordering::Release);
         }
     }
 

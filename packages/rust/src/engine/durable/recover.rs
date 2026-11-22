@@ -12,6 +12,7 @@ use crate::durability::store::DurabilityStore;
 use crate::engine::EngineInner;
 use crate::engine::events::{EarlierLayout, NarsilEvent, WorkStatus};
 use crate::engine::index::IndexState;
+use crate::engine::replication::copy_state::ReplicatedCopy;
 use crate::engine::sync::settle_recovered_sync;
 use crate::engine::writes::{replay_delete, replay_index};
 use crate::error::{NarsilError, Result};
@@ -21,7 +22,7 @@ use crate::index::partition::in_keyword_batch;
 use crate::value::decode_document;
 use std::sync::Arc;
 
-fn apply_entry(index: &IndexState, entry: LogEntry) -> Result<()> {
+pub(super) fn apply_entry(index: &IndexState, entry: LogEntry) -> Result<()> {
     match entry.operation {
         Operation::Delete => replay_delete(index, &entry.document_id),
         Operation::Index => {
@@ -44,7 +45,12 @@ fn replay_logs(
     let partitions = index.partitions();
     in_keyword_batch(&partitions, || {
         for partition_id in 0..partitions.len() {
-            let mut visit = |entry: LogEntry| apply_entry(index, entry);
+            let mut visit = |entry: LogEntry| {
+                if let Some(copy) = index.replicated_copy() {
+                    copy.replayed(partition_id as u32, &entry);
+                }
+                apply_entry(index, entry)
+            };
             store.replay_partition(&index.name, partition_id as u32, checkpoint, &mut visit)?;
         }
         Ok(())
@@ -116,6 +122,14 @@ fn load_recovered(
             (loaded.checkpoint, Some(loaded.prior))
         }
     };
+    if let Some(uuid) = recovered.metadata.index_uuid() {
+        index.attach_replicated_copy(ReplicatedCopy::loaded(
+            index,
+            uuid.to_string(),
+            recovered.metadata.held_partitions(),
+            &checkpoint,
+        )?);
+    }
     let log = IndexLog::new(backing.clone(), recovered.metadata, limits);
     log.record_saved(saved);
     match backing {

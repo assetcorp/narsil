@@ -1,5 +1,4 @@
 import { ErrorCodes, NarsilError } from '../../../errors'
-import type { BatchResult } from '../../../types/results'
 import type { AnyDocument, InsertOptions } from '../../../types/schema'
 import type { PartitionAssignment } from '../../coordinator/types'
 import type { ForwardPayload, WriteCondition } from '../../transport/types'
@@ -8,6 +7,7 @@ import { estimateForwardedBytes, withAdmittedWrite } from '../memory/write-press
 import { markAbandoned, previousRecordOf } from './abandoned-write'
 import { assertSufficientActiveReplicas, resolvePrimaryAssignment } from './assignment'
 import { type AppendedWrite, asWriteError, createGroupCommit, replicateAppendedWrites } from './batch-commit'
+import type { BatchOutcome, BatchWrite, WriteFailure } from './batch-write'
 import { compensateInsert, compensateRemove, compensateUpdate, throwWriteFailure } from './failures'
 import { decodeForwardedDocument } from './forwarded-document'
 import { inLeadingPartitionQueue } from './leading-queue'
@@ -125,38 +125,36 @@ export async function applyPrimaryUpdate(
 
 export async function applyPrimaryInsertBatch(
   indexName: string,
-  items: Array<{ doc: AnyDocument; docId: string }>,
+  writes: readonly BatchWrite<AnyDocument>[],
   partitionId: number,
   assignment: PartitionAssignment,
   deps: WriteRoutingDeps,
   options?: InsertOptions,
-): Promise<BatchResult> {
+): Promise<BatchOutcome<AnyDocument>> {
   assertSufficientActiveReplicas(indexName, partitionId, assignment, deps)
   const queued: PrimaryWriteScope = { indexName, partitionId, assignment, deps }
-  const failed: BatchResult['failed'] = []
+  const failed: WriteFailure<AnyDocument>[] = []
   const succeeded = await inLeadingPartitionQueue(
     queued,
     async scope => {
-      const appended: AppendedWrite[] = []
+      const appended: AppendedWrite<AnyDocument>[] = []
       const groupCommit = createGroupCommit(scope, appended, failed)
       await applyInProjectedGroups(deps, indexName, {
-        items,
-        documentOf: item => item.doc,
-        docIdOf: item => item.docId,
+        writes,
         failed,
         afterGroup: groupCommit.afterGroup,
-        apply: async item => {
-          if (groupCommit.refuse(item.docId)) return
+        apply: async write => {
+          if (groupCommit.refuse(write)) return
           try {
             const inserted = await numberedWrite(
               scope,
-              () => deps.engine.insert(indexName, item.doc, item.docId, options),
+              () => deps.engine.insert(indexName, write.value, write.docId, options),
               (insertedDocId, admitted) => appendStoredCopy(scope, insertedDocId, admitted),
               true,
             )
-            appended.push({ docId: inserted.value, entry: inserted.entry })
+            appended.push({ write, entry: inserted.entry })
           } catch (err) {
-            failed.push({ docId: item.docId, error: asWriteError(err, ErrorCodes.DOC_VALIDATION_FAILED, item.docId) })
+            failed.push({ write, error: asWriteError(err, ErrorCodes.DOC_VALIDATION_FAILED, write.docId) })
           }
         },
       })
@@ -164,7 +162,7 @@ export async function applyPrimaryInsertBatch(
         scope,
         appended,
         failed,
-        (write, error) => compensateInsert(scope, write.docId, error),
+        ({ write }, error) => compensateInsert(scope, write.docId, error),
         deps,
       )
     },
@@ -175,50 +173,43 @@ export async function applyPrimaryInsertBatch(
 
 export async function applyPrimaryUpdateBatch(
   indexName: string,
-  updates: Array<{ docId: string; document: AnyDocument; condition?: WriteCondition }>,
+  writes: readonly BatchWrite<AnyDocument>[],
   partitionId: number,
   assignment: PartitionAssignment,
   deps: WriteRoutingDeps,
-): Promise<BatchResult> {
+): Promise<BatchOutcome<AnyDocument>> {
   assertSufficientActiveReplicas(indexName, partitionId, assignment, deps)
   const queued: PrimaryWriteScope = { indexName, partitionId, assignment, deps }
-  const failed: BatchResult['failed'] = []
+  const failed: WriteFailure<AnyDocument>[] = []
   const succeeded = await inLeadingPartitionQueue(
     queued,
     async scope => {
-      const appended: AppendedWrite[] = []
-      const acknowledged: string[] = []
+      const appended: AppendedWrite<AnyDocument>[] = []
+      const acknowledged: BatchWrite<AnyDocument>[] = []
       const groupCommit = createGroupCommit(scope, appended, failed)
       await applyInProjectedGroups(deps, indexName, {
-        items: updates,
-        documentOf: update => update.document,
-        docIdOf: update => update.docId,
+        writes,
         failed,
         afterGroup: groupCommit.afterGroup,
-        apply: async update => {
-          if (groupCommit.refuse(update.docId)) return
+        apply: async write => {
+          if (groupCommit.refuse(write)) return
+          const { docId, value, condition } = write
           try {
-            if (
-              update.condition !== undefined &&
-              decideCondition(scope, update.docId, update.condition) === 'acknowledge'
-            ) {
-              acknowledged.push(update.docId)
+            if (condition !== undefined && decideCondition(scope, docId, condition) === 'acknowledge') {
+              acknowledged.push(write)
               return
             }
-            const previousDocument = await deps.engine.get(indexName, update.docId, WHOLE_DOCUMENT)
-            const previousRecord = previousRecordOf(scope, update.docId)
+            const previousDocument = await deps.engine.get(indexName, docId, WHOLE_DOCUMENT)
+            const previousRecord = previousRecordOf(scope, docId)
             const updated = await numberedWrite(
               scope,
-              () => deps.engine.update(indexName, update.docId, update.document),
-              (_, admitted) => appendStoredCopy(scope, update.docId, admitted),
+              () => deps.engine.update(indexName, docId, value),
+              (_, admitted) => appendStoredCopy(scope, docId, admitted),
               true,
             )
-            appended.push({ docId: update.docId, entry: updated.entry, previousDocument, previousRecord })
+            appended.push({ write, entry: updated.entry, previousDocument, previousRecord })
           } catch (err) {
-            failed.push({
-              docId: update.docId,
-              error: asWriteError(err, ErrorCodes.DOC_VALIDATION_FAILED, update.docId),
-            })
+            failed.push({ write, error: asWriteError(err, ErrorCodes.DOC_VALIDATION_FAILED, docId) })
           }
         },
       })
@@ -226,7 +217,7 @@ export async function applyPrimaryUpdateBatch(
         scope,
         appended,
         failed,
-        (write, error) => compensateUpdate(scope, write.docId, write.previousDocument, error),
+        ({ write, previousDocument }, error) => compensateUpdate(scope, write.docId, previousDocument, error),
         deps,
       )
       return [...acknowledged, ...replicated]
@@ -238,26 +229,25 @@ export async function applyPrimaryUpdateBatch(
 
 export async function applyPrimaryRemoveBatch(
   indexName: string,
-  docIds: string[],
+  writes: readonly BatchWrite<null>[],
   partitionId: number,
   assignment: PartitionAssignment,
   deps: WriteRoutingDeps,
-  conditions?: ReadonlyMap<string, WriteCondition>,
-): Promise<BatchResult> {
+): Promise<BatchOutcome<null>> {
   assertSufficientActiveReplicas(indexName, partitionId, assignment, deps)
   const queued: PrimaryWriteScope = { indexName, partitionId, assignment, deps }
-  const failed: BatchResult['failed'] = []
+  const failed: WriteFailure<null>[] = []
   const succeeded = await inLeadingPartitionQueue(
     queued,
     async scope => {
-      const appended: AppendedWrite[] = []
-      const acknowledged: string[] = []
+      const appended: AppendedWrite<null>[] = []
+      const acknowledged: BatchWrite<null>[] = []
       const groupCommit = createGroupCommit(scope, appended, failed)
-      for (const docId of docIds) {
+      for (const write of writes) {
+        const { docId, condition } = write
         try {
-          const condition = conditions?.get(docId)
           if (condition !== undefined && decideCondition(scope, docId, condition) === 'acknowledge') {
-            acknowledged.push(docId)
+            acknowledged.push(write)
             continue
           }
           const previousDocument = await deps.engine.get(indexName, docId, WHOLE_DOCUMENT)
@@ -268,9 +258,9 @@ export async function applyPrimaryRemoveBatch(
             () => appendDeletion(scope, docId),
             true,
           )
-          appended.push({ docId, entry: removed.entry, previousDocument, previousRecord })
+          appended.push({ write, entry: removed.entry, previousDocument, previousRecord })
         } catch (err) {
-          failed.push({ docId, error: asWriteError(err, ErrorCodes.QUERY_ROUTING_FAILED, docId) })
+          failed.push({ write, error: asWriteError(err, ErrorCodes.QUERY_ROUTING_FAILED, docId) })
         }
       }
       await groupCommit.afterGroup()
@@ -278,7 +268,7 @@ export async function applyPrimaryRemoveBatch(
         scope,
         appended,
         failed,
-        (write, error) => compensateRemove(scope, write.docId, write.previousDocument, error),
+        ({ write, previousDocument }, error) => compensateRemove(scope, write.docId, previousDocument, error),
         deps,
       )
       return [...acknowledged, ...replicated]

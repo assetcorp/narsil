@@ -1,15 +1,19 @@
 import { ErrorCodes, NarsilError } from '../../../errors'
-import type { BatchResult } from '../../../types/results'
 import type { AllocationTable, PartitionAssignment, RegistrationLease } from '../../coordinator/types'
 import { partitionKey } from '../catch-up/state'
 import { REGISTRATION_LEASE_CONFIRM_TIMEOUT_MS, REGISTRATION_LEASE_DRIFT_SHARE } from '../constants'
 import { noteLedTerm } from '../led-term'
 import { assertReshardOpen } from '../reshard/block'
+import { initialisingHere, liveWritablePartition } from './initialising-partition'
 import type { PrimaryWriteScope } from './numbered-write'
 import { enqueuePartitionWrite } from './partition-queue'
 import { isOutcomeUnknown, outcomeUnknown } from './rollback'
 import { startTermInQueue } from './term-start'
 import type { WriteRoutingDeps } from './types'
+
+interface RefusableWrite {
+  error: NarsilError
+}
 
 const REFUSALS_FROM_LOCAL_COPY: ReadonlySet<string> = new Set([ErrorCodes.DOC_NOT_FOUND, ErrorCodes.DOC_ALREADY_EXISTS])
 
@@ -66,12 +70,9 @@ function copyFailedIn(scope: PrimaryWriteScope): boolean {
   return scope.deps.copyFailed?.(scope.indexName, scope.partitionId) === true
 }
 
-function refuseFromFailedCopy(scope: PrimaryWriteScope, failed: BatchResult['failed']): void {
-  for (let index = 0; index < failed.length; index++) {
-    const failure = failed[index]
-    if (failure?.error.code.startsWith('PERSISTENCE_') === true) {
-      failed[index] = { docId: failure.docId, error: notPrimary(scope) }
-    }
+function refuseFromFailedCopy(scope: PrimaryWriteScope, failed: readonly RefusableWrite[]): void {
+  for (const failure of failed) {
+    if (failure.error.code.startsWith('PERSISTENCE_')) failure.error = notPrimary(scope)
   }
 }
 
@@ -83,21 +84,23 @@ function notPrimary(scope: PrimaryWriteScope): NarsilError {
   )
 }
 
-async function confirmBatchRefusals(scope: PrimaryWriteScope, failed: BatchResult['failed']): Promise<void> {
+async function confirmBatchRefusals(scope: PrimaryWriteScope, failed: readonly RefusableWrite[]): Promise<void> {
   if (!failed.some(failure => refusedFromLocalCopy(failure.error))) return
   if (!(await leadershipUnconfirmed(scope))) return
-  for (let index = 0; index < failed.length; index++) {
-    const failure = failed[index]
-    if (failure !== undefined && refusedFromLocalCopy(failure.error)) {
-      failed[index] = { docId: failure.docId, error: notPrimary(scope) }
-    }
+  for (const failure of failed) {
+    if (refusedFromLocalCopy(failure.error)) failure.error = notPrimary(scope)
   }
 }
 
 async function currentScope(scope: PrimaryWriteScope): Promise<PrimaryWriteScope> {
   const { indexName, partitionId, deps } = scope
-  const table = await deps.coordinator.getAllocation(indexName)
-  const assignment = table?.assignments.get(partitionId)
+  let table = await deps.coordinator.getAllocation(indexName)
+  let assignment = table?.assignments.get(partitionId)
+  if (initialisingHere(assignment, deps.nodeId)) {
+    const live = await liveWritablePartition(deps, indexName, partitionId)
+    table = live.table
+    assignment = live.assignment
+  }
   const copyFailed = deps.copyFailed?.(indexName, partitionId) === true
   if (
     assignment === undefined ||
@@ -119,7 +122,7 @@ async function currentScope(scope: PrimaryWriteScope): Promise<PrimaryWriteScope
 export async function inLeadingPartitionQueue<T>(
   scope: PrimaryWriteScope,
   task: (current: PrimaryWriteScope) => Promise<T>,
-  failed?: BatchResult['failed'],
+  failed?: readonly RefusableWrite[],
 ): Promise<T> {
   let current = scope
   let logEndBefore: number | undefined

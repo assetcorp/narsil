@@ -26,7 +26,7 @@ export interface TcpTransportConfig extends TransportConfig {
   host: string
   /** The transport listens on this port, and 0 asks the system for a free one. */
   port: number
-  /** The connection pool holds at most this many outbound connections. */
+  /** The transport accepts at most this many inbound connections at a time and closes any further one. */
   maxConnections: number
   /** Presenting this makes every connection mutually authenticated TLS. */
   tls?: TlsConfig

@@ -47,6 +47,8 @@ Each partition has exactly one primary node that accepts writes, and zero or mor
 
 A primary appends no entry under a term until it has started that term on every copy in the in-sync set, as [Starting a Term](#starting-a-term) defines.
 
+A primary must refuse every write for a partition in `INITIALISING` with `PARTITION_NOT_PRIMARY`, setting `state` to `INITIALISING` in the error's details, before it applies the write or appends an entry, because the controller may restart that partition as an empty copy, as [No Eligible Replica](#no-eligible-replica) defines. Where a table that the primary watches gives that state, the primary must read the table from the cluster coordinator before it refuses, so that it accepts the write where the partition is `ACTIVE` and the watch event is late.
+
 A node forwarding many mutations to one primary should send them in a single `replication.forward_batch` message, and the primary then answers one outcome per mutation; see [transport.md](transport.md#replicationforward_batch).
 
 ### Rollback of a Failed Write
@@ -67,7 +69,7 @@ A primary must append the compensating entry under the same `primaryTerm` as the
 
 A primary rolling back a batch must compensate every entry it appended for that batch, in the reverse of the order it appended them.
 
-When the rollback itself fails, which covers a failed local restore and a failed compensating append alike, the primary must still refuse to acknowledge the write. It reports `REPLICATION_ROLLBACK_FAILED` with enough context to identify both the original write failure and the rollback failure. An implementation may then mark the local partition unhealthy or take it out of service; the partition must not carry on serving reads that could expose the unacknowledged mutation.
+When the rollback itself fails, which covers a failed local restore and a failed compensating append alike, the primary must still refuse to acknowledge the write. It reports `REPLICATION_ROLLBACK_FAILED` with enough context to identify both the original write failure and the rollback failure, except where that failure also fails the copy, in which case [Copy Failure](#copy-failure) governs the answer. An implementation may then mark the local partition unhealthy or take it out of service; the partition must not carry on serving reads that could expose the unacknowledged mutation.
 
 A compensating entry is an ordinary replicated entry. Before a primary treats a rollback as complete, every replica in the in-sync set must either acknowledge the compensating entry or leave the set through the controller's compare-and-set on the allocation table, as the [Removal Flow](#removal-flow) defines. The primary sends each in-sync replica the failed write's entries together with their compensating entries, in log order, so that a replica that never received a failed entry applies both and ends up holding what the primary holds.
 
@@ -75,17 +77,25 @@ A primary answers the client with a definite refusal only once the rollback is c
 
 While a rollback is incomplete, the partition takes no new writes. The primary keeps the partition's write queue held, and it retries the rollback with backoff, giving each try at most `replicationTimeout`, so that no later write is ordered after an entry whose outcome is still open. Writes to other partitions carry on.
 
-A client that receives `REPLICATION_OUTCOME_UNKNOWN` cannot tell whether the write took effect, so it should read the document before it retries. A node that forwarded the write must not retry it on the client's behalf, except where the primary abandoned the write because its term ended. The node may then send an insert to the new primary and settle the outcome against the copy that the new primary holds, and it may send an update or a remove again as [Retry After an Ended Term](#retry-after-an-ended-term) defines.
+A client that receives `REPLICATION_OUTCOME_UNKNOWN` cannot tell whether the write took effect, so it should read the document before it retries. A node that forwarded the write must not retry it on the client's behalf, except where the reason is `term_ended`, which a primary gives where its term ended or its copy failed. The node may then send an insert to the new primary and settle the outcome against the copy that the new primary holds, and it may send an update or a remove again as [Retry After an Ended Term](#retry-after-an-ended-term) defines.
 
 ### Retry After an Ended Term
 
-A primary that answers `REPLICATION_OUTCOME_UNKNOWN` with the reason `term_ended` for an update or a remove must tell the node that forwarded the write which entries it appended, through the `abandonedWrite` of its reply; see [transport.md](transport.md#replicationforward). The failed entry E is the entry whose `seqNo` and `primaryTerm` `abandonedWrite` carries, and its compensating entry C is the entry whose `seqNo` `compensationSeqNo` carries. C shares E's `primaryTerm`. `previousSeqNo` and `previousPrimaryTerm` give the document's [write record](#document-write-record) from before E. The primary must leave `abandonedWrite` out where the document held no write record before E.
+A primary that answers `REPLICATION_OUTCOME_UNKNOWN` with the reason `term_ended` for an update or a remove must tell the node that forwarded the write which entries it appended, through the `abandonedWrite` of its reply; see [transport.md](transport.md#replicationforward). The failed entry E is the entry whose `seqNo` and `primaryTerm` `abandonedWrite` carries, and its compensating entry C is the entry whose `seqNo` `compensationSeqNo` carries. C shares E's `primaryTerm`. `previousSeqNo` and `previousPrimaryTerm` give the document's [write record](#document-write-record) from before E. The primary must leave `abandonedWrite` out where the document held no write record before E or where it appended no C.
 
 Once the allocation table names a newer primary for the partition, the forwarding node may send the update or the remove to that primary again, carrying the numbers from `abandonedWrite` as its condition. The new primary decides the resend inside the partition's write queue, so that no other write to the partition comes between its check and its apply:
 
 1. Where it holds E but not C, it acknowledges the write without applying it again, because its copy holds the write.
 2. Where it holds both E and C and the document's write record equals C, or holds neither and the record equals the previous record, it applies the write, because no other write has touched the document since the old primary's attempt.
-3. Otherwise it refuses with `REPLICATION_WRITE_CONFLICT`, because another write has touched the document since that attempt.
+3. Otherwise it refuses with `REPLICATION_WRITE_CONFLICT`, because another write has touched the document since that attempt, unless the rule for a chained resend below allows the write.
+
+A chained resend follows, in the same `replication.forward_batch`, an earlier resend on the same document that the primary applied. The primary must apply a chained resend where all three of these conditions hold:
+
+- Its `ifSeqNo` and `ifPrimaryTerm` equal the `abandonedSeqNo` and `abandonedPrimaryTerm` of the earlier resend.
+- The primary holds both E and C of the chained resend, or it holds neither of them.
+- The document's write record equals the entry that the primary appended for the earlier resend, which shows that no other write touched the document in between.
+
+A forwarding node must send the resends on one document in the order of the original operations and in one message, as far as the limits of [replication.forward_batch](transport.md#replicationforward_batch) allow.
 
 A copy holds the entry numbered `s` under term `t` where `s` is at or below the highest `seqNo` that the copy holds and its [term history](#term-history) gives term `t` for `s`. The new primary decides from its term history and from that highest `seqNo` alone, and it never scans its log, because a log that a restart reopened retains no entry below its persisted position. Holding C implies holding E, because C follows E in the same term. Where the term history no longer covers E's `seqNo`, or where the document holds no write record, the new primary answers `REPLICATION_OUTCOME_UNKNOWN`.
 
@@ -109,7 +119,15 @@ Comparing the highest `seqNo` and its term is enough, because [Log Matching](#lo
 
 ### Read Path
 
-Any node holding a replica of the requested partition can serve reads. The coordinator picks one replica per partition for each query; see [Replica Selection](query-routing.md#replica-selection).
+The primary and each in-sync replica of an `ACTIVE` partition can serve reads. The coordinator picks one of those copies per partition for each query; see [Replica Selection](query-routing.md#replica-selection).
+
+A node must refuse a read with `QUERY_NO_ACTIVE_REPLICA` in three cases:
+
+- It receives a `query.search`, a `query.stats`, a `query.count`, a `query.list`, a `query.suggest`, a `query.preflight`, or a `query.fetch` without a `contextId`, and the request includes a partition in `INITIALISING`.
+- It receives one of those requests for a partition where another node is the primary and this node is a replica outside the in-sync set, because that copy can lack acknowledged writes.
+- It receives a `sync.read`, a `cluster.backup_partition`, a `cluster.reshard_start`, or a `cluster.reshard_cutover` whose `action` is `block`, for a partition in `INITIALISING`.
+
+Where a table that the node watches gives one of those cases, the node must read the table from the cluster coordinator before it refuses, so that it answers where the watch event is late. It must refuse where that read fails.
 
 ---
 
@@ -306,7 +324,7 @@ A replica must report in `lastPrimaryTerm` the `primaryTerm` of the entry at its
 
 ### Partition State During Recovery
 
-A replica that is still bootstrapping holds the partition in `INITIALISING` and serves no reads. A query that would route to it goes to another replica or to the primary instead. Once bootstrapping finishes, the controller moves the partition to `ACTIVE` on that replica, and it starts serving reads.
+A primary bootstraps its copy while the partition is in `INITIALISING`, whereas a replica can also bootstrap outside the in-sync set of an `ACTIVE` partition. Neither copy serves reads, as [Read Path](#read-path) defines, so the coordinator sends a query to an eligible copy. The primary starts serving reads once the controller moves the partition to `ACTIVE`, whereas a replica starts once the controller admits it to the in-sync set.
 
 ---
 
@@ -358,7 +376,7 @@ A node must fail its copy of a partition when the copy cannot apply an entry, in
 
 A node whose failed copy is a replica must ask the controller to remove the copy from the in-sync set, as the [Removal Flow](#removal-flow) defines. It must then delete its index, its write-ahead log and its replication log for the partition, and bootstrap the partition as an empty copy, as [Sync Protocol](#sync-protocol) defines. An empty copy sends `lastSeqNo` 0 and `lastPrimaryTerm` 0 in its `replication.sync_request`.
 
-A node whose failed copy is the primary must refuse every write for the partition with `PARTITION_NOT_PRIMARY` and ask the controller to fail the partition over. The controller must then act as [Failover](#failover) defines for a lost primary: it promotes an in-sync replica, or it follows [No Eligible Replica](#no-eligible-replica) where none remains. Once the node holds a replica of the partition, it follows the rule for a failed replica.
+A node whose failed copy is the primary must refuse every write for the partition and ask the controller to fail the partition over. It must answer `REPLICATION_OUTCOME_UNKNOWN` with the reason `term_ended` where its write-ahead log or its replication log may hold the write's entry and the rollback of that write is incomplete, because a reload can recover the entry. It must answer `PARTITION_NOT_PRIMARY` for every other write, so that this code always means that the write did not take effect. The controller must then act as [Failover](#failover) defines for a lost primary: it promotes an in-sync replica, or it follows [No Eligible Replica](#no-eligible-replica) where none remains. Once the node holds a replica of the partition, it follows the rule for a failed replica.
 
 ### Catch-Up Feed
 
@@ -510,10 +528,10 @@ Only a primary needs access to the embedding adapter, so a replica runs with no 
 | `REPLICATION_TERM_MISMATCH` | A replica received an entry carrying a stale primaryTerm. |
 | `REPLICATION_SYNC_FAILED` | The sync protocol, incremental or snapshot, failed to finish. |
 | `REPLICATION_ROLLBACK_FAILED` | A primary-local mutation failed before acknowledgement and the rollback failed too. |
-| `REPLICATION_OUTCOME_UNKNOWN` | The write may or may not have taken effect, because it failed after the primary applied it and the primary could not confirm within `replicationTimeout` that every in-sync copy dropped it, or because the node that forwarded it lost its connection to the primary after sending it or stopped waiting for its answer. Its details carry `reason`, which is `term_ended` where the primary abandoned the write because its term ended, `rollback_open` where the rollback was still incomplete, `lease_lapsed` where the primary's registration lease lapsed before it acknowledged a write that it had applied, `forward_interrupted` where the node that forwarded an update or a remove lost its connection to the primary after it sent the write, and `forward_window_ended` where the node that forwarded the write stopped waiting for its answer once the 30,000 ms window of [Transport Messages](transport.md#transport-messages) closed. |
+| `REPLICATION_OUTCOME_UNKNOWN` | The write may or may not have taken effect, because it failed after the primary applied it and the primary could not confirm within `replicationTimeout` that every in-sync copy dropped it, because the primary's copy failed while one of its logs may hold the write, or because the node that forwarded it lost its connection to the primary after sending it or stopped waiting for its answer. Its details carry `reason`, which is `term_ended` where the primary abandoned the write because its term ended or its copy failed, `rollback_open` where the rollback was still incomplete, `lease_lapsed` where the primary's registration lease lapsed before it acknowledged a write that it had applied, `forward_interrupted` where the node that forwarded an update or a remove lost its connection to the primary after it sent the write, and `forward_window_ended` where the node that forwarded the write stopped waiting for its answer once the 30,000 ms window of [Transport Messages](transport.md#transport-messages) closed. |
 | `REPLICATION_WRITE_CONFLICT` | A new primary refused an update or a remove that a node sent again after the earlier primary's term ended, because another write touched the document after the earlier primary's attempt, as [Retry After an Ended Term](#retry-after-an-ended-term) defines. The write did not take effect. |
 | `REPLICATION_ENTRY_INVALID` | A received entry is malformed, out of order, or not addressed to the receiving replica. |
 | `REPLICATION_INSYNC_REMOVAL_FAILED` | The primary could not remove a failed replica from the in-sync set while it still held its term, because no controller was reachable or the controller rejected the request. A primary whose term has moved reports `PARTITION_NOT_PRIMARY` instead. |
-| `PARTITION_NOT_PRIMARY` | A write reached a node that is not the primary for the target partition. |
+| `PARTITION_NOT_PRIMARY` | A write reached a node that is not the primary for the target partition, or it reached the primary of a partition in `INITIALISING`. |
 | `PARTITION_UNASSIGNED` | The target partition has no primary, because every copy was lost. |
 | `INSUFFICIENT_REPLICAS` | The `waitForActiveReplicas` check failed. |

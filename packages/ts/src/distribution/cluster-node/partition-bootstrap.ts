@@ -17,6 +17,8 @@ export interface PartitionBootstrapDeps {
   getReplicationLog: (indexName: string, partitionId: number) => ReplicationLog
   seedReplicationLog: (indexName: string, partitionId: number, startSeqNo: number, lastPrimaryTerm?: number) => void
   partitionWriteQueues: PartitionWriteQueues
+  canListCopy: PrimaryPartitionDeps['canListCopy']
+  failMissingCopy: PrimaryPartitionDeps['failMissingCopy']
   onError: (error: unknown) => void
   snapshotSpoolDirectory: string
 }
@@ -48,6 +50,8 @@ export function createPartitionBootstrap(
     seedReplicationLog: deps.seedReplicationLog,
     replicationLogPosition: (indexName: string, partitionId: number) =>
       deps.getReplicationLog(indexName, partitionId).newestSeqNo ?? 0,
+    canListCopy: deps.canListCopy,
+    failMissingCopy: deps.failMissingCopy,
     onError: deps.onError,
   }
 

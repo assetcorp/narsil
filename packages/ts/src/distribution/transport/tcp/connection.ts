@@ -1,36 +1,14 @@
-import { connect, type Socket } from 'node:net'
-import { connect as tlsConnect } from 'node:tls'
-import { MAX_MESSAGE_SIZE_BYTES, UNADDRESSABLE_TARGET_DETAIL } from '../constants'
+import { MAX_MESSAGE_SIZE_BYTES } from '../constants'
 import { replyDeadlineMs } from '../reply-deadline'
 import { TransportError, TransportErrorCodes, type TransportMessage } from '../types'
-import { decodeTransportMessage, encodeFrame, encodeTransportMessage, FrameParser, type WireFrame } from './framing'
-import { parseAddress } from './parse-address'
-import { answerPendingStream, createPendingStream, deliverStreamChunk, type PendingStream } from './pending-stream'
-import {
-  FRAME_TYPE_REQUEST,
-  FRAME_TYPE_RESPONSE,
-  FRAME_TYPE_STREAM_CHUNK,
-  FRAME_TYPE_STREAM_END,
-  type TcpTransportConfig,
-  type TlsConfig,
-} from './types'
-
-export type { WireFrame } from './framing'
-export { decodeTransportMessage, encodeFrame, encodeTransportMessage, FrameParser } from './framing'
-export { parseAddress } from './parse-address'
-
-interface PendingRequest {
-  target: string
-  resolve: (message: TransportMessage) => void
-  reject: (error: Error) => void
-  timer: ReturnType<typeof setTimeout>
-}
+import { dialPeer, type PeerLink } from './dial'
+import { encodeFrame, encodeTransportMessage } from './framing'
+import type { PeerConnection } from './peer-connection'
+import { FRAME_TYPE_REQUEST, type TcpTransportConfig, type TlsConfig } from './types'
 
 export class TcpConnectionPool {
-  private connections = new Map<string, Socket>()
-  private pendingRequests = new Map<string, PendingRequest>()
-  private pendingStreams = new Map<string, PendingStream>()
-  private parsers = new Map<string, FrameParser>()
+  private readonly current = new Map<string, PeerLink>()
+  private readonly open = new Set<PeerLink>()
   private config: TcpTransportConfig
   private closed = false
 
@@ -46,322 +24,55 @@ export class TcpConnectionPool {
   }
 
   async send(target: string, message: TransportMessage): Promise<TransportMessage> {
-    if (this.closed) {
-      throw new TransportError(TransportErrorCodes.CONNECT_FAILED, 'Connection pool has been shut down')
-    }
-
-    const messageBytes = encodeTransportMessage(message)
-    if (messageBytes.byteLength > MAX_MESSAGE_SIZE_BYTES) {
-      throw new TransportError(
-        TransportErrorCodes.MESSAGE_TOO_LARGE,
-        `Message payload (${messageBytes.byteLength} bytes) exceeds the ${MAX_MESSAGE_SIZE_BYTES} byte limit`,
-        { target, requestId: message.requestId, payloadSize: messageBytes.byteLength },
-      )
-    }
-
-    const socket = await this.getOrCreateConnection(target)
-    const frame = encodeFrame(FRAME_TYPE_REQUEST, message.requestId, messageBytes)
-    const pendingKey = `${target}:${message.requestId}`
-    const timeoutMs = replyDeadlineMs(message.type, this.config)
-
-    return new Promise<TransportMessage>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pendingRequests.delete(pendingKey)
-        reject(
-          new TransportError(TransportErrorCodes.TIMEOUT, `Request to '${target}' timed out after ${timeoutMs}ms`, {
-            target,
-            requestId: message.requestId,
-            timeoutMs,
-          }),
-        )
-      }, timeoutMs)
-
-      this.pendingRequests.set(pendingKey, { target, resolve, reject, timer })
-
-      socket.write(frame, err => {
-        if (err) {
-          clearTimeout(timer)
-          this.pendingRequests.delete(pendingKey)
-          reject(
-            new TransportError(TransportErrorCodes.PEER_UNAVAILABLE, `Failed to write to '${target}': ${err.message}`, {
-              target,
-              requestId: message.requestId,
-            }),
-          )
-        }
-      })
-    })
+    this.assertOpen(target)
+    const frame = requestFrame(target, message)
+    const connection = await this.connectionTo(target)
+    return connection.send(message.requestId, frame, replyDeadlineMs(message.type, this.config))
   }
 
   async stream(target: string, message: TransportMessage, handler: (chunk: Uint8Array) => void): Promise<void> {
-    if (this.closed) {
-      throw new TransportError(TransportErrorCodes.CONNECT_FAILED, 'Connection pool has been shut down')
-    }
-
-    const messageBytes = encodeTransportMessage(message)
-    const socket = await this.getOrCreateConnection(target)
-    const frame = encodeFrame(FRAME_TYPE_REQUEST, message.requestId, messageBytes)
-    const pendingKey = `${target}:${message.requestId}`
-
-    return new Promise<void>((resolve, reject) => {
-      const pending = createPendingStream({
-        target,
-        requestId: message.requestId,
-        timeoutMs: this.config.snapshotTimeout,
-        handler,
-        resolve,
-        reject,
-        forget: () => this.pendingStreams.delete(pendingKey),
-      })
-      this.pendingStreams.set(pendingKey, pending)
-
-      socket.write(frame, err => {
-        if (err) {
-          clearTimeout(pending.timer)
-          this.pendingStreams.delete(pendingKey)
-          reject(
-            new TransportError(
-              TransportErrorCodes.PEER_UNAVAILABLE,
-              `Failed to write stream to '${target}': ${err.message}`,
-              {
-                target,
-                requestId: message.requestId,
-              },
-            ),
-          )
-        }
-      })
-    })
-  }
-
-  private async getOrCreateConnection(target: string): Promise<Socket> {
-    const existing = this.connections.get(target)
-    if (existing !== undefined && !existing.destroyed) {
-      return existing
-    }
-
-    const [host, portStr] = parseAddress(target)
-    const port = Number.parseInt(portStr, 10)
-    if (Number.isNaN(port) || port < 0 || port > 65535) {
-      throw new TransportError(TransportErrorCodes.CONNECT_FAILED, `Invalid port in target address '${target}'`, {
-        target,
-        [UNADDRESSABLE_TARGET_DETAIL]: true,
-      })
-    }
-
-    return new Promise<Socket>((resolve, reject) => {
-      let settled = false
-      const tlsConfig = this.config.tls
-
-      const socket: Socket =
-        tlsConfig !== undefined
-          ? tlsConnect({
-              host,
-              port,
-              cert: tlsConfig.cert,
-              key: tlsConfig.key,
-              ca: tlsConfig.ca,
-              rejectUnauthorized: tlsConfig.rejectUnauthorized ?? true,
-            })
-          : connect({ host, port })
-
-      const connectEvent = tlsConfig !== undefined ? 'secureConnect' : 'connect'
-
-      const connectTimer = setTimeout(() => {
-        if (!settled) {
-          settled = true
-          socket.destroy()
-          reject(
-            new TransportError(
-              TransportErrorCodes.CONNECT_FAILED,
-              `Failed to connect to '${target}': no connection was ready within ${this.config.connectTimeout}ms`,
-              { target, timeoutMs: this.config.connectTimeout },
-            ),
-          )
-        }
-      }, this.config.connectTimeout)
-
-      socket.once(connectEvent, () => {
-        if (settled) {
-          socket.destroy()
-          return
-        }
-        settled = true
-        clearTimeout(connectTimer)
-        this.setupConnection(target, socket)
-        resolve(socket)
-      })
-
-      socket.once('error', err => {
-        if (!settled) {
-          settled = true
-          clearTimeout(connectTimer)
-          reject(
-            new TransportError(TransportErrorCodes.CONNECT_FAILED, `Failed to connect to '${target}': ${err.message}`, {
-              target,
-            }),
-          )
-        }
-      })
-    })
-  }
-
-  private setupConnection(target: string, socket: Socket): void {
-    this.connections.set(target, socket)
-
-    const parser = new FrameParser(frame => {
-      this.handleIncomingFrame(target, frame)
-    })
-    this.parsers.set(target, parser)
-
-    socket.on('data', (data: Buffer) => {
-      try {
-        parser.feed(new Uint8Array(data))
-      } catch (err) {
-        this.handleConnectionError(target, err instanceof Error ? err : new Error(String(err)))
-      }
-    })
-
-    socket.on('error', err => {
-      this.handleConnectionError(target, err)
-    })
-
-    socket.on('close', () => {
-      this.connections.delete(target)
-      this.parsers.delete(target)
-      this.rejectPendingForTarget(
-        target,
-        new TransportError(
-          TransportErrorCodes.PEER_UNAVAILABLE,
-          `Connection to '${target}' closed before a response was received`,
-          { target },
-        ),
-      )
-    })
-  }
-
-  private handleIncomingFrame(target: string, frame: WireFrame): void {
-    const pendingKey = `${target}:${frame.requestId}`
-
-    if (frame.frameType === FRAME_TYPE_RESPONSE) {
-      const pendingReq = this.pendingRequests.get(pendingKey)
-      if (pendingReq !== undefined) {
-        this.pendingRequests.delete(pendingKey)
-        clearTimeout(pendingReq.timer)
-        try {
-          const message = decodeTransportMessage(frame.data)
-          pendingReq.resolve(message)
-        } catch (err) {
-          pendingReq.reject(
-            new TransportError(
-              TransportErrorCodes.DECODE_FAILED,
-              `Failed to decode response: ${err instanceof Error ? err.message : String(err)}`,
-            ),
-          )
-        }
-        return
-      }
-
-      const pendingStream = this.pendingStreams.get(pendingKey)
-      if (pendingStream !== undefined) {
-        answerPendingStream(pendingStream, frame.requestId, frame.data)
-      }
-      return
-    }
-
-    if (frame.frameType === FRAME_TYPE_STREAM_CHUNK) {
-      const pending = this.pendingStreams.get(pendingKey)
-      if (pending !== undefined) {
-        deliverStreamChunk(pending, frame.data)
-      }
-      return
-    }
-
-    if (frame.frameType === FRAME_TYPE_STREAM_END) {
-      const pending = this.pendingStreams.get(pendingKey)
-      if (pending !== undefined) {
-        this.pendingStreams.delete(pendingKey)
-        clearTimeout(pending.timer)
-        pending.resolve()
-      }
-    }
-  }
-
-  private handleConnectionError(target: string, err: Error): void {
-    const socket = this.connections.get(target)
-    this.connections.delete(target)
-    this.parsers.delete(target)
-    if (socket !== undefined && !socket.destroyed) {
-      socket.destroy()
-    }
-
-    this.rejectPendingForTarget(
-      target,
-      new TransportError(TransportErrorCodes.PEER_UNAVAILABLE, `Connection to '${target}' lost: ${err.message}`, {
-        target,
-      }),
-    )
-  }
-
-  private rejectPendingForTarget(target: string, error: TransportError): void {
-    for (const [pendingKey, pending] of this.pendingRequests) {
-      if (pending.target !== target) {
-        continue
-      }
-      clearTimeout(pending.timer)
-      this.pendingRequests.delete(pendingKey)
-      pending.reject(error)
-    }
-
-    for (const [pendingKey, pending] of this.pendingStreams) {
-      if (pending.target !== target) {
-        continue
-      }
-      clearTimeout(pending.timer)
-      this.pendingStreams.delete(pendingKey)
-      pending.reject(error)
-    }
-  }
-
-  getConnection(target: string): Socket | undefined {
-    const conn = this.connections.get(target)
-    if (conn?.destroyed) {
-      this.connections.delete(target)
-      return undefined
-    }
-    return conn
+    this.assertOpen(target)
+    const frame = requestFrame(target, message)
+    const connection = await this.connectionTo(target)
+    return connection.stream(message.requestId, frame, this.config.snapshotTimeout, handler)
   }
 
   async shutdown(): Promise<void> {
-    if (this.closed) {
-      return
-    }
     this.closed = true
-
-    for (const [, pending] of this.pendingRequests) {
-      clearTimeout(pending.timer)
-      pending.reject(new TransportError(TransportErrorCodes.PEER_UNAVAILABLE, 'Connection pool shutting down'))
-    }
-    this.pendingRequests.clear()
-
-    for (const [, pending] of this.pendingStreams) {
-      clearTimeout(pending.timer)
-      pending.reject(new TransportError(TransportErrorCodes.PEER_UNAVAILABLE, 'Connection pool shutting down'))
-    }
-    this.pendingStreams.clear()
-
-    const closePromises: Promise<void>[] = []
-    for (const [target, socket] of this.connections) {
-      closePromises.push(
-        new Promise<void>(resolve => {
-          socket.once('close', () => resolve())
-          socket.destroy()
-        }),
-      )
-      this.connections.delete(target)
-    }
-    this.parsers.clear()
-
-    await Promise.all(closePromises)
+    const links = [...this.open]
+    for (const link of links) link.shutDown()
+    await Promise.all(links.map(link => link.closed))
   }
+
+  private assertOpen(target: string): void {
+    if (this.closed) {
+      throw new TransportError(TransportErrorCodes.CONNECT_FAILED, 'Connection pool has been shut down', { target })
+    }
+  }
+
+  private connectionTo(target: string): Promise<PeerConnection> {
+    const current = this.current.get(target)
+    if (current?.usable()) return current.connection
+
+    const link = dialPeer(target, this.config)
+    this.current.set(target, link)
+    this.open.add(link)
+    void link.closed.then(() => {
+      this.open.delete(link)
+      if (this.current.get(target) === link) this.current.delete(target)
+    })
+    return link.connection
+  }
+}
+
+function requestFrame(target: string, message: TransportMessage): Uint8Array {
+  const messageBytes = encodeTransportMessage(message)
+  if (messageBytes.byteLength > MAX_MESSAGE_SIZE_BYTES) {
+    throw new TransportError(
+      TransportErrorCodes.MESSAGE_TOO_LARGE,
+      `Message payload (${messageBytes.byteLength} bytes) exceeds the ${MAX_MESSAGE_SIZE_BYTES} byte limit`,
+      { target, requestId: message.requestId, payloadSize: messageBytes.byteLength },
+    )
+  }
+  return encodeFrame(FRAME_TYPE_REQUEST, message.requestId, messageBytes)
 }

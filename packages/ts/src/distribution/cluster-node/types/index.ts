@@ -11,6 +11,7 @@ export type {
   CreateIndexOptions,
   NodeReadiness,
 } from './config'
+export type { ClusterNodeLifecycle } from './lifecycle'
 export type { ClusterNode } from './node'
 export type { ClusterNodeSearchSettings } from './search-settings'
 export type { ClusterNodeSyncSettings } from './sync-settings'

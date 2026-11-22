@@ -3,6 +3,7 @@ mod bootstrap;
 mod departures;
 mod election;
 mod event_loop;
+mod holder_retry;
 mod insync;
 mod messages;
 mod metadata;
@@ -14,6 +15,7 @@ mod settings;
 mod state;
 mod table;
 mod teardown;
+mod unplaceable_index;
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -29,6 +31,11 @@ use crate::message::TransportMessage;
 use crate::transport::{NodeTransport, Respond};
 
 pub(crate) use self::messages::is_controller_message;
+pub(crate) use self::metadata::{
+    IndexMetadata, index_metadata, records_previous_documents, stored_index_metadata,
+};
+pub(crate) use self::settings::{previous_documents_recorded, stored_settings_readable};
+pub(crate) use self::table::{belongs_to_another_index, stored_table};
 
 pub(crate) type ControllerErrorHandler = Arc<dyn Fn(&str, &ClusterError) + Send + Sync>;
 

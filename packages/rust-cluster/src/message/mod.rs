@@ -12,43 +12,10 @@ pub const CARRIER_ERROR_TYPE: &str = "error";
 /// The suffix that a node adds to a request's `type` to name its refusal of that request.
 pub const ERROR_TYPE_SUFFIX: &str = ".error";
 
-/// The message types of `packages/spec/distribution/transport.md` that a node of this crate sends or answers.
-pub mod message_types {
-    /// A health check, which any node answers with a `cluster.pong`.
-    pub const CLUSTER_PING: &str = "cluster.ping";
-    /// The answer to a `cluster.ping`.
-    pub const CLUSTER_PONG: &str = "cluster.pong";
-    /// A replication log entry from a primary.
-    pub const REPLICATION_ENTRY: &str = "replication.entry";
-    /// Contiguous replication log entries from a primary.
-    pub const REPLICATION_ENTRY_BATCH: &str = "replication.entry_batch";
-    /// The start of a new primary term.
-    pub const REPLICATION_TERM_START: &str = "replication.term_start";
-    /// A primary's request that the controller admit a caught-up replica to the in-sync set.
-    pub const REPLICATION_INSYNC_ADD: &str = "replication.insync_add";
-    /// A request that the controller drop a replica from the in-sync set.
-    pub const REPLICATION_INSYNC_REMOVE: &str = "replication.insync_remove";
-    /// The controller's answer to an in-sync change or a primary's resignation.
-    pub const REPLICATION_INSYNC_CONFIRM: &str = "replication.insync_confirm";
-    /// A primary's request that the controller hand its partition to another node.
-    pub const REPLICATION_PRIMARY_RESIGN: &str = "replication.primary_resign";
-    /// A primary's report that its copy of a partition is ready, and the controller's answer to it.
-    pub const CLUSTER_BOOTSTRAP_COMPLETE: &str = "cluster.bootstrap_complete";
-    /// The controller's question of which partitions a node's local copy holds, and the node's answer.
-    pub const CLUSTER_PARTITION_STORES: &str = "cluster.partition_stores";
-    /// A request that the controller change the replication factor of an index.
-    pub const CLUSTER_REPLICATION_FACTOR: &str = "cluster.replication_factor";
-    /// A request that the controller change the partition count of an index.
-    pub const CLUSTER_REBALANCE: &str = "cluster.rebalance";
-    /// A request that the controller take a backup of an index.
-    pub const CLUSTER_BACKUP: &str = "cluster.backup";
-    /// A request that the controller restore an index from a backup.
-    pub const CLUSTER_BACKUP_RESTORE: &str = "cluster.backup_restore";
-    /// A request that the controller delete a backup.
-    pub const CLUSTER_BACKUP_DELETE: &str = "cluster.backup_delete";
-    /// A request that the controller build the query suggestions of an index.
-    pub const SUGGESTIONS_BUILD: &str = "suggestions.build";
-}
+/// The message types of `packages/spec/distribution/transport.md`.
+pub mod message_types;
+
+pub(crate) use message_types::is_specified as is_specified_message_type;
 
 /// One message between two cluster nodes, whose payload holds the MessagePack body that its `type` defines.
 #[derive(Debug, Clone, PartialEq, Eq)]

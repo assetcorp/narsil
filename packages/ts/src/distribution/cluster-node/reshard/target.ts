@@ -8,9 +8,11 @@ import type {
   ReshardPurgePayload,
 } from '../../transport/reshard-payloads'
 import type { ForwardBatchOperationResult } from '../../transport/types'
+import { transportableDetails } from '../error-reply'
 import { noteLedTerm } from '../led-term'
 import type { ClusterLocalEngine } from '../local-engine'
 import { resolvePartitionId, type WriteRoutingDeps } from '../write-routing'
+import { writableAssignment } from '../write-routing/initialising-partition'
 import { enqueuePartitionWrite } from '../write-routing/partition-queue'
 import { chunkReplicationEntries, replicateEntryBatch } from '../write-routing/replication'
 import { leadingAssignment } from './leadership'
@@ -34,7 +36,7 @@ function failed(documentId: string, error: unknown): ForwardBatchOperationResult
     success: false,
     errorCode: narsil?.code ?? ErrorCodes.REPLICATION_ENTRY_INVALID,
     errorMessage: describeError(error),
-    errorDetails: null,
+    errorDetails: transportableDetails(error) ?? null,
   }
 }
 
@@ -48,7 +50,8 @@ async function applyInPartition(
 ): Promise<void> {
   try {
     await enqueuePartitionWrite(deps.partitionWriteQueues, indexName, partitionId, async () => {
-      const assignment = await leadingAssignment(deps, indexName, partitionId)
+      const watched = await leadingAssignment(deps, indexName, partitionId)
+      const assignment = await writableAssignment(deps, indexName, partitionId, watched)
       const log = deps.getReplicationLog(indexName, partitionId)
       noteLedTerm(log, assignment.primaryTerm)
       const applied: Array<{ entry: ReplicationLogEntry }> = []
@@ -181,7 +184,7 @@ export async function purgeReshardSource(
         throw new NarsilError(
           failure.errorCode ?? ErrorCodes.REPLICATION_ENTRY_INVALID,
           failure.errorMessage ?? `Document '${failure.documentId}' could not be removed`,
-          { indexName: payload.targetGeneration, documentId: failure.documentId },
+          { ...failure.errorDetails, indexName: payload.targetGeneration, documentId: failure.documentId },
         )
       }
       removed += removals.length

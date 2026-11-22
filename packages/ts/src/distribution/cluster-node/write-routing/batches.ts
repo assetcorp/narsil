@@ -1,14 +1,15 @@
 import { generateId } from '../../../core/id-generator'
-import { ErrorCodes, NarsilError } from '../../../errors'
+import { ErrorCodes, NarsilError, type NarsilErrorCode } from '../../../errors'
 import type { BatchResult } from '../../../types/results'
 import type { AnyDocument, InsertOptions } from '../../../types/schema'
 import type { AllocationTable, PartitionAssignment } from '../../coordinator/types'
-import type { WriteCondition } from '../../transport/types'
 import { requireWritableIndex } from '../memory/write-block'
 import { estimateDocumentsBytes, withAdmittedWrite } from '../memory/write-pressure'
 import { routableAllocation } from '../routable-allocation'
 import { requireAssignedPrimary, resolvePartitionId } from './assignment'
-import { type ForwardBatchItem, forwardBatchToRemote } from './forward-to-primary'
+import type { BatchOutcome, BatchWrite, WriteFailure } from './batch-write'
+import { type ForwardedOperation, forwardBatchToRemote } from './forward-to-primary'
+import { writableAssignment } from './initialising-partition'
 import { writeLocalOnly } from './numbered-write'
 import { retryEachPartition, settleEqualInserts, settleNothing } from './primary-change'
 import { applyPrimaryInsertBatch, applyPrimaryRemoveBatch, applyPrimaryUpdateBatch } from './primary-writes'
@@ -16,27 +17,31 @@ import type { WriteRoutingDeps } from './types'
 
 type AssignedPrimary = PartitionAssignment & { primary: string }
 
-interface RoutedBatch<T> {
-  localGroups: Map<number, { assignment: AssignedPrimary; items: T[] }>
-  remoteGroups: Map<string, T[]>
-  failed: BatchResult['failed']
+type ApplyAsPrimary<V> = (
+  writes: BatchWrite<V>[],
+  partitionId: number,
+  assignment: PartitionAssignment,
+) => Promise<BatchOutcome<V>>
+
+interface RoutedBatch<V> {
+  localGroups: Map<number, { assignment: AssignedPrimary; writes: BatchWrite<V>[] }>
+  remoteGroups: Map<string, BatchWrite<V>[]>
+  failed: WriteFailure<V>[]
 }
 
-function routeBatchItems<T>(
+function routeBatchWrites<V>(
   table: AllocationTable,
   indexName: string,
-  items: T[],
-  docIdOf: (item: T) => string,
+  writes: BatchWrite<V>[],
   nodeId: string,
-): RoutedBatch<T> {
+): RoutedBatch<V> {
   const partitionCount = table.assignments.size
-  const failed: BatchResult['failed'] = []
-  const localGroups = new Map<number, { assignment: AssignedPrimary; items: T[] }>()
-  const remoteGroups = new Map<string, T[]>()
+  const failed: WriteFailure<V>[] = []
+  const localGroups = new Map<number, { assignment: AssignedPrimary; writes: BatchWrite<V>[] }>()
+  const remoteGroups = new Map<string, BatchWrite<V>[]>()
 
-  for (const item of items) {
-    const docId = docIdOf(item)
-    const partitionId = resolvePartitionId(docId, partitionCount)
+  for (const write of writes) {
+    const partitionId = resolvePartitionId(write.docId, partitionCount)
     const assignment = table.assignments.get(partitionId)
 
     let assignedPrimary: AssignedPrimary
@@ -44,7 +49,7 @@ function routeBatchItems<T>(
       assignedPrimary = requireAssignedPrimary(assignment, indexName, partitionId)
     } catch (err) {
       failed.push({
-        docId,
+        write,
         error:
           err instanceof NarsilError
             ? err
@@ -56,10 +61,10 @@ function routeBatchItems<T>(
     if (assignedPrimary.primary === nodeId) {
       let group = localGroups.get(partitionId)
       if (group === undefined) {
-        group = { assignment: assignedPrimary, items: [] }
+        group = { assignment: assignedPrimary, writes: [] }
         localGroups.set(partitionId, group)
       }
-      group.items.push(item)
+      group.writes.push(write)
       continue
     }
 
@@ -68,23 +73,55 @@ function routeBatchItems<T>(
       remote = []
       remoteGroups.set(assignedPrimary.primary, remote)
     }
-    remote.push(item)
+    remote.push(write)
   }
 
   return { localGroups, remoteGroups, failed }
 }
 
-function collectGroupFailure(
-  failed: BatchResult['failed'],
-  docIds: string[],
-  err: unknown,
+async function routeWrites<V extends AnyDocument | null>(
+  deps: WriteRoutingDeps,
   indexName: string,
-  fallbackCode: (typeof ErrorCodes)[keyof typeof ErrorCodes],
-): void {
-  const narsilErr = err instanceof NarsilError ? err : new NarsilError(fallbackCode, String(err), { indexName })
-  for (const docId of docIds) {
-    failed.push({ docId, error: narsilErr })
+  operation: ForwardedOperation,
+  writes: BatchWrite<V>[],
+  applyAsPrimary: ApplyAsPrimary<V>,
+  fallbackCode: NarsilErrorCode,
+): Promise<BatchOutcome<V>> {
+  const table = await requireRoutableTable(deps, indexName)
+  const { localGroups, remoteGroups, failed } = routeBatchWrites(table, indexName, writes, deps.nodeId)
+  const succeeded: BatchWrite<V>[] = []
+
+  for (const [partitionId, group] of localGroups) {
+    try {
+      const assignment = await writableAssignment(deps, indexName, partitionId, group.assignment)
+      const result = await applyAsPrimary(group.writes, partitionId, assignment)
+      for (const write of result.succeeded) succeeded.push(write)
+      for (const failure of result.failed) failed.push(failure)
+    } catch (err) {
+      const error = err instanceof NarsilError ? err : new NarsilError(fallbackCode, String(err), { indexName })
+      for (const write of group.writes) failed.push({ write, error })
+    }
   }
+
+  for (const [primaryNodeId, forwarded] of remoteGroups) {
+    const result = await forwardBatchToRemote(indexName, operation, forwarded, primaryNodeId, deps, table.indexUuid)
+    for (const write of result.succeeded) succeeded.push(write)
+    for (const failure of result.failed) failed.push(failure)
+  }
+
+  return { succeeded, failed }
+}
+
+async function requireRoutableTable(deps: WriteRoutingDeps, indexName: string): Promise<AllocationTable> {
+  const table = await routableAllocation(deps.coordinator, indexName)
+  if (table === null) {
+    throw new NarsilError(
+      ErrorCodes.QUERY_ROUTING_FAILED,
+      `Index '${indexName}' lost its cluster metadata while a batch waited for a new primary`,
+      { indexName },
+    )
+  }
+  return table
 }
 
 export function routeInsertBatch(
@@ -113,75 +150,21 @@ async function routeAdmittedInsertBatch(
   }
   requireWritableIndex(table, deps.memoryView)
 
-  const withIds = documents.map(doc => ({
-    doc,
-    docId: typeof doc.id === 'string' && doc.id.length > 0 ? doc.id : generateId(),
+  const writes: BatchWrite<AnyDocument>[] = documents.map(document => ({
+    docId: typeof document.id === 'string' && document.id.length > 0 ? document.id : generateId(),
+    value: document,
   }))
-  const sentById = new Map(withIds.map(item => [item.docId, item.doc]))
+  const applyAsPrimary: ApplyAsPrimary<AnyDocument> = (group, partitionId, assignment) =>
+    applyPrimaryInsertBatch(indexName, group, partitionId, assignment, deps, options)
   return retryEachPartition(
     deps,
     indexName,
     table,
-    withIds,
-    item => item.docId,
-    async pending => routeInsertItems(await requireRoutableTable(deps, indexName), indexName, pending, deps, options),
-    settleEqualInserts(deps, indexName, sentById),
+    writes,
+    pending => routeWrites(deps, indexName, 'insert', pending, applyAsPrimary, ErrorCodes.DOC_VALIDATION_FAILED),
+    settleEqualInserts(deps, indexName),
     true,
   )
-}
-
-async function requireRoutableTable(deps: WriteRoutingDeps, indexName: string): Promise<AllocationTable> {
-  const table = await routableAllocation(deps.coordinator, indexName)
-  if (table === null) {
-    throw new NarsilError(
-      ErrorCodes.QUERY_ROUTING_FAILED,
-      `Index '${indexName}' lost its cluster metadata while a batch waited for a new primary`,
-      { indexName },
-    )
-  }
-  return table
-}
-
-async function routeInsertItems(
-  table: AllocationTable,
-  indexName: string,
-  withIds: Array<{ doc: AnyDocument; docId: string }>,
-  deps: WriteRoutingDeps,
-  options?: InsertOptions,
-): Promise<BatchResult> {
-  const routed = routeBatchItems(table, indexName, withIds, item => item.docId, deps.nodeId)
-  const succeeded: string[] = []
-  const failed = routed.failed
-
-  for (const [partitionId, group] of routed.localGroups) {
-    try {
-      const result = await applyPrimaryInsertBatch(indexName, group.items, partitionId, group.assignment, deps, options)
-      succeeded.push(...result.succeeded)
-      failed.push(...result.failed)
-    } catch (err) {
-      collectGroupFailure(
-        failed,
-        group.items.map(item => item.docId),
-        err,
-        indexName,
-        ErrorCodes.DOC_VALIDATION_FAILED,
-      )
-    }
-  }
-
-  for (const [primaryNodeId, items] of routed.remoteGroups) {
-    const result = await forwardBatchToRemote(
-      indexName,
-      items.map((item): ForwardBatchItem => ({ documentId: item.docId, operation: 'insert', document: item.doc })),
-      primaryNodeId,
-      deps,
-      table.indexUuid,
-    )
-    succeeded.push(...result.succeeded)
-    failed.push(...result.failed)
-  }
-
-  return { succeeded, failed }
 }
 
 export async function routeRemoveBatch(
@@ -194,66 +177,17 @@ export async function routeRemoveBatch(
     return writeLocalOnly(deps, indexName, () => deps.engine.removeBatch(indexName, docIds))
   }
 
+  const writes: BatchWrite<null>[] = docIds.map(docId => ({ docId, value: null }))
+  const applyAsPrimary: ApplyAsPrimary<null> = (group, partitionId, assignment) =>
+    applyPrimaryRemoveBatch(indexName, group, partitionId, assignment, deps)
   return retryEachPartition(
     deps,
     indexName,
     table,
-    docIds,
-    docId => docId,
-    async (pending, conditions) =>
-      routeRemoveItems(await requireRoutableTable(deps, indexName), indexName, pending, deps, conditions),
+    writes,
+    pending => routeWrites(deps, indexName, 'remove', pending, applyAsPrimary, ErrorCodes.QUERY_ROUTING_FAILED),
     settleNothing,
   )
-}
-
-async function routeRemoveItems(
-  table: AllocationTable,
-  indexName: string,
-  docIds: string[],
-  deps: WriteRoutingDeps,
-  conditions: ReadonlyMap<string, WriteCondition>,
-): Promise<BatchResult> {
-  const routed = routeBatchItems(table, indexName, docIds, docId => docId, deps.nodeId)
-  const succeeded: string[] = []
-  const failed = routed.failed
-
-  for (const [partitionId, group] of routed.localGroups) {
-    try {
-      const result = await applyPrimaryRemoveBatch(
-        indexName,
-        group.items,
-        partitionId,
-        group.assignment,
-        deps,
-        conditions,
-      )
-      succeeded.push(...result.succeeded)
-      failed.push(...result.failed)
-    } catch (err) {
-      collectGroupFailure(failed, group.items, err, indexName, ErrorCodes.QUERY_ROUTING_FAILED)
-    }
-  }
-
-  for (const [primaryNodeId, items] of routed.remoteGroups) {
-    const result = await forwardBatchToRemote(
-      indexName,
-      items.map(
-        (docId): ForwardBatchItem => ({
-          documentId: docId,
-          operation: 'remove',
-          document: null,
-          condition: conditions.get(docId),
-        }),
-      ),
-      primaryNodeId,
-      deps,
-      table.indexUuid,
-    )
-    succeeded.push(...result.succeeded)
-    failed.push(...result.failed)
-  }
-
-  return { succeeded, failed }
 }
 
 export function routeUpdateBatch(
@@ -280,69 +214,15 @@ async function routeAdmittedUpdateBatch(
   }
   requireWritableIndex(table, deps.memoryView)
 
+  const writes: BatchWrite<AnyDocument>[] = updates.map(update => ({ docId: update.docId, value: update.document }))
+  const applyAsPrimary: ApplyAsPrimary<AnyDocument> = (group, partitionId, assignment) =>
+    applyPrimaryUpdateBatch(indexName, group, partitionId, assignment, deps)
   return retryEachPartition(
     deps,
     indexName,
     table,
-    updates,
-    update => update.docId,
-    async (pending, conditions) =>
-      routeUpdateItems(await requireRoutableTable(deps, indexName), indexName, pending, deps, conditions),
+    writes,
+    pending => routeWrites(deps, indexName, 'update', pending, applyAsPrimary, ErrorCodes.DOC_VALIDATION_FAILED),
     settleNothing,
   )
-}
-
-async function routeUpdateItems(
-  table: AllocationTable,
-  indexName: string,
-  updates: Array<{ docId: string; document: AnyDocument }>,
-  deps: WriteRoutingDeps,
-  conditions: ReadonlyMap<string, WriteCondition>,
-): Promise<BatchResult> {
-  const routed = routeBatchItems(table, indexName, updates, update => update.docId, deps.nodeId)
-  const succeeded: string[] = []
-  const failed = routed.failed
-
-  for (const [partitionId, group] of routed.localGroups) {
-    try {
-      const result = await applyPrimaryUpdateBatch(
-        indexName,
-        group.items.map(item => ({ ...item, condition: conditions.get(item.docId) })),
-        partitionId,
-        group.assignment,
-        deps,
-      )
-      succeeded.push(...result.succeeded)
-      failed.push(...result.failed)
-    } catch (err) {
-      collectGroupFailure(
-        failed,
-        group.items.map(item => item.docId),
-        err,
-        indexName,
-        ErrorCodes.DOC_VALIDATION_FAILED,
-      )
-    }
-  }
-
-  for (const [primaryNodeId, items] of routed.remoteGroups) {
-    const result = await forwardBatchToRemote(
-      indexName,
-      items.map(
-        (update): ForwardBatchItem => ({
-          documentId: update.docId,
-          operation: 'update',
-          document: update.document,
-          condition: conditions.get(update.docId),
-        }),
-      ),
-      primaryNodeId,
-      deps,
-      table.indexUuid,
-    )
-    succeeded.push(...result.succeeded)
-    failed.push(...result.failed)
-  }
-
-  return { succeeded, failed }
 }

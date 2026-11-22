@@ -22,6 +22,7 @@ export interface NodeLifecycleConfig {
   onPrimaryDemotion?: (indexName: string, partitionId: number, newPrimaryNodeId: string) => void
   onLeadingTerm?: (indexName: string, partitionId: number, assignment: PartitionAssignment) => void
   replicaUnfedForMs?: (indexName: string, partitionId: number) => number
+  beforeRegistration?: (signal: AbortSignal) => Promise<void>
   onRegistered?: () => void
   onError?: (error: unknown) => void
 }
