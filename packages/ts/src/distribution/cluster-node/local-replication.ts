@@ -81,6 +81,7 @@ function publishRemoval(
 export interface AppliedReplicationEntries {
   applied: number
   error: unknown
+  entryUnfit: boolean
 }
 
 /**
@@ -114,7 +115,7 @@ export async function applyLocalReplicationEntries(
   writeRecords: ClusterWriteRecords,
 ): Promise<AppliedReplicationEntries> {
   const first = entries[0]
-  if (first === undefined) return { applied: 0, error: null }
+  if (first === undefined) return { applied: 0, error: null, entryUnfit: false }
   core.guardShutdown()
   const release = await core.indexState.acquire(first.indexName)
   try {
@@ -178,7 +179,7 @@ export async function applyLocalReplicationEntries(
       for (const vector of vecIndexes.values()) vector.scheduleBuild()
     }
     await core.orchestrator.settlePublications(first.indexName)
-    return { applied, error }
+    return { applied, error, entryUnfit: stopped !== null }
   } finally {
     release()
   }
