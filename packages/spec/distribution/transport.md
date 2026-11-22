@@ -33,6 +33,7 @@ NodeTransport {
 - It carries snapshot transfer during recovery, where the snapshot can be large enough that buffering it whole in memory is unacceptable.
 - Each chunk that `handler` receives is the payload of one `respond` call on the receiving node, whole and in order. The chunk carries no `type`, `sourceId`, or `requestId`, so a receiver tells the kinds of chunk apart by the keys that each payload holds, and a transport must never split one payload or join two.
 - A stream ends once the responding handler has finished. A handler that fails must send its failure as a last chunk whose payload is the error payload that [Transport Messages](#transport-messages) defines, so that the receiver finds `error: true` in it, and each carrier below defines how a stream ends when the listener itself fails.
+- Where the caller's `handler` fails on a chunk, the transport must end that stream with the handler's failure, and it must keep the connection open for every other request that shares the connection.
 
 ### listen(handler)
 
@@ -70,6 +71,8 @@ TransportMessage {
   payload:   bytes    (MessagePack payload, shaped by the type)
 }
 ```
+
+A sender must give each request a `requestId` that none of its other unanswered requests to the same node holds. A receiver must answer a request whose `requestId` repeats that of an earlier request, because a sender can reuse a `requestId` once the earlier exchange is over.
 
 A node whose handler fails a request must answer with a message whose `type` is the request's `type` followed by `.error`, and whose payload holds the failure:
 
@@ -1400,7 +1403,7 @@ Frame {
 
 The gRPC adapter implements the `narsil.transport.v1.NodeTransport` service defined in [transport.proto](transport.proto). A `Send` request and its response each carry one MessagePack-serialised `TransportMessage` in the `Envelope.message` field, so the envelope encoding in [Wire Format](#wire-format) stays the contract and gRPC only frames it. An `OpenStream` request carries its message the same way, and each `Chunk.data` in the reply stream is the payload of one `respond` call, in order. A listener error on `Send` travels as the carrier's `error` message in the reply `Envelope`, which keeps gRPC statuses for transport faults alone. `OpenStream` cannot carry that message, so a server must end the stream with status `UNAVAILABLE` where no listener is registered, `INVALID_ARGUMENT` where it cannot decode the request, and `UNKNOWN` where the listener fails or finishes without a chunk.
 
-Every channel must accept messages of up to 67,109,888 bytes in each direction, which is the message limit plus 1,024 bytes for the `Envelope`. A client must send keepalive pings every 30,000 ms with a 10,000 ms timeout, even with no call open, so a server must permit pings at that interval with no call open. A client must set a deadline on each `Send` equal to the request's timeout, and it must time an `OpenStream` by the wait for each chunk, as [Transport Timeouts](#transport-timeouts) defines for a snapshot.
+Every channel must accept messages of up to 67,109,888 bytes in each direction, which is the message limit plus 1,024 bytes for the `Envelope`. A client must send keepalive pings every 30,000 ms with a 10,000 ms timeout, even with no call open, so a server must permit pings at that interval with no call open. A client must set a deadline on each `Send` equal to the request's timeout, and it must time an `OpenStream` by the wait for each chunk, as [Transport Timeouts](#transport-timeouts) defines for a snapshot. A server must keep a `Send` open until its listener answers or the client's deadline passes, and it may end a call that carries no deadline after `requestTimeout`. A server must accept at most 256 inbound connections and close each one beyond that, as the TCP carrier does.
 
 ### Community Adapter Guidelines
 
