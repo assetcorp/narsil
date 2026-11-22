@@ -2,9 +2,10 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 use crate::error::Result;
+use crate::format::wal::LogEntry;
 
 use super::constants::SINGLE_NODE_PRIMARY_TERM;
-use super::log_reader::list_segments;
+use super::log_reader::{LogReplayed, LogVisit, list_segments, replay_partition_log};
 use super::log_segment::{LogStart, LogWrite, prepared_segment_key};
 use super::log_writer::PartitionLog;
 use super::marker::marker_key;
@@ -77,6 +78,40 @@ impl ReplicatedLog<'_> {
                 active: None,
                 highest_seq_no: seq_no,
                 highest_durable_seq_no: seq_no,
+                primary_term: primary_term.max(SINGLE_NODE_PRIMARY_TERM),
+            },
+        )
+    }
+
+    pub(crate) fn replay_repaired(
+        &self,
+        after_seq_no: u64,
+        visit: &mut dyn FnMut(LogEntry) -> Result<()>,
+    ) -> Result<LogReplayed> {
+        let inner = &self.store.inner;
+        inner.require_healthy()?;
+        inner.close_log(self.index_name, self.partition)?;
+        replay_partition_log(
+            &inner.directory,
+            self.index_name,
+            self.partition,
+            LogVisit {
+                after_seq_no,
+                up_to_seq_no: u64::MAX,
+                visit,
+            },
+            true,
+        )
+    }
+
+    pub(crate) fn resume(&self, replayed: &LogReplayed, primary_term: u64) -> Result<()> {
+        self.store.inner.register_log(
+            self.index_name,
+            self.partition,
+            LogStart {
+                active: replayed.active,
+                highest_seq_no: replayed.highest_seq_no,
+                highest_durable_seq_no: replayed.highest_seq_no,
                 primary_term: primary_term.max(SINGLE_NODE_PRIMARY_TERM),
             },
         )

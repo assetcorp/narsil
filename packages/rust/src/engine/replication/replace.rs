@@ -85,13 +85,13 @@ impl PartitionCopies<'_> {
             let _writer = state.lock_writes()?;
             let copy = super::copy_of(state)?;
             drop(copy.partition(&state.name, partition)?);
-            let stored = stored_partition(self.engine, state, partition)?;
             let log = CopyLog::of(state, partition);
-            let position = stored.copy.position;
-            replace_documents(state, partition, stored.documents)
-                .and_then(|()| {
+            stored_partition(self.engine, state, partition)
+                .and_then(|stored| {
+                    let position = stored.copy.position;
+                    replace_documents(state, partition, stored.documents)?;
                     *copy.partition(&state.name, partition)? = stored.copy;
-                    log.restart_after(position)
+                    log.resume(stored.replayed.as_ref(), position)
                 })
                 .and_then(|()| checkpoint_locked(state))
                 .inspect_err(|failure| log.fail(failure))?;

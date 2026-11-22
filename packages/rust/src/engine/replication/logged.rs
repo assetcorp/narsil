@@ -1,9 +1,11 @@
 use std::sync::Arc;
 
 use super::{CopyPosition, ReplicatedEntry};
+use crate::durability::log_reader::LogReplayed;
 use crate::durability::log_segment::LogWrite;
 use crate::durability::log_writer::PartitionLog;
 use crate::durability::replicated_log::{AssignedRun, ReplicatedLog};
+use crate::engine::durable::log::IndexLog;
 use crate::engine::index::IndexState;
 use crate::error::{NarsilError, Result};
 
@@ -14,6 +16,20 @@ pub(super) type Received = Option<Arc<PartitionLog>>;
 pub(super) struct CopyLog<'a> {
     index: &'a IndexState,
     partition: u32,
+}
+
+pub(crate) fn fail_stopped_logs(index: &IndexState) {
+    if index.replicated_copy().is_none() {
+        return;
+    }
+    let Some(store) = index.log().and_then(IndexLog::log_store) else {
+        return;
+    };
+    for log in store.inner.logs_of(&index.name).unwrap_or_default() {
+        if let Some(failure) = log.failure() {
+            CopyLog::of(index, log.partition_id()).fail(&failure);
+        }
+    }
 }
 
 fn runs_of<'e>(entries: impl Iterator<Item = &'e ReplicatedEntry>) -> Vec<AssignedRun> {
@@ -105,6 +121,17 @@ impl<'a> CopyLog<'a> {
         match self.stored() {
             Some(stored) => stored.restart_after(position.seq_no, position.primary_term),
             None => Ok(()),
+        }
+    }
+
+    pub(super) fn resume(
+        &self,
+        replayed: Option<&LogReplayed>,
+        position: CopyPosition,
+    ) -> Result<()> {
+        match (self.stored(), replayed) {
+            (Some(stored), Some(replayed)) => stored.resume(replayed, position.primary_term),
+            _ => self.restart_after(position),
         }
     }
 
