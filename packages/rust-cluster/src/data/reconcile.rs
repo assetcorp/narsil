@@ -1,0 +1,82 @@
+use std::sync::Arc;
+
+use narsil::Value;
+
+use super::blocking::off_executor;
+use super::copies::LocalCopies;
+use crate::controller::index_metadata;
+use crate::coordinator::etcd::EtcdCoordinator;
+use crate::error::{ClusterError, ClusterResult, codes};
+use crate::node::{NodeErrorHandler, report_failure};
+
+enum Settled {
+    Claimed,
+    Orphaned(String),
+}
+
+async fn settle(
+    coordinator: &EtcdCoordinator,
+    copies: &Arc<LocalCopies>,
+    index_name: &str,
+) -> ClusterResult<Settled> {
+    let (held, name) = (Arc::clone(copies), index_name.to_string());
+    let local_uuid = match off_executor(move || held.index_uuid(&name)).await? {
+        Ok(local_uuid) => local_uuid,
+        Err(error) => {
+            return Ok(Settled::Orphaned(format!(
+                "its stored identity could not be read: {error}"
+            )));
+        }
+    };
+    let cluster_uuid = match index_metadata(coordinator, index_name).await {
+        Ok(Some(metadata)) => metadata.index_uuid,
+        Ok(None) => {
+            return Ok(Settled::Orphaned(
+                "the coordinator holds no metadata for that name".to_string(),
+            ));
+        }
+        Err(error) => {
+            return Ok(Settled::Orphaned(format!(
+                "its metadata could not be read: {error}"
+            )));
+        }
+    };
+    if local_uuid.as_deref() == Some(cluster_uuid.as_str()) {
+        return Ok(Settled::Claimed);
+    }
+    let (held, name) = (Arc::clone(copies), index_name.to_string());
+    off_executor(move || match local_uuid {
+        Some(_) => held.drop_superseded(&name),
+        None => held.adopt(&name, &cluster_uuid),
+    })
+    .await??;
+    Ok(Settled::Claimed)
+}
+
+fn orphan_report(node_id: &str, index_name: &str, reason: &str) -> ClusterError {
+    ClusterError::new(
+        codes::INDEX_ORPHANED,
+        format!(
+            "Node '{node_id}' holds a local copy of index '{index_name}' the cluster does not claim, because \
+             {reason}. The node keeps the data and serves none of it until an operator drops it."
+        ),
+    )
+    .with_detail("indexName", Value::String(index_name.to_string()))
+    .with_detail("nodeId", Value::String(node_id.to_string()))
+}
+
+pub(super) async fn settle_local_indexes(
+    coordinator: &EtcdCoordinator,
+    copies: &Arc<LocalCopies>,
+    node_id: &str,
+    on_error: Option<&NodeErrorHandler>,
+) -> ClusterResult<()> {
+    let held = Arc::clone(copies);
+    for index_name in off_executor(move || held.index_names()).await? {
+        if let Settled::Orphaned(reason) = settle(coordinator, copies, &index_name).await? {
+            copies.mark_orphaned(&index_name);
+            report_failure(on_error, &orphan_report(node_id, &index_name, &reason));
+        }
+    }
+    Ok(())
+}
