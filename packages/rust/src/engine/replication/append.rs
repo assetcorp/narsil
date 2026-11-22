@@ -107,8 +107,9 @@ impl PartitionCopies<'_> {
     /// durability mode.
     ///
     /// The run stops at the first entry that the copy cannot apply and keeps the entries before it, as
-    /// [`AppliedRun`] reports. A log failure stops this partition alone, and the partition then takes no entry
-    /// until [`PartitionCopies::empty_partition`] or [`PartitionCopies::reload_partition`] replaces it.
+    /// [`AppliedRun`] reports. That entry, like a log failure, fails this partition alone, and the partition then
+    /// takes no entry until [`PartitionCopies::empty_partition`] or [`PartitionCopies::reload_partition`] replaces
+    /// it.
     pub fn append(
         &self,
         index: &str,
@@ -147,6 +148,9 @@ impl PartitionCopies<'_> {
                         primary_term: entry.primary_term,
                     };
                     held.note(entry.operation.logged(), &entry.document_id, record);
+                }
+                if let (Ok(_), Some(failure)) = (&logged, &applied.failure) {
+                    held.failure.get_or_insert_with(|| failure.clone());
                 }
             }
             if let Err(failure) = &logged {

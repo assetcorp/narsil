@@ -1,5 +1,6 @@
 use super::build::recovered_index;
-use super::load::load_current_checkpoint;
+use super::load::{grow_partitions, load_partition, load_vector_field};
+use super::load_source::CheckpointSource;
 use super::recover::apply_entry;
 use crate::durability::checkpoint_files::read_manifest;
 use crate::durability::log_reader::LogReplayed;
@@ -8,7 +9,7 @@ use crate::engine::EngineInner;
 use crate::engine::index::IndexState;
 use crate::engine::replication::copy_state::{PartitionCopy, ReplicatedCopy};
 use crate::error::{ErrorCode, NarsilError, Result};
-use crate::format::manifest::DecodedManifest;
+use crate::format::manifest::{DecodedManifest, SegmentManifest};
 use crate::format::wal::LogEntry;
 use crate::value::{Map, Value};
 
@@ -33,6 +34,27 @@ fn unreadable(index: &IndexState, partition: u32, why: &str) -> NarsilError {
     ])
 }
 
+fn load_partition_checkpoint(
+    store: &dyn CheckpointSource,
+    index: &IndexState,
+    manifest: &SegmentManifest,
+    partition: u32,
+) -> Result<()> {
+    let ids = manifest.partitions.iter().map(|entry| entry.partition_id);
+    grow_partitions(index, manifest.partitions.len(), ids)?;
+    let listed = manifest
+        .partitions
+        .iter()
+        .find(|entry| entry.partition_id == partition);
+    if let Some(entry) = listed {
+        load_partition(store, index, entry, &manifest.schema)?;
+    }
+    for field in &manifest.vectors {
+        load_vector_field(store, index, field)?;
+    }
+    Ok(())
+}
+
 /// Reads one partition of a cluster copy from its checkpoint and its write-ahead log while the caller holds the
 /// write lock, leaving the index as it stands. The partition's log closes, and the replay cuts a torn record off
 /// the end of its active segment as recovery does, so that the caller resumes the log from what the replay read.
@@ -49,7 +71,7 @@ pub(crate) fn stored_partition(
     let stored = recovered_index(engine, &metadata)?;
     let checkpoint = match read_manifest(backing.files(), &index.name)? {
         Some(DecodedManifest::Current(manifest)) => {
-            load_current_checkpoint(backing, &stored, &manifest)?;
+            load_partition_checkpoint(backing, &stored, &manifest, partition)?;
             manifest.checkpoint
         }
         Some(DecodedManifest::Earlier(_)) => {
