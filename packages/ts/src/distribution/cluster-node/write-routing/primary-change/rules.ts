@@ -12,23 +12,30 @@ export interface AttemptHistory {
   abandonedAttempt?: NarsilError
 }
 
+function refusedAsNotPrimary(error: unknown): error is NarsilError {
+  return error instanceof NarsilError && error.code === ErrorCodes.PARTITION_NOT_PRIMARY
+}
+
 function refusedByPrimaryChange(error: unknown, retriesEndedTerm = false): boolean {
-  if (error instanceof NarsilError && error.code === ErrorCodes.PARTITION_NOT_PRIMARY) return true
+  if (refusedAsNotPrimary(error)) return true
   return abandonedWithTerm(error) && (retriesEndedTerm || abandonedWriteOf(error) !== undefined)
 }
 
 function refusedForAnotherIndex(error: unknown): boolean {
-  return (
-    refusedByPrimaryChange(error) && error instanceof NarsilError && typeof error.details.heldIndexUuid === 'string'
-  )
+  return refusedAsNotPrimary(error) && typeof error.details.heldIndexUuid === 'string'
 }
 
 function cannotHaveApplied(error: unknown): boolean {
-  return refusedForAnotherIndex(error) || refusedWhileInitialising(error) || forwardUnsent(error)
+  return refusedAsNotPrimary(error) || forwardUnsent(error)
 }
 
 export function retriedAfterDelay(error: unknown): boolean {
-  return cannotHaveApplied(error) || forwardInterrupted(error)
+  return (
+    refusedForAnotherIndex(error) ||
+    refusedWhileInitialising(error) ||
+    forwardUnsent(error) ||
+    forwardInterrupted(error)
+  )
 }
 
 export function retriable(error: unknown, settlesAsEqual: boolean): boolean {
