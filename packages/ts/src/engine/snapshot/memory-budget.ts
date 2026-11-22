@@ -8,7 +8,7 @@ import {
 } from '#platform/storage-host'
 import type { SegmentManifest } from '../../persistence/durability/segment/manifest'
 import {
-  RELOAD_PROCESS_BYTES_PER_STORED_VECTOR_FILE_BYTE,
+  RELOAD_PROCESS_BYTES_PER_STORED_BYTE,
   RESTORE_ESTIMATE_MARGIN,
   RESTORE_FLOOR_EXTERNAL_BYTES_PER_EARLIER_SNAPSHOT_BYTE,
   RESTORE_FLOOR_EXTERNAL_BYTES_PER_EARLIER_SNAPSHOT_VECTOR,
@@ -235,13 +235,13 @@ export function requireAnalysisRebuildMemory(indexName: string, termBytes: numbe
   )
 }
 
-export function requireVectorReloadMemory(
+export function requireReloadMemory(
   indexName: string,
   partitionId: number,
   storedBytes: number,
   reservedBytes: number,
 ): number {
-  const neededBytes = storedBytes * RELOAD_PROCESS_BYTES_PER_STORED_VECTOR_FILE_BYTE
+  const neededBytes = storedBytes * RELOAD_PROCESS_BYTES_PER_STORED_BYTE
   const processBytes = neededBytes + reservedBytes
   if (shortfallOf(0, processBytes, true) === null) return neededBytes
   const shortfall = shortfallOf(0, processBytes, collectAndReturnPages())
@@ -250,7 +250,7 @@ export function requireVectorReloadMemory(
   const where = budget === 'heap' ? 'of JavaScript heap' : 'of process memory'
   throw new NarsilError(
     ErrorCodes.PERSISTENCE_LOAD_FAILED,
-    `Partition ${partitionId} of index "${indexName}" needs about ${inMegabytes(shortfall.neededBytes)} MB ${where} to read a vector file of its checkpoint again, and this process has ${inMegabytes(Math.max(0, availableBytes))} MB free, so the partition stays failed. Give the process more memory, and the node reads the partition again when it next recovers the copy`,
+    `Partition ${partitionId} of index "${indexName}" needs about ${inMegabytes(shortfall.neededBytes)} MB ${where} to read files of its checkpoint again, and this process has ${inMegabytes(Math.max(0, availableBytes))} MB free, so the partition stays failed. Give the process more memory, and the node reads the partition again when it next recovers the copy`,
     { indexName, partitionId, budget, neededBytes: shortfall.neededBytes, availableBytes },
   )
 }
