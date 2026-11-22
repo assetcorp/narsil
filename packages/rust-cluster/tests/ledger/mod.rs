@@ -4,13 +4,14 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use narsil::Value;
+use narsil::replication::{EntryOperation, PartitionCopies, ReplicatedEntry};
+use narsil::{Narsil, Value};
 use narsil_cluster::coordinator::etcd::EtcdCoordinator;
 use narsil_cluster::message::TransportMessage;
 use narsil_cluster::transport::NodeTransport;
 use narsil_cluster::transport::tcp::{TcpTransport, TcpTransportConfig};
 
-use crate::data_node::{DataNode, Scratch, create_cluster_index, eventually};
+use crate::data_node::{DataNode, Scratch, create_cluster_index, engine_config, eventually};
 use crate::support::{Decoded, decode, write_binary, write_map_header, write_text};
 
 pub const LEDGER: &str = "ledger";
@@ -22,6 +23,7 @@ pub const FORWARDER: &str = "ledger-forwarder";
 pub const FORWARD: &str = "replication.forward";
 pub const PAUSE_BETWEEN_WRITES: Duration = Duration::from_millis(250);
 pub const PROMOTION_WAIT: Duration = Duration::from_secs(30);
+pub const DIVERGED_DOCUMENT_ID: &str = "written-only-on-the-departed-primary";
 
 pub struct Placement {
     pub state: String,
@@ -116,6 +118,27 @@ impl Member {
 
     pub fn data(&self) -> &DataNode {
         self.running.as_ref().expect("the member is running")
+    }
+
+    pub fn diverge_while_stopped(&self, title: &str) -> (u64, u64) {
+        assert!(self.running.is_none(), "{} is stopped", self.node_id);
+        let engine = Narsil::open(engine_config(self.scratch.path())).expect("the engine opens");
+        let copies = PartitionCopies::new(&engine);
+        let position = copies.position(LEDGER, 0).expect("the copy has a position");
+        let entry = ReplicatedEntry {
+            seq_no: position.seq_no + 1,
+            primary_term: position.primary_term,
+            operation: EntryOperation::Index,
+            document_id: DIVERGED_DOCUMENT_ID.to_string(),
+            document: Some(title_document(title)),
+            previous_document: Some(None),
+        };
+        let appended = copies
+            .append(LEDGER, 0, std::slice::from_ref(&entry))
+            .expect("the copy takes the entry");
+        assert_eq!(appended.applied, 1, "{:?}", appended.failure);
+        engine.shutdown().expect("the engine closes");
+        (entry.seq_no, entry.primary_term)
     }
 }
 
