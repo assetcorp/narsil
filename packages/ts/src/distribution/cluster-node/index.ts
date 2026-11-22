@@ -359,6 +359,7 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
       }
 
       await heldPartitionWrites.settled()
+      await localCopies.failures.settled()
 
       await engine.shutdown()
       await snapshotSpool.dispose()
