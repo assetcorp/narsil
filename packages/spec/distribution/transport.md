@@ -663,7 +663,7 @@ A primary of the current generation sends this to a primary of the new generatio
 }
 ```
 
-The receiving primary refuses the batch with `REPLICATION_TERM_MISMATCH` where `sourcePrimaryTerm` is lower than the highest that it has accepted for that `jobId` and `sourcePartitionId`. Otherwise it replicates each operation as an ordinary entry, and it answers with one result per operation, in the shape of the results of [replication.forward_batch](#replicationforward_batch).
+The receiving primary must refuse the batch with `ALLOCATION_FAILED` where no rebalance record gives `jobId` as its job and `targetGeneration` as its new generation, because an operation of the batch skips the checks of a client write. The receiving primary refuses the batch with `REPLICATION_TERM_MISMATCH` where `sourcePrimaryTerm` is lower than the highest that it has accepted for that `jobId` and `sourcePartitionId`. Otherwise it replicates each operation as an ordinary entry, and it answers with one result per operation, in the shape of the results of [replication.forward_batch](#replicationforward_batch).
 
 ### cluster.reshard_cutover
 
