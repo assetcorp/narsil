@@ -12,6 +12,7 @@ import {
   REPLAY_SHARE_OF_BUDGET,
   RUN_BUDGET_MS,
 } from './fault-campaign/constants.mjs'
+import { describeFailure, recordOutcome, startOutcomes } from './fault-campaign/outcomes.mjs'
 import { ensureDirectory, readSeeds, saveSeed } from './fault-campaign/seeds.mjs'
 
 const packageDirectory = fileURLToPath(new URL('..', import.meta.url))
@@ -21,6 +22,7 @@ const logDirectory = join(campaignDirectory, 'logs')
 const supervisorPath = fileURLToPath(new URL('./fault-campaign/supervisor.mjs', import.meta.url))
 let interrupted = false
 let active = null
+let outcomes = []
 
 function interrupt() {
   interrupted = true
@@ -67,12 +69,16 @@ async function runAndRecord(seed, saved) {
   const record = { seed, lastStartedAt: Date.now(), pending: true, passesInARow }
   saveSeed(seedDirectory, record)
   const passed = await runSeed(seed)
-  if (passed) rmSync(join(logDirectory, `seed-${seed}.log`), { force: true })
+  const logPath = join(logDirectory, `seed-${seed}.log`)
+  if (passed) rmSync(logPath, { force: true })
+  else if (!interrupted)
+    recordOutcome(campaignDirectory, outcomes, { seed, result: 'failed', ...describeFailure(seed, logPath) })
   if (passed && saved === undefined) {
     rmSync(join(seedDirectory, `${seed}.json`), { force: true })
     console.log(`seed ${seed} passed`)
   } else if (passed && passesInARow + 1 >= PASSES_TO_RETIRE_A_SEED) {
     rmSync(join(seedDirectory, `${seed}.json`), { force: true })
+    recordOutcome(campaignDirectory, outcomes, { seed, result: 'retired' })
     console.log(`seed ${seed} passed ${PASSES_TO_RETIRE_A_SEED} times in a row, so the campaign retires it`)
   } else {
     const passes = passed ? passesInARow + 1 : 0
@@ -86,6 +92,7 @@ async function campaign(replayOnly, deadline) {
   ensureDirectory(campaignDirectory)
   ensureDirectory(seedDirectory)
   ensureDirectory(logDirectory)
+  outcomes = startOutcomes(campaignDirectory)
   const saved = readSeeds(seedDirectory)
   const known = new Set(saved.map(record => record.seed))
   const replayDeadline = replayOnly

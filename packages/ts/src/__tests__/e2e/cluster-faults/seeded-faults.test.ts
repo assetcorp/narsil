@@ -32,6 +32,7 @@ const INDEX_NAME = 'ledger'
 const ETCD_OUTAGE_MEMBERS = [1, 2]
 const WORKLOAD_STREAM_SALT = 0x5bd1e995
 const REST_AFTER_RESTART_MS = 15_000
+const EVERY_NODE_SEARCH_CHECK = 'every node answers a search with every stored document'
 const SLOW_WRITE_MEDIAN_MULTIPLE = 100
 const SLOW_WRITE_FLOOR_MS = 5_000
 const MIN_QUIET_WRITES_FOR_LATENCY = 20
@@ -219,10 +220,10 @@ describe('a three-node cluster on three etcd members under seeded faults', () =>
     console.log(
       `seed ${SEED}, faults ${applied.join('; ')}, writes ${JSON.stringify(counts)}, searches ${workload.searches()}`,
     )
-    expect(counts.acknowledged).toBeGreaterThan(0)
-    expect(unequal).toEqual([])
-    expect(ledger.check(stored)).toEqual([])
-    expect(workload.searchFailures()).toEqual([])
+    expect(counts.acknowledged, 'the cluster acknowledges writes').toBeGreaterThan(0)
+    expect(unequal, 'every copy equals its primary').toEqual([])
+    expect(ledger.check(stored), 'every acknowledged write survives').toEqual([])
+    expect(workload.searchFailures(), 'every search outside a fault answers').toEqual([])
 
     for (const node of fleet.nodes) {
       const reply = await send(
@@ -232,19 +233,20 @@ describe('a three-node cluster on three etcd members under seeded faults', () =>
         { term: SEARCH_TERM, limit: 1 },
         30_000,
       )
-      expect(reply.status, reply.text).toBe(200)
-      expect((JSON.parse(reply.text) as { count?: unknown }).count, `the search from slot ${node.slot}`).toBe(
-        stored.size,
-      )
+      expect(reply.status, `${EVERY_NODE_SEARCH_CHECK}: slot ${node.slot} answered ${reply.text}`).toBe(200)
+      expect(
+        (JSON.parse(reply.text) as { count?: unknown }).count,
+        `${EVERY_NODE_SEARCH_CHECK}: the search from slot ${node.slot}`,
+      ).toBe(stored.size)
     }
 
     if (CAMPAIGN) {
-      expect(workload.unansweredQuietWrites()).toEqual([])
-      expect(workload.quietWrites().length, 'completed writes outside a fault').toBeGreaterThanOrEqual(
+      expect(workload.unansweredQuietWrites(), 'every write outside a fault answers').toEqual([])
+      expect(workload.quietWrites().length, 'enough writes complete outside a fault').toBeGreaterThanOrEqual(
         MIN_QUIET_WRITES_FOR_LATENCY,
       )
-      expect(slowWrites(workload.quietWrites())).toEqual([])
-      expect(await shutdownProblems()).toEqual([])
+      expect(slowWrites(workload.quietWrites()), 'no write is far slower than the median').toEqual([])
+      expect(await shutdownProblems(), 'no node leaves sockets open at shutdown').toEqual([])
     }
   }, 1_500_000)
 })
