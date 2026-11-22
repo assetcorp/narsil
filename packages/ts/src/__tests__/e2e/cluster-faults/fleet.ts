@@ -88,21 +88,35 @@ export async function startFleet(
   settings: FleetSettings,
 ): Promise<Fleet> {
   const slots: Slot[] = []
-  for (let slot = 0; slot < size; slot++) {
-    const etcdProxies: LinkProxy[] = []
-    for (const hostPort of etcd.hostPorts) etcdProxies.push(await startLinkProxy(() => hostPort))
-    slots.push({
-      slot,
-      httpPort: await freePort(),
-      transportPort: await freePort(),
-      transportProxy: await startLinkProxy(() => slotAt(slot).transportPort),
-      etcdProxies,
-      directory: await mkdtemp(join(tmpdir(), `narsil-fault-node-${slot}-`)),
-      child: null,
-      exited: Promise.resolve(),
-      nodeId: '',
-      output: '',
-    })
+  const cleanup: Array<() => Promise<void>> = []
+  try {
+    for (let slot = 0; slot < size; slot++) {
+      const etcdProxies: LinkProxy[] = []
+      for (const hostPort of etcd.hostPorts) {
+        const proxy = await startLinkProxy(() => hostPort)
+        cleanup.push(() => proxy.close())
+        etcdProxies.push(proxy)
+      }
+      const transportProxy = await startLinkProxy(() => slotAt(slot).transportPort)
+      cleanup.push(() => transportProxy.close())
+      const directory = await mkdtemp(join(tmpdir(), `narsil-fault-node-${slot}-`))
+      cleanup.push(() => rm(directory, { recursive: true, force: true }))
+      slots.push({
+        slot,
+        httpPort: await freePort(),
+        transportPort: await freePort(),
+        transportProxy,
+        etcdProxies,
+        directory,
+        child: null,
+        exited: Promise.resolve(),
+        nodeId: '',
+        output: '',
+      })
+    }
+  } catch (error) {
+    await Promise.allSettled(cleanup.map(close => close()))
+    throw error
   }
 
   function slotAt(slot: number): Slot {
