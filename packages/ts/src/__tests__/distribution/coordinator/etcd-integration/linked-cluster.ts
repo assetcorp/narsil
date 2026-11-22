@@ -10,12 +10,14 @@ import { createTcpTransport } from '../../../../distribution/transport/tcp'
 import { NarsilError } from '../../../../errors'
 import { eventually } from './fixtures'
 import { type LinkProxy, startLinkProxy } from './link-proxy'
+import { type AllocationWatchRecord, recordAllocationWatches } from './recorded-allocation-watches'
 
 export interface LinkedMember {
   node: ClusterNode
   peerLink: LinkProxy
   coordinatorLink: LinkProxy
   errors: NarsilError[]
+  allocationWatches(): AllocationWatchRecord[]
   started: Promise<void>
   stop(): Promise<void>
 }
@@ -57,11 +59,12 @@ export async function createLinkedCluster(endpoint: string): Promise<LinkedClust
     const peerLink = await startLinkProxy(() => new URL(`http://127.0.0.1:${transport.getPort()}`))
     const coordinatorLink = await startLinkProxy(new URL(endpoint))
     const coordinator = await createEtcdCoordinator({ endpoints: [coordinatorLink.endpoint], keyPrefix })
+    const watches = recordAllocationWatches(coordinator)
     const errors: NarsilError[] = []
     const durability =
       storage === null ? {} : { durability: { directory: directoryOf(storage ?? nodeId), mode: 'sync' as const } }
     const node = await createClusterNode({
-      coordinator,
+      coordinator: watches.coordinator,
       transport,
       nodeId,
       address: new URL(peerLink.endpoint).host,
@@ -87,6 +90,7 @@ export async function createLinkedCluster(endpoint: string): Promise<LinkedClust
       peerLink,
       coordinatorLink,
       errors,
+      allocationWatches: watches.open,
       started,
       stop() {
         stopping ??= release()
