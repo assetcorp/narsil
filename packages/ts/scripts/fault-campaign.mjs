@@ -1,151 +1,123 @@
-import { spawn } from 'node:child_process'
+import { fork } from 'node:child_process'
 import { randomInt } from 'node:crypto'
-import { closeSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { closeSync, constants, openSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
+import { MAX_MINUTES, MAX_SEED, MIN_MINUTES, RUN_BUDGET_MS } from './fault-campaign/constants.mjs'
+import { ensureDirectory, readSeeds, saveSeed } from './fault-campaign/seeds.mjs'
 
 const packageDirectory = fileURLToPath(new URL('..', import.meta.url))
-const campaignDirectory = join(packageDirectory, 'fault-campaign')
+const campaignDirectory = process.env.NARSIL_FAULT_CAMPAIGN_DIRECTORY ?? join(packageDirectory, 'fault-campaign')
 const seedDirectory = join(campaignDirectory, 'failing-seeds')
 const logDirectory = join(campaignDirectory, 'logs')
-const TEST_FILE = 'src/__tests__/e2e/cluster-faults/seeded-faults.test.ts'
-const RUN_TIMEOUT_MS = 8 * 60_000
-const STOP_GRACE_MS = 30_000
-const PASSES_TO_RETIRE_A_SEED = 3
-const MAX_SEED = 2 ** 31
-const SEED_FILE_PATTERN = /^(\d+)\.json$/
+const supervisorPath = fileURLToPath(new URL('./fault-campaign/supervisor.mjs', import.meta.url))
+let interrupted = false
+let active = null
 
-function seedPath(seed) {
-  return join(seedDirectory, `${seed}.json`)
+function interrupt() {
+  interrupted = true
+  if (active?.connected) active.disconnect()
+  process.exitCode = 1
 }
 
-function savedSeeds() {
-  mkdirSync(seedDirectory, { recursive: true })
-  return readdirSync(seedDirectory)
-    .map(name => SEED_FILE_PATTERN.exec(name)?.[1])
-    .filter(seed => seed !== undefined)
-    .map(Number)
-    .filter(seed => Number.isSafeInteger(seed) && seed >= 0 && seed < MAX_SEED)
-    .sort((left, right) => left - right)
-}
+process.on('SIGINT', interrupt)
+process.on('SIGTERM', interrupt)
 
-function passesSinceFailure(seed) {
-  try {
-    const saved = JSON.parse(readFileSync(seedPath(seed), 'utf8'))
-    return Number.isSafeInteger(saved.passesSinceFailure) ? saved.passesSinceFailure : 0
-  } catch {
-    return 0
-  }
-}
-
-function saveSeed(seed, passes) {
-  mkdirSync(seedDirectory, { recursive: true })
-  writeFileSync(seedPath(seed), `${JSON.stringify({ seed, passesSinceFailure: passes })}\n`)
-}
-
-function signalGroup(child, signal) {
-  try {
-    process.kill(-child.pid, signal)
-  } catch {
-    child.kill(signal)
-  }
-}
-
-function runSeed(seed) {
-  mkdirSync(logDirectory, { recursive: true })
+async function runSeed(seed) {
   const logPath = join(logDirectory, `seed-${seed}.log`)
-  const log = openSync(logPath, 'w')
-  return new Promise(resolve => {
-    const child = spawn('pnpm', ['exec', 'vitest', 'run', TEST_FILE, '--silent=false', '--reporter=verbose'], {
-      cwd: packageDirectory,
-      env: { ...process.env, NARSIL_FAULT_CAMPAIGN: '1', NARSIL_FAULT_SEED: String(seed) },
-      stdio: ['ignore', log, log],
-      detached: true,
+  rmSync(logPath, { force: true })
+  const log = openSync(logPath, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, 0o600)
+  console.log(`Starting seed ${seed}`)
+  try {
+    return await new Promise(resolve => {
+      const child = fork(supervisorPath, [String(seed)], {
+        cwd: packageDirectory,
+        stdio: ['ignore', log, log, 'ipc'],
+        detached: true,
+      })
+      active = child
+      let reported = false
+      child.on('message', message => {
+        if (message?.passed === true) reported = true
+      })
+      child.once('error', error => {
+        console.error(error)
+        resolve(false)
+      })
+      child.once('close', code => {
+        active = null
+        resolve(reported && code === 0 && !interrupted)
+      })
     })
-    let timedOut = false
-    let finished = false
-    let forceTimer = null
-    const timer = setTimeout(() => {
-      timedOut = true
-      signalGroup(child, 'SIGTERM')
-      forceTimer = setTimeout(() => signalGroup(child, 'SIGKILL'), STOP_GRACE_MS)
-    }, RUN_TIMEOUT_MS)
-    const finish = passed => {
-      if (finished) return
-      finished = true
-      clearTimeout(timer)
-      if (forceTimer !== null) clearTimeout(forceTimer)
-      closeSync(log)
-      if (timedOut)
-        writeFileSync(logPath, `\nThe run passed its ${RUN_TIMEOUT_MS} ms limit and was stopped\n`, { flag: 'a' })
-      if (passed) rmSync(logPath, { force: true })
-      resolve(passed)
-    }
-    child.once('error', () => finish(false))
-    child.once('close', code => finish(code === 0 && !timedOut))
+  } finally {
+    closeSync(log)
+  }
+}
+
+async function campaign(replayOnly, deadline) {
+  ensureDirectory(campaignDirectory)
+  ensureDirectory(seedDirectory)
+  ensureDirectory(logDirectory)
+  const saved = readSeeds(seedDirectory)
+  const known = new Set(saved.map(record => record.seed))
+  const failing = []
+  let replayed = 0
+  let completed = 0
+  console.log(`Replaying ${saved.length} saved seeds before trying new seeds`)
+  while (!interrupted && performance.now() + RUN_BUDGET_MS <= deadline) {
+    const previous = saved[replayed]
+    if (previous === undefined && replayOnly) break
+    const seed = previous?.seed ?? randomInt(0, MAX_SEED)
+    const path = join(seedDirectory, `${seed}.json`)
+    const existed = known.has(seed)
+    const record = { seed, lastStartedAt: Date.now(), pending: true }
+    saveSeed(seedDirectory, record)
+    const passed = await runSeed(seed)
+    completed += 1
+    if (passed && !existed) rmSync(path, { force: true })
+    else saveSeed(seedDirectory, { ...record, pending: false, passed })
+    if (!passed) {
+      failing.push(seed)
+      known.add(seed)
+    } else rmSync(join(logDirectory, `seed-${seed}.log`), { force: true })
+    console.log(`seed ${seed} ${passed ? 'passed' : 'failed'}`)
+    if (previous !== undefined) replayed += 1
+  }
+  if (replayed < saved.length)
+    console.log(`The budget left ${saved.length - replayed} saved seeds for the next campaign`)
+  if (completed === 0 && (!replayOnly || saved.length > 0)) throw new Error('The budget allowed no completed seeds')
+  if (failing.length > 0) {
+    console.error(`Failing seeds: ${failing.join(', ')}. Replay with NARSIL_FAULT_CAMPAIGN=1 NARSIL_FAULT_SEED=<seed>`)
+    process.exitCode = 1
+  }
+}
+
+try {
+  const { values } = parseArgs({
+    options: {
+      replay: { type: 'boolean', default: false },
+      minutes: { type: 'string' },
+      deadline: { type: 'string' },
+    },
   })
-}
-
-function hasTimeFor(startedAt, budgetMs) {
-  return Date.now() - startedAt + RUN_TIMEOUT_MS <= budgetMs
-}
-
-async function replay(budgetMs) {
-  const startedAt = Date.now()
-  const seeds = savedSeeds()
-  const failing = []
-  console.log(`Replaying ${seeds.length} saved seeds`)
-  for (const [at, seed] of seeds.entries()) {
-    if (!hasTimeFor(startedAt, budgetMs)) {
-      console.log(`The time budget left ${seeds.length - at} saved seeds for the next run`)
-      break
-    }
-    if (await runSeed(seed)) {
-      const passes = passesSinceFailure(seed) + 1
-      if (passes >= PASSES_TO_RETIRE_A_SEED) rmSync(seedPath(seed), { force: true })
-      else saveSeed(seed, passes)
-      console.log(`seed ${seed} passed, ${passes} passes in a row`)
-    } else {
-      saveSeed(seed, 0)
-      failing.push(seed)
-      console.log(`seed ${seed} still fails`)
-    }
-  }
-  return failing
-}
-
-async function explore(budgetMs) {
-  const startedAt = Date.now()
-  const failing = []
-  while (hasTimeFor(startedAt, budgetMs)) {
-    const seed = randomInt(0, MAX_SEED)
-    if (await runSeed(seed)) {
-      console.log(`seed ${seed} passed`)
-    } else {
-      saveSeed(seed, 0)
-      failing.push(seed)
-      console.log(`seed ${seed} failed`)
-    }
-  }
-  return failing
-}
-
-const { values } = parseArgs({
-  options: {
-    replay: { type: 'boolean', default: false },
-    minutes: { type: 'string' },
-  },
-})
-const minutes = Number(values.minutes)
-if (!Number.isFinite(minutes) || minutes * 60_000 < RUN_TIMEOUT_MS) {
-  console.error(`--minutes must give at least ${RUN_TIMEOUT_MS / 60_000} minutes, the limit of one run`)
-  process.exit(2)
-}
-const failing = values.replay ? await replay(minutes * 60_000) : await explore(minutes * 60_000)
-if (failing.length > 0) {
-  console.error(
-    `These seeds fail; replay one with NARSIL_FAULT_CAMPAIGN=1 NARSIL_FAULT_SEED=<seed>: ${failing.join(', ')}`,
+  const minutes = Number(values.minutes)
+  if (
+    !/^\d+(\.\d+)?$/.test(values.minutes ?? '') ||
+    !Number.isFinite(minutes) ||
+    minutes < MIN_MINUTES ||
+    minutes > MAX_MINUTES
   )
-  process.exit(1)
+    throw new Error(`--minutes must be between ${MIN_MINUTES} and ${MAX_MINUTES}`)
+  let budgetMs = minutes * 60_000
+  if (values.deadline !== undefined) {
+    const deadline = Number(values.deadline)
+    if (!/^\d+$/.test(values.deadline) || !Number.isSafeInteger(deadline) || deadline <= Date.now())
+      throw new Error('--deadline must be a future Unix timestamp in milliseconds')
+    budgetMs = Math.min(budgetMs, deadline - Date.now())
+  }
+  await campaign(values.replay, performance.now() + budgetMs)
+} catch (error) {
+  console.error(error instanceof Error ? error.message : String(error))
+  process.exitCode = 2
 }

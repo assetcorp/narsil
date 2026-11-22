@@ -19,6 +19,9 @@ jobs:
     timeout-minutes: 44
 
     steps:
+      - name: Reserve four minutes for saving the campaign evidence
+        run: echo "NARSIL_FAULT_DEADLINE=$(( $(date +%s%3N) + 40 * 60000 ))" >> "$GITHUB_ENV"
+
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -41,27 +44,22 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: packages/ts/fault-campaign/failing-seeds
-          key: cluster-fault-seeds-${{ github.run_id }}
+          key: cluster-fault-seeds-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: cluster-fault-seeds-
 
-      - name: Replay every seed that once failed
+      - name: Replay saved seeds before trying new seeds
         working-directory: packages/ts
-        run: node scripts/fault-campaign.mjs --replay --minutes 14
-
-      - name: Try new seeds for sixteen minutes
-        if: ${{ !cancelled() }}
-        working-directory: packages/ts
-        run: node scripts/fault-campaign.mjs --minutes 16
+        run: node scripts/fault-campaign.mjs --minutes 30 --deadline "$NARSIL_FAULT_DEADLINE"
 
       - name: Save the seeds that still fail
         if: always()
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: packages/ts/fault-campaign/failing-seeds
-          key: cluster-fault-seeds-${{ github.run_id }}
+          key: cluster-fault-seeds-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Upload the failing seeds and their logs
-        if: failure()
+        if: ${{ failure() || cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: narsil-cluster-fault-failures
