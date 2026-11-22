@@ -5,7 +5,7 @@ import { decodeTransportMessage, encodeTransportMessage } from '../tcp/framing'
 import { TransportError, TransportErrorCodes, type TransportMessage } from '../types'
 import { type ChannelConnect, connectChannel, connectFailed } from './channel-connect'
 import type { GrpcModule } from './loader'
-import { PeerSockets } from './peer-sockets'
+import { type PeerDialing, PeerDials } from './peer-dials'
 import { openStreamMethod, sendMethod } from './service'
 import { channelOptions, type GrpcTransportConfig, toCredentialBuffer } from './types'
 
@@ -16,6 +16,7 @@ interface StatusCarrier {
 
 interface PeerClient {
   client: Client
+  dialing: PeerDialing
   connecting?: ChannelConnect
 }
 
@@ -24,12 +25,13 @@ export class GrpcClientPool {
   private readonly config: GrpcTransportConfig
   private readonly peers = new Map<string, PeerClient>()
   private readonly callsHandedOver = new Set<() => void>()
-  private readonly sockets = new PeerSockets()
+  private readonly dials: PeerDials
   private closed = false
 
   constructor(grpc: GrpcModule, config: GrpcTransportConfig) {
     this.grpc = grpc
     this.config = config
+    this.dials = new PeerDials(grpc)
   }
 
   async send(target: string, message: TransportMessage): Promise<TransportMessage> {
@@ -136,7 +138,7 @@ export class GrpcClientPool {
       client.close()
     }
     this.peers.clear()
-    await this.sockets.closeAll()
+    await this.dials.shutdown()
   }
 
   private encodeChecked(target: string, message: TransportMessage): Uint8Array {
@@ -165,13 +167,16 @@ export class GrpcClientPool {
       if (peer.client.getChannel().getConnectivityState(false) === this.grpc.connectivityState.READY) {
         return peer.client
       }
+      peer.dialing.beginAttempt()
       const connecting = connectChannel(this.grpc, peer.client, target, this.config.connectTimeout)
       peer.connecting = connecting
       connecting.ready.then(
         () => {
           peer.connecting = undefined
+          peer.dialing.endAttempt(false)
         },
         () => {
+          peer.dialing.endAttempt(true)
           if (this.peers.get(target) === peer) this.peers.delete(target)
         },
       )
@@ -183,14 +188,19 @@ export class GrpcClientPool {
   private peerAt(target: string): PeerClient {
     const existing = this.peers.get(target)
     if (existing !== undefined) return existing
+    const dialing = this.dials.forPeer(target)
     try {
-      const credentials = this.sockets.closingOnRelease(this.credentials())
-      const options = { ...channelOptions(), 'grpc.use_local_subchannel_pool': 1 }
-      const peer: PeerClient = { client: new this.grpc.Client(target, credentials, options) }
+      const options = { ...channelOptions(), ...dialing.options, 'grpc.use_local_subchannel_pool': 1 }
+      const peer: PeerClient = {
+        client: new this.grpc.Client(dialing.target, this.credentials(), options),
+        dialing,
+      }
       this.peers.set(target, peer)
       return peer
     } catch (err) {
       throw connectFailed(target, err instanceof Error ? err.message : String(err))
+    } finally {
+      dialing.claimed()
     }
   }
 

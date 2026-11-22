@@ -76,6 +76,7 @@ describe('the connection to one gRPC peer', { timeout: TEST_TIMEOUT_MS }, () => 
     expect(performance.now() - startedAt).toBeLessThan(ONE_SHARED_TIMEOUT_WITHIN_MS)
     for (const failure of failures) expect(failure).toMatchObject({ code: TransportErrorCodes.CONNECT_FAILED })
     expect(peer.sockets).toHaveLength(1)
+    await expect.poll(peer.openSockets, { timeout: SOCKETS_CLOSE_WITHIN_MS }).toBe(0)
 
     const payload = new Uint8Array([4, 2])
     const answer = await sender.send(peer.target, makeMessage({ requestId: 'afresh', payload }))
