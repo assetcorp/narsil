@@ -26,6 +26,7 @@ impl WriteRouter {
         self: &Arc<Self>,
         index_name: &str,
         writes: Vec<ClientWrite>,
+        batch: bool,
     ) -> ClusterResult<Vec<Result<(), ClusterError>>> {
         let serving_name: Arc<str> = Arc::from(self.serving_name(index_name).await?);
         let table = self.routable_table(&serving_name).await?;
@@ -56,7 +57,7 @@ impl WriteRouter {
                     .await
                     .map_err(|_| stopped_before_answering(&serving_name))?;
                 router
-                    .retry_group(serving_name, group, deadline, settles_as_equal)
+                    .retry_group(serving_name, group, deadline, settles_as_equal, batch)
                     .await
             });
         }

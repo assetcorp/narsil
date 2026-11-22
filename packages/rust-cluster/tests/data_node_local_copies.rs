@@ -127,6 +127,47 @@ async fn a_data_node_serves_no_orphaned_copy_and_deletes_one_only_when_asked() {
         );
     }
 
+    let mut overwrite = Map::new();
+    overwrite.insert("title", Value::from("a write that no copy may take"));
+    let refused_insert = data
+        .node
+        .insert(FORGOTTEN, overwrite.clone(), Some(DOCUMENT_ID))
+        .await
+        .expect_err("an orphaned copy takes no write");
+    assert_eq!(refused_insert.code(), "INDEX_ORPHANED");
+    assert_eq!(
+        refused_insert
+            .details()
+            .get("indexName")
+            .and_then(Value::as_str),
+        Some(FORGOTTEN)
+    );
+    assert_eq!(
+        refused_insert
+            .details()
+            .get("nodeId")
+            .and_then(Value::as_str),
+        Some("data-a")
+    );
+    let refused_batch = data
+        .node
+        .insert_batch(FORGOTTEN, vec![overwrite.clone()])
+        .await
+        .expect_err("an orphaned copy takes no batch");
+    assert_eq!(refused_batch.code(), "INDEX_ORPHANED");
+    let refused_remove = data
+        .node
+        .remove(FORGOTTEN, DOCUMENT_ID)
+        .await
+        .expect_err("an orphaned copy takes no remove");
+    assert_eq!(refused_remove.code(), "INDEX_ORPHANED");
+    let unknown = data
+        .node
+        .insert("never-held", overwrite, Some(DOCUMENT_ID))
+        .await
+        .expect_err("a name that no copy holds takes no write");
+    assert_eq!(unknown.code(), "INDEX_NOT_FOUND");
+
     let replaced = data
         .node
         .local_document(REPLACED, DOCUMENT_ID)

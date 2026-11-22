@@ -110,7 +110,11 @@ fn not_primary(index_name: &str, partition_id: u32, node_id: &str) -> ClusterErr
 }
 
 impl PrimaryWrites {
-    async fn routing_table(&self, request: &ForwardRequest) -> ClusterResult<Option<Table>> {
+    async fn routing_table(
+        &self,
+        request: &ForwardRequest,
+        batch: bool,
+    ) -> ClusterResult<Option<Table>> {
         let table = routable(self.view.read(&request.index_name).await?);
         let leads_every = request
             .operations
@@ -121,7 +125,7 @@ impl PrimaryWrites {
         }
         match routable(self.view.refresh(&request.index_name).await?) {
             Some(live) => Ok(Some(live)),
-            None if request.operations.len() == 1 => Ok(table),
+            None if !batch && request.operations.len() == 1 => Ok(table),
             None => Ok(None),
         }
     }
@@ -147,6 +151,7 @@ impl PrimaryWrites {
         index_name: &str,
         partition_id: u32,
         assignment: Option<&Assignment>,
+        batch: bool,
     ) -> ClusterResult<()> {
         let Some(assignment) = assignment.filter(|assignment| assignment.primary.is_some()) else {
             return Err(unassigned(index_name, partition_id));
@@ -154,6 +159,7 @@ impl PrimaryWrites {
         if !assignment.is_primary(&self.node_id) {
             let error = not_primary(index_name, partition_id, &self.node_id);
             return Err(match &assignment.primary {
+                _ if batch => error.with_detail("nodeId", Value::from(self.node_id.as_str())),
                 Some(primary) => error
                     .with_detail("primaryNodeId", Value::from(primary.as_str()))
                     .with_detail("localNodeId", Value::from(self.node_id.as_str())),
@@ -169,6 +175,7 @@ impl PrimaryWrites {
         partition_id: u32,
         assignment: Option<Assignment>,
         runs: Vec<Run>,
+        batch: bool,
     ) -> Vec<(usize, Outcome)> {
         let mut outcomes = Vec::new();
         let mut resends = Resends::new();
@@ -179,7 +186,7 @@ impl PrimaryWrites {
                 .map(|planned| planned.position)
                 .collect();
             if let Err(error) =
-                self.checked_assignment(&index_name, partition_id, assignment.as_ref())
+                self.checked_assignment(&index_name, partition_id, assignment.as_ref(), batch)
             {
                 outcomes.extend(
                     positions
@@ -211,14 +218,15 @@ impl PrimaryWrites {
     async fn apply_request(
         self: &Arc<Self>,
         request: ForwardRequest,
+        batch: bool,
     ) -> ClusterResult<Vec<Outcome>> {
         let count = request.operations.len();
-        let what = if count == 1 {
-            "forwarded write"
-        } else {
+        let what = if batch {
             "forwarded batch"
+        } else {
+            "forwarded write"
         };
-        let Some(table) = self.routing_table(&request).await? else {
+        let Some(table) = self.routing_table(&request, batch).await? else {
             return Err(no_table(&request.index_name, what));
         };
         let mut partitions = JoinSet::new();
@@ -230,6 +238,7 @@ impl PrimaryWrites {
                 partition_id,
                 assignment,
                 runs,
+                batch,
             ));
         }
         let mut answered: Vec<Option<Outcome>> = (0..count).map(|_| None).collect();
@@ -264,7 +273,7 @@ impl PrimaryWrites {
     ) -> Vec<Result<(), WriteFailure>> {
         let count = request.operations.len();
         let refused = match self.held_by_another_index(&request).await {
-            Ok(None) => match self.apply_request(request).await {
+            Ok(None) => match self.apply_request(request, false).await {
                 Ok(outcomes) => return outcomes,
                 Err(error) => error,
             },
@@ -311,7 +320,7 @@ impl PrimaryWrites {
             }
         }
         let document_id = request.operations[0].document_id.clone();
-        let outcome = match self.apply_request(request).await {
+        let outcome = match self.apply_request(request, false).await {
             Ok(mut outcomes) => outcomes.pop().unwrap_or(Ok(())),
             Err(error) => Err(WriteFailure::from(error)),
         };
@@ -341,7 +350,7 @@ impl PrimaryWrites {
             .map(|operation| operation.document_id.clone())
             .collect();
         let outcomes = match self.held_by_another_index(&request).await {
-            Ok(None) => match self.apply_request(request).await {
+            Ok(None) => match self.apply_request(request, true).await {
                 Ok(outcomes) => outcomes,
                 Err(error) => document_ids
                     .iter()

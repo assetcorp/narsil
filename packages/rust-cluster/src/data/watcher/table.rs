@@ -240,7 +240,13 @@ pub(super) fn process_table(
             },
         );
         if already_holds_data(assignment, node_id) {
-            actions.push(Action::HoldPartition(key));
+            actions.push(Action::HoldPartition(key.clone()));
+        }
+        if assignment.is_primary(node_id) && assignment.state == ACTIVE {
+            actions.push(Action::StartTerm {
+                key,
+                primary_term: assignment.primary_term,
+            });
         }
     }
     remove_dropped_partitions(state, node_id, table, &current, actions);

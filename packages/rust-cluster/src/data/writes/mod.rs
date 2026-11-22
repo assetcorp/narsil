@@ -128,6 +128,12 @@ impl PrimaryWrites {
             .await
     }
 
+    pub(crate) async fn refuse_orphaned(&self, index_name: &str) -> ClusterResult<()> {
+        let index_name = index_name.to_string();
+        self.on_copies(move |copies| copies.refuse_orphaned(&index_name))
+            .await
+    }
+
     pub(super) fn forget_index(&self, index_name: &str) {
         self.partitions.forget_index(index_name);
     }

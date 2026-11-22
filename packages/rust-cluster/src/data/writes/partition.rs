@@ -16,6 +16,7 @@ pub(super) struct Terms {
     pub(super) started: u64,
     pub(super) accepted: u64,
     pub(super) out_of_step_claim: u64,
+    pub(super) watch_start: u64,
     pub(super) removed: HashMap<String, u64>,
 }
 

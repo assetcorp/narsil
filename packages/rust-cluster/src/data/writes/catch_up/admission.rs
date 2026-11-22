@@ -77,7 +77,7 @@ impl PrimaryWrites {
         partition: &Arc<Partition>,
         scope: &Scope,
         replica_node_id: &str,
-        claim: Option<u64>,
+        claim: u64,
     ) -> JoinHandle<()> {
         let (writes, partition, scope, replica) = (
             Arc::clone(self),
@@ -86,15 +86,9 @@ impl PrimaryWrites {
             replica_node_id.to_string(),
         );
         tokio::spawn(async move {
-            let claim = match claim {
-                Some(claim) => Some(claim),
-                None => writes.claim_admission(&partition, &replica),
-            };
-            if let Some(claim) = claim {
-                writes
-                    .request_claimed_admission(&partition, &scope, &replica, claim)
-                    .await;
-            }
+            writes
+                .request_claimed_admission(&partition, &scope, &replica, claim)
+                .await;
         })
     }
 

@@ -1,4 +1,5 @@
-use std::sync::Arc;
+use std::collections::HashSet;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use tokio::task::JoinSet;
@@ -12,44 +13,118 @@ use crate::constants::{
     OUT_OF_STEP_REMOVAL_RETRY_DELAY_CAP_MS, OUT_OF_STEP_REMOVAL_RETRY_INITIAL_DELAY_MS,
 };
 use crate::controller::lock;
+use crate::error::ClusterResult;
 use crate::message::message_types;
 use crate::payload::term_start::{TermStart, encode_term_start, term_start_ack_of};
 
+fn claim_term(partition: &Partition, primary_term: u64) -> Option<(u64, bool)> {
+    let mut terms = lock(&partition.terms);
+    if terms.started >= primary_term {
+        return None;
+    }
+    let previous = terms.started;
+    terms.started = primary_term;
+    let claimed = terms.out_of_step_claim < primary_term;
+    if claimed {
+        terms.out_of_step_claim = primary_term;
+    }
+    Some((previous, claimed))
+}
+
+fn release_term(partition: &Partition, primary_term: u64, previous: u64, claimed: bool) {
+    let mut terms = lock(&partition.terms);
+    if terms.started == primary_term {
+        terms.started = previous;
+    }
+    if claimed && terms.out_of_step_claim == primary_term {
+        terms.out_of_step_claim = 0;
+    }
+}
+
+fn unanswered_copies(
+    partition: &Partition,
+    scope: &Scope,
+    copies: Vec<String>,
+    answered: &Mutex<HashSet<String>>,
+) -> Vec<String> {
+    let answered = lock(answered).clone();
+    let terms = lock(&partition.terms);
+    copies
+        .into_iter()
+        .filter(|copy| !answered.contains(copy) && !terms.removed_under(copy, scope.primary_term))
+        .collect()
+}
+
 impl PrimaryWrites {
+    pub(crate) fn start_led_term(
+        self: &Arc<Self>,
+        index_name: &str,
+        partition_id: u32,
+        primary_term: u64,
+    ) {
+        let partition = self.partitions.of(index_name, partition_id);
+        {
+            let mut terms = lock(&partition.terms);
+            if terms.started >= primary_term || terms.watch_start >= primary_term {
+                return;
+            }
+            terms.watch_start = primary_term;
+        }
+        let (writes, index_name) = (Arc::clone(self), index_name.to_string());
+        tokio::spawn(async move {
+            if !writes.is_stopping() {
+                let _turn = partition.turn().await;
+                if let Ok(scope) = writes
+                    .current_scope(&partition, &index_name, partition_id)
+                    .await
+                {
+                    let _ = writes.start_term_in_queue(&partition, &scope).await;
+                }
+            }
+            let mut terms = lock(&partition.terms);
+            if terms.watch_start == primary_term {
+                terms.watch_start = 0;
+            }
+        });
+    }
+
     pub(super) async fn start_term_in_queue(
         self: &Arc<Self>,
         partition: &Partition,
         scope: &Scope,
-    ) -> bool {
-        let claimed = {
-            let mut terms = lock(&partition.terms);
-            if terms.started >= scope.primary_term {
-                return false;
-            }
-            terms.started = scope.primary_term;
-            let claimed = terms.out_of_step_claim <= scope.primary_term;
-            if claimed {
-                terms.out_of_step_claim = scope.primary_term;
-            }
-            claimed
+    ) -> ClusterResult<bool> {
+        let Some((previous, claimed)) = claim_term(partition, scope.primary_term) else {
+            return Ok(false);
         };
         let copies = in_sync_targets(&scope.assignment, &self.node_id);
         if copies.is_empty() {
-            return false;
+            return Ok(false);
         }
-        let writes = Arc::clone(self);
-        let started = scope.clone();
+        let answered = Arc::new(Mutex::new(HashSet::new()));
+        let (writes, started, settled) = (Arc::clone(self), scope.clone(), Arc::clone(&answered));
+        let starting = copies.clone();
         let mut work = tokio::spawn(async move {
-            let out_of_step = writes.settle_copies(&started, copies).await;
+            let out_of_step = writes.settle_copies(&started, starting, &settled).await;
             if claimed {
                 writes.remove_out_of_step(&started, out_of_step).await;
             }
         });
         let _ = tokio::time::timeout(self.replication_timeout(), &mut work).await;
-        true
+        let unanswered = unanswered_copies(partition, scope, copies, &answered);
+        if let Err(error) = self.remove_failed(scope, &unanswered).await {
+            work.abort();
+            release_term(partition, scope.primary_term, previous, claimed);
+            return Err(error);
+        }
+        Ok(true)
     }
 
-    async fn settle_copies(self: &Arc<Self>, scope: &Scope, copies: Vec<String>) -> Vec<String> {
+    async fn settle_copies(
+        self: &Arc<Self>,
+        scope: &Scope,
+        copies: Vec<String>,
+        answered: &Mutex<HashSet<String>>,
+    ) -> Vec<String> {
         let (name, partition_id) = (scope.index_name.clone(), scope.partition_id);
         let last_seq_no = self
             .on_copies(move |copies| copies.position(&name, partition_id))
@@ -75,41 +150,52 @@ impl PrimaryWrites {
         }
         let mut out_of_step = Vec::new();
         while let Some(joined) = settling.join_next().await {
-            if let Ok((copy, false)) = joined {
+            let Ok((copy, settled)) = joined else {
+                continue;
+            };
+            if settled.is_some() {
+                lock(answered).insert(copy.clone());
+            }
+            if settled != Some(true) {
                 out_of_step.push(copy);
             }
         }
         out_of_step
     }
 
-    async fn settle_copy(self: &Arc<Self>, scope: &Scope, request: &TermStart, copy: &str) -> bool {
-        let Ok(message) = self.message(
-            message_types::REPLICATION_TERM_START,
-            encode_term_start(request),
-        ) else {
-            return false;
-        };
-        let Ok(answer) = self.send_to_node(copy, &message).await else {
-            return false;
-        };
+    async fn settle_copy(
+        self: &Arc<Self>,
+        scope: &Scope,
+        request: &TermStart,
+        copy: &str,
+    ) -> Option<bool> {
+        let message = self
+            .message(
+                message_types::REPLICATION_TERM_START,
+                encode_term_start(request),
+            )
+            .ok()?;
+        let answer = self.send_to_node(copy, &message).await.ok()?;
         if answer.message_type != message_types::REPLICATION_TERM_START_ACK {
-            return false;
+            return Some(false);
         }
         let Some(held) = term_start_ack_of(&answer.payload, request) else {
-            return false;
+            return Some(false);
         };
         if held.last_seq_no == request.last_seq_no
             && held.last_primary_term == request.last_primary_term
         {
-            return true;
+            return Some(true);
         }
         if held.last_seq_no >= request.last_seq_no
             || self.term_at(scope, held.last_seq_no).await != Some(held.last_primary_term)
         {
-            return false;
+            return Some(false);
         }
-        self.send_missing_entries(scope, copy, held.last_seq_no)
-            .await
+        Some(
+            self.send_missing_entries(scope, copy, held.last_seq_no)
+                .await,
+        )
     }
 
     async fn send_missing_entries(

@@ -3,6 +3,7 @@ use std::sync::Arc;
 use narsil::Value;
 
 use super::PrimaryWrites;
+use super::log_order::EntrySource;
 use super::partition::{Partition, Terms};
 use crate::allocator::{Assignment, Table};
 use crate::controller::lock;
@@ -174,7 +175,8 @@ impl PrimaryWrites {
         let _turn = partition.turn().await;
         let current = self.sender_assignment(&partition, &sender).await?;
         partition.note_accepted(current.primary_term as u64);
-        self.apply_in_log_order(&partition, run).await?;
+        self.apply_in_log_order(&partition, run, EntrySource::Primary)
+            .await?;
         Ok(ack)
     }
 
