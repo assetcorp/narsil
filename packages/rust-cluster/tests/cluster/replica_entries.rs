@@ -455,11 +455,11 @@ async fn a_rust_replica_applies_entries_in_log_order_and_refuses_what_breaks_the
         "the replica refuses a primary below the term it accepted",
         || async {
             let (code, answer) = primary.refused(std::slice::from_ref(&stale), None).await;
-            assert_eq!(code, "REPLICATION_TERM_MISMATCH", "{answer:?}");
-            answer
-                .field("details")
-                .and_then(|details| details.field("knownTerm"))
-                .is_some()
+            code == "REPLICATION_TERM_MISMATCH"
+                && answer
+                    .field("details")
+                    .and_then(|details| details.field("knownTerm"))
+                    .is_some()
         },
     )
     .await;
