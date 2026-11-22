@@ -1,4 +1,5 @@
 import { ErrorCodes, NarsilError } from '../../errors'
+import { chunkByBudget } from '../chunking'
 import { DEFAULT_LOG_RETENTION_BYTES } from './constants'
 import { buildEntry, computeEntryChecksum, entryByteEstimate } from './entry-checksum'
 import type { ReplicationConfig, ReplicationLog, ReplicationLogEntry } from './types'
@@ -189,6 +190,16 @@ export function createReplicationLog(
       const idx = findIndexBySeqNo(fromSeqNo)
       if (idx >= entries.length) return []
       return entries.slice(idx).map(e => ({ ...e }))
+    },
+
+    getEntryBatch(fromSeqNo, throughSeqNo, budget) {
+      if (liveCount() === 0 || fromSeqNo > throughSeqNo) return []
+      const window: ReplicationLogEntry[] = []
+      for (let at = findIndexBySeqNo(fromSeqNo); at < entries.length && window.length < budget.maxCount; at++) {
+        if (entries[at].seqNo > throughSeqNo) break
+        window.push(entries[at])
+      }
+      return (chunkByBudget(window, budget)[0] ?? []).map(e => ({ ...e }))
     },
 
     getEntry(seqNo: number): ReplicationLogEntry | undefined {

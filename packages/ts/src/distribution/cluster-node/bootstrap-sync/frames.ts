@@ -1,6 +1,7 @@
 import { ErrorCodes, NarsilError } from '../../../errors'
 import { decode } from '../../../serialization/msgpack'
 import { validateEntryPayload } from '../../replication/codec'
+import { applyErrorEnvelope } from '../../replication/snapshot-stream-apply'
 import {
   createSnapshotStreamState,
   handleIncomingSnapshotRecord,
@@ -44,6 +45,20 @@ export function handleLiveSyncFrame(state: LiveSyncFrameState, frame: Uint8Array
   }
 
   const record = decoded as Record<string, unknown>
+  if (record.error === true) {
+    applyErrorEnvelope(state.snapshotState, record)
+    if (state.snapshotState.failure !== null) {
+      state.error = streamFailureToError(state.snapshotState.failure)
+    }
+    return
+  }
+  if (state.syncEntries.at(-1)?.isLast === true) {
+    state.error = new NarsilError(
+      ErrorCodes.SNAPSHOT_SYNC_FRAME_INVALID,
+      'received a sync payload after the sync_entries batch marked isLast',
+    )
+    return
+  }
   const entriesPayload = decodeSyncEntriesRecord(record)
   if (entriesPayload instanceof NarsilError) {
     state.error = entriesPayload

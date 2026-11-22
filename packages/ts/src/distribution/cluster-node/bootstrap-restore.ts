@@ -80,18 +80,6 @@ export function surfaceError(
   deps.onError(wrapped)
 }
 
-export function surfaceAborted(deps: SurfaceErrorDeps, indexName: string, primaryNodeId: string): void {
-  if (deps.onError === undefined) {
-    return
-  }
-  deps.onError(
-    new NarsilError(ErrorCodes.SNAPSHOT_SYNC_ABORTED, `bootstrap sync aborted for index '${indexName}'`, {
-      indexName,
-      primaryNodeId,
-    }),
-  )
-}
-
 export function validateRestoredSchema(
   engine: Narsil,
   indexName: string,
