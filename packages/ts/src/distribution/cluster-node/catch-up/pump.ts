@@ -5,8 +5,9 @@ import { enqueuePartitionWrite } from '../write-routing/partition-queue'
 import type { WriteRoutingDeps } from '../write-routing/types'
 import { claimAdmission, proposeAdmission, requestClaimedAdmission } from './admission'
 import { admittedBeyondTable, forgetSettledAdmission, settledAdmissions } from './admitted'
-import { nextWireBatch, sendBatch } from './batches'
+import { reserveNextBatch, sendBatch } from './batches'
 import { type CatchUpFeed, createCatchUpFeed, feedIsStale, type RegisteredNodes, untilCancelled } from './feed'
+import { releaseInFlightBytes } from './in-flight-bytes'
 import { forgetSyncSessions } from './sessions'
 import {
   type CatchUpState,
@@ -82,12 +83,12 @@ async function feedReplica(
       return
     }
 
-    const missing = log.getEntriesFrom(cursor.appliedSeqNo + 1)
-    const batch = nextWireBatch(state, missing)
-    if (batch.length === 0) {
+    const batch = reserveNextBatch(state, log, cursor.appliedSeqNo + 1)
+    if (batch === null) {
       return
     }
-    if (answeredThisFeed && batch.length === missing.length) {
+    if (answeredThisFeed && batch.entries[batch.entries.length - 1].seqNo === log.newestSeqNo) {
+      releaseInFlightBytes(state, batch.reservedBytes)
       await closeGapInPartitionQueue(state, deps, indexName, partitionId, assignment, replicaNodeId, cursor, feed)
       return
     }
@@ -111,8 +112,11 @@ async function closeGapInPartitionQueue(
   const queued = enqueuePartitionWrite(deps.partitionWriteQueues, indexName, partitionId, async () => {
     const log = deps.getReplicationLog(indexName, partitionId)
     while (cursor.appliedSeqNo < log.localLogEnd) {
-      const batch = nextWireBatch(state, log.getEntriesFrom(cursor.appliedSeqNo + 1))
-      if (state.stopped || feed.cancelled || batch.length === 0) {
+      if (state.stopped || feed.cancelled) {
+        return false
+      }
+      const batch = reserveNextBatch(state, log, cursor.appliedSeqNo + 1)
+      if (batch === null) {
         return false
       }
       if (!(await sendBatch(state, deps, batch, replicaNodeId, cursor, feed))) {
