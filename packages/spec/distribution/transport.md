@@ -365,7 +365,25 @@ A primary that refuses or abandons a sync must send an error reply as the last p
 | `SNAPSHOT_SYNC_SNAPSHOT_FAILED` | The primary could not build the snapshot |
 | `REPLICATION_SYNC_FAILED` | The request reports a sync that is not the sender's current one |
 
-A replica may send the request again after `SNAPSHOT_SYNC_ALLOCATION_UNAVAILABLE`, `SNAPSHOT_SYNC_CAPACITY_EXHAUSTED`, `SNAPSHOT_SYNC_SNAPSHOT_FAILED`, or `REPLICATION_SYNC_FAILED`, and it must end the sync on every other code.
+A replica must use these codes for the failures that it finds during a sync, and it reports each one as the `innerCode` of `NODE_BOOTSTRAP_FAILED`, as [Joining the Cluster](cluster.md#joining-the-cluster) defines:
+
+| Code | Raised when |
+|------|-------------|
+| `SNAPSHOT_SYNC_ALLOCATION_UNAVAILABLE` | The replica could not read the allocation table, or the coordinator holds none for the index |
+| `SNAPSHOT_SYNC_NOT_ASSIGNED` | The replica finds no assignment for the partition, or finds another primary in it |
+| `SNAPSHOT_SYNC_SCHEMA_UNAVAILABLE` | The replica could not read the index's schema or found none, or its read of the index metadata failed with an error that has no code |
+| `SNAPSHOT_SYNC_NO_TARGETS` | The replica could not resolve an address of the primary |
+| `SNAPSHOT_SYNC_TRANSPORT_FAILED` | The request failed in transport, the report of the synced position failed in transport or timed out, or the primary answered that report with a snapshot |
+| `SNAPSHOT_SYNC_TIMEOUT` | The sync passed its deadline, or no time remained for the report of the synced position |
+| `SNAPSHOT_SYNC_DECODE_FAILED` | A payload of the answer is not valid MessagePack |
+| `SNAPSHOT_SYNC_FRAME_INVALID` | A payload breaks the shape or the order of the answer, the answer carries two sync sessions, or `isLast` is missing from the last batch or set on an earlier one |
+| `SNAPSHOT_SYNC_CHUNK_MISSING` | The answer ended with no sync payload, or with fewer snapshot bytes than `totalBytes` |
+| `SNAPSHOT_SYNC_PRIMARY_ERROR` | The primary sent an error reply, whose `code` and `message` the replica copies into the details as `primaryCode` and `primaryMessage` |
+| `SNAPSHOT_SYNC_RESTORE_FAILED` | The replica could not create, check, write, or restore its local copy |
+
+An error from a schema check, a metadata read, or an entry check must keep the code that it has. A node must also report `SNAPSHOT_SYNC_RESTORE_FAILED` directly to its error handler where a primary's copy fails the schema check during its bootstrap or where the node cannot drop a copy that it removes.
+
+A replica may send the request to the primary's next address within the same sync after `SNAPSHOT_SYNC_TRANSPORT_FAILED`, `SNAPSHOT_SYNC_TIMEOUT`, `SNAPSHOT_SYNC_DECODE_FAILED`, `SNAPSHOT_SYNC_FRAME_INVALID`, or `SNAPSHOT_SYNC_CHUNK_MISSING`, or where `primaryCode` is `SNAPSHOT_SYNC_ALLOCATION_UNAVAILABLE`, `SNAPSHOT_SYNC_CAPACITY_EXHAUSTED`, `SNAPSHOT_SYNC_SNAPSHOT_FAILED`, or `REPLICATION_SYNC_FAILED`. It must end the sync on every other code in these two tables, although it may start a new sync after the backoff of its bootstrap, whatever the code.
 
 ### replication.sync_entries
 
@@ -836,7 +854,7 @@ The primary answers with the entries above `afterSeqNo`, up to `head` and up to 
 }
 ```
 
-The primary must send the entries in ascending `seqNo` order, each above `afterSeqNo`, at most `head`, and of the requested partition, and a reader must refuse a reply that breaks one of these rules. A node refuses a malformed request with `CONFIG_INVALID`. A node that no longer leads the partition refuses with `PARTITION_NOT_PRIMARY`, one whose copy carries another `indexUuid` refuses with `INDEX_NOT_FOUND`, and one that keeps no write-ahead log refuses with `SYNC_DURABILITY_REQUIRED`.
+The primary must send the entries in ascending `seqNo` order, each above `afterSeqNo`, at most `head`, and of the requested partition, and a reader must refuse a reply that breaks one of these rules. A node refuses a malformed request with `CONFIG_INVALID`. A node that no longer leads the partition refuses with `PARTITION_NOT_PRIMARY`, whereas the primary of a partition in `INITIALISING` refuses with `QUERY_NO_ACTIVE_REPLICA`, as [Read Path](replication.md#read-path) defines. A node whose copy carries another `indexUuid` refuses with `INDEX_NOT_FOUND`, and one that keeps no write-ahead log refuses with `SYNC_DURABILITY_REQUIRED`.
 
 ### suggestions.counts
 
