@@ -183,6 +183,7 @@ export interface StatsResultPayload {
 export interface CountPayload {
   indexName: string
   partitionIds: number[]
+  everyCopy?: boolean | null
 }
 
 export interface PartitionCountEntry {

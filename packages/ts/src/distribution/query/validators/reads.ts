@@ -51,6 +51,9 @@ export function validateCountPayload(decoded: unknown): CountPayload {
   }
   validateIndexNameField(decoded, 'CountPayload')
   validatePartitionIdsArray(decoded.partitionIds, 'partitionIds', CONFIG_INVALID)
+  if (decoded.everyCopy !== undefined && decoded.everyCopy !== null && typeof decoded.everyCopy !== 'boolean') {
+    throwInvalid(CONFIG_INVALID, 'Invalid CountPayload: "everyCopy" must be a boolean')
+  }
   return decoded as unknown as CountPayload
 }
 
