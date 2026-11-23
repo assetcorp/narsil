@@ -73,13 +73,18 @@ export async function listCluster<T = AnyDocument>(
     ...(keepsAnyVectorField(projection, settings) ? {} : { vectors: false }),
   }
 
-  const gathered = await gatherFromEveryPartition(allocation, indexName, group => {
-    if (group.nodeId === deps.nodeId) {
-      return listLocalPage(deps.engine, { ...payload, partitionIds: group.partitionIds })
-    }
-    const message = createListMessage({ ...payload, partitionIds: group.partitionIds }, deps.nodeId)
-    return sendReadRequest(deps, group.nodeId, message, indexName, validateListResultPayload, true)
-  })
+  const gathered = await gatherFromEveryPartition(
+    allocation,
+    indexName,
+    group => {
+      if (group.nodeId === deps.nodeId) {
+        return listLocalPage(deps.engine, { ...payload, partitionIds: group.partitionIds })
+      }
+      const message = createListMessage({ ...payload, partitionIds: group.partitionIds }, deps.nodeId)
+      return sendReadRequest(deps, group.nodeId, message, indexName, validateListResultPayload, true)
+    },
+    deps.readLiveAllocation,
+  )
 
   let total = 0
   let nodeReportsMore = false
