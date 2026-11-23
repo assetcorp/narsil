@@ -329,7 +329,8 @@ impl Narsil {
         let engine = Narsil::with_durability(durable, pattern_work_cap, settings, scrambler);
         register(&engine)?;
         engine.recover_stored()?;
-        engine.inner.suggestions.start(&engine.inner);
+        let owner: Arc<dyn query_suggestions::host::SuggestionsOwner> = engine.inner.clone();
+        engine.inner.suggestions.start(&owner);
         Ok(engine)
     }
 

@@ -15,16 +15,35 @@ use crate::value::{
 
 const BUILD_RECORD_FORMAT_VERSION: u8 = 1;
 const WHAT: &str = "query suggestions build record";
-const SINGLE_NODE_ID: &str = "";
 
+/// The record of the last build of an index's popular query suggestions: the build, and the digest of the history
+/// files that it merged, which lets the next build skip where nothing changed.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct BuildRecord {
+pub struct BuildRecord {
     pub(crate) build: QuerySuggestionsBuild,
     pub(crate) sources_digest: [u8; SOURCES_DIGEST_BYTES],
 }
 
+impl BuildRecord {
+    /// Returns the build.
+    pub fn build(&self) -> &QuerySuggestionsBuild {
+        &self.build
+    }
+
+    /// Returns the record as the MessagePack map that a cluster keeps in its coordinator.
+    pub fn to_wire(&self) -> Vec<u8> {
+        build_record_payload(self)
+    }
+
+    /// Returns the record that `bytes` hold as a MessagePack map, or `None` where they hold none.
+    pub fn from_wire(bytes: &[u8]) -> Option<BuildRecord> {
+        build_record_from_payload(bytes)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct MergedSource {
+    pub(crate) node_id: String,
     pub(crate) key: String,
     pub(crate) saved_at: u64,
 }
@@ -35,12 +54,16 @@ pub(crate) fn new_build_id() -> Result<String> {
 
 pub(crate) fn sources_digest_of(sources: &[MergedSource]) -> [u8; SOURCES_DIGEST_BYTES] {
     let mut sorted: Vec<&MergedSource> = sources.iter().collect();
-    sorted.sort_by(|left, right| left.key.cmp(&right.key));
+    sorted.sort_by(|left, right| {
+        left.node_id
+            .cmp(&right.node_id)
+            .then_with(|| left.key.cmp(&right.key))
+    });
     let mut encoded = Vec::new();
     write_array_header(&mut encoded, sorted.len());
     for source in sorted {
         write_array_header(&mut encoded, 3);
-        write_string(&mut encoded, SINGLE_NODE_ID);
+        write_string(&mut encoded, &source.node_id);
         write_string(&mut encoded, &source.key);
         write_uint(&mut encoded, source.saved_at);
     }
@@ -48,6 +71,15 @@ pub(crate) fn sources_digest_of(sources: &[MergedSource]) -> [u8; SOURCES_DIGEST
 }
 
 pub(crate) fn encode_build_record(record: &BuildRecord) -> Result<Vec<u8>> {
+    pack(
+        &build_record_payload(record),
+        BUILD_RECORD_FORMAT_VERSION,
+        Compression::None,
+        WHAT,
+    )
+}
+
+fn build_record_payload(record: &BuildRecord) -> Vec<u8> {
     let build = &record.build;
     let keys = 8 + usize::from(build.ended_at.is_some()) + usize::from(build.error_code.is_some());
     let mut payload = Vec::new();
@@ -78,12 +110,7 @@ pub(crate) fn encode_build_record(record: &BuildRecord) -> Result<Vec<u8>> {
         write_string(&mut payload, "errorCode");
         write_string(&mut payload, code);
     }
-    pack(
-        &payload,
-        BUILD_RECORD_FORMAT_VERSION,
-        Compression::None,
-        WHAT,
-    )
+    payload
 }
 
 pub(crate) fn decode_build_record(bytes: &[u8]) -> Option<BuildRecord> {
@@ -93,7 +120,11 @@ pub(crate) fn decode_build_record(bytes: &[u8]) -> Option<BuildRecord> {
         allows_compression: false,
     };
     let (_, payload) = open_checksummed(bytes, &expectation).ok()?;
-    let Value::Object(wire) = decode_value(payload.bytes()).ok()? else {
+    build_record_from_payload(payload.bytes())
+}
+
+fn build_record_from_payload(bytes: &[u8]) -> Option<BuildRecord> {
+    let Value::Object(wire) = decode_value(bytes).ok()? else {
         return None;
     };
     let text = |key: &str| match wire.get(key) {

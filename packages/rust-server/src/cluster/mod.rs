@@ -8,6 +8,7 @@ mod options;
 mod queries;
 mod reads;
 mod snapshots;
+mod suggestions;
 mod writes;
 
 use std::sync::Arc;
@@ -97,6 +98,15 @@ pub(crate) async fn dispatch(
         Route::Search | Route::Preflight | Route::Suggest | Route::List => {
             queries::handle(&state, &node, route, &context).await
         }
+        Route::UpdateQuerySuggestions
+        | Route::QuerySuggestionsStatus
+        | Route::RecordQuery
+        | Route::BuildQuerySuggestions
+        | Route::PreviewQuerySuggestions
+        | Route::ReadQueryBans
+        | Route::ReplaceQueryBans
+        | Route::RemoveQuery
+        | Route::AddManualSuggestion => suggestions::handle(&state, node, route, context).await,
         Route::SyncSnapshot => snapshots::sync_snapshot(&state, &node, &context).await,
         Route::ExportDocuments => snapshots::export_documents(&node, &context).await,
         _ => Err(unsupported(operation_of(route))),

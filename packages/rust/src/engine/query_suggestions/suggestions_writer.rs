@@ -1,15 +1,13 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use super::constants::{BUILD_LIST_PAGE, BUILD_WRITE_BATCH, SUGGESTIONS_INDEX_INFIX};
-use super::host::suggestion_states;
-use super::stored_state::SuggestionState;
+use super::host::SuggestionsHost;
 use super::types::QuerySuggestionsSource;
 use crate::analysis::StopWords;
 use crate::config::{IndexConfig, PartitionConfig, StopWordsSetting};
 use crate::engine::changes::analysis::{AnalysisChange, AnalysisSetting};
 use crate::engine::query::listing::ListParams;
 use crate::engine::writes::BatchResult;
-use crate::engine::{EngineInner, Narsil, lifecycle};
 use crate::error::{ErrorCode, Result};
 use crate::format::metadata_parts::config_invalid;
 use crate::value::{Map, Value};
@@ -49,11 +47,11 @@ pub(crate) fn suggestion_document(phrase: &str, count: f64, origin: &str) -> Map
 }
 
 pub(crate) fn marked_suggestion_indexes(
-    engine: &EngineInner,
+    host: &dyn SuggestionsHost,
     index_name: &str,
 ) -> BTreeMap<String, String> {
     let mut by_group = BTreeMap::new();
-    for (name, state) in suggestion_states(engine) {
+    for (name, state) in host.states() {
         if let Some(source) = &state.source
             && source.index == index_name
         {
@@ -63,7 +61,7 @@ pub(crate) fn marked_suggestion_indexes(
     by_group
 }
 
-fn suggestions_config(language: &str) -> IndexConfig {
+pub(crate) fn suggestions_config(language: &str) -> IndexConfig {
     let mut schema = Map::new();
     schema.insert("query", Value::String("string".to_string()));
     schema.insert("count", Value::String("number".to_string()));
@@ -81,33 +79,23 @@ fn suggestions_config(language: &str) -> IndexConfig {
 }
 
 pub(crate) fn ensure_suggestions_index(
-    narsil: &Narsil,
+    host: &dyn SuggestionsHost,
     index_name: &str,
     group: &str,
     created: &mut Vec<String>,
 ) -> Result<String> {
     let name = suggestions_index_name(index_name, group);
-    let source = narsil.inner.reach_index(index_name)?;
-    let language = source.analyser().language().name().to_string();
-    let existing = match narsil.inner.reach_index(&name) {
-        Ok(existing) => existing,
-        Err(error) if error.code() == ErrorCode::INDEX_NOT_FOUND => {
-            let state = SuggestionState {
-                source: Some(QuerySuggestionsSource {
-                    index: index_name.to_string(),
-                    group: group.to_string(),
-                }),
-                ..SuggestionState::default()
-            };
-            let config = suggestions_config(&language);
-            lifecycle::create_marked_index(&narsil.inner, &name, config, state)?;
-            created.push(name.clone());
-            return Ok(name);
-        }
-        Err(error) => return Err(error),
+    let language = host.language(index_name)?;
+    let Some(existing) = host.state(&name) else {
+        let source = QuerySuggestionsSource {
+            index: index_name.to_string(),
+            group: group.to_string(),
+        };
+        host.create_suggestions_index(&name, &source, &language)?;
+        created.push(name.clone());
+        return Ok(name);
     };
     let marked = existing
-        .suggestion_state()
         .source
         .as_ref()
         .is_some_and(|source| source.index == index_name && source.group == group);
@@ -117,8 +105,8 @@ pub(crate) fn ensure_suggestions_index(
         ))
         .with_details([("indexName", crate::value::Value::from(name.as_str()))]));
     }
-    if existing.analyser().language().name() != language {
-        narsil.change_analysis(
+    if host.language(&name)? != language {
+        host.change_analysis(
             &name,
             &AnalysisChange {
                 language: Some(language),
@@ -131,13 +119,13 @@ pub(crate) fn ensure_suggestions_index(
 }
 
 pub(crate) fn read_suggestions(
-    narsil: &Narsil,
+    host: &dyn SuggestionsHost,
     name: &str,
 ) -> Result<HashMap<String, StoredSuggestion>> {
     let mut stored = HashMap::new();
     let mut cursor = None;
     loop {
-        let page = narsil.list_documents(
+        let page = host.list_documents(
             name,
             &ListParams {
                 cursor,
@@ -171,8 +159,8 @@ fn require_written(result: &BatchResult) -> Result<()> {
     }
 }
 
-fn remove_batch_of(narsil: &Narsil, name: &str, ids: &[String]) -> Result<Vec<String>> {
-    let result = narsil.remove_batch(name, ids.to_vec())?;
+fn remove_batch_of(host: &dyn SuggestionsHost, name: &str, ids: &[String]) -> Result<Vec<String>> {
+    let result = host.remove_batch(name, ids.to_vec())?;
     if let Some(failure) = result
         .failed
         .iter()
@@ -183,21 +171,25 @@ fn remove_batch_of(narsil: &Narsil, name: &str, ids: &[String]) -> Result<Vec<St
     Ok(result.succeeded)
 }
 
-pub(crate) fn remove_suggestions(narsil: &Narsil, name: &str, ids: &[String]) -> Result<u64> {
+pub(crate) fn remove_suggestions(
+    host: &dyn SuggestionsHost,
+    name: &str,
+    ids: &[String],
+) -> Result<u64> {
     let mut removed = 0;
     for batch in ids.chunks(BUILD_WRITE_BATCH) {
-        removed += remove_batch_of(narsil, name, batch)?.len() as u64;
+        removed += remove_batch_of(host, name, batch)?.len() as u64;
     }
     Ok(removed)
 }
 
 pub(crate) fn undo_writes(
-    narsil: &Narsil,
+    host: &dyn SuggestionsHost,
     steps: &[UndoStep],
     banned: &HashSet<String>,
 ) -> Result<()> {
     for step in steps.iter().rev() {
-        remove_suggestions(narsil, &step.name, &step.remove)?;
+        remove_suggestions(host, &step.name, &step.remove)?;
         let restore: Vec<&(String, StoredSuggestion)> = step
             .restore
             .iter()
@@ -205,38 +197,38 @@ pub(crate) fn undo_writes(
             .collect();
         for batch in restore.chunks(BUILD_WRITE_BATCH) {
             let phrases: Vec<String> = batch.iter().map(|(phrase, _)| phrase.clone()).collect();
-            remove_suggestions(narsil, &step.name, &phrases)?;
+            remove_suggestions(host, &step.name, &phrases)?;
             let documents = batch
                 .iter()
                 .map(|(phrase, stored)| suggestion_document(phrase, stored.count, &stored.origin))
                 .collect();
-            require_written(&narsil.insert_batch(&step.name, documents)?)?;
+            require_written(&host.insert_batch(&step.name, documents)?)?;
         }
     }
     Ok(())
 }
 
 pub(crate) fn write_group(
-    narsil: &Narsil,
+    host: &dyn SuggestionsHost,
     name: &str,
     due: &[(String, u64)],
     banned: &HashSet<String>,
     only_add: bool,
     undo: &mut Vec<UndoStep>,
 ) -> Result<GroupChanges> {
-    let stored = read_suggestions(narsil, name)?;
+    let stored = read_suggestions(host, name)?;
     let mut step = UndoStep {
         name: name.to_string(),
         remove: Vec::new(),
         restore: Vec::new(),
     };
-    let changes = write_changes(narsil, &stored, due, banned, only_add, &mut step);
+    let changes = write_changes(host, &stored, due, banned, only_add, &mut step);
     undo.push(step);
     changes
 }
 
 fn write_changes(
-    narsil: &Narsil,
+    host: &dyn SuggestionsHost,
     stored: &HashMap<String, StoredSuggestion>,
     due: &[(String, u64)],
     banned: &HashSet<String>,
@@ -279,7 +271,7 @@ fn write_changes(
         if batch.is_empty() {
             break;
         }
-        let result = narsil.insert_batch(&name, batch)?;
+        let result = host.insert_batch(&name, batch)?;
         step.remove.extend(result.succeeded.iter().cloned());
         require_written(&result)?;
     }
@@ -293,7 +285,7 @@ fn write_changes(
                 )
             })
             .collect();
-        let result = narsil.update_batch(&name, changes)?;
+        let result = host.update_batch(&name, changes)?;
         let succeeded: HashSet<&String> = result.succeeded.iter().collect();
         for (phrase, _, previous) in batch {
             if succeeded.contains(phrase) {
@@ -305,7 +297,7 @@ fn write_changes(
     let mut removed = 0;
     for batch in stale.chunks(BUILD_WRITE_BATCH) {
         let phrases: Vec<String> = batch.iter().map(|(phrase, _)| phrase.clone()).collect();
-        let succeeded: HashSet<String> = remove_batch_of(narsil, &name, &phrases)?
+        let succeeded: HashSet<String> = remove_batch_of(host, &name, &phrases)?
             .into_iter()
             .collect();
         removed += succeeded.len() as u64;
@@ -316,6 +308,6 @@ fn write_changes(
                 .cloned(),
         );
     }
-    removed += remove_suggestions(narsil, &name, &banned_held)?;
+    removed += remove_suggestions(host, &name, &banned_held)?;
     Ok(GroupChanges { published, removed })
 }

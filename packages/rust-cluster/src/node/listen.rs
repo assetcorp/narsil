@@ -26,6 +26,9 @@ impl NodeInner {
             return respond.send(answer_ping(&message, node_id)).await;
         }
         let joined = self.joined.load(Ordering::Acquire);
+        if joined && message.message_type == message_types::SUGGESTIONS_COUNTS {
+            return self.suggestions.answer_counts(message, respond).await;
+        }
         if is_controller_message(&message.message_type) {
             return match &self.controller {
                 Some(controller) if controller.is_listening() => {

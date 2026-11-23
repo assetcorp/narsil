@@ -36,7 +36,8 @@ use crate::transport::{BoxFuture, NodeTransport, Respond};
 
 pub(crate) use self::analysis_metadata::{
     IndexMetadataSnapshot, PendingAnalysis, metadata_with_pending_analysis,
-    metadata_without_pending_analysis, read_index_metadata_snapshot,
+    metadata_with_suggestion_state, metadata_without_pending_analysis,
+    read_index_metadata_snapshot,
 };
 pub(crate) use self::messages::is_controller_message;
 pub(crate) use self::metadata::{
@@ -73,6 +74,7 @@ pub(crate) struct ControllerConfig {
     pub(crate) on_error: Option<ControllerErrorHandler>,
     pub(crate) on_election_error: Option<ControllerErrorHandler>,
     pub(crate) backup_messages: Option<ControllerMessageHandler>,
+    pub(crate) suggestion_builds: Option<ControllerMessageHandler>,
 }
 
 #[derive(Default)]

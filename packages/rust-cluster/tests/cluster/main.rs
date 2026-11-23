@@ -32,6 +32,7 @@ mod mixed_failover;
 mod mixed_index_drop;
 mod mixed_partition_count_change;
 mod mixed_queries;
+mod mixed_query_suggestions;
 mod mixed_reads;
 mod mixed_search_contexts;
 mod mixed_settings;

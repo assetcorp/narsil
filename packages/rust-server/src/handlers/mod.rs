@@ -6,7 +6,7 @@ pub(crate) mod info;
 mod maintenance;
 pub(crate) mod search;
 mod settings;
-mod suggestions;
+pub(crate) mod suggestions;
 mod sync;
 pub(crate) mod task_routes;
 

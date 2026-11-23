@@ -1,5 +1,5 @@
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 use narsil::Value;
 use narsil::coordination::RerankHost;
@@ -11,6 +11,7 @@ use super::join::{
     refuse_controller_on_another_major_version, wait_for_earlier_registration_to_lapse,
 };
 use super::operation_tracker::OperationTracker;
+use super::query_suggestions::{NodeSuggestions, NodeSuggestionsSettings};
 use crate::backups::{BackupService, BackupServiceSettings, BackupStore};
 use crate::controller::{Controller, ControllerConfig, ControllerErrorHandler, lock};
 use crate::coordinator::NodeRegistration;
@@ -49,6 +50,7 @@ pub(super) struct NodeInner {
     pub(super) controller: Option<Controller>,
     pub(super) data: Option<DataRole>,
     pub(super) backups: BackupService,
+    pub(super) suggestions: Arc<NodeSuggestions>,
     pub(super) phase: Mutex<Phase>,
     pub(super) lifecycle: tokio::sync::Mutex<()>,
     pub(super) stopping: watch::Sender<bool>,
@@ -68,7 +70,11 @@ pub(super) fn node_error(code: &str, message: String, node_id: &str) -> ClusterE
 }
 
 impl NodeInner {
-    pub(super) fn new(config: ClusterNodeConfig, rerank: Arc<RerankHost>) -> NodeInner {
+    pub(super) fn new(
+        config: ClusterNodeConfig,
+        rerank: Arc<RerankHost>,
+        this: Weak<NodeInner>,
+    ) -> NodeInner {
         let ClusterNodeConfig {
             coordinator,
             transport,
@@ -80,23 +86,34 @@ impl NodeInner {
             query,
             backups,
             rerank: _,
+            query_suggestions,
             on_error,
         } = config;
         let store = backups.and_then(|settings| BackupStore::open(&settings).ok());
         let activity: Arc<OnceLock<ControllerActivity>> = Arc::new(OnceLock::new());
+        let is_controller: ControllerActivity = {
+            let activity = Arc::clone(&activity);
+            Arc::new(move || activity.get().is_some_and(|is_active| is_active()))
+        };
+        let suggestions = NodeSuggestions::new(NodeSuggestionsSettings {
+            node_id: registration.node_id.clone(),
+            node: this,
+            coordinator: Arc::clone(&coordinator),
+            config: query_suggestions,
+            is_controller: Arc::clone(&is_controller),
+            on_error: on_error.clone(),
+        });
         let reporter = on_error.clone();
         let backups = BackupService::new(BackupServiceSettings {
             node_id: registration.node_id.clone(),
             coordinator: Arc::clone(&coordinator),
             transport: Arc::clone(&transport),
             store: store.clone(),
-            is_controller: {
-                let activity = Arc::clone(&activity);
-                Arc::new(move || activity.get().is_some_and(|is_active| is_active()))
-            },
+            is_controller,
             on_error: Arc::new(move |error: &ClusterError| {
                 report_failure(reporter.as_ref(), error)
             }),
+            query_history: Some(suggestions.query_history()),
         });
         let controller = registration
             .roles
@@ -116,6 +133,7 @@ impl NodeInner {
                     on_error: index_errors.clone(),
                     on_election_error: index_errors,
                     backup_messages: Some(backups.controller_messages()),
+                    suggestion_builds: Some(suggestions.controller_messages()),
                 })
             });
         if let Some(controller) = &controller {
@@ -142,6 +160,7 @@ impl NodeInner {
             controller,
             data,
             backups,
+            suggestions,
             phase: Mutex::new(Phase::Idle),
             lifecycle: tokio::sync::Mutex::new(()),
             stopping: watch::Sender::new(false),
@@ -297,6 +316,7 @@ impl NodeInner {
         self.start_routing().await?;
         self.joined.store(true, Ordering::Release);
         self.abort_if_stopping()?;
+        self.suggestions.start(self).await?;
         if let Some(controller) = &self.controller {
             if !self.controller_standing.swap(true, Ordering::AcqRel) {
                 controller.start().await?;
@@ -309,6 +329,7 @@ impl NodeInner {
     pub(super) async fn leave(&self) {
         self.joined.store(false, Ordering::Release);
         self.backups.stop();
+        self.suggestions.stop().await;
         if let Some(reads) = lock(&self.reads).take() {
             reads.stop();
         }

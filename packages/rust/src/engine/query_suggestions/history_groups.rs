@@ -61,6 +61,8 @@ fn load_history_groups(
     let Ok(files) = history_files_of(context.files, index_name) else {
         return newest_day;
     };
+    let clustered = context.host.clustered();
+    let expected_uuid = context.host.index_uuid(index_name);
     for file in files.iter().filter(|file| file.day.as_str() >= cutoff) {
         let Ok(HistoryRead::Bytes(bytes)) = read_history_file(context.files, &file.key) else {
             continue;
@@ -70,6 +72,9 @@ fn load_history_groups(
         else {
             continue;
         };
+        if clustered && (opened.index_uuid.is_none() || opened.index_uuid != expected_uuid) {
+            continue;
+        }
         for group in opened.group_names().unwrap_or_default() {
             note_group(&mut newest_day, &group, &file.day);
         }

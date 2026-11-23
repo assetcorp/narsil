@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 use super::config::{ClusterNodeConfig, rerank_host_of, validate_config};
 use super::member::{NodeInner, Phase, node_error};
@@ -15,9 +15,12 @@ use crate::error::{ClusterResult, codes};
 /// A node with the `controller` role stands for the controller lease once it joins. While it holds the lease, it
 /// places every index's partitions on the data nodes, answers the in-sync, bootstrap, and resignation messages that
 /// a primary sends, applies a replication factor change and places the index again, drives a partition count change
-/// to its cutover, runs the backup, restore, and backup deletion jobs, and refuses the query suggestion requests
-/// with `CLUSTER_OPERATION_UNSUPPORTED`. A node on another major specification version than the active controller
-/// cannot join.
+/// to its cutover, runs the backup, restore, and backup deletion jobs, and runs the popular query suggestion builds
+/// that a schedule or another node asks for. A node on another major specification version than the active
+/// controller cannot join.
+///
+/// Every node answers the request of the controller for the query history files that it keeps, and
+/// [`ClusterNode::query_suggestions`] counts searches and manages the suggestions of an index from any node.
 pub struct ClusterNode {
     pub(super) inner: Arc<NodeInner>,
 }
@@ -36,7 +39,7 @@ impl ClusterNode {
         validate_config(&config)?;
         let rerank = rerank_host_of(&config)?;
         Ok(ClusterNode {
-            inner: Arc::new(NodeInner::new(config, rerank)),
+            inner: Arc::new_cyclic(|this| NodeInner::new(config, rerank, Weak::clone(this))),
         })
     }
 
