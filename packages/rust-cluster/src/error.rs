@@ -183,10 +183,18 @@ pub mod codes {
     pub const BACKUP_STORE_NOT_CONFIGURED: &str = "BACKUP_STORE_NOT_CONFIGURED";
     /// A read of a backup store or a stored file failed.
     pub const PERSISTENCE_LOAD_FAILED: &str = "PERSISTENCE_LOAD_FAILED";
-    /// An index's settings changed while its partitions were backed up.
-    pub const ANALYSIS_CHANGE_NOT_READY: &str = "ANALYSIS_CHANGE_NOT_READY";
     /// The cluster already holds an index under the name that a restore asks for.
     pub const INDEX_ALREADY_EXISTS: &str = "INDEX_ALREADY_EXISTS";
+    /// A second copy of an index's terms would pass the node's memory limit, so the node cannot build the analysis
+    /// that a change asks for.
+    pub const ANALYSIS_REBUILD_MEMORY_EXCEEDED: &str = "ANALYSIS_REBUILD_MEMORY_EXCEEDED";
+    /// An analysis change names a language that the node has not registered.
+    pub const LANGUAGE_NOT_SUPPORTED: &str = "LANGUAGE_NOT_SUPPORTED";
+    /// A later analysis change, or a restore, replaced the analysis change that a request asks about.
+    pub const ANALYSIS_CHANGE_REPLACED: &str = "ANALYSIS_CHANGE_REPLACED";
+    /// The cluster has a node below the specification version that changes analysis, so the index keeps its
+    /// settings until that node is upgraded.
+    pub const ANALYSIS_CHANGE_NOT_READY: &str = "ANALYSIS_CHANGE_NOT_READY";
 }
 
 /// A failure of a cluster node, a transport, or a coordinator, with the code that a peer or a caller branches on.

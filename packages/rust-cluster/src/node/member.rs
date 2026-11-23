@@ -211,11 +211,19 @@ impl NodeInner {
         &self.registration.node_id
     }
 
+    pub(super) fn coordinator(&self) -> &EtcdCoordinator {
+        &self.coordinator
+    }
+
+    pub(super) fn transport(&self) -> &dyn NodeTransport {
+        self.transport.as_ref()
+    }
+
     pub(super) fn report(&self, error: &ClusterError) {
         report_failure(self.on_error.as_ref(), error);
     }
 
-    fn is_stopping(&self) -> bool {
+    pub(super) fn is_stopping(&self) -> bool {
         *self.stopping.borrow()
     }
 

@@ -29,6 +29,12 @@ use crate::state::{
 };
 use crate::tasks::{InMemoryTaskStore, TaskRegistry};
 
+#[cfg(feature = "cluster")]
+type ClusterHandle = Arc<narsil_cluster::node::ClusterNode>;
+
+#[cfg(not(feature = "cluster"))]
+enum ClusterHandle {}
+
 struct Running {
     address: SocketAddr,
     stop: watch::Sender<bool>,
@@ -57,6 +63,34 @@ impl NarsilServer {
     /// Returns `CONFIG_INVALID` where a limit or a feed setting holds a value outside its range, the engine's error
     /// where it refuses an adapter, and `INTERNAL_ERROR` where the system refuses the threads that answer searches.
     pub fn new(engine: Arc<Narsil>, options: ServerOptions) -> Result<NarsilServer, NarsilError> {
+        NarsilServer::fronting(engine, options, None)
+    }
+
+    /// Returns a server that answers for the cluster that `node` belongs to, so each write that it takes goes to the
+    /// primary of the document's partition and `/readyz` reports the node's readiness.
+    ///
+    /// Start the node before the server listens. The server answers every route that the cluster does not serve
+    /// with `CLUSTER_OPERATION_UNSUPPORTED` and status 501, the way a TypeScript server that fronts a cluster node
+    /// does, and [`NarsilServer::shutdown`] also shuts the node down, while the coordinator and the transport stay
+    /// open for the caller to close. The limits that depend on an engine come from an in-memory engine that holds
+    /// no index.
+    ///
+    /// # Errors
+    ///
+    /// Fails as [`NarsilServer::new`] does.
+    #[cfg(feature = "cluster")]
+    pub fn cluster(
+        node: Arc<narsil_cluster::node::ClusterNode>,
+        options: ServerOptions,
+    ) -> Result<NarsilServer, NarsilError> {
+        NarsilServer::fronting(Arc::new(Narsil::new()), options, Some(node))
+    }
+
+    fn fronting(
+        engine: Arc<Narsil>,
+        options: ServerOptions,
+        cluster: Option<ClusterHandle>,
+    ) -> Result<NarsilServer, NarsilError> {
         check_limits(&options.limits, engine.max_rerank_window() as u64)?;
         let feeds = Feeds::of(&options)?;
         for (name, adapter) in &options.embedding_adapters {
@@ -105,7 +139,11 @@ impl NarsilServer {
             queries: QueryThreads::new()?,
             feeds,
             limits,
+            #[cfg(feature = "cluster")]
+            cluster,
         };
+        #[cfg(not(feature = "cluster"))]
+        let None = cluster;
         Ok(NarsilServer {
             state: Arc::new(state),
             host: options
@@ -177,6 +215,10 @@ impl NarsilServer {
     pub async fn shutdown(&self) -> Result<(), NarsilError> {
         self.close().await;
         self.state.tasks.shutdown().await;
+        #[cfg(feature = "cluster")]
+        if let Some(node) = &self.state.cluster {
+            node.shutdown().await;
+        }
         let engine = Arc::clone(&self.state.engine);
         tokio::task::spawn_blocking(move || engine.shutdown())
             .await
