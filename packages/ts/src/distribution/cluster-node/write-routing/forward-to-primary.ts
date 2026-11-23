@@ -8,7 +8,7 @@ import type { ForwardBatchOperation, ForwardBatchPayload } from '../../transport
 import { forwardInterrupted, forwardUnsent, unsentAfter } from '../transport-failure'
 import { abandonedWriteFrom, conditionFields, withAbandonedWrite } from './abandoned-write'
 import type { BatchOutcome, BatchWrite, WriteFailure } from './batch-write'
-import { requireOpenWindow, unsentAfterWindow, windowClosed, windowEndedOutcome } from './forward-window'
+import { unsentAfterWindow, windowClosed, windowEndedOutcome } from './forward-window'
 import {
   assertForwardResponse,
   forwardInsertToRemote,
@@ -141,14 +141,17 @@ export async function forwardBatchToRemote<V extends AnyDocument | null>(
       }
       if (chunk.length === 0) continue
     }
+    let windowEndedAtSend: NarsilError | null = null
     try {
       const operations = chunk.map(({ wire }) => wire)
       const payload: ForwardBatchPayload =
         indexUuid === undefined ? { indexName, operations } : { indexName, operations, indexUuid }
       const message = createForwardBatchMessage(payload, deps.nodeId)
-      const response = await sendToNode(primaryNodeId, message, deps, () =>
-        requireOpenWindow(deadline, indexName, only.docId),
-      )
+      const response = await sendToNode(primaryNodeId, message, deps, () => {
+        if (!windowClosed(deadline)) return
+        windowEndedAtSend = windowEndedOutcome(indexName, only.docId)
+        throw windowEndedAtSend
+      })
       const decoded = assertForwardResponse(response, indexName, primaryNodeId)
       const result = validateForwardBatchResultPayload(decoded)
       if (result.results.length !== chunk.length) {
@@ -185,6 +188,10 @@ export async function forwardBatchToRemote<V extends AnyDocument | null>(
         refuse(write, abandonedWrite === undefined ? refusal : withAbandonedWrite(refusal, abandonedWrite))
       }
     } catch (err) {
+      if (err !== null && err === windowEndedAtSend) {
+        for (const { write } of chunk) failed.push({ write, error: windowEndedOutcome(indexName, write.docId) })
+        continue
+      }
       if (err instanceof NarsilError && (forwardUnsent(err) || forwardInterrupted(err))) undelivered = unsentAfter(err)
       for (const { write } of chunk) refuse(write, toForwardError(err, write.docId))
     }

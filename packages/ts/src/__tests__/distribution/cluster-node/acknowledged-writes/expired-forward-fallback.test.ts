@@ -54,7 +54,10 @@ it('sends no expired write to a fallback address after the first connection fail
     for (const answer of await Promise.all(batches)) {
       expect(answer.succeeded).toEqual([])
       expect(answer.failed).toHaveLength(2)
-      for (const failure of answer.failed) expect(failure.error).toMatchObject(expired)
+      for (const failure of answer.failed) {
+        expect(failure.error).toMatchObject(expired)
+        expect(failure.error.details.docId).toBe(failure.docId)
+      }
     }
     await sleep(2_000)
     expect.soft(arrivals).toEqual([])
