@@ -58,24 +58,8 @@ export function createInMemoryCoordinator(): ClusterCoordinator {
     }
   }
 
-  function emitNodeEvent(event: NodeEvent): void {
-    for (const handler of nodeWatchers) {
-      try {
-        handler(event)
-      } catch (_) {}
-    }
-  }
-
-  function emitAllocationEvent(event: AllocationEvent): void {
-    for (const handler of allocationWatchers) {
-      try {
-        handler(event)
-      } catch (_) {}
-    }
-  }
-
-  function emitSchemaEvent(event: SchemaEvent): void {
-    for (const handler of schemaWatchers) {
+  function notify<T>(watchers: Set<(event: T) => void>, event: T): void {
+    for (const handler of watchers) {
       try {
         handler(event)
       } catch (_) {}
@@ -98,7 +82,7 @@ export function createInMemoryCoordinator(): ClusterCoordinator {
         nodes.delete(expiredNodeId)
         registeredStartedAt.delete(expiredNodeId)
         registrationsHeldUntil.delete(expiredNodeId)
-        emitNodeEvent({ type: 'node_left', nodeId: expiredNodeId, registration: null })
+        notify(nodeWatchers, { type: 'node_left', nodeId: expiredNodeId, registration: null })
       }
     }, ttlMs)
   }
@@ -133,7 +117,7 @@ export function createInMemoryCoordinator(): ClusterCoordinator {
         return
       }
 
-      emitNodeEvent({ type: 'node_joined', nodeId: registration.nodeId, registration })
+      notify(nodeWatchers, { type: 'node_joined', nodeId: registration.nodeId, registration })
     },
 
     async deregisterNode(nodeId: string): Promise<void> {
@@ -145,7 +129,7 @@ export function createInMemoryCoordinator(): ClusterCoordinator {
       clearLeaseEntry(heartbeatKey)
 
       if (existed) {
-        emitNodeEvent({ type: 'node_left', nodeId, registration: null })
+        notify(nodeWatchers, { type: 'node_left', nodeId, registration: null })
       }
     },
 
@@ -206,13 +190,18 @@ export function createInMemoryCoordinator(): ClusterCoordinator {
       }
 
       allocations.set(indexName, table)
-      emitAllocationEvent({ indexName, table })
+      notify(allocationWatchers, { indexName, table })
       return true
     },
 
     async deleteAllocation(indexName: string): Promise<void> {
       assertNotShutdown()
       allocations.delete(indexName)
+    },
+
+    async listAllocations(): Promise<string[]> {
+      assertNotShutdown()
+      return Array.from(allocations.keys()).sort(compareCodePoints)
     },
 
     async watchAllocation(handler: (event: AllocationEvent) => void): Promise<() => void> {
@@ -330,7 +319,7 @@ export function createInMemoryCoordinator(): ClusterCoordinator {
     async putSchema(indexName: string, schema: SchemaDefinition): Promise<void> {
       assertNotShutdown()
       schemas.set(indexName, schema)
-      emitSchemaEvent({ type: 'schema_created', indexName, schema })
+      notify(schemaWatchers, { type: 'schema_created', indexName, schema })
     },
 
     async dropSchema(indexName: string): Promise<void> {
@@ -338,7 +327,7 @@ export function createInMemoryCoordinator(): ClusterCoordinator {
       if (!schemas.delete(indexName)) {
         return
       }
-      emitSchemaEvent({ type: 'schema_dropped', indexName, schema: null })
+      notify(schemaWatchers, { type: 'schema_dropped', indexName, schema: null })
     },
 
     async listSchemas(): Promise<string[]> {
