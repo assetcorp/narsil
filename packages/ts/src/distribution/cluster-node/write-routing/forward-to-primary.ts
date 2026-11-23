@@ -8,7 +8,7 @@ import type { ForwardBatchOperation, ForwardBatchPayload } from '../../transport
 import { forwardInterrupted, forwardUnsent, unsentAfter } from '../transport-failure'
 import { abandonedWriteFrom, conditionFields, withAbandonedWrite } from './abandoned-write'
 import type { BatchOutcome, BatchWrite, WriteFailure } from './batch-write'
-import { unsentAfterWindow, windowClosed, windowEndedOutcome } from './forward-window'
+import { requireOpenWindow, unsentAfterWindow, windowClosed, windowEndedOutcome } from './forward-window'
 import {
   assertForwardResponse,
   forwardInsertToRemote,
@@ -54,10 +54,11 @@ async function forwardSingleWrite(
   primaryNodeId: string,
   deps: WriteRoutingDeps,
   indexUuid: string | undefined,
+  deadline: number,
 ): Promise<void> {
   const { docId, value, condition } = write
   if (operation === 'remove') {
-    await forwardRemoveToRemote(indexName, docId, primaryNodeId, deps, indexUuid, condition)
+    await forwardRemoveToRemote(indexName, docId, primaryNodeId, deps, deadline, indexUuid, condition)
     return
   }
   if (value === null) {
@@ -66,9 +67,9 @@ async function forwardSingleWrite(
     })
   }
   if (operation === 'insert') {
-    await forwardInsertToRemote(indexName, value, docId, primaryNodeId, deps, indexUuid)
+    await forwardInsertToRemote(indexName, value, docId, primaryNodeId, deps, deadline, indexUuid)
   } else {
-    await forwardUpdateToRemote(indexName, value, docId, primaryNodeId, deps, indexUuid, condition)
+    await forwardUpdateToRemote(indexName, value, docId, primaryNodeId, deps, deadline, indexUuid, condition)
   }
 }
 
@@ -99,7 +100,7 @@ export async function forwardBatchToRemote<V extends AnyDocument | null>(
 
   if (writes.length === 1) {
     try {
-      await forwardSingleWrite(indexName, operation, only, primaryNodeId, deps, indexUuid)
+      await forwardSingleWrite(indexName, operation, only, primaryNodeId, deps, indexUuid, deadline)
       succeeded.push(only)
     } catch (err) {
       failed.push({ write: only, error: toForwardError(err, only.docId) })
@@ -145,7 +146,9 @@ export async function forwardBatchToRemote<V extends AnyDocument | null>(
       const payload: ForwardBatchPayload =
         indexUuid === undefined ? { indexName, operations } : { indexName, operations, indexUuid }
       const message = createForwardBatchMessage(payload, deps.nodeId)
-      const response = await sendToNode(primaryNodeId, message, deps)
+      const response = await sendToNode(primaryNodeId, message, deps, () =>
+        requireOpenWindow(deadline, indexName, only.docId),
+      )
       const decoded = assertForwardResponse(response, indexName, primaryNodeId)
       const result = validateForwardBatchResultPayload(decoded)
       if (result.results.length !== chunk.length) {
