@@ -1,7 +1,9 @@
 mod blocking;
 mod config;
 mod copies;
+mod device_sync;
 mod lost_copy;
+mod memory_figures;
 mod partition_stores;
 mod primary_copy;
 mod reconcile;

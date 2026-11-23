@@ -20,6 +20,8 @@ use crate::controller::{lock, stored_index_metadata};
 use crate::coordinator::etcd::{EtcdCoordinator, WatchHandle};
 use crate::data::{AllocationView, PrimaryWrites};
 use crate::error::{ClusterError, ClusterResult, codes};
+use crate::memory::{AdmittedWrite, NodeMemory, require_writable_index};
+use crate::payload::forward::ForwardKind;
 use crate::transport::NodeTransport;
 
 pub(crate) struct WriteRouter {
@@ -28,6 +30,7 @@ pub(crate) struct WriteRouter {
     transport: Arc<dyn NodeTransport>,
     view: Arc<AllocationView>,
     local: Option<Arc<PrimaryWrites>>,
+    memory: Option<Arc<NodeMemory>>,
     watch: Mutex<Option<WatchHandle>>,
     stopping: watch::Sender<bool>,
 }
@@ -48,6 +51,7 @@ impl WriteRouter {
         coordinator: Arc<EtcdCoordinator>,
         transport: Arc<dyn NodeTransport>,
         local: Option<Arc<PrimaryWrites>>,
+        memory: Option<Arc<NodeMemory>>,
     ) -> ClusterResult<Arc<WriteRouter>> {
         let (view, watch) = match &local {
             Some(writes) => (writes.view(), None),
@@ -78,6 +82,7 @@ impl WriteRouter {
             transport,
             view,
             local,
+            memory,
             watch: Mutex::new(watch),
             stopping: watch::Sender::new(false),
         }))
@@ -93,6 +98,28 @@ impl WriteRouter {
 
     fn is_stopping(&self) -> bool {
         *self.stopping.borrow()
+    }
+
+    fn require_writable(&self, table: &Table) -> ClusterResult<()> {
+        require_writable_index(table, self.memory.as_deref().map(|memory| &memory.view))
+    }
+
+    fn admit(
+        &self,
+        index_name: &str,
+        writes: &[ClientWrite],
+    ) -> ClusterResult<Option<AdmittedWrite>> {
+        let Some(memory) = &self.memory else {
+            return Ok(None);
+        };
+        if writes.iter().all(|write| write.kind == ForwardKind::Remove) {
+            return Ok(None);
+        }
+        memory.before_admit();
+        let bytes = writes.iter().fold(0u64, |total, write| {
+            total.saturating_add(write.estimated_bytes)
+        });
+        memory.pressure.admit(index_name, bytes).map(Some)
     }
 
     async fn serving_name(&self, index_name: &str) -> ClusterResult<String> {

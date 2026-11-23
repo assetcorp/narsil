@@ -4,8 +4,8 @@ use std::sync::Arc;
 use narsil::Value;
 
 use crate::constants::{
-    DEFAULT_CONTROLLER_LEASE_TTL_MS, DEFAULT_NODE_HEARTBEAT_INTERVAL_MS,
-    DEFAULT_NODE_LEFT_DELAY_MS, DEFAULT_STANDBY_RETRY_MS,
+    DEFAULT_CONTROLLER_LEASE_TTL_MS, DEFAULT_IN_FLIGHT_WRITE_FRACTION,
+    DEFAULT_NODE_HEARTBEAT_INTERVAL_MS, DEFAULT_NODE_LEFT_DELAY_MS, DEFAULT_STANDBY_RETRY_MS,
 };
 use crate::coordinator::etcd::EtcdCoordinator;
 use crate::coordinator::{NodeRegistration, validate_node_id};
@@ -62,6 +62,11 @@ pub struct ClusterNodeConfig {
     pub data: Option<DataNodeConfig>,
     /// How often the node writes its registration again.
     pub heartbeat_interval_ms: u64,
+    /// The share of the node's memory limit that the inserts and updates in progress on the node may hold, above 0
+    /// and at most 1, and 0.02 by default. The node refuses a write with `CLUSTER_WRITE_BLOCKED` when its bytes
+    /// would take the writes in progress past that share, and it accepts any write that arrives while no other is in
+    /// progress.
+    pub in_flight_write_fraction: f64,
     /// Receives the failures that no awaited call returns.
     pub on_error: Option<NodeErrorHandler>,
 }
@@ -81,6 +86,7 @@ impl ClusterNodeConfig {
             controller: ControllerTiming::default(),
             data: None,
             heartbeat_interval_ms: DEFAULT_NODE_HEARTBEAT_INTERVAL_MS,
+            in_flight_write_fraction: DEFAULT_IN_FLIGHT_WRITE_FRACTION,
             on_error: None,
         }
     }
@@ -143,5 +149,12 @@ pub(crate) fn validate_config(config: &ClusterNodeConfig) -> ClusterResult<()> {
         config.controller.standby_retry_ms,
         "controller.standby_retry_ms",
     )?;
+    let fraction = config.in_flight_write_fraction;
+    if !(fraction > 0.0 && fraction <= 1.0) {
+        return Err(invalid(
+            "ClusterNodeConfig.in_flight_write_fraction must be above 0 and at most 1",
+        )
+        .with_detail("in_flight_write_fraction", Value::Number(fraction)));
+    }
     require_positive(config.heartbeat_interval_ms, "heartbeat_interval_ms")
 }

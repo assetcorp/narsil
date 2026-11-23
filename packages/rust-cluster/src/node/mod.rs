@@ -1,5 +1,7 @@
 mod config;
+mod device_sync;
 mod handle;
+mod heartbeat;
 mod identity;
 mod join;
 mod local_copies;
