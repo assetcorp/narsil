@@ -119,7 +119,12 @@ fn is_safe_file_key(key: &str) -> bool {
     key.encode_utf16().count() <= MAX_BACKUP_FILE_PATH_LENGTH && key.split('/').all(is_path_segment)
 }
 
-fn stored_file(value: Option<&Value>, backup_name: &str) -> Result<StoredFile> {
+/// Returns the stored file that `value` describes as a backup manifest holds it.
+///
+/// # Errors
+///
+/// Fails with `BACKUP_DAMAGED`, naming `backup_name`, where `value` lacks a SHA-256 digest or a valid length.
+pub fn stored_file(value: Option<&Value>, backup_name: &str) -> Result<StoredFile> {
     let map = value.and_then(Value::as_object);
     let sha256 = map
         .and_then(|map| map.get("sha256"))
@@ -155,7 +160,13 @@ fn listed_file(value: &Value, backup_name: &str) -> Result<ListedFile> {
     }
 }
 
-fn backup_partition(
+/// Returns the partition entry that `value` describes as a backup manifest holds it.
+///
+/// # Errors
+///
+/// Fails with `BACKUP_DAMAGED`, naming `backup_name`, where the entry breaks a rule of a backup manifest, such as
+/// a partition id of `partition_count` or more, an unsafe key, or one key listed twice.
+pub fn backup_partition(
     value: &Value,
     backup_name: &str,
     partition_count: f64,
