@@ -27,6 +27,7 @@ mod memory_write_block;
 mod mixed_catch_up;
 mod mixed_failover;
 mod mixed_queries;
+mod mixed_search_contexts;
 mod mixed_settings;
 mod mixed_writes;
 mod partition_count_change;
