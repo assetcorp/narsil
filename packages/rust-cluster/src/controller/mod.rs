@@ -41,8 +41,8 @@ pub(crate) use self::analysis_metadata::{
 pub(crate) use self::messages::is_controller_message;
 pub(crate) use self::metadata::metadata_key;
 pub(crate) use self::metadata::{
-    IndexMetadata, index_metadata, records_previous_documents, stored_index_metadata,
-    validate_index_name,
+    IndexMetadata, index_metadata, index_metadata_of, records_previous_documents,
+    stored_index_metadata, validate_index_name,
 };
 pub(crate) use self::settings::{previous_documents_recorded, stored_settings_readable};
 pub(crate) use self::table::{belongs_to_another_index, stored_table};

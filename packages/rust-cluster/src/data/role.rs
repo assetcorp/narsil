@@ -8,6 +8,7 @@ use super::blocking::off_executor;
 use super::config::DataNodeConfig;
 use super::copies::LocalCopies;
 use super::device_sync::DeviceSyncView;
+use super::local_reads::LocalReads;
 use super::lost_copy::LostCopyWait;
 use super::partition_stores::{partition_stores_answer, requested_index};
 use super::queries::{QueryDeps, answer_query, answers_query};
@@ -295,6 +296,15 @@ impl DataRole {
             .await
             .as_ref()
             .map_or(0, AllocationWatcher::unserved_partition_count)
+    }
+
+    pub(crate) fn local_reads(&self) -> ClusterResult<Arc<LocalReads>> {
+        Ok(Arc::new(LocalReads::new(
+            self.node_id.clone(),
+            self.settled_copies()?,
+            self.primary_writes()?.view(),
+            Arc::clone(&self.search_contexts),
+        )))
     }
 
     pub(crate) fn primary_writes(&self) -> ClusterResult<Arc<PrimaryWrites>> {
