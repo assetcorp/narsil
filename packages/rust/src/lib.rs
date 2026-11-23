@@ -5,6 +5,8 @@ mod analysis;
 mod config;
 #[doc(hidden)]
 pub mod conformance;
+#[doc(hidden)]
+pub mod coordination;
 mod durability;
 mod engine;
 mod error;
@@ -18,6 +20,10 @@ mod native;
 mod ordering;
 mod pattern;
 mod pins;
+#[doc(hidden)]
+pub mod held_analysis {
+    pub use crate::engine::{HeldAnalysisChanges, PendingAnalysisChange};
+}
 #[doc(hidden)]
 pub mod replication {
     pub use crate::engine::replication::{
@@ -60,7 +66,7 @@ pub use analysis::{Language, StopWordFunction, StopWords, Token, TokenSource, To
 pub use config::{
     AdapterSetting, Bm25FieldParams, Bm25Params, EmbeddingConfig, HnswSettings, IndexConfig,
     Metric, PartitionConfig, Quantization, ScoringMode, StopWordsSetting, Storage, SynonymRule,
-    TokenizerSetting, VectorPromotion, index_config_from_stored_settings,
+    TokenizerSetting, VectorPromotion, index_config_from_stored_settings, validate_index_name,
 };
 pub use durability::persistence::{FilesystemPersistence, MemoryPersistence, PersistenceAdapter};
 #[doc(hidden)]

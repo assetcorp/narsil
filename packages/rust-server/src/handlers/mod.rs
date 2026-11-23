@@ -1,6 +1,6 @@
 mod cluster;
 pub(crate) mod common;
-mod documents;
+pub(crate) mod documents;
 mod indexes;
 pub(crate) mod info;
 mod maintenance;
