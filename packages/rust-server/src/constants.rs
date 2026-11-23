@@ -52,3 +52,5 @@ pub const DEFAULT_CORS_HEADERS: &str = "Content-Type, Authorization";
 pub const SNAPSHOT_ARCHIVE_CONTENT_TYPE: &str = "application/x-tar";
 pub const DOCUMENT_EXPORT_CONTENT_TYPE: &str = "application/x-ndjson";
 pub const JSON_CONTENT_TYPE: &str = "application/json";
+#[cfg(feature = "cluster")]
+pub const PROMETHEUS_TEXT_CONTENT_TYPE: &str = "text/plain; version=0.0.4; charset=utf-8";
