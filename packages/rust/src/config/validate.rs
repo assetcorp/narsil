@@ -30,8 +30,14 @@ fn invalid(message: impl Into<String>) -> NarsilError {
     NarsilError::new(ErrorCode::CONFIG_INVALID, message.into())
 }
 
-/// Raises `CONFIG_INVALID` for an index name outside the characters and length that every Narsil engine accepts.
-pub(crate) fn validate_index_name(name: &str) -> Result<()> {
+/// Checks `name` against the characters and length that every Narsil engine accepts for an index name.
+///
+/// # Errors
+///
+/// Fails with `CONFIG_INVALID` for an empty name, a name longer than 255 UTF-16 code units, a name that starts with
+/// a character other than a letter or a digit, holds a character other than a letter, a digit, `.`, `_`, or `-`,
+/// or holds `..`.
+pub fn validate_index_name(name: &str) -> Result<()> {
     if name.is_empty() {
         return Err(
             invalid("Index name must be a string of at least one character")

@@ -1,5 +1,9 @@
+mod allocation;
 mod feed_settings;
+mod jobs;
 mod operations;
+mod queries;
+mod reads;
 mod writes;
 
 use std::sync::Arc;
@@ -64,6 +68,23 @@ pub(crate) async fn dispatch(
         }
         Route::GetSync | Route::UpdateSync | Route::GetChanges | Route::UpdateChanges => {
             feed_settings::handle(&node, route, &context).await
+        }
+        Route::ClusterAllocation | Route::ClusterReplicationFactor => {
+            allocation::handle(&node, route, &context).await
+        }
+        Route::ChangeAnalysis | Route::Rebalance => {
+            jobs::handle(&state, node, route, &context).await
+        }
+        Route::Get
+        | Route::Exists
+        | Route::MultiGet
+        | Route::Put
+        | Route::ListIndexes
+        | Route::Count
+        | Route::IndexStats
+        | Route::IndexPartitions => reads::handle(&state, &node, route, &context).await,
+        Route::Preflight | Route::Suggest | Route::List => {
+            queries::handle(&state, &node, route, &context).await
         }
         _ => Err(unsupported(operation_of(route))),
     }

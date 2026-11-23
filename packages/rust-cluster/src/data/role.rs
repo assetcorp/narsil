@@ -3,18 +3,21 @@ use std::sync::{Arc, Mutex};
 use narsil::Map;
 use tokio::sync::watch;
 
+use super::analysis_change::AnalysisChanges;
 use super::blocking::off_executor;
 use super::config::DataNodeConfig;
 use super::copies::LocalCopies;
 use super::device_sync::DeviceSyncView;
+use super::local_reads::LocalReads;
 use super::lost_copy::LostCopyWait;
 use super::partition_stores::{partition_stores_answer, requested_index};
 use super::queries::{QueryDeps, answer_query, answers_query};
 use super::reconcile::settle_local_indexes;
+use super::search_contexts::SearchContexts;
 use super::watcher::{AllocationWatcher, WatcherSettings};
 use super::writes::{AllocationView, PrimaryWrites, PrimaryWritesSettings};
 use crate::controller::lock;
-use crate::coordinator::etcd::EtcdCoordinator;
+use crate::coordinator::etcd::{EtcdCoordinator, WatchHandle};
 use crate::error::ClusterResult;
 use crate::memory::NodeMemory;
 use crate::message::{TransportMessage, message_types, refusal};
@@ -30,6 +33,8 @@ pub(crate) struct DataRole {
     watcher: tokio::sync::Mutex<Option<AllocationWatcher>>,
     writes: Mutex<Option<Arc<PrimaryWrites>>>,
     device_sync: tokio::sync::Mutex<Option<Arc<DeviceSyncView>>>,
+    search_contexts: Arc<SearchContexts>,
+    analysis: Mutex<Option<(Arc<AnalysisChanges>, WatchHandle)>>,
 }
 
 impl DataRole {
@@ -48,6 +53,8 @@ impl DataRole {
             watcher: tokio::sync::Mutex::new(None),
             writes: Mutex::new(None),
             device_sync: tokio::sync::Mutex::new(None),
+            search_contexts: Arc::new(SearchContexts::default()),
+            analysis: Mutex::new(None),
         }
     }
 
@@ -88,8 +95,22 @@ impl DataRole {
         memory: Option<Arc<NodeMemory>>,
     ) -> ClusterResult<()> {
         let copies = self.settled_copies()?;
+        let analysis = AnalysisChanges::new(
+            self.node_id.clone(),
+            Arc::clone(&self.coordinator),
+            Arc::clone(&copies),
+            self.on_error.clone(),
+        );
+        let analysis_watch = analysis.watch().await?;
+        if let Some((_, previous)) = lock(&self.analysis).replace((analysis, analysis_watch)) {
+            previous.stop();
+        }
         let view = Arc::new(AllocationView::new(Arc::clone(&self.coordinator)));
         if let Err(error) = view.start().await {
+            view.stop();
+            return Err(error);
+        }
+        if let Err(error) = self.search_contexts.start(&self.coordinator).await {
             view.stop();
             return Err(error);
         }
@@ -101,11 +122,7 @@ impl DataRole {
             view: Arc::clone(&view),
             on_error: self.on_error.clone(),
             log_retention_bytes: self.config.log_retention_bytes,
-            spool_directory: self
-                .config
-                .snapshot_spool_directory
-                .clone()
-                .unwrap_or_else(std::env::temp_dir),
+            spool_directory: copies.spool.path().to_path_buf(),
             memory,
         }));
         let started = AllocationWatcher::start(WatcherSettings {
@@ -174,6 +191,11 @@ impl DataRole {
                 | message_types::REPLICATION_TERM_START
                 | message_types::REPLICATION_SYNC_REQUEST
                 | message_types::SYNC_READ
+                | message_types::CLUSTER_REBUILD_ANALYSIS
+                | message_types::CLUSTER_RESHARD_START
+                | message_types::CLUSTER_RESHARD_FORWARD
+                | message_types::CLUSTER_RESHARD_CUTOVER
+                | message_types::CLUSTER_RESHARD_PURGE
         ) || answers_query(message_type)
     }
 
@@ -183,6 +205,7 @@ impl DataRole {
                 node_id: &self.node_id,
                 copies,
                 view: writes.view(),
+                contexts: Arc::clone(&self.search_contexts),
             },
             (Err(error), _) | (_, Err(error)) => {
                 return refusal(message, &self.node_id, &error);
@@ -192,6 +215,17 @@ impl DataRole {
             Ok(reply) => reply,
             Err(error) => refusal(message, &self.node_id, &error),
         }
+    }
+
+    async fn answer_rebuild_analysis(
+        &self,
+        message: &TransportMessage,
+    ) -> ClusterResult<TransportMessage> {
+        let analysis = lock(&self.analysis)
+            .as_ref()
+            .map(|(analysis, _)| Arc::clone(analysis))
+            .ok_or_else(|| not_ready(&self.node_id))?;
+        analysis.answer_rebuild(message).await
     }
 
     pub(crate) async fn answer(&self, message: TransportMessage, respond: Respond) {
@@ -231,6 +265,19 @@ impl DataRole {
                 };
                 answered.unwrap_or_else(|error| refusal(&message, &self.node_id, &error))
             }
+            message_types::CLUSTER_REBUILD_ANALYSIS => {
+                match self.answer_rebuild_analysis(&message).await {
+                    Ok(reply) => reply,
+                    Err(error) => refusal(&message, &self.node_id, &error),
+                }
+            }
+            message_types::CLUSTER_RESHARD_START
+            | message_types::CLUSTER_RESHARD_FORWARD
+            | message_types::CLUSTER_RESHARD_CUTOVER
+            | message_types::CLUSTER_RESHARD_PURGE => match self.primary_writes() {
+                Ok(writes) => writes.answer_reshard(&message).await,
+                Err(error) => refusal(&message, &self.node_id, &error),
+            },
             _ => match self.answer_partition_stores(&message).await {
                 Ok(reply) => reply,
                 Err(error) => refusal(&message, &self.node_id, &error),
@@ -245,6 +292,15 @@ impl DataRole {
             .await
             .as_ref()
             .map_or(0, AllocationWatcher::unserved_partition_count)
+    }
+
+    pub(crate) fn local_reads(&self) -> ClusterResult<Arc<LocalReads>> {
+        Ok(Arc::new(LocalReads::new(
+            self.node_id.clone(),
+            self.settled_copies()?,
+            self.primary_writes()?.view(),
+            Arc::clone(&self.search_contexts),
+        )))
     }
 
     pub(crate) fn primary_writes(&self) -> ClusterResult<Arc<PrimaryWrites>> {
@@ -270,10 +326,14 @@ impl DataRole {
     }
 
     pub(crate) async fn close(&self) {
+        if let Some((_, analysis_watch)) = lock(&self.analysis).take() {
+            analysis_watch.stop();
+        }
         let device_sync = self.device_sync.lock().await.take();
         if let Some(device_sync) = device_sync {
             device_sync.stop().await;
         }
+        self.search_contexts.stop();
         if let Some(writes) = lock(&self.writes).take() {
             writes.stop();
         }

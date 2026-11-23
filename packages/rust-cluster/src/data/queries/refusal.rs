@@ -5,8 +5,9 @@ use crate::data::writes::AllocationView;
 use crate::error::{ClusterError, ClusterResult, codes};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum ServedRead {
+pub(in crate::data) enum ServedRead {
     Query,
+    PartitionRead,
 }
 
 struct UnservedPartition {
@@ -71,7 +72,7 @@ fn read_refusal(node_id: &str, index_name: &str, unserved: &UnservedPartition) -
     .with_detail("nodeId", Value::String(node_id.to_string()))
 }
 
-pub(super) async fn refuse_unserved_read(
+pub(in crate::data) async fn refuse_unserved_read(
     view: &AllocationView,
     node_id: &str,
     index_name: &str,

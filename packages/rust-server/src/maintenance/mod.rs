@@ -16,7 +16,11 @@ use crate::http::respond::{HttpResponse, json};
 use crate::state::ServerState;
 use crate::tasks::{TaskFailure, TaskLaunch, TaskOperation, TaskOutcome};
 
+#[cfg(feature = "cluster")]
+pub(crate) use admin::target_partition_count;
 pub(crate) use admin::{change_analysis, optimize, rebalance, rebuild_analysis};
+#[cfg(feature = "cluster")]
+pub(crate) use analysis::analysis_change_of;
 pub(crate) use archives::{import_export, restore};
 pub(crate) use import_route::import_ndjson;
 pub(crate) use suggestions_build::build_query_suggestions;
