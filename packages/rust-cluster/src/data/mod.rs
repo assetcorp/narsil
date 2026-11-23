@@ -16,6 +16,7 @@ mod role;
 mod schema_check;
 mod search_contexts;
 mod snapshot_spool;
+mod spool_directory;
 mod stored_index;
 pub(crate) mod synonym_set;
 mod watcher;

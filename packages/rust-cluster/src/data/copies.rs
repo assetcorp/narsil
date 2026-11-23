@@ -5,12 +5,14 @@ use narsil::replication::{CopyPosition, PartitionCopies};
 use narsil::{ErrorCode, IndexConfig, Map, Narsil, NarsilError, Value};
 
 use super::config::DataNodeConfig;
+use super::spool_directory::SpoolDirectory;
 use crate::controller::lock;
 use crate::error::{ClusterError, ClusterResult, codes};
 
 pub(super) struct LocalCopies {
     node_id: String,
     pub(super) engine: Narsil,
+    pub(super) spool: SpoolDirectory,
     orphaned: Mutex<HashSet<String>>,
     unreadable: Mutex<HashSet<String>>,
     index_lifecycle: Mutex<()>,
@@ -38,8 +40,11 @@ impl LocalCopies {
             embedding_adapters,
             rerank_adapters,
             log_retention_bytes: _,
-            snapshot_spool_directory: _,
         } = config;
+        let durability_directory = engine
+            .durability
+            .as_ref()
+            .and_then(|durability| durability.directory.clone());
         let engine = Narsil::open_with(engine, move |engine| {
             for (name, tokenizer) in tokenizers {
                 engine.register_tokenizer(&name, tokenizer)?;
@@ -55,9 +60,17 @@ impl LocalCopies {
             }
             Ok(())
         })?;
+        let spool = match SpoolDirectory::open(durability_directory.as_deref()) {
+            Ok(spool) => spool,
+            Err(error) => {
+                let _ = engine.shutdown();
+                return Err(error);
+            }
+        };
         Ok(LocalCopies {
             node_id,
             engine,
+            spool,
             orphaned: Mutex::new(HashSet::new()),
             unreadable: Mutex::new(HashSet::new()),
             index_lifecycle: Mutex::new(()),
