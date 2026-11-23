@@ -208,7 +208,14 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
 
   const controllerTenure = createControllerTenure(() => controller, backups.start, forwardOnError)
 
-  const readBase = { config: routingConfig, nodeId, engine, resolveNodeTargets, searchContexts }
+  const readBase = {
+    config: routingConfig,
+    nodeId,
+    engine,
+    resolveNodeTargets,
+    readLiveAllocation: allocationView.readLive,
+    searchContexts,
+  }
   const readViews = createReadViews(readBase, config.coordinator, engine, forwardOnError)
   const { analysisView, readDeps } = readViews
   const servingName = (indexName: string) => servingNameOf(allocationView.routing, indexName)

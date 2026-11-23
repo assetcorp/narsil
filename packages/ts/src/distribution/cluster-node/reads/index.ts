@@ -76,6 +76,7 @@ export async function readClusterDocuments(
     allocation,
     { fields: fetchFieldsFor(projection), vectors: keepsAnyVectorField(projection, settings) },
     true,
+    deps.readLiveAllocation,
   )
   if (projection.kind === 'full') return found
   const documents = new Map<string, AnyDocument>()

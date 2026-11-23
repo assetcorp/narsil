@@ -4,6 +4,7 @@ use std::time::Instant;
 use super::constants::MAX_REPLACED_WRITE_ATTEMPTS;
 use super::hooked;
 use super::index::IndexState;
+use super::query::confined::PartitionQuery;
 use super::vectors::HeldWrite;
 use super::writes::{BatchFailure, InsertChunk, UpdateChunk};
 use super::{BatchResult, Narsil, QueryParams, QueryResult, query, writes};
@@ -354,5 +355,22 @@ impl Narsil {
         let result = run(&scoped)?;
         plugins.after(|plugin| plugin.after_search(&state.name, &scoped, &result));
         Ok(result)
+    }
+
+    /// Runs a query against the partitions of the index that `confinement` lists, the way a cluster data node
+    /// answers the partitions that a coordinator routed to it, and returns that node's share of the answer.
+    ///
+    /// The query scores against the statistics and the BM25 setting that `confinement` supplies, where it supplies
+    /// them, and it leaves every pinned document unplaced. Its coverage counts the listed partitions, and a listed
+    /// partition that the index does not hold counts as failed.
+    #[doc(hidden)]
+    pub fn query_partitions(
+        &self,
+        index: &str,
+        params: &QueryParams,
+        confinement: &PartitionQuery,
+    ) -> Result<QueryResult> {
+        self.inner.open_index(index)?;
+        query::answer_partition_query(&self.inner, index, params, confinement, Instant::now())
     }
 }

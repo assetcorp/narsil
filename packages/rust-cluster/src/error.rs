@@ -82,6 +82,14 @@ pub mod codes {
     pub const QUERY_NO_ACTIVE_REPLICA: &str = "QUERY_NO_ACTIVE_REPLICA";
     /// The node that holds the copy did not answer within the transport's deadline.
     pub const QUERY_NODE_TIMEOUT: &str = "QUERY_NODE_TIMEOUT";
+    /// The data node holds another analysis generation of the index than the query asked for.
+    pub const ANALYSIS_GENERATION_MISSING: &str = "ANALYSIS_GENERATION_MISSING";
+    /// The data node holds no search context under the id that a fetch names.
+    pub const SEARCH_CONTEXT_MISSING: &str = "SEARCH_CONTEXT_MISSING";
+    /// A query names a field that the request cannot search, sort, or return.
+    pub const SEARCH_INVALID_FIELD: &str = "SEARCH_INVALID_FIELD";
+    /// A query asks for a sort direction, sort mode, scoring mode, or search mode that no engine knows.
+    pub const SEARCH_INVALID_MODE: &str = "SEARCH_INVALID_MODE";
     /// A document or a document id breaks the rules that every Narsil engine stores documents under.
     pub const DOC_VALIDATION_FAILED: &str = "DOC_VALIDATION_FAILED";
     /// An insert names a document id that the index holds.
