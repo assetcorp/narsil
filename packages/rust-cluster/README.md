@@ -2,7 +2,7 @@
 
 `delali-narsil-cluster` connects a Rust process to a Narsil cluster that TypeScript nodes also belong to. It holds the TCP and gRPC node transports, which send the same bytes as the TypeScript transports, and the etcd coordinator, which writes the same records under the same keys. [The distribution specification](https://github.com/assetcorp/narsil/tree/main/packages/spec/distribution) defines both, and the crate's tests check each one against a TypeScript node.
 
-A `ClusterNode` joins the cluster the way a TypeScript node does. It refuses to join while the active controller follows another major specification version, waits for an earlier registration under its id to lapse, registers in etcd, and writes its registration again on every heartbeat. It answers `cluster.ping` over either transport, and it refuses with `NODE_NOT_READY` every request of a type that the specification defines and that it cannot serve yet, such as a query, so that a TypeScript peer that reaches it receives a stated refusal. Once it has joined, it sends no reply to a request whose type the specification does not define, as the specification requires, so the sender's wait for that request ends at the sender's timeout.
+A `ClusterNode` joins the cluster the way a TypeScript node does. It refuses to join while the active controller follows another major specification version, waits for an earlier registration under its id to lapse, registers in etcd, and writes its registration again on every heartbeat. It answers `cluster.ping` over either transport, and it refuses with `NODE_NOT_READY` every request that the specification defines while it has yet to join, and every partition request that it receives without the `data` role, so that a TypeScript peer that reaches it receives a stated refusal. Once it has joined, it sends no reply to a request whose type the specification does not define, as the specification requires, so the sender's wait for that request ends at the sender's timeout.
 
 ## Build requirements
 
@@ -69,11 +69,12 @@ As a data node joins, it compares the UUID of each copy that it holds with the U
 
 A node with the `controller` role stands for the controller lease against every other controller node, Rust or TypeScript, and takes the lease over once its holder stops renewing it. While it holds the lease, it places the partitions of each index on the data nodes, moves the partitions of a data node that leaves the cluster to the node's in-sync replicas, gives an unserved partition back to a returning node that holds its data, and tears down the allocation of a dropped index. It answers `replication.insync_add`, `replication.insync_remove`, `replication.primary_resign`, and `cluster.bootstrap_complete` with the same checks and the same etcd writes as a TypeScript controller. A data node that follows another major specification version receives no partition from it.
 
-The Rust controller runs none of the long jobs that a TypeScript controller runs. It refuses these requests with `CLUSTER_OPERATION_UNSUPPORTED`, which the TypeScript HTTP server answers with status 501:
+The Rust controller also runs the long jobs of a TypeScript controller, with the same etcd records:
 
 - `cluster.replication_factor`, which changes the replication factor of an index.
-- `cluster.rebalance`, which changes the partition count of an index.
-- `cluster.backup`, `cluster.backup_restore`, and `cluster.backup_delete`, which take, restore, and delete a backup.
-- `suggestions.build`, which builds the query suggestions of an index.
+- `cluster.rebalance`, which changes the partition count of an index through a reshard.
+- A change of analysis, which rebuilds the terms of every partition while the index keeps answering searches.
+- `cluster.backup`, `cluster.backup_restore`, and `cluster.backup_delete`, which take, restore, and delete a backup in the store that `ClusterNodeConfig::backups` holds.
+- `suggestions.build`, which builds the popular query suggestions of an index.
 
-It leaves every record of a job that it does not run exactly as it finds it, including a partition count change, a reshard, a change of analysis, and a backup that a TypeScript controller started. Such a job pauses while a Rust node holds the lease, and it carries on once a TypeScript controller takes the lease back. A change of analysis that a client asks for during that time waits the same way.
+When a Rust node takes the lease over, it carries on with the partition count changes, the changes of analysis, the restores, and the backup removals that the previous controller started, whether that controller was Rust or TypeScript. A backup that the previous controller was still taking ends as failed, because the files that it wrote have no manifest.
