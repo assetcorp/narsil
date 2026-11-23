@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use crate::allocator::{ACTIVE, Assignment, Table};
+use crate::data::{fnv1a, fnv1a_uint32s};
 
 pub(crate) trait ReplicaSelector: Sync {
     fn select(&self, candidates: &[String], partition_id: u32) -> String;
@@ -21,6 +22,34 @@ impl ReplicaSelector for RandomSelector {
         candidates
             .get(random_below(candidates.len()))
             .cloned()
+            .unwrap_or_default()
+    }
+}
+
+pub(crate) struct QueryKeyedSelector {
+    query_hash: u32,
+}
+
+impl QueryKeyedSelector {
+    pub(crate) fn new(binding: &str) -> QueryKeyedSelector {
+        QueryKeyedSelector {
+            query_hash: u32::from_str_radix(binding, 16).unwrap_or(0),
+        }
+    }
+}
+
+impl ReplicaSelector for QueryKeyedSelector {
+    fn select(&self, candidates: &[String], partition_id: u32) -> String {
+        let mut chosen: Option<(&String, u32)> = None;
+        for candidate in candidates {
+            let weight =
+                fnv1a_uint32s(&[self.query_hash, partition_id, fnv1a(candidate.as_bytes())]);
+            if chosen.is_none_or(|(_, highest)| weight > highest) {
+                chosen = Some((candidate, weight));
+            }
+        }
+        chosen
+            .map(|(candidate, _)| candidate.clone())
             .unwrap_or_default()
     }
 }

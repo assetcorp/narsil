@@ -41,6 +41,7 @@ impl NodeInner {
             transport: Arc::clone(&self.transport),
             view: router.view(),
             local: local_reads,
+            query: self.query,
             on_error: self.on_error.clone(),
         })
         .await;

@@ -1,11 +1,14 @@
 use std::collections::BTreeMap;
 
+use std::sync::Arc;
+
 use narsil::{
-    DocumentProjection, ListParams, Map, QueryParams, SortDirection, SortField, SuggestParams,
-    Value,
+    DocumentProjection, FacetSpec, GroupConfig, GroupReducer, ListParams, Map, Pin, QueryParams,
+    QueryResult, ScoringMode, SortDirection, SortField, SuggestParams, Value,
 };
 use narsil_cluster::coordinator::etcd::{EtcdCoordinator, EtcdCoordinatorConfig};
 use narsil_cluster::error::codes;
+use narsil_cluster::node::ClusterNode;
 
 use crate::data_node::{
     DataNode, Scratch, coordinator_at, etcd_endpoint, eventually, unique_key_prefix,
@@ -72,6 +75,208 @@ fn grinder_query(filters: Option<Value>) -> QueryParams {
         filters,
         ..QueryParams::default()
     }
+}
+
+type GroupShape = (Vec<(String, Option<Value>)>, Vec<String>, Option<Value>);
+
+fn dfs_grinder_query(limit: usize) -> QueryParams {
+    QueryParams {
+        scoring: Some(ScoringMode::Dfs),
+        limit: Some(limit),
+        ..grinder_query(None)
+    }
+}
+
+fn hit_ids(result: &QueryResult) -> Vec<String> {
+    result.hits.iter().map(|hit| hit.id.clone()).collect()
+}
+
+fn price_of(document: &Map) -> f64 {
+    match document.get("price") {
+        Some(Value::Number(price)) => *price,
+        _ => 0.0,
+    }
+}
+
+fn price_sum() -> GroupReducer {
+    GroupReducer {
+        reducer: Arc::new(|sum: Value, document: &Map, _score: f64| match sum {
+            Value::Number(sum) => Ok(Value::Number(sum + price_of(document))),
+            _ => Err("the sum is a number".to_string()),
+        }),
+        initial_value: Arc::new(|| Value::Number(0.0)),
+    }
+}
+
+async fn check_searches(node: &ClusterNode, documents: &[ShopDocument]) {
+    let mut in_id_order: Vec<String> = documents.iter().map(|doc| doc.id.clone()).collect();
+    in_id_order.sort();
+    let mut ranked = Vec::new();
+    let mut cursor = None;
+    for _ in 0..PAGE_BUDGET {
+        let page = node
+            .query(
+                INDEX,
+                &QueryParams {
+                    search_after: cursor.clone(),
+                    ..dfs_grinder_query(PAGE_SIZE)
+                },
+            )
+            .await
+            .expect("the router ranks a page across every partition");
+        assert_eq!(page.count, DOCUMENT_TOTAL as u64);
+        assert!(page.count_exact);
+        assert_eq!(page.coverage.queried_partitions, PARTITIONS as usize);
+        ranked.extend(hit_ids(&page));
+        cursor = page.cursor;
+        if ranked.len() >= DOCUMENT_TOTAL || cursor.is_none() {
+            break;
+        }
+    }
+    assert_eq!(ranked, in_id_order);
+
+    let pinned = node
+        .query(
+            INDEX,
+            &QueryParams {
+                pinned: Some(vec![Pin {
+                    doc_id: "item-5".to_string(),
+                    position: 0,
+                }]),
+                ..dfs_grinder_query(3)
+            },
+        )
+        .await
+        .expect("the router places a pin");
+    assert_eq!(hit_ids(&pinned), ["item-5", "item-0", "item-1"]);
+
+    let mut kitchen: Vec<&ShopDocument> = documents
+        .iter()
+        .filter(|document| document.category == "kitchen")
+        .collect();
+    kitchen.sort_by(|left, right| right.price.total_cmp(&left.price));
+    let kitchen_ids: Vec<String> = kitchen.iter().map(|doc| doc.id.clone()).collect();
+    let sorted = QueryParams {
+        sort: Some(vec![SortField {
+            field: "price".to_string(),
+            direction: SortDirection::Desc,
+            mode: None,
+        }]),
+        offset: Some(1),
+        document: Some(DocumentProjection::Fields {
+            include: Some(vec!["title".to_string()]),
+            exclude: None,
+            vectors: None,
+        }),
+        ..QueryParams {
+            limit: Some(3),
+            ..grinder_query(Some(kitchen_filter()))
+        }
+    };
+    let first = node
+        .query(INDEX, &sorted)
+        .await
+        .expect("the router merges sorted pages");
+    assert_eq!(hit_ids(&first), kitchen_ids[1..4]);
+    for hit in &first.hits {
+        assert_eq!(hit.score, None);
+        let title = documents
+            .iter()
+            .find(|document| document.id == hit.id)
+            .map(|document| Value::from(document.title.as_str()));
+        assert_eq!(hit.document.get("title"), title.as_ref());
+        assert_eq!(hit.document.len(), 1);
+    }
+    let next = node
+        .query(
+            INDEX,
+            &QueryParams {
+                search_after: first.cursor.clone(),
+                offset: None,
+                ..sorted
+            },
+        )
+        .await
+        .expect("the router continues a sorted search from its cursor");
+    assert_eq!(hit_ids(&next), kitchen_ids[4..7]);
+
+    let faceted = node
+        .query(
+            INDEX,
+            &QueryParams {
+                facets: Some(vec![("category".to_string(), FacetSpec::default())]),
+                ..dfs_grinder_query(1)
+            },
+        )
+        .await
+        .expect("the router merges the facet counts");
+    let facets = faceted.facets.expect("the search counts the categories");
+    let counted = &facets[0].1;
+    let workshop = (DOCUMENT_TOTAL - kitchen.len()) as u64;
+    assert_eq!(
+        counted.values,
+        [
+            ("workshop".to_string(), workshop),
+            ("kitchen".to_string(), kitchen.len() as u64)
+        ]
+    );
+    assert_eq!(counted.error_bound, 0);
+
+    let grouped = node
+        .query(
+            INDEX,
+            &QueryParams {
+                group: Some(GroupConfig {
+                    fields: vec!["category".to_string()],
+                    max_per_group: Some(2),
+                    limit: None,
+                    reduce: Some(price_sum()),
+                }),
+                ..dfs_grinder_query(DOCUMENT_TOTAL)
+            },
+        )
+        .await
+        .expect("the router merges the groups of every node");
+    let groups = grouped.groups.expect("the search groups the hits");
+    let by_id = |category: &str| -> Vec<String> {
+        let mut ids: Vec<String> = documents
+            .iter()
+            .filter(|document| document.category == category)
+            .map(|document| document.id.clone())
+            .collect();
+        ids.sort();
+        ids.truncate(2);
+        ids
+    };
+    let summed = |category: &str| -> f64 {
+        documents
+            .iter()
+            .filter(|document| document.category == category)
+            .map(|document| document.price)
+            .sum()
+    };
+    let shape: Vec<GroupShape> = groups
+        .iter()
+        .map(|group| {
+            let ids = group.hits.iter().map(|hit| hit.id.clone()).collect();
+            (group.values.clone(), ids, group.reduced.clone())
+        })
+        .collect();
+    assert_eq!(
+        shape,
+        [
+            (
+                vec![("category".to_string(), Some(Value::from("kitchen")))],
+                by_id("kitchen"),
+                Some(Value::Number(summed("kitchen")))
+            ),
+            (
+                vec![("category".to_string(), Some(Value::from("workshop")))],
+                by_id("workshop"),
+                Some(Value::Number(summed("workshop")))
+            ),
+        ]
+    );
 }
 
 fn listed_ids(result: &narsil::ListResult) -> Vec<String> {
@@ -351,6 +556,7 @@ async fn a_rust_coordinator_reads_every_partition_from_typescript_data_nodes() {
         .expect("the router counts the matches of a query");
     assert_eq!(preflight.count, kitchen.len() as u64);
     assert!(preflight.count_exact);
+    check_searches(node, &documents).await;
 
     let mut sorted = Vec::new();
     let mut cursor = None;
@@ -431,6 +637,16 @@ async fn a_rust_coordinator_reads_every_partition_from_typescript_data_nodes() {
     for refusal in refusals {
         let refusal = refusal.expect("a read that reaches the stopped holder fails");
         assert_eq!(refusal.code(), codes::QUERY_NO_ACTIVE_REPLICA, "{refusal}");
+    }
+    let partial = node
+        .query(INDEX, &dfs_grinder_query(DOCUMENT_TOTAL))
+        .await
+        .expect("a search answers from the partitions that remain");
+    assert!(partial.coverage.failed_partitions + partial.coverage.timed_out_partitions > 0);
+    assert!(!partial.count_exact);
+    for hit in &partial.hits {
+        let partition = fnv1a_partition(&hit.id, PARTITIONS);
+        assert_eq!(primaries[&partition], HOLDER_IDS[0], "{}", hit.id);
     }
 
     router.stop().await;
