@@ -59,11 +59,23 @@ pub(crate) struct ServerState {
     pub(crate) requests: RequestsInFlight,
     pub(crate) queries: QueryThreads,
     pub(crate) feeds: Feeds,
+    #[cfg(feature = "cluster")]
+    pub(crate) cluster: Option<Arc<narsil_cluster::node::ClusterNode>>,
 }
 
 impl ServerState {
     pub(crate) fn is_ready(&self) -> bool {
         self.ready.load(Ordering::Acquire)
+    }
+
+    #[cfg(feature = "cluster")]
+    pub(crate) fn fronts_cluster(&self) -> bool {
+        self.cluster.is_some()
+    }
+
+    #[cfg(not(feature = "cluster"))]
+    pub(crate) fn fronts_cluster(&self) -> bool {
+        false
     }
 }
 
