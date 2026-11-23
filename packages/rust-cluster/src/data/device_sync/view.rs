@@ -24,7 +24,7 @@ struct Reconciler {
 
 pub(crate) struct DeviceSyncView {
     coordinator: Arc<EtcdCoordinator>,
-    copies: Arc<LocalCopies>,
+    copies: Option<Arc<LocalCopies>>,
     on_error: Option<NodeErrorHandler>,
     held: Mutex<HashMap<String, HeldSyncIndex>>,
     listeners: Mutex<HashMap<u64, FeedSourceListener>>,
@@ -42,7 +42,7 @@ fn is_hidden_generation(index_name: &str) -> bool {
 impl DeviceSyncView {
     pub(in crate::data) fn new(
         coordinator: Arc<EtcdCoordinator>,
-        copies: Arc<LocalCopies>,
+        copies: Option<Arc<LocalCopies>>,
         on_error: Option<NodeErrorHandler>,
     ) -> DeviceSyncView {
         DeviceSyncView {
@@ -74,9 +74,11 @@ impl DeviceSyncView {
         index_name: &str,
         next: Option<&HeldSyncIndex>,
     ) -> ClusterResult<()> {
+        let Some(copies) = self.copies.clone() else {
+            return Ok(());
+        };
         let states = next.map(|held| held.states.clone()).unwrap_or_default();
         let serving_name = next.map_or(index_name, |held| held.serving.serving_name.as_str());
-        let copies = Arc::clone(&self.copies);
         let (name, serving) = (index_name.to_string(), serving_name.to_string());
         off_executor(move || -> ClusterResult<()> {
             let local: HashSet<String> = copies.index_names().into_iter().collect();
@@ -186,7 +188,9 @@ impl DeviceSyncView {
     }
 
     async fn names_of_served_generations(&self) -> ClusterResult<()> {
-        let copies = Arc::clone(&self.copies);
+        let Some(copies) = self.copies.clone() else {
+            return Ok(());
+        };
         let local = off_executor(move || copies.index_names()).await?;
         let mut wanted: HashSet<String> = local
             .into_iter()
@@ -220,7 +224,9 @@ impl DeviceSyncView {
     }
 
     async fn reconcile(&self) {
-        let copies = Arc::clone(&self.copies);
+        let Some(copies) = self.copies.clone() else {
+            return;
+        };
         let Ok(local) = off_executor(move || copies.index_names()).await else {
             return;
         };

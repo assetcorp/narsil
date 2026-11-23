@@ -121,9 +121,7 @@ impl ClusterNode {
                 .compare_and_set(&key, Some(&snapshot.bytes), &encoded)
                 .await?
             {
-                if let Some(data) = &self.inner.data {
-                    data.refresh_device_sync(index_name).await?;
-                }
+                self.inner.device_sync.refresh(index_name).await?;
                 return Ok(());
             }
         }

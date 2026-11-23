@@ -7,7 +7,7 @@ use narsil::{
 
 use super::admission::CHANGE_CAPTURE_READINESS;
 use super::bridge::wait_on;
-use super::feed_source::FeedParts;
+use super::feed_parts::FeedParts;
 use super::shared_source::SharedFeedSource;
 use crate::data::stored_index::stored_index;
 use crate::error::{ClusterError, ClusterResult, codes};
@@ -47,8 +47,10 @@ impl SharedFeedSource {
             return Err(changes_not_enabled(index_name));
         };
         let serving_name = held.serving.serving_name;
-        if parts.copies.index_names().contains(&serving_name) {
-            return Ok((None, read(&parts.copies.engine, &serving_name)?));
+        if let Some(copies) = &parts.copies
+            && copies.index_names().contains(&serving_name)
+        {
+            return Ok((None, read(&copies.engine, &serving_name)?));
         }
         let mut config = wait_on(
             &parts.runtime,

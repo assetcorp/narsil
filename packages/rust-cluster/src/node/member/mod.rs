@@ -16,7 +16,7 @@ use crate::backups::{BackupService, BackupServiceSettings, BackupStore};
 use crate::controller::{Controller, ControllerConfig, ControllerErrorHandler, lock};
 use crate::coordinator::NodeRegistration;
 use crate::coordinator::etcd::EtcdCoordinator;
-use crate::data::DataRole;
+use crate::data::{DataRole, DeviceSyncService};
 use crate::error::{ClusterError, ClusterResult, codes};
 use crate::memory::{NodeMemory, NodeMemorySettings};
 use crate::node::NodeErrorHandler;
@@ -49,6 +49,7 @@ pub(super) struct NodeInner {
     on_error: Option<NodeErrorHandler>,
     pub(super) controller: Option<Controller>,
     pub(super) data: Option<DataRole>,
+    pub(super) device_sync: DeviceSyncService,
     pub(super) backups: BackupService,
     pub(super) suggestions: Arc<NodeSuggestions>,
     pub(super) phase: Mutex<Phase>,
@@ -139,6 +140,12 @@ impl NodeInner {
         if let Some(controller) = &controller {
             let _ = activity.set(controller.activity());
         }
+        let device_sync = DeviceSyncService::new(
+            registration.node_id.clone(),
+            Arc::clone(&coordinator),
+            store.clone(),
+            on_error.clone(),
+        );
         let data = data.map(|settings| {
             DataRole::new(
                 registration.node_id.clone(),
@@ -159,6 +166,7 @@ impl NodeInner {
             on_error,
             controller,
             data,
+            device_sync,
             backups,
             suggestions,
             phase: Mutex::new(Phase::Idle),
@@ -314,6 +322,13 @@ impl NodeInner {
                 .await?;
         }
         self.start_routing().await?;
+        self.device_sync
+            .attach(
+                Arc::clone(&self.transport),
+                self.router()?.view(),
+                self.data.as_ref(),
+            )
+            .await?;
         self.joined.store(true, Ordering::Release);
         self.abort_if_stopping()?;
         self.suggestions.start(self).await?;
@@ -330,6 +345,7 @@ impl NodeInner {
         self.joined.store(false, Ordering::Release);
         self.backups.stop();
         self.suggestions.stop().await;
+        self.device_sync.close().await;
         if let Some(reads) = lock(&self.reads).take() {
             reads.stop();
         }

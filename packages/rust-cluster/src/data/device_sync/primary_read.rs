@@ -4,7 +4,7 @@ use narsil::{Map, SyncEntry, Value, decode_msgpack, encode_msgpack};
 
 use super::view::DeviceSyncView;
 use crate::constants::MAX_SAFE_INTEGER;
-use crate::data::writes::{PrimaryWrites, SyncReadReply, SyncReadRequest};
+use crate::data::writes::{AllocationView, PrimaryWrites, SyncReadReply, SyncReadRequest};
 use crate::error::{ClusterError, ClusterResult, codes};
 use crate::message::{TransportMessage, message_types};
 use crate::node::generate_node_id;
@@ -13,7 +13,8 @@ use crate::transport::NodeTransport;
 pub(crate) struct PrimaryReads {
     pub(crate) node_id: String,
     pub(crate) transport: Arc<dyn NodeTransport>,
-    pub(crate) writes: Arc<PrimaryWrites>,
+    pub(crate) writes: Option<Arc<PrimaryWrites>>,
+    pub(crate) routing: Arc<AllocationView>,
     pub(crate) view: Arc<DeviceSyncView>,
 }
 
@@ -106,8 +107,10 @@ impl PrimaryReads {
         index_name: &str,
         request: SyncReadRequest,
     ) -> ClusterResult<SyncReadReply> {
-        if primary == self.node_id {
-            return self.writes.answer_sync_read_request(request).await;
+        if primary == self.node_id
+            && let Some(writes) = &self.writes
+        {
+            return writes.answer_sync_read_request(request).await;
         }
         let (partition_id, after_seq_no) = (request.partition_id, request.after_seq_no);
         let mut fields = Map::with_capacity(5);
@@ -124,7 +127,7 @@ impl PrimaryReads {
             payload,
         );
         let mut last_error: Option<ClusterError> = None;
-        for target in self.writes.view().targets(primary) {
+        for target in self.routing.targets(primary) {
             let answer = match self.transport.send(&target, message.clone()).await {
                 Ok(answer) => answer,
                 Err(error) => {
@@ -170,7 +173,7 @@ impl PrimaryReads {
         let layout = held.serving;
         let mut attempt = 0;
         loop {
-            let table = self.writes.view().read(&layout.serving_name).await?;
+            let table = self.routing.read(&layout.serving_name).await?;
             let primary = table
                 .as_ref()
                 .and_then(|table| table.assignments.get(f64::from(partition_id)))
@@ -195,7 +198,7 @@ impl PrimaryReads {
             match self.ask_primary(&primary, index_name, request).await {
                 Err(error) if attempt == 0 && error.code() == codes::PARTITION_NOT_PRIMARY => {
                     attempt += 1;
-                    self.writes.view().refresh(&layout.serving_name).await?;
+                    self.routing.refresh(&layout.serving_name).await?;
                 }
                 other => return other,
             }

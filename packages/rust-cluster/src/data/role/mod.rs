@@ -10,9 +10,6 @@ use super::analysis_change::AnalysisChanges;
 use super::blocking::off_executor;
 use super::config::DataNodeConfig;
 use super::copies::LocalCopies;
-use super::device_sync::{
-    ClusterFeedSource, DeviceSnapshots, DeviceSyncView, FeedParts, PrimaryReads,
-};
 use super::local_reads::{LocalReadHandles, LocalReads};
 use super::lost_copy::LostCopyWait;
 use super::partition_stores::{partition_stores_answer, requested_index};
@@ -22,7 +19,6 @@ use super::search_contexts::SearchContexts;
 use super::watcher::{AllocationWatcher, WatcherSettings};
 use super::writes::{AllocationView, PrimaryWrites, PrimaryWritesSettings};
 use crate::backups::{BackupPrimary, BackupStore};
-use crate::constants::DEVICE_SYNC_SPOOL_DIRECTORY;
 use crate::controller::lock;
 use crate::coordinator::etcd::{EtcdCoordinator, WatchHandle};
 use crate::error::ClusterResult;
@@ -40,10 +36,7 @@ pub(crate) struct DataRole {
     watcher: tokio::sync::Mutex<Option<AllocationWatcher>>,
     writes: Mutex<Option<Arc<PrimaryWrites>>>,
     search_contexts: Arc<SearchContexts>,
-    device_sync: tokio::sync::Mutex<Option<Arc<DeviceSyncView>>>,
     analysis: Mutex<Option<(Arc<AnalysisChanges>, WatchHandle)>>,
-    feed: Arc<ClusterFeedSource>,
-    snapshots: Arc<DeviceSnapshots>,
     backups: Option<Arc<BackupPrimary>>,
 }
 
@@ -55,12 +48,6 @@ impl DataRole {
         on_error: Option<NodeErrorHandler>,
         backups: Option<BackupStore>,
     ) -> DataRole {
-        let feed: Arc<ClusterFeedSource> = Arc::default();
-        let snapshots = Arc::new(DeviceSnapshots::new(
-            Arc::clone(&feed),
-            backups.clone(),
-            on_error.clone(),
-        ));
         DataRole {
             node_id,
             coordinator,
@@ -70,10 +57,7 @@ impl DataRole {
             watcher: tokio::sync::Mutex::new(None),
             writes: Mutex::new(None),
             search_contexts: Arc::new(SearchContexts::default()),
-            device_sync: tokio::sync::Mutex::new(None),
             analysis: Mutex::new(None),
-            feed,
-            snapshots,
             backups: backups.map(|store| Arc::new(BackupPrimary::new(store))),
         }
     }
@@ -84,8 +68,6 @@ impl DataRole {
         let on_error = self.on_error.as_ref();
         match settle_local_indexes(&self.coordinator, &copies, &self.node_id, on_error).await {
             Ok(()) => {
-                self.snapshots
-                    .place_spool(copies.spool.path().join(DEVICE_SYNC_SPOOL_DIRECTORY));
                 *lock(&self.settled) = Some(copies);
                 Ok(())
             }
@@ -147,7 +129,6 @@ impl DataRole {
             spool_directory: copies.spool.path().to_path_buf(),
             memory,
         }));
-        let feed_transport = Arc::clone(&transport);
         let started = AllocationWatcher::start(WatcherSettings {
             node_id: self.node_id.clone(),
             coordinator: Arc::clone(&self.coordinator),
@@ -172,28 +153,6 @@ impl DataRole {
         if let Some(previous) = self.watcher.lock().await.replace(started) {
             previous.stop().await;
         }
-        let device_sync = Arc::new(DeviceSyncView::new(
-            Arc::clone(&self.coordinator),
-            Arc::clone(&copies),
-            self.on_error.clone(),
-        ));
-        let mut held = self.device_sync.lock().await;
-        if let Some(previous) = held.replace(Arc::clone(&device_sync)) {
-            self.feed.detach();
-            previous.stop().await;
-        }
-        device_sync.start().await?;
-        self.feed.attach(FeedParts {
-            runtime: tokio::runtime::Handle::current(),
-            reads: Arc::new(PrimaryReads {
-                node_id: self.node_id.clone(),
-                transport: feed_transport,
-                writes: Arc::clone(&writes),
-                view: device_sync,
-            }),
-            copies,
-            coordinator: Arc::clone(&self.coordinator),
-        });
         Ok(())
     }
 
@@ -323,12 +282,6 @@ impl DataRole {
 
     pub(crate) async fn close(&self) {
         self.search_contexts.stop();
-        self.feed.detach();
-        self.snapshots.close().await;
-        let device_sync = self.device_sync.lock().await.take();
-        if let Some(device_sync) = device_sync {
-            device_sync.stop().await;
-        }
         if let Some((_, analysis_watch)) = lock(&self.analysis).take() {
             analysis_watch.stop();
         }
