@@ -33,14 +33,17 @@ impl ClusterNode {
         params: &QueryParams,
     ) -> ClusterResult<QueryResult> {
         let reads = self.inner.reads()?;
-        read_following_the_name(
-            &reads,
-            index_name,
-            |serving| {
-                let reads = &reads;
-                async move { query_cluster(reads, &serving, params, index_name).await }
-            },
-            Some(left_out_a_partition),
+        self.track(
+            Some(index_name),
+            read_following_the_name(
+                &reads,
+                index_name,
+                |serving| {
+                    let reads = &reads;
+                    async move { query_cluster(reads, &serving, params, index_name).await }
+                },
+                Some(left_out_a_partition),
+            ),
         )
         .await
     }
@@ -63,14 +66,17 @@ impl ClusterNode {
         params: &QueryParams,
     ) -> ClusterResult<PreflightResult> {
         let reads = self.inner.reads()?;
-        read_following_the_name(
-            &reads,
-            index_name,
-            |serving| {
-                let reads = &reads;
-                async move { preflight_cluster(reads, &serving, params, index_name).await }
-            },
-            None,
+        self.track(
+            Some(index_name),
+            read_following_the_name(
+                &reads,
+                index_name,
+                |serving| {
+                    let reads = &reads;
+                    async move { preflight_cluster(reads, &serving, params, index_name).await }
+                },
+                None,
+            ),
         )
         .await
     }

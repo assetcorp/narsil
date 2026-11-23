@@ -90,6 +90,10 @@ impl ClusterNode {
     ///
     /// Fails with the coordinator's error where etcd cannot be read.
     pub async fn allocation(&self, index_name: &str) -> ClusterResult<Option<AllocationTable>> {
+        self.track(None, self.served_allocation(index_name)).await
+    }
+
+    async fn served_allocation(&self, index_name: &str) -> ClusterResult<Option<AllocationTable>> {
         let coordinator = self.inner.coordinator();
         let Some(table) = coordinator.allocation(index_name).await? else {
             return Ok(None);
@@ -115,6 +119,18 @@ impl ClusterNode {
     /// where no node holds the controller lease, with `QUERY_NO_ACTIVE_REPLICA` or `QUERY_NODE_TIMEOUT` where the
     /// controller cannot be reached, and with the controller's refusal otherwise, such as `INDEX_NOT_FOUND`.
     pub async fn set_replication_factor(
+        &self,
+        index_name: &str,
+        replication_factor: f64,
+    ) -> ClusterResult<()> {
+        self.track(
+            None,
+            self.request_replication_factor(index_name, replication_factor),
+        )
+        .await
+    }
+
+    async fn request_replication_factor(
         &self,
         index_name: &str,
         replication_factor: f64,

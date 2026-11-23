@@ -167,6 +167,18 @@ impl ClusterNode {
     /// changing through five attempts.
     pub async fn update_sync(&self, index_name: &str, setting: &SyncSetting) -> ClusterResult<()> {
         refuse_hidden_generation(index_name)?;
+        self.track(
+            Some(index_name),
+            self.update_cluster_sync(index_name, setting),
+        )
+        .await
+    }
+
+    async fn update_cluster_sync(
+        &self,
+        index_name: &str,
+        setting: &SyncSetting,
+    ) -> ClusterResult<()> {
         require_limit("sync", "historyMaxAgeMs", setting.history_max_age_ms)?;
         require_limit("sync", "historyMaxBytes", setting.history_max_bytes)?;
         if setting.enabled {
@@ -223,9 +235,12 @@ impl ClusterNode {
     /// cluster holds no such index.
     pub async fn get_sync(&self, index_name: &str) -> ClusterResult<SyncStatus> {
         refuse_hidden_generation(index_name)?;
-        Ok(sync_status_of(
-            &self.metadata_snapshot(index_name).await?.settings,
-        ))
+        self.track(Some(index_name), async {
+            Ok(sync_status_of(
+                &self.metadata_snapshot(index_name).await?.settings,
+            ))
+        })
+        .await
     }
 
     /// Turns change capture on or off for a cluster index, or changes its settings, by replacing the change
@@ -242,6 +257,18 @@ impl ClusterNode {
         setting: &ChangesSetting,
     ) -> ClusterResult<()> {
         refuse_hidden_generation(index_name)?;
+        self.track(
+            Some(index_name),
+            self.update_cluster_changes(index_name, setting),
+        )
+        .await
+    }
+
+    async fn update_cluster_changes(
+        &self,
+        index_name: &str,
+        setting: &ChangesSetting,
+    ) -> ClusterResult<()> {
         require_limit("changes", "historyMaxAgeMs", setting.history_max_age_ms)?;
         require_limit("changes", "historyMaxBytes", setting.history_max_bytes)?;
         if setting.enabled {
@@ -286,8 +313,11 @@ impl ClusterNode {
     /// Fails as [`ClusterNode::get_sync`] does.
     pub async fn get_changes(&self, index_name: &str) -> ClusterResult<ChangesStatus> {
         refuse_hidden_generation(index_name)?;
-        Ok(changes_status_of(
-            &self.metadata_snapshot(index_name).await?.settings,
-        ))
+        self.track(Some(index_name), async {
+            Ok(changes_status_of(
+                &self.metadata_snapshot(index_name).await?.settings,
+            ))
+        })
+        .await
     }
 }
