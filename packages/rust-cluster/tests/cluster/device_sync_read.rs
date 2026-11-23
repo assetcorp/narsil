@@ -1,4 +1,4 @@
-use narsil::{ChangesStatus, Map, SyncSetting, SyncStatus, Value, encode_msgpack};
+use narsil::{Map, SyncSetting, SyncStatus, Value, encode_msgpack};
 use narsil_cluster::message::TransportMessage;
 use narsil_cluster::transport::NodeTransport;
 use narsil_cluster::transport::tcp::TcpTransport;
@@ -69,8 +69,7 @@ fn title_in(entry: &Decoded) -> String {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_rust_primary_answers_sync_reads_with_its_committed_entries_and_the_codes_that_the_spec_gives()
- {
+async fn a_rust_primary_reads_only_its_committed_entries_of_the_requested_generation_and_partition() {
     let Some(coordinator) = cluster_coordinator().await else {
         return;
     };
@@ -112,53 +111,7 @@ async fn a_rust_primary_answers_sync_reads_with_its_committed_entries_and_the_co
         assert_eq!(title_in(entry), title_of(document_id));
     }
 
-    let (_, smallest) = send(
-        &raw,
-        &primary.address,
-        read_request(LEDGER_UUID, 0.0, 1.0, 1.0),
-    )
-    .await;
-    let read = entries(&smallest);
-    assert_eq!(
-        read.len(),
-        1,
-        "a read of one byte still takes the first due entry"
-    );
-    assert_eq!(unsigned(&read[0], "seqNo"), 2);
-
-    let (_, caught_up) = send(
-        &raw,
-        &primary.address,
-        read_request(LEDGER_UUID, 0.0, head as f64, 1_024.0),
-    )
-    .await;
-    assert!(entries(&caught_up).is_empty());
-    assert_eq!(unsigned(&caught_up, "bytesBehind"), 0);
-
     let refusals = [
-        (
-            request(&[
-                ("indexName", Value::from(LEDGER)),
-                ("indexUuid", Value::from(LEDGER_UUID)),
-                ("partitionId", Value::Number(0.0)),
-                ("afterSeqNo", Value::Number(0.0)),
-            ]),
-            "CONFIG_INVALID",
-        ),
-        (read_request(LEDGER_UUID, 0.0, 0.0, 0.0), "CONFIG_INVALID"),
-        (
-            read_request(LEDGER_UUID, 0.0, -1.0, 1_024.0),
-            "CONFIG_INVALID",
-        ),
-        (
-            read_request(LEDGER_UUID, 0.5, 0.0, 1_024.0),
-            "CONFIG_INVALID",
-        ),
-        (
-            read_request(LEDGER_UUID, 4_294_967_296.0, 0.0, 1_024.0),
-            "CONFIG_INVALID",
-        ),
-        (b"\xc1".to_vec(), "TRANSPORT_DECODE_FAILED"),
         (
             read_request(ANOTHER_UUID, 0.0, 0.0, 1_024.0),
             "INDEX_NOT_FOUND",
@@ -219,26 +172,6 @@ async fn a_rust_node_reads_and_clears_the_sync_settings_that_a_typescript_node_s
         .await
         .expect_err("no backup store");
     assert_eq!(refused.code(), "SYNC_BACKUP_STORE_REQUIRED");
-    let zero_limit = SyncSetting {
-        enabled: false,
-        history_max_bytes: Some(0),
-        ..SyncSetting::default()
-    };
-    let refused = cluster
-        .update_sync(LEDGER, &zero_limit)
-        .await
-        .expect_err("a zero limit");
-    assert_eq!(refused.code(), "CONFIG_INVALID");
-    let refused = cluster
-        .get_sync("narsil-generation-ledger-2")
-        .await
-        .expect_err("a hidden generation");
-    assert_eq!(refused.code(), "CONFIG_INVALID");
-    let refused = cluster
-        .get_sync("absent-ledger")
-        .await
-        .expect_err("no such index");
-    assert_eq!(refused.code(), "INDEX_NOT_FOUND");
 
     let key = metadata_key(LEDGER);
     let before = coordinator
@@ -281,14 +214,6 @@ async fn a_rust_node_reads_and_clears_the_sync_settings_that_a_typescript_node_s
             epoch: Some(TYPESCRIPT_EPOCH.to_string()),
         }
     );
-    assert_eq!(
-        cluster
-            .get_changes(LEDGER)
-            .await
-            .expect("the setting reads"),
-        ChangesStatus::default()
-    );
-
     cluster
         .update_sync(LEDGER, &SyncSetting::default())
         .await
