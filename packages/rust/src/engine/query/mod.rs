@@ -25,7 +25,7 @@ pub(crate) mod preflight;
 pub(crate) mod projected;
 pub(crate) mod projection;
 mod ranked;
-mod rerank;
+pub(crate) mod rerank;
 pub(crate) mod results;
 mod scope;
 mod scored;
