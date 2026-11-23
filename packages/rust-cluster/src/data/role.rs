@@ -194,7 +194,11 @@ impl DataRole {
     }
 
     pub(crate) fn local_reads(&self) -> ClusterResult<Arc<LocalReads>> {
-        Ok(Arc::new(LocalReads::new(self.settled_copies()?)))
+        Ok(Arc::new(LocalReads::new(
+            self.node_id.clone(),
+            self.settled_copies()?,
+            self.primary_writes()?.view(),
+        )))
     }
 
     pub(crate) fn primary_writes(&self) -> ClusterResult<Arc<PrimaryWrites>> {

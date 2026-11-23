@@ -10,7 +10,7 @@ pub(crate) mod facets;
 mod fulltext;
 mod fusion;
 mod gather;
-mod grouping;
+pub(crate) mod grouping;
 mod groups;
 mod highlight;
 mod hybrid;

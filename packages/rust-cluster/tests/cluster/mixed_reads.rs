@@ -1,6 +1,9 @@
 use std::collections::BTreeMap;
 
-use narsil::{DocumentProjection, ListParams, Map, SortDirection, SortField, SuggestParams, Value};
+use narsil::{
+    DocumentProjection, ListParams, Map, QueryParams, SortDirection, SortField, SuggestParams,
+    Value,
+};
 use narsil_cluster::coordinator::etcd::{EtcdCoordinator, EtcdCoordinatorConfig};
 use narsil_cluster::error::codes;
 
@@ -61,6 +64,14 @@ fn kitchen_filter() -> Value {
     let category = fields([("eq", Value::from("kitchen"))]);
     let tested = fields([("category", Value::Object(category))]);
     Value::Object(fields([("fields", Value::Object(tested))]))
+}
+
+fn grinder_query(filters: Option<Value>) -> QueryParams {
+    QueryParams {
+        term: Some("grinder".to_string()),
+        filters,
+        ..QueryParams::default()
+    }
 }
 
 fn listed_ids(result: &narsil::ListResult) -> Vec<String> {
@@ -334,6 +345,13 @@ async fn a_rust_coordinator_reads_every_partition_from_typescript_data_nodes() {
         );
     }
 
+    let preflight = node
+        .preflight(INDEX, &grinder_query(Some(kitchen_filter())))
+        .await
+        .expect("the router counts the matches of a query");
+    assert_eq!(preflight.count, kitchen.len() as u64);
+    assert!(preflight.count_exact);
+
     let mut sorted = Vec::new();
     let mut cursor = None;
     let ascending = [SortField {
@@ -408,6 +426,7 @@ async fn a_rust_coordinator_reads_every_partition_from_typescript_data_nodes() {
         .await
         .err(),
         node.get(INDEX, &stranded.id).await.err(),
+        node.preflight(INDEX, &grinder_query(None)).await.err(),
     ];
     for refusal in refusals {
         let refusal = refusal.expect("a read that reaches the stopped holder fails");

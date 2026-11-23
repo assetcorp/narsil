@@ -7,7 +7,7 @@ use super::ReadDeps;
 use super::routable_allocation::live_allocation_once;
 use crate::allocator::Table;
 use crate::constants::FETCH_GROUP_DOCUMENT_IDS;
-use crate::data::routed_partition;
+use crate::data::{LocalReads, routed_partition};
 use crate::error::{ClusterError, ClusterResult, codes};
 use crate::message::{CARRIER_ERROR_TYPE, ERROR_TYPE_SUFFIX, TransportMessage, message_types};
 use crate::node::generate_node_id;
@@ -73,6 +73,12 @@ pub(crate) async fn send_to_node(
     message: &TransportMessage,
     failure: &SendFailureContext,
 ) -> ClusterResult<TransportMessage> {
+    if target_node_id == deps.node_id
+        && LocalReads::answers(&message.message_type)
+        && let Some(local) = &deps.local
+    {
+        return Ok(local.answer(message).await);
+    }
     let mut last_error = None;
     for target in deps.view.targets(target_node_id) {
         match deps.transport.send(&target, message.clone()).await {
