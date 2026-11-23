@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -112,5 +113,26 @@ impl Inner {
             "attempts",
             Value::Number((TEARDOWN_CAS_ATTEMPTS * TEARDOWN_RETRY_ROUNDS) as f64),
         ))
+    }
+
+    pub(super) async fn tear_down_dropped_allocations(self: &Arc<Self>) -> ClusterResult<()> {
+        let allocated = self.coordinator().list_allocations().await?;
+        if allocated.is_empty() {
+            return Ok(());
+        }
+        let published: HashSet<String> = self
+            .coordinator()
+            .list_schemas()
+            .await?
+            .into_iter()
+            .collect();
+        for index_name in allocated {
+            if published.contains(&index_name) || !self.is_active() {
+                continue;
+            }
+            let task = Arc::clone(self).tear_down_task(index_name.clone(), 0);
+            self.schema_queues.enqueue(&index_name, task);
+        }
+        Ok(())
     }
 }

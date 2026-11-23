@@ -83,6 +83,12 @@ impl Inner {
             lock(&self.state).listening = true;
         }
         self.schedule_allocation(ALLOCATION_DEBOUNCE_MS);
+        let inner = Arc::clone(self);
+        tokio::spawn(async move {
+            if let Err(error) = inner.tear_down_dropped_allocations().await {
+                inner.report("", &error);
+            }
+        });
         Ok(())
     }
 }
