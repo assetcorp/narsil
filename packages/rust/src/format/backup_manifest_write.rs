@@ -1,13 +1,37 @@
-use super::backup_manifest::{BACKUP_MANIFEST_ENVELOPE_VERSION, BackupManifest, StoredFile};
+use super::backup_manifest::{
+    BACKUP_MANIFEST_ENVELOPE_VERSION, BackupManifest, BackupPartition, StoredFile,
+};
 use crate::error::Result;
 use crate::format::envelope::{Compression, pack};
 use crate::value::{Map, Value, encode_value};
 
-fn stored_file_wire(file: &StoredFile) -> Value {
+/// Returns `file` as a backup manifest holds it.
+pub fn stored_file_wire(file: &StoredFile) -> Value {
     let mut map = Map::new();
     map.insert("sha256", Value::String(file.sha256.clone()));
     map.insert("bytes", Value::Number(file.bytes as f64));
     Value::Object(map)
+}
+
+/// Returns `partition` as a backup manifest holds it.
+pub fn backup_partition_wire(partition: &BackupPartition) -> Value {
+    let mut entry = Map::new();
+    entry.insert("partitionId", Value::Number(partition.partition_id as f64));
+    entry.insert("lastSeqNo", Value::Number(partition.last_seq_no));
+    entry.insert("manifest", stored_file_wire(&partition.manifest));
+    let files = partition
+        .files
+        .iter()
+        .map(|listed| {
+            let mut file = Map::new();
+            file.insert("key", Value::String(listed.key.clone()));
+            file.insert("sha256", Value::String(listed.file.sha256.clone()));
+            file.insert("bytes", Value::Number(listed.file.bytes as f64));
+            Value::Object(file)
+        })
+        .collect();
+    entry.insert("files", Value::Array(files));
+    Value::Object(entry)
 }
 
 pub(crate) fn backup_manifest_to_wire(manifest: &BackupManifest) -> Value {
@@ -58,25 +82,7 @@ pub(crate) fn backup_manifest_to_wire(manifest: &BackupManifest) -> Value {
     let partitions = manifest
         .partitions
         .iter()
-        .map(|partition| {
-            let mut entry = Map::new();
-            entry.insert("partitionId", Value::Number(partition.partition_id as f64));
-            entry.insert("lastSeqNo", Value::Number(partition.last_seq_no));
-            entry.insert("manifest", stored_file_wire(&partition.manifest));
-            let files = partition
-                .files
-                .iter()
-                .map(|listed| {
-                    let mut file = Map::new();
-                    file.insert("key", Value::String(listed.key.clone()));
-                    file.insert("sha256", Value::String(listed.file.sha256.clone()));
-                    file.insert("bytes", Value::Number(listed.file.bytes as f64));
-                    Value::Object(file)
-                })
-                .collect();
-            entry.insert("files", Value::Array(files));
-            Value::Object(entry)
-        })
+        .map(backup_partition_wire)
         .collect();
     map.insert("partitions", Value::Array(partitions));
     Value::Object(map)

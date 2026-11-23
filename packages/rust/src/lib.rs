@@ -27,8 +27,9 @@ pub mod replication {
     };
     pub use crate::format::backup_manifest::{
         BackupConstraints, BackupManifest, BackupPartition, ListedFile, StoredFile,
-        decode_backup_manifest, encode_backup_manifest,
+        backup_partition, decode_backup_manifest, encode_backup_manifest, stored_file,
     };
+    pub use crate::format::backup_manifest_write::{backup_partition_wire, stored_file_wire};
 }
 mod schema;
 mod search;
