@@ -147,6 +147,16 @@ impl UnknownBm25Key {
             provoked,
         )
     }
+
+    #[cfg(feature = "cluster")]
+    pub(crate) fn into_parts(self) -> (Bm25Params, ServerError) {
+        (self.sentinel, self.failure)
+    }
+}
+
+#[cfg(feature = "cluster")]
+pub(crate) fn provoked_refusal(raised: &ServerError) -> bool {
+    raised.code == ErrorCode::CONFIG_INVALID.as_str() && raised.message.ends_with(PROVOKED_SUFFIX)
 }
 
 pub(crate) fn unknown_bm25_key(raw: &Map, params: &Bm25Params) -> Option<UnknownBm25Key> {

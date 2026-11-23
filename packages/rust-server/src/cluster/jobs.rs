@@ -16,6 +16,11 @@ fn failed(error: narsil_cluster::error::ClusterError) -> TaskFailure {
     TaskFailure::Coded(served_error(error))
 }
 
+async fn require_index(node: &ClusterNode, index: &str) -> Outcome<()> {
+    node.get_stats(index).await.map_err(served_error)?;
+    Ok(())
+}
+
 async fn change_analysis(
     state: &ServerState,
     node: Arc<ClusterNode>,
@@ -23,6 +28,7 @@ async fn change_analysis(
 ) -> Outcome<HttpResponse> {
     let change = analysis_change_of(&optional_json_body(context)?)?;
     let index = context.param(0).to_string();
+    require_index(&node, &index).await?;
     let named = index.clone();
     let operation: TaskOperation = Box::new(move |_context| {
         Box::pin(async move { node.change_analysis(&named, &change).await.map_err(failed) })
@@ -38,6 +44,7 @@ async fn rebalance(
     let target = target_partition_count(&optional_json_body(context)?)?;
     let target = u64::try_from(target).unwrap_or(u64::MAX);
     let index = context.param(0).to_string();
+    require_index(&node, &index).await?;
     let named = index.clone();
     let operation: TaskOperation = Box::new(move |_context| {
         Box::pin(async move { node.rebalance(&named, target).await.map_err(failed) })

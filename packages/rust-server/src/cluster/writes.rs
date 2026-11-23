@@ -16,7 +16,7 @@ use crate::state::ServerState;
 
 const WAIT_OPERATION: &str = "wait";
 
-fn refuse_wait(body: &Value) -> Outcome<()> {
+pub(super) fn refuse_wait(body: &Value) -> Outcome<()> {
     let waits = field(body, "options")
         .and_then(|options| field(options, "wait"))
         .is_some_and(|wait| *wait == Value::Bool(true));
