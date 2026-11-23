@@ -11,6 +11,10 @@ mod readiness;
 mod started_at;
 mod writes;
 
+pub use crate::backups::{
+    BackupListing, BackupProgress, BackupProgressHandler, BackupSummary, ClusterBackupConfig,
+    CreateBackupOptions, DamagedBackup, RestoreBackupOptions, RestoreConstraints,
+};
 pub use crate::data::DataNodeConfig;
 pub(crate) use config::report_failure;
 pub use config::{ClusterNodeConfig, ControllerTiming, NodeErrorHandler};

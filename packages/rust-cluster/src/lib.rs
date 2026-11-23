@@ -1,6 +1,7 @@
 #![doc = include_str!("../README.md")]
 
 mod allocator;
+mod backups;
 mod constants;
 mod controller;
 pub mod coordinator;
