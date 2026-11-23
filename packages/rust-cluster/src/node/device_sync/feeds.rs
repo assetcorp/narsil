@@ -3,17 +3,14 @@ use std::sync::Arc;
 use narsil::{ChangeFeed, ChangeSource, ChangesRequest};
 
 use super::{ClusterNode, refuse_hidden_generation};
-use crate::data::{CHANGE_CAPTURE_READINESS, SharedFeedSource};
+use crate::data::CHANGE_CAPTURE_READINESS;
 use crate::error::{ClusterError, ClusterResult, codes};
 
 impl ClusterNode {
     /// Returns the source that a server reads for the device feed and the change feed of a cluster index: it reads
     /// each partition from the node that leads it, and it reports each advance and each setting change of the index.
     pub fn feed_source(&self) -> Arc<dyn ChangeSource> {
-        match &self.inner.data {
-            Some(data) => data.feed_source(),
-            None => Arc::new(SharedFeedSource(Arc::default(), None)),
-        }
+        self.inner.device_sync.feed_source()
     }
 
     /// Returns the changes of a cluster index above the request's positions, and then each later change that the

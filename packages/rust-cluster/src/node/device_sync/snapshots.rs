@@ -8,9 +8,8 @@ use super::settings::{next_active_settings, require_sync_on};
 use super::{ClusterNode, refuse_hidden_generation};
 use crate::backups::{CHANGES_BACKUP_TAKER, SYNC_BACKUP_TAKER};
 use crate::constants::{CHANGES_EXPORT_RETRY_AFTER_MS, DEVICE_SYNC_SNAPSHOT_RETRY_AFTER_MS};
-use crate::data::{DataRole, SpooledArchive};
+use crate::data::SpooledArchive;
 use crate::error::{ClusterError, ClusterResult, codes};
-use crate::node::not_ready;
 
 /// The first copy of a cluster index that a device downloads, laid out as a snapshot archive from the newest backup
 /// that the index's sync history still covers.
@@ -88,13 +87,6 @@ fn export_unsupported(index_name: &str) -> ClusterError {
 }
 
 impl ClusterNode {
-    fn snapshot_data_role(&self) -> ClusterResult<&DataRole> {
-        self.inner
-            .data
-            .as_ref()
-            .ok_or_else(|| not_ready(self.node_id()))
-    }
-
     async fn mark_sync_active(&self, index_name: &str) -> ClusterResult<()> {
         self.replace_sync_fields(
             index_name,
@@ -117,8 +109,7 @@ impl ClusterNode {
     /// node has no backup store, with `SYNC_SNAPSHOT_PREPARING` while the backup is taken, and with `BACKUP_DAMAGED`
     /// where a stored file fails its check.
     pub async fn sync_snapshot(&self, index_name: &str) -> ClusterResult<ClusterSyncSnapshot> {
-        let data = self.snapshot_data_role()?;
-        let view = data.device_sync_view().await?;
+        let view = self.inner.device_sync.view().await?;
         let mut held = view.current(index_name).await?;
         let Some(state) = held.as_ref().and_then(|held| held.states.sync.clone()) else {
             return Err(sync_off(index_name));
@@ -137,7 +128,7 @@ impl ClusterNode {
             )
             .with_detail("indexName", Value::from(index_name)));
         };
-        let snapshots = data.device_snapshots();
+        let snapshots = self.inner.device_sync.snapshots();
         let partition_count = held.serving.partition_count;
         let qualifying = snapshots
             .qualifying(store, index_name, partition_count, &state.epoch)
@@ -174,8 +165,7 @@ impl ClusterNode {
     /// its check.
     pub async fn export_documents(&self, index_name: &str) -> ClusterResult<ClusterDocumentExport> {
         refuse_hidden_generation(index_name)?;
-        let data = self.snapshot_data_role()?;
-        let view = data.device_sync_view().await?;
+        let view = self.inner.device_sync.view().await?;
         let held = view.current(index_name).await?;
         let Some((held, state)) = held.and_then(|held| {
             let state = held.states.changes.clone()?;
@@ -190,7 +180,7 @@ impl ClusterNode {
             )
             .with_detail("indexName", Value::from(index_name)));
         };
-        let snapshots = data.device_snapshots();
+        let snapshots = self.inner.device_sync.snapshots();
         let partition_count = held.serving.partition_count;
         let qualifying = snapshots
             .qualifying(store, index_name, partition_count, &state.epoch)

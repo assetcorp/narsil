@@ -4,30 +4,22 @@ use std::time::{Duration, Instant};
 
 use narsil::{
     BoundsFreshness, ChangePosition, FeedSourceChange, FeedSourceListener, FeedSubscription,
-    ListenerId, NarsilEvent, NarsilEventKind, SyncBounds, SyncCursor, SyncFeedState, SyncRead,
+    ListenerId, SyncBounds, SyncCursor, SyncFeedState, SyncRead,
 };
 use tokio::runtime::Handle;
 use tokio::task::JoinHandle;
 
 use super::bridge::wait_on;
+use super::feed_parts::FeedParts;
 use super::held::HeldSyncIndex;
 use super::primary_read::PrimaryReads;
 use crate::constants::{DEVICE_SYNC_BOUNDS_REUSE_MS, DEVICE_SYNC_HEAD_POLL_MS, MAX_SAFE_INTEGER};
 use crate::controller::lock;
-use crate::coordinator::etcd::EtcdCoordinator;
-use crate::data::copies::LocalCopies;
 use crate::error::ClusterResult;
 
 const NO_ENTRIES_AFTER: u64 = MAX_SAFE_INTEGER;
 const BOUNDS_READ_BYTES: u32 = 1;
 const MAX_READ_BYTES: usize = u32::MAX as usize;
-
-pub(in crate::data) struct FeedParts {
-    pub(in crate::data) runtime: Handle,
-    pub(in crate::data) reads: Arc<PrimaryReads>,
-    pub(in crate::data) copies: Arc<LocalCopies>,
-    pub(in crate::data) coordinator: Arc<EtcdCoordinator>,
-}
 
 #[derive(Default)]
 struct FeedState {
@@ -66,7 +58,7 @@ impl ClusterFeedSource {
             poll.abort();
         }
         if let (Some(parts), Some(id)) = (parts, state.local_writes.take()) {
-            parts.copies.engine.off(id);
+            parts.stop_listening(id);
         }
         state.reused_bounds.clear();
         state.last_heads.clear();
@@ -76,7 +68,7 @@ impl ClusterFeedSource {
         lock(&self.parts).clone().ok_or_else(|| {
             narsil::NarsilError::new(
                 narsil::ErrorCode::INSTANCE_SHUT_DOWN,
-                "The cluster node serves no feed until its data role starts",
+                "The cluster node serves no feed until it joins the cluster",
             )
         })
     }
@@ -234,16 +226,11 @@ impl ClusterFeedSource {
             state.listeners.insert(id, Arc::clone(&listener));
             if state.local_writes.is_none() {
                 let source = Arc::downgrade(self);
-                state.local_writes = Some(parts.copies.engine.on(
-                    NarsilEventKind::Write,
-                    move |event| {
-                        if let (Some(source), NarsilEvent::Write { index_name }) =
-                            (source.upgrade(), event)
-                        {
-                            source.on_local_write(index_name);
-                        }
-                    },
-                ));
+                state.local_writes = parts.listen_to_local_writes(move |index_name| {
+                    if let Some(source) = source.upgrade() {
+                        source.on_local_write(index_name);
+                    }
+                });
             }
             id
         };
@@ -261,7 +248,7 @@ impl ClusterFeedSource {
             {
                 drop(state);
                 if let Ok(parts) = source.parts() {
-                    parts.copies.engine.off(local);
+                    parts.stop_listening(local);
                 }
             }
         })
