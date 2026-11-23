@@ -1,19 +1,18 @@
 use std::time::Duration;
 
-use narsil::{Map, Value, decode_msgpack, encode_msgpack};
+use narsil::{Map, Value};
 
 use super::handle::ClusterNode;
-use super::identity::generate_node_id;
 use super::member::node_error;
 use crate::constants::{
     CONTROLLER_LEASE_KEY, HIDDEN_GENERATION_PREFIX, MAX_PARTITION_COUNT,
     RESHARD_CONTROLLER_POLL_INTERVAL_MS,
 };
-use crate::controller::rebalance_record_key;
 use crate::error::{ClusterError, ClusterResult, codes};
-use crate::message::{TransportMessage, message_types};
-
-const ERROR_MESSAGE_SUFFIX: &str = ".error";
+use crate::message::message_types;
+use crate::rebalance::{
+    RebalanceExchange, exchange_rebalance_message, is_hidden_generation, read_rebalance_record,
+};
 
 struct RebalanceJob {
     job_id: String,
@@ -21,7 +20,7 @@ struct RebalanceJob {
 }
 
 pub(super) fn refuse_hidden_generation(index_name: &str) -> ClusterResult<()> {
-    if !index_name.starts_with(HIDDEN_GENERATION_PREFIX) {
+    if !is_hidden_generation(index_name) {
         return Ok(());
     }
     Err(ClusterError::new(
@@ -31,45 +30,6 @@ pub(super) fn refuse_hidden_generation(index_name: &str) -> ClusterResult<()> {
         ),
     )
     .with_detail("indexName", Value::from(index_name)))
-}
-
-fn remote_details(reply: &Map) -> Map {
-    match reply.get("details") {
-        Some(Value::Object(details)) => details.clone(),
-        _ => Map::new(),
-    }
-}
-
-fn decode_rebalance_reply(
-    response: &TransportMessage,
-    failure_message: &str,
-    details: &Map,
-) -> ClusterResult<Map> {
-    let with_details = |mut error: ClusterError, extra: &Map| {
-        for (key, value) in extra.iter() {
-            error = error.with_detail(key, value.clone());
-        }
-        error
-    };
-    let Ok(Value::Object(reply)) = decode_msgpack(&response.payload) else {
-        let error = ClusterError::new(
-            codes::ALLOCATION_FAILED,
-            format!("{failure_message}: the answer was unreadable"),
-        );
-        return Err(with_details(error, details));
-    };
-    let refused = response.message_type.ends_with(ERROR_MESSAGE_SUFFIX)
-        || matches!(reply.get("error"), Some(Value::Bool(true)));
-    if !refused {
-        return Ok(reply);
-    }
-    let text = |key: &str| reply.get(key).and_then(Value::as_str);
-    let error = ClusterError::new(
-        text("code").unwrap_or(codes::ALLOCATION_FAILED),
-        text("message").unwrap_or(failure_message),
-    );
-    let error = with_details(error, &remote_details(&reply));
-    Err(with_details(error, details))
 }
 
 impl ClusterNode {
@@ -85,7 +45,10 @@ impl ClusterNode {
         ))
     }
 
-    async fn resolve_node_targets(&self, target_node_id: &str) -> ClusterResult<Vec<String>> {
+    pub(super) async fn resolve_node_targets(
+        &self,
+        target_node_id: &str,
+    ) -> ClusterResult<Vec<String>> {
         let nodes = self.inner.coordinator().list_nodes().await?;
         let address = nodes
             .iter()
@@ -138,52 +101,36 @@ impl ClusterNode {
             "targetPartitionCount",
             Value::Number(target_partition_count as f64),
         );
-        let message = TransportMessage::new(
-            message_types::CLUSTER_REBALANCE,
-            self.node_id(),
-            generate_node_id()?,
-            encode_msgpack(&Value::Object(payload)).map_err(ClusterError::from)?,
-        );
-        let failure_message = format!(
-            "The controller '{controller_node_id}' did not answer a partition count change"
-        );
         let mut details = Map::with_capacity(2);
         details.insert("indexName", Value::from(index_name));
         details.insert("controllerNodeId", Value::from(controller_node_id.as_str()));
-        let mut last_error = ClusterError::new(codes::QUERY_NO_ACTIVE_REPLICA, &failure_message);
-        for target in self.resolve_node_targets(&controller_node_id).await? {
-            match self.inner.transport().send(&target, message.clone()).await {
-                Ok(response) => {
-                    let reply = decode_rebalance_reply(&response, &failure_message, &details)?;
-                    let text = |key: &str| reply.get(key).and_then(Value::as_str);
-                    return match (text("jobId"), text("targetGeneration")) {
-                        (Some(job_id), Some(target_generation)) => Ok(RebalanceJob {
-                            job_id: job_id.to_string(),
-                            target_generation: target_generation.to_string(),
-                        }),
-                        _ => Err(ClusterError::new(
-                            codes::ALLOCATION_FAILED,
-                            format!(
-                                "The controller sent an unreadable answer to the partition count change of '{index_name}'"
-                            ),
-                        )
-                        .with_detail("indexName", Value::from(index_name))
-                        .with_detail("controllerNodeId", Value::from(controller_node_id.as_str()))),
-                    };
-                }
-                Err(error) => {
-                    last_error =
-                        ClusterError::new(codes::QUERY_NO_ACTIVE_REPLICA, &failure_message)
-                            .with_detail("indexName", Value::from(index_name))
-                            .with_detail(
-                                "controllerNodeId",
-                                Value::from(controller_node_id.as_str()),
-                            )
-                            .with_detail("transportCode", Value::from(error.code()));
-                }
-            }
+        let reply = exchange_rebalance_message(RebalanceExchange {
+            transport: self.inner.transport(),
+            sender_id: self.node_id(),
+            targets: self.resolve_node_targets(&controller_node_id).await?,
+            message_type: message_types::CLUSTER_REBALANCE,
+            payload: Value::Object(payload),
+            failure_message: format!(
+                "The controller '{controller_node_id}' did not answer a partition count change"
+            ),
+            details,
+        })
+        .await?;
+        let text = |key: &str| reply.get(key).and_then(Value::as_str);
+        match (text("jobId"), text("targetGeneration")) {
+            (Some(job_id), Some(target_generation)) => Ok(RebalanceJob {
+                job_id: job_id.to_string(),
+                target_generation: target_generation.to_string(),
+            }),
+            _ => Err(ClusterError::new(
+                codes::ALLOCATION_FAILED,
+                format!(
+                    "The controller sent an unreadable answer to the partition count change of '{index_name}'"
+                ),
+            )
+            .with_detail("indexName", Value::from(index_name))
+            .with_detail("controllerNodeId", Value::from(controller_node_id.as_str()))),
         }
-        Err(last_error)
     }
 
     async fn serving_generation(&self, index_name: &str) -> ClusterResult<Option<String>> {
@@ -195,36 +142,15 @@ impl ClusterNode {
             .and_then(|table| table.generation))
     }
 
-    async fn running_job_id(&self, index_name: &str) -> ClusterResult<Option<String>> {
-        let Some(bytes) = self
-            .inner
-            .coordinator()
-            .get(&rebalance_record_key(index_name))
-            .await?
-        else {
-            return Ok(None);
-        };
-        if bytes.is_empty() {
-            return Ok(None);
-        }
-        match decode_msgpack(&bytes) {
-            Ok(Value::Object(record)) => Ok(record
-                .get("jobId")
-                .and_then(Value::as_str)
-                .map(str::to_string)),
-            _ => Ok(None),
-        }
-    }
-
     async fn wait_for_swap(&self, index_name: &str, job: &RebalanceJob) -> ClusterResult<()> {
+        let target = Some(job.target_generation.as_str());
         loop {
             self.guard_shutdown()?;
-            let target = Some(job.target_generation.as_str());
             if self.serving_generation(index_name).await?.as_deref() == target {
                 return Ok(());
             }
-            let running = self.running_job_id(index_name).await?;
-            if running.as_deref() != Some(job.job_id.as_str()) {
+            let record = read_rebalance_record(self.inner.coordinator(), index_name).await?;
+            if record.is_none_or(|record| record.job_id != job.job_id) {
                 if self.serving_generation(index_name).await?.as_deref() == target {
                     return Ok(());
                 }

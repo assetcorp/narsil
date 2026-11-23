@@ -8,9 +8,10 @@ use super::rebalance::refuse_hidden_generation;
 use crate::constants::{ANALYSIS_CHANGE_POLL_INTERVAL_MS, MAX_SETTINGS_REPLACEMENT_ATTEMPTS};
 use crate::controller::{
     IndexMetadataSnapshot, PendingAnalysis, metadata_key, metadata_with_pending_analysis,
-    metadata_without_pending_analysis, read_index_metadata_snapshot, rebalance_record_key,
+    metadata_without_pending_analysis, read_index_metadata_snapshot,
 };
 use crate::error::{ClusterError, ClusterResult, codes};
+use crate::rebalance::read_rebalance_record;
 use crate::version::reaches_version;
 
 const ANALYSIS_CHANGE_SPEC_VERSION: &str = "1.1";
@@ -247,11 +248,10 @@ impl ClusterNode {
         let Some(pending) = self.write_pending(&serving, &target).await? else {
             return Ok(());
         };
-        let rebalancing = coordinator
-            .get(&rebalance_record_key(index_name))
+        if read_rebalance_record(coordinator, index_name)
             .await?
-            .is_some_and(|record| !record.is_empty());
-        if rebalancing {
+            .is_some()
+        {
             self.clear_own_pending(&serving, &pending.change_id).await?;
             return Err(ClusterError::new(
                 codes::PARTITION_REBALANCING_BACKPRESSURE,
