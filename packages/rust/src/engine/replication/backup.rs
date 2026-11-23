@@ -7,12 +7,13 @@ use crate::engine::memory::require_restore_memory;
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::format::archive::{ArchiveSource, write_snapshot_archive};
 use crate::format::envelope::Compression;
+use crate::format::index_configuration::{decode_index_configuration, encode_index_configuration};
 use crate::format::manifest::{
     DecodedManifest, PartitionCheckpoint, SegmentManifest, TermStart, decode_manifest_payload,
     encode_manifest, listed_keys, open_manifest_payload, source_index_name,
 };
 use crate::format::manifest_refs::FileRef;
-use crate::value::Value;
+use crate::value::{Map, Value};
 
 const RESTORED_FIRST_SEQ_NO: u64 = 1;
 
@@ -75,6 +76,25 @@ pub struct BackupPartitionFiles<'a> {
     pub files: &'a [BackupListedFile],
     /// The sequence number that the backup lists for the partition.
     pub last_seq_no: u64,
+}
+
+/// Returns the fields of the index configuration payload that `bytes` hold, as a backup stores it.
+///
+/// # Errors
+///
+/// Fails with `PERSISTENCE_CRC_MISMATCH` or another envelope error where the payload is damaged, and with
+/// `CONFIG_INVALID` where it holds no schema or no language.
+pub fn decode_backup_index_configuration(bytes: &[u8]) -> Result<Map> {
+    decode_index_configuration(bytes).map(|(_, configuration)| configuration)
+}
+
+/// Returns `configuration` as an uncompressed index configuration payload.
+///
+/// # Errors
+///
+/// Fails with the encoder's error where a value of the configuration cannot be encoded.
+pub fn encode_backup_index_configuration(configuration: &Map) -> Result<Vec<u8>> {
+    encode_index_configuration(configuration, Compression::None)
 }
 
 fn durability_required(index: &str, partition: u32) -> NarsilError {
