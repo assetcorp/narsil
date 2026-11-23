@@ -185,7 +185,7 @@ async fn a_returning_typescript_replica_catches_up_from_a_rust_primary() {
 
     replica.shutdown().await;
     cluster.write("while-away", 30, &mut written).await;
-    let mut replica = cluster.typescript_data_node().await;
+    let replica = cluster.typescript_data_node().await;
     cluster
         .admitted(
             TYPESCRIPT_DATA_NODE,
