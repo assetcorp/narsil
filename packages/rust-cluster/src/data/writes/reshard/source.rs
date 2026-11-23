@@ -176,7 +176,7 @@ impl PrimaryWrites {
         start: ReshardStart,
     ) -> ClusterResult<u64> {
         let assignment = self
-            .leading_assignment(&start.source_generation, start.partition_id)
+            .reshard_leading_assignment(&start.source_generation, start.partition_id)
             .await?;
         let primary_term = assignment.primary_term as u64;
         let key = (start.job_id.clone(), start.partition_id);
@@ -239,7 +239,7 @@ impl PrimaryWrites {
         self.refuse_unserved_partition_read(&source, cutover.partition_id)
             .await?;
         let assignment = self
-            .leading_assignment(&source, cutover.partition_id)
+            .reshard_leading_assignment(&source, cutover.partition_id)
             .await?;
         self.reshard
             .with(|held| held.set_block(&source, &cutover.job_id, cutover.partition_id));

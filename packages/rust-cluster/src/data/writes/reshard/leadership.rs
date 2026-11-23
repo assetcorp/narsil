@@ -10,7 +10,7 @@ fn led_here(assignment: Option<&Assignment>, node_id: &str) -> bool {
 }
 
 impl PrimaryWrites {
-    pub(super) async fn leading_assignment(
+    pub(super) async fn reshard_leading_assignment(
         &self,
         index_name: &str,
         partition_id: u32,

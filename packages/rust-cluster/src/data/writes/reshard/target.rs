@@ -195,7 +195,11 @@ impl PrimaryWrites {
         let mut partitions = JoinSet::new();
         for (partition_id, queued) in by_partition {
             let writes = Arc::clone(self);
-            partitions.spawn(writes.apply_in_partition(index_name.to_string(), partition_id, queued));
+            partitions.spawn(writes.apply_in_partition(
+                index_name.to_string(),
+                partition_id,
+                queued,
+            ));
         }
         let mut answered: Vec<Option<Outcome>> = (0..count).map(|_| None).collect();
         while let Some(joined) = partitions.join_next().await {
@@ -291,7 +295,10 @@ impl PrimaryWrites {
                 ),
             )
             .with_detail("jobId", Value::from(payload.job_id.as_str()))
-            .with_detail("sourcePartitionId", Value::from(payload.source_partition_id))
+            .with_detail(
+                "sourcePartitionId",
+                Value::from(payload.source_partition_id),
+            )
             .with_detail("acceptedTerm", Value::from(accepted)));
         }
         let document_ids: Vec<String> = payload
@@ -352,7 +359,10 @@ impl PrimaryWrites {
                     if let Err(failure) = outcome {
                         let mut error = failure.error;
                         error = error
-                            .with_detail("indexName", Value::from(payload.target_generation.as_str()))
+                            .with_detail(
+                                "indexName",
+                                Value::from(payload.target_generation.as_str()),
+                            )
                             .with_detail("documentId", Value::from(document_id.as_str()));
                         return Err(error);
                     }

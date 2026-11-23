@@ -64,7 +64,12 @@ impl ReshardForward {
         );
         fields.insert(
             "operations",
-            Value::Array(self.operations.iter().map(ReshardOperation::encoded).collect()),
+            Value::Array(
+                self.operations
+                    .iter()
+                    .map(ReshardOperation::encoded)
+                    .collect(),
+            ),
         );
         Value::Object(fields)
     }
