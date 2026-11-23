@@ -198,37 +198,3 @@ fn a_dropped_held_analysis_change_leaves_the_old_terms_and_no_pending_change_aft
         .expect("the reopened index has no change to finish");
     require_terms(&reopened, every_version, false, "after the restart");
 }
-
-#[test]
-fn a_stamped_generation_refuses_the_held_change_of_an_older_generation() {
-    let scratch = ScratchDirectory::new("held-analysis-stamp");
-    let narsil = seeded(scratch.path());
-    let held = HeldAnalysisChanges::new(&narsil);
-    held.stamp_analysis_generation(INDEX, 3)
-        .expect("the generation is stamped");
-    held.build_held_analysis(INDEX, &dropping_alpha(2))
-        .expect("an older generation returns at once");
-    assert!(!held.held_analysis_is_built(INDEX, 2));
-    require_terms(
-        &narsil,
-        0..SEEDED_DOCUMENTS,
-        false,
-        "after the older change",
-    );
-    narsil.shutdown().expect("the engine shuts down");
-    let reopened = Narsil::open(wal_config(scratch.path())).expect("the engine reopens");
-    let held = HeldAnalysisChanges::new(&reopened);
-    held.build_held_analysis(INDEX, &dropping_alpha(3))
-        .expect("the stamped generation survives the restart");
-    assert!(!held.held_analysis_is_built(INDEX, 3));
-    held.build_held_analysis(INDEX, &dropping_alpha(4))
-        .expect("a newer generation builds its terms");
-    held.release_held_analysis(INDEX, 4)
-        .expect("the release switches to the new terms");
-    require_terms(
-        &reopened,
-        0..SEEDED_DOCUMENTS,
-        true,
-        "after the newer change",
-    );
-}

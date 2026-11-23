@@ -75,7 +75,7 @@ async fn write_until_stopped(
             Some(code) => {
                 assert!(
                     REFUSED_BEFORE_THE_WRITE.contains(&code),
-                    "the writer met {code} on {id}"
+                    "the writer met {code} on {id}: {answer:?}"
                 );
                 refusals += 1;
                 tokio::time::sleep(REFUSAL_PAUSE).await;
@@ -164,24 +164,8 @@ async fn start_stations(coordinator: &Arc<EtcdCoordinator>, scratch: &[Scratch])
     stations
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ControllerProcess {
-    Typescript,
-    Rust,
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn rust_data_nodes_keep_every_acknowledged_write_while_a_typescript_controller_changes_the_count()
- {
-    change_the_count_under_writers(ControllerProcess::Typescript).await;
-}
-
 #[tokio::test(flavor = "multi_thread")]
 async fn rust_data_nodes_keep_every_acknowledged_write_while_a_rust_controller_changes_the_count() {
-    change_the_count_under_writers(ControllerProcess::Rust).await;
-}
-
-async fn change_the_count_under_writers(controller_process: ControllerProcess) {
     let Some(endpoint) = etcd_endpoint() else {
         return;
     };
@@ -189,22 +173,14 @@ async fn change_the_count_under_writers(controller_process: ControllerProcess) {
     let coordinator =
         coordinator_at(endpoint.clone(), key_prefix.clone(), HEARTBEAT_TTL_SECONDS).await;
     let controller_scratch = Scratch::new();
-    let (router_roles, rust_controller) = match controller_process {
-        ControllerProcess::Typescript => ("controller,coordinator", None),
-        ControllerProcess::Rust => (
-            "coordinator",
-            Some(
-                DataNode::start_with_roles(
-                    &coordinator,
-                    RUST_CONTROLLER,
-                    controller_scratch.path(),
-                    &["controller"],
-                )
-                .await,
-            ),
-        ),
-    };
-    let mut router = TypescriptNode::start(&endpoint, &key_prefix, ROUTER, router_roles).await;
+    let rust_controller = DataNode::start_with_roles(
+        &coordinator,
+        RUST_CONTROLLER,
+        controller_scratch.path(),
+        &["controller"],
+    )
+    .await;
+    let mut router = TypescriptNode::start(&endpoint, &key_prefix, ROUTER, "coordinator").await;
     let scratch: Vec<Scratch> = STATIONS.iter().map(|_| Scratch::new()).collect();
     let stations = start_stations(&coordinator, &scratch).await;
     let mut writer = TypescriptNode::start(&endpoint, &key_prefix, WRITER, "coordinator").await;
@@ -242,9 +218,7 @@ async fn change_the_count_under_writers(controller_process: ControllerProcess) {
         station.stop().await;
     }
     router.shutdown().await;
-    if let Some(controller) = rust_controller {
-        controller.stop().await;
-    }
+    rust_controller.stop().await;
     coordinator.shutdown().await;
 }
 

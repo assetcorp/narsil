@@ -60,9 +60,7 @@ async fn write_rounds_past_the_kill(
 ) {
     for round in 0.. {
         let started_after_the_kill = killed.load(Ordering::Acquire);
-        let result = router
-            .node
-            .insert_batch(LEDGER, round_of(round))
+        let result = Box::pin(router.node.insert_batch(LEDGER, round_of(round)))
             .await
             .expect("the router routes every round");
         record(outcomes, &result);
@@ -88,9 +86,7 @@ async fn write_singly_past_the_kill(
         let document_id = format!("single-{writer}-{serial}");
         let mut document = Map::new();
         document.insert("title", Value::from(title_of(&document_id)));
-        let answer = router
-            .node
-            .insert(LEDGER, document, Some(&document_id))
+        let answer = Box::pin(router.node.insert(LEDGER, document, Some(&document_id)))
             .await
             .map(|_| ());
         let mut outcomes = outcomes.lock().expect("no writer panicked");

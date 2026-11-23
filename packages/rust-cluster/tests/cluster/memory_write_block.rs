@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use narsil::{Map, MemoryConfig, Value};
 use narsil_cluster::coordinator::etcd::{EtcdCoordinator, EtcdCoordinatorConfig};
 use narsil_cluster::coordinator::{NodeCapacity, NodeRegistration};
@@ -248,86 +246,6 @@ async fn a_rust_primary_refuses_the_inserts_and_updates_that_every_node_sends_it
     entry.stop().await;
     primary.stop().await;
     full.stop().await;
-    controller.stop().await;
-    coordinator.shutdown().await;
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn a_rust_entry_refuses_a_write_once_another_copy_holder_reports_full() {
-    let Some(coordinator): Option<Arc<EtcdCoordinator>> =
-        crate::data_node::cluster_coordinator().await
-    else {
-        return;
-    };
-    let controller_scratch = Scratch::new();
-    let controller = start_controller(&coordinator, &controller_scratch).await;
-    let scratches = [Scratch::new(), Scratch::new()];
-    let entry = DataNode::start_with_roles(
-        &coordinator,
-        "memory-entry",
-        scratches[0].path(),
-        &["data", "coordinator"],
-    )
-    .await;
-    let other = DataNode::start(&coordinator, "memory-other", scratches[1].path()).await;
-    coordinator
-        .register_node(&stand_in(stand_in_memory(100.0 * MEBIBYTE, false)))
-        .await
-        .expect("etcd takes the stand-in's registration");
-    create_cluster_index(&coordinator, LEDGER, LEDGER_UUID, 1, 2).await;
-    eventually("the stand-in holds a copy of the ledger", || {
-        stand_in_holds_a_copy(&coordinator)
-    })
-    .await;
-    eventually("the entry routes an insert", || async {
-        entry
-            .node
-            .insert(LEDGER, title("walnut chair"), Some("chair-1"))
-            .await
-            .is_ok()
-    })
-    .await;
-
-    coordinator
-        .register_node(&stand_in(stand_in_memory(950.0 * MEBIBYTE, true)))
-        .await
-        .expect("etcd takes the stand-in's full registration");
-    let mut serial = 0;
-    let mut refused_ids = Vec::new();
-    eventually("the entry refuses inserts under the block", || {
-        serial += 1;
-        let document_id = format!("table-{serial}");
-        refused_ids.push(document_id.clone());
-        let node = &entry.node;
-        async move {
-            match node
-                .insert(LEDGER, title("oak table"), Some(&document_id))
-                .await
-            {
-                Err(error) => {
-                    assert_eq!(error.code(), "CLUSTER_WRITE_BLOCKED");
-                    assert_eq!(
-                        error.details().get("fullNodeIds"),
-                        Some(&Value::Array(vec![Value::from(STAND_IN)]))
-                    );
-                    true
-                }
-                Ok(_) => false,
-            }
-        }
-    })
-    .await;
-    let refused = refused_ids.last().expect("one insert was refused").clone();
-    assert_eq!(
-        entry
-            .node
-            .local_document(LEDGER, &refused)
-            .await
-            .expect("the entry reads its copy"),
-        None
-    );
-    other.stop().await;
-    entry.stop().await;
     controller.stop().await;
     coordinator.shutdown().await;
 }

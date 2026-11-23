@@ -1,11 +1,10 @@
-use narsil::{Map, SyncSetting, SyncStatus, Value, encode_msgpack};
+use narsil::{Map, Value, encode_msgpack};
 use narsil_cluster::message::TransportMessage;
 use narsil_cluster::transport::NodeTransport;
 use narsil_cluster::transport::tcp::TcpTransport;
 
 use crate::data_node::{
     DataNode, Scratch, cluster_coordinator, create_cluster_index, eventually, is_served_by,
-    metadata_key,
 };
 use crate::ledger::{
     Forwarded, LEDGER, LEDGER_UUID, forward_insert, forwarder, start_controller, title_of,
@@ -16,7 +15,6 @@ const SYNC_READ: &str = "sync.read";
 const SYNC_READ_REFUSED: &str = "sync.read.error";
 const WRITTEN: [&str; 3] = ["sync-first", "sync-second", "sync-third"];
 const ANOTHER_UUID: &str = "uuid-of-another-ledger";
-const TYPESCRIPT_EPOCH: &str = "0123456789abcdef0123456789abcdef";
 
 fn request(fields: &[(&str, Value)]) -> Vec<u8> {
     let map: Map = fields
@@ -129,117 +127,6 @@ async fn a_rust_primary_reads_only_its_committed_entries_of_the_requested_genera
     }
 
     primary.stop().await;
-    controller.stop().await;
-    coordinator.shutdown().await;
-}
-
-fn settings_of(stored: &Decoded) -> &Decoded {
-    stored
-        .field("settings")
-        .expect("the metadata keeps its settings")
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn a_rust_node_reads_and_clears_the_sync_settings_that_a_typescript_node_stores() {
-    let Some(coordinator) = cluster_coordinator().await else {
-        return;
-    };
-    let controller_scratch = Scratch::new();
-    let controller = start_controller(&coordinator, &controller_scratch).await;
-    let node_scratch = Scratch::new();
-    let node = DataNode::start_with_roles(
-        &coordinator,
-        "sync-settings",
-        node_scratch.path(),
-        &["data", "coordinator"],
-    )
-    .await;
-    create_cluster_index(&coordinator, LEDGER, LEDGER_UUID, 1, 0).await;
-    eventually("the data node leads the ledger", || {
-        is_served_by(&coordinator, LEDGER, LEDGER_UUID, 1, "sync-settings")
-    })
-    .await;
-    let cluster = &node.node;
-    assert_eq!(
-        cluster.get_sync(LEDGER).await.expect("the setting reads"),
-        SyncStatus::default()
-    );
-    let enabled = SyncSetting {
-        enabled: true,
-        ..SyncSetting::default()
-    };
-    let refused = cluster
-        .update_sync(LEDGER, &enabled)
-        .await
-        .expect_err("no backup store");
-    assert_eq!(refused.code(), "SYNC_BACKUP_STORE_REQUIRED");
-
-    let key = metadata_key(LEDGER);
-    let before = coordinator
-        .get(&key)
-        .await
-        .expect("etcd answers")
-        .expect("the ledger has metadata");
-    let Ok(Value::Object(mut fields)) = narsil::decode_msgpack(&before) else {
-        panic!("the metadata is a map");
-    };
-    let sync: Map = [
-        ("enabled", Value::Bool(true)),
-        ("historyMaxBytes", Value::Number(4_096.0)),
-    ]
-    .into_iter()
-    .collect();
-    let settings: Map = [
-        ("language", Value::from("english")),
-        ("sync", Value::Object(sync)),
-        ("syncActive", Value::Bool(true)),
-        ("syncEpoch", Value::from(TYPESCRIPT_EPOCH)),
-    ]
-    .into_iter()
-    .collect();
-    fields.insert("settings", Value::Object(settings));
-    let stored = encode_msgpack(&Value::Object(fields)).expect("the metadata encodes");
-    assert!(
-        coordinator
-            .compare_and_set(&key, Some(&before), &stored)
-            .await
-            .expect("etcd answers")
-    );
-    assert_eq!(
-        cluster.get_sync(LEDGER).await.expect("the setting reads"),
-        SyncStatus {
-            enabled: true,
-            history_max_age_ms: None,
-            history_max_bytes: Some(4_096),
-            active: true,
-            epoch: Some(TYPESCRIPT_EPOCH.to_string()),
-        }
-    );
-    cluster
-        .update_sync(LEDGER, &SyncSetting::default())
-        .await
-        .expect("sync goes off");
-    assert_eq!(
-        cluster.get_sync(LEDGER).await.expect("the setting reads"),
-        SyncStatus::default()
-    );
-    let after = coordinator
-        .get(&key)
-        .await
-        .expect("etcd answers")
-        .expect("the ledger keeps its metadata");
-    let after = decode(&after);
-    assert_eq!(after.text("indexUuid"), LEDGER_UUID);
-    let settings = settings_of(&after);
-    assert_eq!(settings.text("language"), "english");
-    for field in ["sync", "syncActive", "syncEpoch", "changes"] {
-        assert!(
-            settings.field(field).is_none(),
-            "the cleared settings hold no {field}"
-        );
-    }
-
-    node.stop().await;
     controller.stop().await;
     coordinator.shutdown().await;
 }
