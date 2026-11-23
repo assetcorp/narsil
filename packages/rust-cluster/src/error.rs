@@ -74,6 +74,9 @@ pub mod codes {
     /// A node reports an orphaned copy, or a caller sends that node a read, a write, or a create for the copy's index
     /// name.
     pub const INDEX_ORPHANED: &str = "INDEX_ORPHANED";
+    /// A node refuses an insert or an update because a node that holds a copy of the index reports full memory,
+    /// because the writes in flight on the node would pass its bound, or because the write would not fit in memory.
+    pub const CLUSTER_WRITE_BLOCKED: &str = "CLUSTER_WRITE_BLOCKED";
     /// The cluster owns the index and has yet to allocate it.
     pub const QUERY_ROUTING_FAILED: &str = "QUERY_ROUTING_FAILED";
     /// No node that holds the copy could take the request, because the transport could not reach it.

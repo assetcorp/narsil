@@ -21,6 +21,7 @@ mod data_node_local_copies;
 mod grpc_goaway_drain;
 mod killed_primary;
 mod lost_copy_wait;
+mod memory_write_block;
 mod mixed_catch_up;
 mod mixed_failover;
 mod mixed_settings;

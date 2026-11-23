@@ -1,5 +1,6 @@
 mod config;
 mod handle;
+mod heartbeat;
 mod identity;
 mod join;
 mod local_copies;

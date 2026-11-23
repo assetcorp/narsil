@@ -4,6 +4,7 @@ use super::handle::ClusterNode;
 use super::identity::generate_node_id;
 use crate::constants::MAX_DOC_ID_LENGTH;
 use crate::error::{ClusterError, ClusterResult, codes};
+use crate::memory::estimate_document_bytes;
 use crate::payload::forward::ForwardKind;
 use crate::routing::ClientWrite;
 
@@ -80,6 +81,7 @@ fn insert_write(document: Map, document_id: String) -> ClusterResult<ClientWrite
     }
     Ok(ClientWrite {
         document: Some(encoded(&document)?),
+        estimated_bytes: estimate_document_bytes(&document),
         document_id,
         kind: ForwardKind::Insert,
         sent: Some(document),
@@ -92,6 +94,7 @@ fn update_write(document_id: String, document: &Map) -> ClusterResult<ClientWrit
     }
     Ok(ClientWrite {
         document: Some(encoded(document)?),
+        estimated_bytes: estimate_document_bytes(document),
         document_id,
         kind: ForwardKind::Update,
         sent: None,
@@ -104,6 +107,7 @@ fn remove_write(document_id: String) -> ClusterResult<ClientWrite> {
     }
     Ok(ClientWrite {
         document: None,
+        estimated_bytes: 0,
         document_id,
         kind: ForwardKind::Remove,
         sent: None,
