@@ -215,6 +215,7 @@ const SUITES = {
       'Rust cluster / Test on linux-x64, part 1 of 1',
       ...parts(2, (part, count) => `Rust cluster / Test on win32-x64, part ${part} of ${count}`),
       'Rust cluster / A Rust node beside a TypeScript node',
+      'Rust cluster / Every route on a Rust node and a TypeScript node',
     ],
     paths: [
       ...areaPaths('rust_cluster'),
