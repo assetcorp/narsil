@@ -92,6 +92,7 @@ fn preflight_count(
         limit: PREFLIGHT_VECTOR_DEPTH,
         offset: 0,
         signature: None,
+        confinement: None,
     };
     let run = QueryRun::new(index, resolved, &scope, shape)?;
     if plan != SearchPlan::Vector {

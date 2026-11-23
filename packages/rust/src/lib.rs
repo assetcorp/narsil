@@ -26,6 +26,10 @@ pub mod replication {
         WriteRecord,
     };
 }
+#[doc(hidden)]
+pub mod partitions {
+    pub use crate::engine::{PartitionQuery, SuppliedStatistics};
+}
 mod schema;
 mod search;
 mod synonyms;

@@ -78,6 +78,7 @@ pub use memory::{ParseKind, ParseShortfall};
 use name_turns::NameTurns;
 pub use plugins::Plugin;
 pub use portability::SnapshotOptions;
+pub use query::confined::{PartitionQuery, SuppliedStatistics};
 pub use query::listing::{ListParams, ListResult, ListedDocument};
 pub use query::params::{
     DocumentProjection, FacetSpec, GroupConfig, GroupReduce, GroupReducer, HighlightConfig,
