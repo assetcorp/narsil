@@ -1,5 +1,6 @@
 mod adopt;
 mod append;
+mod archive;
 pub(crate) mod copy_state;
 mod logged;
 mod primary;
