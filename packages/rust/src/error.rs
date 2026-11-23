@@ -82,6 +82,8 @@ error_codes! {
     PERSISTENCE_FSYNC_FAILED,
     /// A backup manifest is damaged.
     BACKUP_DAMAGED,
+    /// A cluster primary runs without write-ahead log durability, so it can't take a backup.
+    BACKUP_DURABILITY_REQUIRED,
     /// Device sync needs write-ahead log durability.
     SYNC_DURABILITY_REQUIRED,
     /// Device sync is off for the index.
@@ -162,6 +164,18 @@ error_codes! {
     DOC_MISSING_REQUIRED_FIELD,
     /// A configuration value is invalid.
     CONFIG_INVALID,
+    /// A cluster node runs a specification version that serves no device sync.
+    SYNC_NOT_READY,
+    /// A cluster node that leads a partition did not answer a read in time.
+    QUERY_NODE_TIMEOUT,
+    /// A partition of a cluster index has no copy that can serve a read.
+    QUERY_NO_ACTIVE_REPLICA,
+    /// A cluster node refused a read for a partition that another node leads.
+    PARTITION_NOT_PRIMARY,
+    /// A cluster node gave an answer that a read cannot use.
+    QUERY_ROUTING_FAILED,
+    /// A cluster node does not serve the operation, so the caller runs it against a single-node engine.
+    CLUSTER_OPERATION_UNSUPPORTED,
 }
 
 impl fmt::Display for ErrorCode {
@@ -181,6 +195,7 @@ pub struct NarsilError {
     code: ErrorCode,
     message: String,
     details: Option<Box<Map>>,
+    spec_code: Option<Box<str>>,
 }
 
 impl NarsilError {
@@ -190,7 +205,29 @@ impl NarsilError {
             code,
             message: message.into(),
             details: None,
+            spec_code: None,
         }
+    }
+
+    /// Builds an error with the specification code `spec_code`, which a cluster node raises and which
+    /// [`ErrorCode`] may lack; such an error reports `INTERNAL_ERROR` as its [`code`](NarsilError::code) and keeps
+    /// `spec_code` for [`spec_code`](NarsilError::spec_code).
+    #[doc(hidden)]
+    pub fn with_spec_code(spec_code: &str, message: impl Into<String>) -> NarsilError {
+        match ErrorCode::from_name(spec_code) {
+            Some(code) => NarsilError::new(code, message),
+            None => NarsilError {
+                spec_code: Some(spec_code.into()),
+                ..NarsilError::new(ErrorCode::INTERNAL_ERROR, message)
+            },
+        }
+    }
+
+    /// Returns the specification code of the error: the one that [`NarsilError::with_spec_code`] kept, or the
+    /// spelling of [`code`](NarsilError::code).
+    #[doc(hidden)]
+    pub fn spec_code(&self) -> &str {
+        self.spec_code.as_deref().unwrap_or(self.code.as_str())
     }
 
     /// Returns this error with `details` in place of any that it held, where an empty set of details leaves the
@@ -222,7 +259,7 @@ impl NarsilError {
 
 impl fmt::Display for NarsilError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "{}: {}", self.code, self.message)
+        write!(formatter, "{}: {}", self.spec_code(), self.message)
     }
 }
 

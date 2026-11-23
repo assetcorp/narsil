@@ -33,8 +33,11 @@ pub struct DataNodeConfig {
 
 impl DataNodeConfig {
     /// Returns the settings of a data node whose local engine opens with `engine`, that holds no named tokenizer,
-    /// stop word set, or adapter, and that keeps the default 268,435,456 bytes of replication log for each
-    /// partition.
+    /// stop word set, or adapter, and that keeps the default 268,435,456 bytes of replication log for each partition.
+    ///
+    /// The node writes each snapshot in transfer to `.snapshot-transfer` under the engine's durability directory,
+    /// which it empties as it joins, or to a new directory under the system's temporary directory where the engine
+    /// keeps no directory.
     ///
     /// A copy of an index whose settings give one of those by name then fails to create with the engine's
     /// `CONFIG_INVALID`, so add each name that the cluster's indexes give before the node joins.

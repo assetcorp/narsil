@@ -48,5 +48,9 @@ export async function recordJobChange(
 }
 
 export function reportJobProgress(context: BackupDriverContext, done: number, total: number): Promise<void> {
-  return recordJobChange(context, job => ({ ...job, partitionsDone: done, partitionsTotal: total }))
+  return recordJobChange(context, job => ({
+    ...job,
+    partitionsDone: job.partitionsTotal === total ? Math.max(job.partitionsDone, done) : done,
+    partitionsTotal: total,
+  }))
 }

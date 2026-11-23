@@ -1,12 +1,18 @@
 mod adopt;
 mod append;
+mod archive;
+mod backup;
+mod backup_archive;
 pub(crate) mod copy_state;
+mod epoch_states;
 mod logged;
+mod memory_reading;
 mod primary;
 mod primary_apply;
 mod primary_room;
 mod reads;
 mod replace;
+mod restorable;
 mod types;
 
 use super::index::IndexState;
@@ -15,8 +21,18 @@ use crate::error::{ErrorCode, NarsilError, Result};
 use crate::value::Value;
 use copy_state::ReplicatedCopy;
 
+pub use epoch_states::{CopyChangesState, CopyEpochStates, CopySyncState};
 pub(crate) use logged::fail_stopped_logs;
+pub use memory_reading::{NodeMemoryReading, read_process_memory};
 
+pub use backup::{
+    BackupListedFile, BackupPartitionFiles, PartitionBackup, decode_backup_index_configuration,
+    encode_backup_index_configuration,
+};
+pub use backup_archive::{
+    BackupArchive, BackupArchiveFile, BackupArchivePartition, BackupFileReader,
+};
+pub use restorable::require_restorable_config;
 pub use types::{
     AppliedRun, CopyPosition, EntryOperation, HeldTerm, PrimaryLimits, PrimaryRefusal, PrimaryRun,
     PrimaryWrite, PrimaryWritten, PriorDocument, ReplicatedEntry, WriteRecord,

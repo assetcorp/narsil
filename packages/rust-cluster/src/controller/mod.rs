@@ -1,4 +1,6 @@
 mod allocation;
+mod analysis_change;
+mod analysis_metadata;
 mod bootstrap;
 mod departures;
 mod election;
@@ -9,7 +11,9 @@ mod messages;
 mod metadata;
 mod placement;
 mod queue;
+mod rebalance;
 mod recovery;
+mod replication_factor;
 mod resign;
 mod settings;
 mod state;
@@ -28,16 +32,25 @@ use self::state::LoopState;
 use crate::coordinator::etcd::EtcdCoordinator;
 use crate::error::{ClusterError, ClusterResult};
 use crate::message::TransportMessage;
-use crate::transport::{NodeTransport, Respond};
+use crate::transport::{BoxFuture, NodeTransport, Respond};
 
+pub(crate) use self::analysis_metadata::{
+    IndexMetadataSnapshot, PendingAnalysis, metadata_with_pending_analysis,
+    metadata_with_suggestion_state, metadata_without_pending_analysis,
+    read_index_metadata_snapshot,
+};
 pub(crate) use self::messages::is_controller_message;
 pub(crate) use self::metadata::{
-    IndexMetadata, index_metadata, records_previous_documents, stored_index_metadata,
+    IndexMetadata, index_metadata, index_metadata_of, metadata_key, rebalance_generations,
+    records_previous_documents, stored_index_metadata, validate_index_name,
 };
+pub(crate) use self::rebalance::generation::clear_every_progress;
 pub(crate) use self::settings::{previous_documents_recorded, stored_settings_readable};
 pub(crate) use self::table::{belongs_to_another_index, stored_table};
 
 pub(crate) type ControllerErrorHandler = Arc<dyn Fn(&str, &ClusterError) + Send + Sync>;
+pub(crate) type ControllerMessageHandler =
+    Arc<dyn Fn(TransportMessage, Respond) -> BoxFuture<'static, ()> + Send + Sync>;
 
 pub(crate) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex
@@ -60,6 +73,8 @@ pub(crate) struct ControllerConfig {
     pub(crate) node_left_delay_ms: u64,
     pub(crate) on_error: Option<ControllerErrorHandler>,
     pub(crate) on_election_error: Option<ControllerErrorHandler>,
+    pub(crate) backup_messages: Option<ControllerMessageHandler>,
+    pub(crate) suggestion_builds: Option<ControllerMessageHandler>,
 }
 
 #[derive(Default)]
@@ -153,6 +168,11 @@ impl Controller {
 
     pub(crate) fn is_active(&self) -> bool {
         self.inner.is_active()
+    }
+
+    pub(crate) fn activity(&self) -> Arc<dyn Fn() -> bool + Send + Sync> {
+        let inner = Arc::downgrade(&self.inner);
+        Arc::new(move || inner.upgrade().is_some_and(|inner| inner.is_active()))
     }
 
     pub(crate) fn is_listening(&self) -> bool {

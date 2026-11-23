@@ -6,6 +6,7 @@ import { TransportError, TransportErrorCodes, type TransportMessage } from '../t
 import { type ChannelConnect, connectChannel, connectFailed } from './channel-connect'
 import type { GrpcModule } from './loader'
 import { type PeerDialing, PeerDials } from './peer-dials'
+import { withoutIpServerName } from './server-name'
 import { openStreamMethod, sendMethod } from './service'
 import { channelOptions, type GrpcTransportConfig, toCredentialBuffer } from './types'
 
@@ -218,7 +219,7 @@ export class GrpcClientPool {
     if (tls === undefined) {
       return this.grpc.credentials.createInsecure()
     }
-    return this.grpc.credentials.createSsl(
+    const secure = this.grpc.credentials.createSsl(
       tls.ca !== undefined ? toCredentialBuffer(tls.ca) : null,
       toCredentialBuffer(tls.key),
       toCredentialBuffer(tls.cert),
@@ -226,6 +227,7 @@ export class GrpcClientPool {
         rejectUnauthorized: tls.rejectUnauthorized ?? true,
       },
     )
+    return withoutIpServerName(this.grpc, secure)
   }
 
   private metadata(): Metadata {

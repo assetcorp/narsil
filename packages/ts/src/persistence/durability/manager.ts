@@ -106,11 +106,25 @@ export function createDurabilityManager(
     hooks.onFatalError(error)
   }
 
+  function closeFailsAlone(error: Error): boolean {
+    if (partitionFailures.isolates()) return true
+    markFatal(error)
+    return false
+  }
+
   async function closeWriterReportingFailure(closePromise: Promise<void>): Promise<void> {
     try {
       await closePromise
     } catch (err) {
-      if (!partitionFailures.isolates()) markFatal(toError(err))
+      if (closeFailsAlone(toError(err))) throw err
+    }
+  }
+
+  async function closeWriterAtShutdown(closePromise: Promise<void>): Promise<void> {
+    try {
+      await closePromise
+    } catch (err) {
+      closeFailsAlone(toError(err))
     }
   }
 
@@ -190,6 +204,7 @@ export function createDurabilityManager(
       recordSavedBytes: saved => sizes.setSaved(indexName, saved),
       queueMetadataWrite,
       markFatal,
+      closeFailsAlone,
       failPartition: partitionFailureFor(indexName, partitionBatchDeps),
     })
   }
@@ -387,7 +402,7 @@ export function createDurabilityManager(
         }
         for (const partition of indexState.partitions.values()) {
           await partition.appendChain
-          await closeWriterReportingFailure(closePartitionWriter(partition))
+          await closeWriterAtShutdown(closePartitionWriter(partition))
         }
       }
       await metadataWrites.settleAll()

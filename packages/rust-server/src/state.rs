@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use narsil::{Narsil, NarsilError};
+use narsil::{ChangeSource, Narsil, NarsilError};
 
 use crate::constants::{
     DEFAULT_IMPORT_BATCH_SIZE, DEFAULT_MAX_BODY_BYTES, DEFAULT_MAX_BODY_BYTES_IN_FLIGHT_FRACTION,
@@ -59,11 +59,38 @@ pub(crate) struct ServerState {
     pub(crate) requests: RequestsInFlight,
     pub(crate) queries: QueryThreads,
     pub(crate) feeds: Feeds,
+    #[cfg(feature = "cluster")]
+    pub(crate) cluster: Option<Arc<narsil_cluster::node::ClusterNode>>,
+    #[cfg(feature = "cluster")]
+    pub(crate) cluster_options: crate::cluster::ClusterOptions,
 }
 
 impl ServerState {
     pub(crate) fn is_ready(&self) -> bool {
         self.ready.load(Ordering::Acquire)
+    }
+
+    #[cfg(feature = "cluster")]
+    pub(crate) fn fronts_cluster(&self) -> bool {
+        self.cluster.is_some()
+    }
+
+    #[cfg(not(feature = "cluster"))]
+    pub(crate) fn fronts_cluster(&self) -> bool {
+        false
+    }
+
+    #[cfg(feature = "cluster")]
+    pub(crate) fn feed_source(&self) -> Arc<dyn ChangeSource> {
+        match &self.cluster {
+            Some(node) => node.feed_source(),
+            None => self.engine.feed_source(),
+        }
+    }
+
+    #[cfg(not(feature = "cluster"))]
+    pub(crate) fn feed_source(&self) -> Arc<dyn ChangeSource> {
+        self.engine.feed_source()
     }
 }
 
@@ -111,8 +138,11 @@ fn body_bytes_in_flight(engine: &Narsil, fraction: f64) -> u64 {
     }
 }
 
-pub(crate) fn resolve_limits(engine: &Narsil, limits: &ServerLimits) -> ResolvedLimits {
-    let engine_rerank_window = engine.max_rerank_window() as u64;
+pub(crate) fn resolve_limits(
+    engine: &Narsil,
+    limits: &ServerLimits,
+    engine_rerank_window: u64,
+) -> ResolvedLimits {
     ResolvedLimits {
         max_body_bytes_in_flight: body_bytes_in_flight(
             engine,

@@ -23,21 +23,21 @@ fn checked_after_lookup<T>(engine: &Narsil, index: &str, converted: Converted<T>
     }
 }
 
-fn object_body(context: &RouteContext) -> Outcome<Map> {
+pub(crate) fn object_body(context: &RouteContext) -> Outcome<Map> {
     match json_object_body(context)? {
         Value::Object(params) => Ok(params),
         _ => Err(ServerError::internal()),
     }
 }
 
-fn regex_check(state: &ServerState, params: &Map) -> Outcome<()> {
+pub(crate) fn regex_check(state: &ServerState, params: &Map) -> Outcome<()> {
     match refused_regex(params.get("filters"), state.allow_regex) {
         Some(refusal) => Err(refusal),
         None => Ok(()),
     }
 }
 
-fn unknown_key_of(params: &Map, query: &QueryParams) -> Option<UnknownBm25Key> {
+pub(crate) fn unknown_key_of(params: &Map, query: &QueryParams) -> Option<UnknownBm25Key> {
     match (params.get("bm25"), &query.bm25) {
         (Some(Value::Object(raw)), Some(bm25)) => unknown_bm25_key(raw, bm25),
         _ => None,

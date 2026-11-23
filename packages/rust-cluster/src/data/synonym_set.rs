@@ -12,10 +12,10 @@ const DIGEST_HEX_DIGITS: usize = 64;
 const FIRST_PRINTABLE_CHARACTER: char = ' ';
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct SynonymSetRef {
-    pub(super) generation: String,
+pub(crate) struct SynonymSetRef {
+    pub(crate) generation: String,
     digest: String,
-    chunk_count: u64,
+    pub(crate) chunk_count: u64,
     byte_length: u64,
 }
 
@@ -46,7 +46,7 @@ fn is_digest(text: &str) -> bool {
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
-pub(super) fn synonym_set_ref(raw: &Value) -> Result<SynonymSetRef, &'static str> {
+pub(crate) fn synonym_set_ref(raw: &Value) -> Result<SynonymSetRef, &'static str> {
     let Value::Object(fields) = raw else {
         return Err("synonyms must be an object");
     };
@@ -100,17 +100,17 @@ pub(super) enum StoredSet {
     ChunkMissing,
 }
 
-pub(super) async fn read_synonym_set(
+pub(crate) async fn read_synonym_set_bytes(
     coordinator: &EtcdCoordinator,
     index_uuid: &str,
     reference: &SynonymSetRef,
     reject: &(dyn Fn(&str) -> crate::error::ClusterError + Sync),
-) -> ClusterResult<StoredSet> {
+) -> ClusterResult<Option<Vec<u8>>> {
     let mut encoded = Vec::new();
     for chunk in 0..reference.chunk_count {
         let key = chunk_key(index_uuid, &reference.generation, chunk);
         let Some(bytes) = coordinator.get(&key).await? else {
-            return Ok(StoredSet::ChunkMissing);
+            return Ok(None);
         };
         if bytes.len() as u64 > reference.byte_length - encoded.len() as u64 {
             return Err(reject("the stored synonym set exceeds its byteLength"));
@@ -125,7 +125,114 @@ pub(super) async fn read_synonym_set(
     if digest_of(&encoded) != reference.digest {
         return Err(reject("the stored synonym set does not match its digest"));
     }
+    Ok(Some(encoded))
+}
+
+pub(super) async fn read_synonym_set(
+    coordinator: &EtcdCoordinator,
+    index_uuid: &str,
+    reference: &SynonymSetRef,
+    reject: &(dyn Fn(&str) -> crate::error::ClusterError + Sync),
+) -> ClusterResult<StoredSet> {
+    let Some(encoded) = read_synonym_set_bytes(coordinator, index_uuid, reference, reject).await?
+    else {
+        return Ok(StoredSet::ChunkMissing);
+    };
     let decoded = decode_msgpack(&encoded).map_err(|error| reject(error.message()))?;
     let rules = synonym_rules_from_json(&decoded).map_err(|error| reject(error.message()))?;
     Ok(StoredSet::Read(rules))
+}
+
+pub(crate) async fn copy_synonym_set(
+    coordinator: &EtcdCoordinator,
+    source_uuid: &str,
+    target_uuid: &str,
+    reference: &SynonymSetRef,
+    reject: &(dyn Fn(&str) -> crate::error::ClusterError + Sync),
+) -> ClusterResult<bool> {
+    let Some(encoded) = read_synonym_set_bytes(coordinator, source_uuid, reference, reject).await?
+    else {
+        return Ok(false);
+    };
+    for (chunk, bytes) in encoded.chunks(SYNONYM_CHUNK_BYTES as usize).enumerate() {
+        let key = chunk_key(target_uuid, &reference.generation, chunk as u64);
+        coordinator.compare_and_set(&key, None, bytes).await?;
+    }
+    Ok(true)
+}
+
+pub(crate) fn stored_synonym_set_of(metadata: &[u8]) -> Option<(String, SynonymSetRef)> {
+    let Ok(Value::Object(fields)) = decode_msgpack(metadata) else {
+        return None;
+    };
+    let index_uuid = fields.get("indexUuid")?.as_str()?.to_string();
+    let Some(Value::Object(settings)) = fields.get("settings") else {
+        return None;
+    };
+    let reference = synonym_set_ref(settings.get("synonyms")?).ok()?;
+    Some((index_uuid, reference))
+}
+
+pub(crate) fn synonym_set_ref_value(reference: &SynonymSetRef) -> Value {
+    let mut fields = narsil::Map::with_capacity(4);
+    fields.insert("generation", Value::String(reference.generation.clone()));
+    fields.insert("digest", Value::String(reference.digest.clone()));
+    fields.insert("chunkCount", Value::from(reference.chunk_count));
+    fields.insert("byteLength", Value::from(reference.byte_length));
+    Value::Object(fields)
+}
+
+async fn write_chunks(
+    coordinator: &EtcdCoordinator,
+    index_uuid: &str,
+    reference: &SynonymSetRef,
+    encoded: &[u8],
+) -> ClusterResult<()> {
+    for (chunk, bytes) in encoded.chunks(SYNONYM_CHUNK_BYTES as usize).enumerate() {
+        let key = chunk_key(index_uuid, &reference.generation, chunk as u64);
+        if !coordinator.compare_and_set(&key, None, bytes).await? {
+            return Err(crate::error::ClusterError::new(
+                crate::error::codes::CONTROLLER_METADATA_INVALID,
+                format!(
+                    "Synonym set chunk {chunk} of a fresh copy already exists in the coordinator"
+                ),
+            )
+            .with_detail("indexUuid", Value::from(index_uuid))
+            .with_detail("generation", Value::from(reference.generation.as_str()))
+            .with_detail("chunk", Value::from(chunk)));
+        }
+    }
+    Ok(())
+}
+
+pub(crate) async fn store_synonym_set(
+    coordinator: &EtcdCoordinator,
+    index_uuid: &str,
+    encoded: &[u8],
+) -> ClusterResult<SynonymSetRef> {
+    let byte_length = encoded.len() as u64;
+    let reference = SynonymSetRef {
+        generation: crate::node::generate_node_id()?,
+        digest: digest_of(encoded),
+        chunk_count: byte_length.div_ceil(SYNONYM_CHUNK_BYTES),
+        byte_length,
+    };
+    if let Err(error) = write_chunks(coordinator, index_uuid, &reference, encoded).await {
+        let _ = delete_synonym_set(coordinator, index_uuid, &reference).await;
+        return Err(error);
+    }
+    Ok(reference)
+}
+
+pub(crate) async fn delete_synonym_set(
+    coordinator: &EtcdCoordinator,
+    index_uuid: &str,
+    reference: &SynonymSetRef,
+) -> ClusterResult<()> {
+    for chunk in 0..reference.chunk_count {
+        coordinator
+            .delete(&chunk_key(index_uuid, &reference.generation, chunk))
+            .await?;
+    }
+    Ok(())
 }

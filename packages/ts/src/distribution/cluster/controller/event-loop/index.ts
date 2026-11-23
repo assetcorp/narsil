@@ -10,6 +10,7 @@ import { handlePrimaryResignMessage } from './primary-resign'
 import { handleRebalanceMessage, resumeRebalance, resumeRebalances } from './rebalance/request'
 import { handleReplicationFactorMessage } from './replication-factor'
 import { changesTopology, clearEventLoopWatchers, type EventLoopState, inSchemaQueue } from './state'
+import { tearDownDroppedAllocations } from './teardown'
 
 export { clearEventLoopWatchers, createEventLoopState, type EventLoopState } from './state'
 
@@ -19,7 +20,8 @@ export { clearEventLoopWatchers, createEventLoopState, type EventLoopState } fro
  *
  * The controller registers a watcher on node registrations and another on schemas, listens for in-sync, bootstrap,
  * replication factor, and partition count change messages, runs the allocator once for every index it starts with,
- * and resumes every partition count change that a previous controller left in its record. It lists the stored schemas
+ * resumes every partition count change that a previous controller left in its record, and tears down the allocation
+ * of every index whose schema was dropped while no controller held the lease. It lists the stored schemas
  * only once the schema watcher is registered, so an index whose schema arrives while the controller starts reaches the
  * allocator through the listing or through the watcher. A registration that changes only its memory
  * figures or its partition sizes starts no allocation run, because every node writes those again on each heartbeat. A failure at any of those steps drops the watchers this call had
@@ -117,6 +119,7 @@ export async function startEventLoop(
   }
 
   scheduleDebouncedAllocation(state, coordinator, isActive, onError)
+  tearDownDroppedAllocations(coordinator, state, isActive, onError).catch(error => onError?.('', error))
   resumeRebalances({ state, coordinator, nodeId, isActive, onError }).catch(error => onError?.('', error))
   resumeAnalysisDrivers({ state, coordinator, nodeId, isActive, onError }).catch(error => onError?.('', error))
 }

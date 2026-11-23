@@ -39,6 +39,17 @@ pub(crate) fn place_pins<'a>(
     count: usize,
     pins: &[&Pin],
 ) -> Result<(Vec<Placed>, Vec<bool>)> {
+    place_pins_within(ranked_ids, count, pins, None)
+}
+
+/// Places `pins` as [`place_pins`] does, leaving out each pin whose position lies at or past `depth`, where a
+/// cluster coordinator merged a ranking that it cannot know the end of.
+pub(crate) fn place_pins_within<'a>(
+    ranked_ids: impl Iterator<Item = &'a str>,
+    count: usize,
+    pins: &[&Pin],
+    depth: Option<usize>,
+) -> Result<(Vec<Placed>, Vec<bool>)> {
     if count > MAX_PLACED_ENTRIES || pins.len() > MAX_PLACED_ENTRIES {
         return Err(too_many());
     }
@@ -67,8 +78,8 @@ pub(crate) fn place_pins<'a>(
         ranked_count: ranked.len(),
         positions: positions.as_ptr(),
         position_count: positions.len(),
-        has_depth: 0,
-        depth: 0,
+        has_depth: u32::from(depth.is_some()),
+        depth: depth.map_or(0, |depth| u32::try_from(depth).unwrap_or(u32::MAX)),
     };
     let mut output = ffi::narsil_pinned_output {
         entries: entries.as_mut_ptr(),

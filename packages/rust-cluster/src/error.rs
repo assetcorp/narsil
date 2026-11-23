@@ -45,6 +45,8 @@ pub mod codes {
     pub const ALLOCATION_NO_DATA_NODES: &str = "ALLOCATION_NO_DATA_NODES";
     /// The controller could not place a partition or write an allocation table.
     pub const ALLOCATION_FAILED: &str = "ALLOCATION_FAILED";
+    /// An index is changing its partition count, so a second change or an analysis change must wait for it.
+    pub const PARTITION_REBALANCING_BACKPRESSURE: &str = "PARTITION_REBALANCING_BACKPRESSURE";
     /// An entry exceeds what the replication log can hold.
     pub const REPLICATION_LOG_FULL: &str = "REPLICATION_LOG_FULL";
     /// A replication log entry failed its checksum.
@@ -71,15 +73,72 @@ pub mod codes {
     pub const INSUFFICIENT_REPLICAS: &str = "INSUFFICIENT_REPLICAS";
     /// The node holds no copy of the index that a request gives.
     pub const INDEX_NOT_FOUND: &str = "INDEX_NOT_FOUND";
+    /// The cluster holds an index under that name, or a create of that name is pending.
+    pub const INDEX_ALREADY_EXISTS: &str = "INDEX_ALREADY_EXISTS";
+    /// A registered node runs a specification version below 1.1, so it cannot use the BM25 parameters that an index
+    /// sets, or a copy has yet to build the statistics that a search's BM25 setting needs.
+    pub const BM25_NOT_READY: &str = "BM25_NOT_READY";
     /// A node reports an orphaned copy, or a caller sends that node a read, a write, or a create for the copy's index
     /// name.
     pub const INDEX_ORPHANED: &str = "INDEX_ORPHANED";
+    /// A node refuses an insert or an update because a node that holds a copy of the index reports full memory,
+    /// because the writes in flight on the node would pass its bound, or because the write would not fit in memory.
+    pub const CLUSTER_WRITE_BLOCKED: &str = "CLUSTER_WRITE_BLOCKED";
+    /// A node refuses to build an answer, or to hold the documents that a search ranked, because the bytes would
+    /// take the process past its memory limit.
+    pub const TOO_MANY_REQUESTS: &str = "TOO_MANY_REQUESTS";
+    /// Device sync would go on, or a feed would read a log, through a node that keeps no write-ahead log.
+    pub const SYNC_DURABILITY_REQUIRED: &str = "SYNC_DURABILITY_REQUIRED";
+    /// Device sync would go on through a node that has no backup store.
+    pub const SYNC_BACKUP_STORE_REQUIRED: &str = "SYNC_BACKUP_STORE_REQUIRED";
+    /// Device sync would go on while a registered node follows a specification version below 1.3.
+    pub const SYNC_NOT_READY: &str = "SYNC_NOT_READY";
+    /// Change capture would go on through a node that keeps no write-ahead log.
+    pub const CHANGES_DURABILITY_REQUIRED: &str = "CHANGES_DURABILITY_REQUIRED";
+    /// Change capture would go on through a node that has no backup store.
+    pub const CHANGES_BACKUP_STORE_REQUIRED: &str = "CHANGES_BACKUP_STORE_REQUIRED";
+    /// Change capture would go on while a registered node follows a specification version below 1.5.
+    pub const CHANGES_NOT_READY: &str = "CHANGES_NOT_READY";
+    /// Device sync is off for the index that a feed reads.
+    pub const SYNC_NOT_ENABLED: &str = "SYNC_NOT_ENABLED";
+    /// Change capture is off for the index that a change feed reads.
+    pub const CHANGES_NOT_ENABLED: &str = "CHANGES_NOT_ENABLED";
+    /// The cluster is taking the backup that a device's snapshot needs, so the device asks again later.
+    pub const SYNC_SNAPSHOT_PREPARING: &str = "SYNC_SNAPSHOT_PREPARING";
+    /// The cluster is taking the backup that a document export needs, so the caller asks again later.
+    pub const CHANGES_EXPORT_PREPARING: &str = "CHANGES_EXPORT_PREPARING";
     /// The cluster owns the index and has yet to allocate it.
     pub const QUERY_ROUTING_FAILED: &str = "QUERY_ROUTING_FAILED";
     /// No node that holds the copy could take the request, because the transport could not reach it.
     pub const QUERY_NO_ACTIVE_REPLICA: &str = "QUERY_NO_ACTIVE_REPLICA";
     /// The node that holds the copy did not answer within the transport's deadline.
     pub const QUERY_NODE_TIMEOUT: &str = "QUERY_NODE_TIMEOUT";
+    /// A read left out a partition that no copy answered, where the read answers whole or not at all.
+    pub const QUERY_PARTIAL_FAILURE: &str = "QUERY_PARTIAL_FAILURE";
+    /// A search names a field that the index cannot search, sort, facet, or group on.
+    pub const SEARCH_INVALID_FIELD: &str = "SEARCH_INVALID_FIELD";
+    /// A search or a listing carries a filter that breaks a filter rule.
+    pub const SEARCH_INVALID_FILTER: &str = "SEARCH_INVALID_FILTER";
+    /// A search asks for a mode, a sort direction, or a combination of options that the engine refuses.
+    pub const SEARCH_INVALID_MODE: &str = "SEARCH_INVALID_MODE";
+    /// A cursor is malformed, or another request produced it.
+    pub const SEARCH_INVALID_CURSOR: &str = "SEARCH_INVALID_CURSOR";
+    /// A request reaches past the first 10,000 results.
+    pub const SEARCH_RESULT_WINDOW_EXCEEDED: &str = "SEARCH_RESULT_WINDOW_EXCEEDED";
+    /// A search's pattern tests passed the engine's work cap.
+    pub const SEARCH_WORK_CAP_EXCEEDED: &str = "SEARCH_WORK_CAP_EXCEEDED";
+    /// A quoted phrase breaks a phrase rule.
+    pub const SEARCH_INVALID_PHRASE: &str = "SEARCH_INVALID_PHRASE";
+    /// A copy has yet to build the positions that a phrase search reads.
+    pub const SEARCH_PHRASE_NOT_READY: &str = "SEARCH_PHRASE_NOT_READY";
+    /// A node no longer holds the search context that a coordinator reads the ranked documents from.
+    pub const SEARCH_CONTEXT_MISSING: &str = "SEARCH_CONTEXT_MISSING";
+    /// A query vector's length differs from the field's dimension.
+    pub const VECTOR_DIMENSION_MISMATCH: &str = "VECTOR_DIMENSION_MISMATCH";
+    /// A copy holds no analysis generation that a request names.
+    pub const ANALYSIS_GENERATION_MISSING: &str = "ANALYSIS_GENERATION_MISSING";
+    /// An index's rerank settings name no registered adapter, or a node holds none.
+    pub const RERANK_CONFIG_INVALID: &str = "RERANK_CONFIG_INVALID";
     /// A document or a document id breaks the rules that every Narsil engine stores documents under.
     pub const DOC_VALIDATION_FAILED: &str = "DOC_VALIDATION_FAILED";
     /// An insert names a document id that the index holds.
@@ -111,8 +170,23 @@ pub mod codes {
     pub const SNAPSHOT_SYNC_DECODE_FAILED: &str = "SNAPSHOT_SYNC_DECODE_FAILED";
     /// A payload of the primary's answer to a sync request breaks the answer's shape or order.
     pub const SNAPSHOT_SYNC_FRAME_INVALID: &str = "SNAPSHOT_SYNC_FRAME_INVALID";
-    /// The primary's answer to a sync request ended with no sync payload.
+    /// The primary's answer to a sync request ended with no sync payload, or with fewer snapshot bytes than the
+    /// snapshot's `totalBytes`.
     pub const SNAPSHOT_SYNC_CHUNK_MISSING: &str = "SNAPSHOT_SYNC_CHUNK_MISSING";
+    /// The first snapshot payload of a sync answer is not a valid `replication.snapshot_start`.
+    pub const SNAPSHOT_SYNC_HEADER_INVALID: &str = "SNAPSHOT_SYNC_HEADER_INVALID";
+    /// A snapshot payload names another index or partition than the sync asked for, or another total than its start.
+    pub const SNAPSHOT_SYNC_HEADER_MISMATCH: &str = "SNAPSHOT_SYNC_HEADER_MISMATCH";
+    /// A snapshot chunk does not start where the chunk before it ended.
+    pub const SNAPSHOT_SYNC_CHUNK_OUT_OF_ORDER: &str = "SNAPSHOT_SYNC_CHUNK_OUT_OF_ORDER";
+    /// A snapshot chunk would carry the archive past the snapshot's `totalBytes`.
+    pub const SNAPSHOT_SYNC_CHUNK_OVERFLOW: &str = "SNAPSHOT_SYNC_CHUNK_OVERFLOW";
+    /// A snapshot chunk holds more than 65,536 bytes.
+    pub const SNAPSHOT_SYNC_CHUNK_SIZE_EXCEEDED: &str = "SNAPSHOT_SYNC_CHUNK_SIZE_EXCEEDED";
+    /// A sync answer that started a snapshot ended without its `replication.snapshot_end`.
+    pub const SNAPSHOT_SYNC_END_MISSING: &str = "SNAPSHOT_SYNC_END_MISSING";
+    /// The snapshot's bytes, or its end payload, carry another checksum than its header.
+    pub const SNAPSHOT_SYNC_CHECKSUM_MISMATCH: &str = "SNAPSHOT_SYNC_CHECKSUM_MISMATCH";
     /// The primary answered a sync request with an error reply, whose code and message the details carry as
     /// `primaryCode` and `primaryMessage`.
     pub const SNAPSHOT_SYNC_PRIMARY_ERROR: &str = "SNAPSHOT_SYNC_PRIMARY_ERROR";
@@ -125,6 +199,34 @@ pub mod codes {
     /// A node started without its copy of a partition that the allocation table gives it as primary or as an
     /// in-sync replica, so it waits to register until the controller fails that copy over.
     pub const NODE_COPY_MISSING: &str = "NODE_COPY_MISSING";
+    /// A second copy of an index's terms would pass the node's memory limit, so the node cannot build the analysis
+    /// that a change asks for.
+    pub const ANALYSIS_REBUILD_MEMORY_EXCEEDED: &str = "ANALYSIS_REBUILD_MEMORY_EXCEEDED";
+    /// An analysis change names a language that the node has not registered.
+    pub const LANGUAGE_NOT_SUPPORTED: &str = "LANGUAGE_NOT_SUPPORTED";
+    /// A later analysis change, or a restore, replaced the analysis change that a request asks about.
+    pub const ANALYSIS_CHANGE_REPLACED: &str = "ANALYSIS_CHANGE_REPLACED";
+    /// The cluster has a node below the specification version that changes analysis, so the index keeps its
+    /// settings until that node is upgraded.
+    pub const ANALYSIS_CHANGE_NOT_READY: &str = "ANALYSIS_CHANGE_NOT_READY";
+    /// The backup store holds no manifest under the backup name.
+    pub const BACKUP_NOT_FOUND: &str = "BACKUP_NOT_FOUND";
+    /// A manifest or a running job already holds the backup name.
+    pub const BACKUP_ALREADY_EXISTS: &str = "BACKUP_ALREADY_EXISTS";
+    /// A backup manifest fails to decode, or a file that it lists is missing or has another length or SHA-256.
+    pub const BACKUP_DAMAGED: &str = "BACKUP_DAMAGED";
+    /// A primary runs without write-ahead log durability, so it can't take a backup.
+    pub const BACKUP_DURABILITY_REQUIRED: &str = "BACKUP_DURABILITY_REQUIRED";
+    /// Another backup job conflicts with the one that a request asks for.
+    pub const BACKUP_IN_PROGRESS: &str = "BACKUP_IN_PROGRESS";
+    /// Another cluster's UUID is stored under the backup store's key prefix.
+    pub const BACKUP_STORE_CLAIMED: &str = "BACKUP_STORE_CLAIMED";
+    /// A registered node follows a specification version below the one that backups need.
+    pub const BACKUP_NOT_READY: &str = "BACKUP_NOT_READY";
+    /// The node that receives a backup, restore, deletion, or listing request has no backup store.
+    pub const BACKUP_STORE_NOT_CONFIGURED: &str = "BACKUP_STORE_NOT_CONFIGURED";
+    /// A read of a backup store or a stored file failed.
+    pub const PERSISTENCE_LOAD_FAILED: &str = "PERSISTENCE_LOAD_FAILED";
 }
 
 /// A failure of a cluster node, a transport, or a coordinator, with the code that a peer or a caller branches on.
@@ -178,7 +280,7 @@ impl std::error::Error for ClusterError {}
 impl From<NarsilError> for ClusterError {
     fn from(error: NarsilError) -> ClusterError {
         ClusterError {
-            code: error.code().as_str().to_string(),
+            code: error.spec_code().to_string(),
             message: error.message().to_string(),
             details: error.details().cloned().unwrap_or_default(),
         }

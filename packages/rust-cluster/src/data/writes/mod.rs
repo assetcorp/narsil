@@ -1,36 +1,46 @@
+mod backup_restore;
 mod catch_up;
 mod commit;
 mod condition;
 mod copy_failure;
 mod errors;
 mod forward;
+mod forward_answer;
+mod forward_memory;
 mod log;
 mod log_order;
 mod partition;
 mod replica;
 mod replicate;
+mod reshard;
 mod rollback;
 mod run;
 mod scope;
 mod sync_apply;
+mod sync_read;
 mod term_start;
 mod view;
 
-use std::sync::Arc;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use tokio::sync::{Semaphore, watch};
 
-use self::catch_up::catch_up_budget;
+pub(crate) use self::backup_restore::StoredPartitionFiles;
+use self::catch_up::{SnapshotSlots, catch_up_budget};
 use self::copy_failure::CopyFailures;
 pub(crate) use self::errors::abandoned_with_term;
-pub(crate) use self::forward::{routed_partition, unassigned};
+pub(crate) use self::forward::{fnv1a, fnv1a_uint32s, routed_partition, unassigned};
 use self::partition::Partitions;
+use self::reshard::ReshardState;
+pub(crate) use self::sync_read::{SyncReadReply, SyncReadRequest};
 pub(crate) use self::view::AllocationView;
 use super::blocking::off_executor;
 use super::copies::LocalCopies;
 use crate::coordinator::etcd::EtcdCoordinator;
 use crate::error::ClusterResult;
+use crate::memory::NodeMemory;
 use crate::message::TransportMessage;
 use crate::node::{NodeErrorHandler, generate_node_id, report_failure};
 use crate::transport::NodeTransport;
@@ -43,10 +53,14 @@ pub(crate) struct PrimaryWrites {
     view: Arc<AllocationView>,
     partitions: Partitions,
     failures: CopyFailures,
+    reshard: ReshardState,
     catch_up_bytes: Semaphore,
     stopping: watch::Sender<bool>,
     on_error: Option<NodeErrorHandler>,
     log_retention_bytes: u64,
+    spool_directory: PathBuf,
+    snapshot_slots: Mutex<SnapshotSlots>,
+    memory: Option<Arc<NodeMemory>>,
 }
 
 pub(crate) struct PrimaryWritesSettings {
@@ -57,6 +71,8 @@ pub(crate) struct PrimaryWritesSettings {
     pub(crate) view: Arc<AllocationView>,
     pub(crate) on_error: Option<NodeErrorHandler>,
     pub(crate) log_retention_bytes: u64,
+    pub(crate) spool_directory: PathBuf,
+    pub(crate) memory: Option<Arc<NodeMemory>>,
 }
 
 impl PrimaryWrites {
@@ -69,11 +85,23 @@ impl PrimaryWrites {
             view: settings.view,
             partitions: Partitions::default(),
             failures: CopyFailures::default(),
+            reshard: ReshardState::default(),
             catch_up_bytes: catch_up_budget(),
             stopping: watch::Sender::new(false),
             on_error: settings.on_error,
             log_retention_bytes: settings.log_retention_bytes,
+            spool_directory: settings.spool_directory,
+            snapshot_slots: Mutex::default(),
+            memory: settings.memory,
         }
+    }
+
+    pub(crate) fn memory(&self) -> Option<Arc<NodeMemory>> {
+        self.memory.clone()
+    }
+
+    pub(crate) fn spool_directory(&self) -> &Path {
+        &self.spool_directory
     }
 
     pub(super) fn start(self: &Arc<Self>) {
@@ -82,6 +110,7 @@ impl PrimaryWrites {
 
     pub(super) fn stop(&self) {
         self.stopping.send_replace(true);
+        self.reshard.stop_every_job();
         self.catch_up_bytes.close();
         self.cancel_catch_up_feeds();
         self.view.stop();
@@ -140,10 +169,12 @@ impl PrimaryWrites {
     pub(super) fn forget_index(&self, index_name: &str) {
         self.partitions.forget_index(index_name);
         self.failures.forget_index(index_name);
+        self.reshard.forget_index(index_name);
     }
 
     pub(super) fn forget_partition(&self, index_name: &str, partition_id: u32) {
         self.partitions.forget_partition(index_name, partition_id);
         self.failures.forget_partition(index_name, partition_id);
+        self.reshard.forget_partition(index_name, partition_id);
     }
 }

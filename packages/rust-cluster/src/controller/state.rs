@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use narsil::{Map, Value};
 use tokio::task::JoinHandle;
 
+use super::analysis_change::AnalysisDriver;
 use super::now_ms;
 use crate::coordinator::etcd::WatchHandle;
 use crate::coordinator::{NodeEvent, NodeRegistration};
@@ -25,6 +26,9 @@ pub(crate) struct LoopState {
     pub(crate) teardowns: HashMap<String, (u64, JoinHandle<()>)>,
     pub(crate) watches: Vec<WatchHandle>,
     pub(crate) listening: bool,
+    pub(crate) rebalance_drivers: HashMap<String, String>,
+    pub(crate) rebalance_epoch: u64,
+    pub(crate) analysis_drivers: HashMap<String, AnalysisDriver>,
 }
 
 fn abort(timer: &mut Timer) {
@@ -46,7 +50,10 @@ impl LoopState {
             handle.abort();
         }
         self.departed_at.clear();
+        self.analysis_drivers.clear();
         self.listening = false;
+        self.rebalance_drivers.clear();
+        self.rebalance_epoch += 1;
         std::mem::take(&mut self.watches)
     }
 

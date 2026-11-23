@@ -4,14 +4,17 @@ use std::time::Duration;
 
 use narsil::{Map, Value};
 use narsil_cluster::coordinator::AllocationTable;
-use narsil_cluster::coordinator::etcd::EtcdCoordinator;
+use narsil_cluster::coordinator::etcd::{EtcdCoordinator, EtcdCoordinatorConfig};
 use narsil_cluster::error::ClusterError;
 use narsil_cluster::message::TransportMessage;
 use narsil_cluster::transport::tcp::{TcpTransport, TcpTransportConfig};
 use narsil_cluster::transport::{BoxFuture, NodeTransport, Respond, listen_handler};
 use tokio::sync::Notify;
 
-use crate::data_node::{DataNode, Scratch, cluster_coordinator, create_cluster_index};
+use crate::data_node::{
+    DataNode, Scratch, cluster_coordinator, coordinator_at, create_cluster_index, etcd_endpoint,
+    unique_key_prefix,
+};
 use crate::ledger::{FORWARDER, forwarder, start_controller, title_document};
 use crate::spread::{Expected, copy_difference, fnv1a_partition, settled_holders, titled};
 use crate::support::{Decoded, decode, write_binary, write_map_header, write_text, write_unsigned};
@@ -63,9 +66,13 @@ fn oversized_batch(count: usize) -> Vec<u8> {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn the_rust_write_api_routes_each_write_by_its_id_and_refuses_hostile_input() {
-    let Some(coordinator) = cluster_coordinator().await else {
+    let Some(endpoint) = etcd_endpoint() else {
         return;
     };
+    let key_prefix = unique_key_prefix();
+    let ttl = EtcdCoordinatorConfig::default().node_heartbeat_ttl_seconds;
+    let coordinator = coordinator_at(endpoint.clone(), key_prefix.clone(), ttl).await;
+    let router_coordinator = coordinator_at(endpoint, key_prefix, ttl).await;
     let controller_scratch = Scratch::new();
     let controller = start_controller(&coordinator, &controller_scratch).await;
     let scratches = [Scratch::new(), Scratch::new(), Scratch::new()];
@@ -89,7 +96,7 @@ async fn the_rust_write_api_routes_each_write_by_its_id_and_refuses_hostile_inpu
     );
     let router_scratch = Scratch::new();
     let router = DataNode::start_with_roles(
-        &coordinator,
+        &router_coordinator,
         "client-router",
         router_scratch.path(),
         &["coordinator"],
@@ -285,6 +292,7 @@ async fn the_rust_write_api_routes_each_write_by_its_id_and_refuses_hostile_inpu
         "a write after the node shut down",
     );
     router.transport.shutdown().await;
+    router_coordinator.shutdown().await;
     for node in data {
         node.stop().await;
     }

@@ -112,6 +112,8 @@ const PATHS_BY_LANGUAGE_AREA = {
   rust_server: {
     paths: [
       'packages/rust-server/',
+      'packages/rust-cluster/src/',
+      'packages/rust-cluster/Cargo.toml',
       'packages/rust/',
       'packages/native/src/',
       'packages/native/include/',
@@ -129,6 +131,7 @@ const PATHS_BY_LANGUAGE_AREA = {
   rust_cluster: {
     paths: [
       'packages/rust-cluster/',
+      'packages/rust-server/',
       'packages/rust/',
       'packages/native/src/',
       'packages/native/include/',

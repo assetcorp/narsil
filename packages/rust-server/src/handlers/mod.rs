@@ -1,14 +1,14 @@
 mod cluster;
 pub(crate) mod common;
-mod documents;
+pub(crate) mod documents;
 mod indexes;
-mod info;
+pub(crate) mod info;
 mod maintenance;
 pub(crate) mod search;
 mod settings;
-mod suggestions;
+pub(crate) mod suggestions;
 mod sync;
-mod task_routes;
+pub(crate) mod task_routes;
 
 use std::sync::Arc;
 
@@ -23,6 +23,10 @@ pub(crate) async fn dispatch(
     route: Route,
     context: RouteContext,
 ) -> Outcome<HttpResponse> {
+    #[cfg(feature = "cluster")]
+    if let Some(node) = state.cluster.clone() {
+        return crate::cluster::dispatch(state, node, route, context).await;
+    }
     use Route::*;
     match route {
         Livez => info::livez(),

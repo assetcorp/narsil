@@ -171,19 +171,26 @@ jobs:
         uses: ./.github/actions/install-protoc
 
       - name: Install the pinned Rust toolchain
-        working-directory: packages/rust-cluster
+        working-directory: packages/rust-server
         run: rustup toolchain install
 
       - name: Build the Rust fault node
-        working-directory: packages/rust-cluster
-        run: cargo build --locked --example fault_node
+        working-directory: packages/rust-server
+        run: cargo build --locked --features cluster --example fault_node
 
       - name: Run the mixed cluster over TCP and gRPC
         working-directory: packages/ts
         env:
-          NARSIL_RUST_CLUSTER_NODE: ${{ github.workspace }}/packages/rust-cluster/target/debug/examples/fault_node
+          NARSIL_RUST_CLUSTER_NODE: ${{ github.workspace }}/packages/rust-server/target/debug/examples/fault_node
         run: >-
           pnpm vitest run --no-file-parallelism
           src/__tests__/e2e/cluster-faults/rust-node.test.ts
           src/__tests__/e2e/cluster-faults/rust-controller.test.ts
           src/__tests__/e2e/cluster-faults/rust-controller-handover.test.ts
+
+      - name: Run one seed of faults with a Rust node in the middle slot
+        working-directory: packages/ts
+        env:
+          NARSIL_RUST_CLUSTER_NODE: ${{ github.workspace }}/packages/rust-server/target/debug/examples/fault_node
+          NARSIL_FAULT_RUST_SLOTS: '1'
+        run: pnpm vitest run src/__tests__/e2e/cluster-faults/seeded-faults.test.ts

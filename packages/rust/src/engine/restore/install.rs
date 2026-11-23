@@ -171,6 +171,7 @@ pub(super) fn activate(
         staged.stage_commit(manifest, &metadata)?;
     }
     index.set_analysis_stale(restored_analysis_stale(&index, recorded));
+    index.record_analysis_generation(recorded.analysis_generation.unwrap_or(0));
     let index = Arc::new(index);
     let changes = previous
         .as_ref()

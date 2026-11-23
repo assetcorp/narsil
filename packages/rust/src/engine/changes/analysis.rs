@@ -102,7 +102,17 @@ pub(crate) fn resolve_target(
     index: &IndexState,
     change: &AnalysisChange,
 ) -> Result<AnalysisTarget> {
-    let config = index.config();
+    resolve_config_target(engine, &index.name, &index.config(), change)
+}
+
+/// Resolves the analysis that `change` moves an index called `index_name` with `config` to, checking each setting
+/// in the order that every Narsil engine checks it.
+pub(crate) fn resolve_config_target(
+    engine: &EngineInner,
+    index_name: &str,
+    config: &IndexConfig,
+    change: &AnalysisChange,
+) -> Result<AnalysisTarget> {
     let languages = &engine.settings.languages;
     let language = match &change.language {
         Some(name) => languages.resolve(name)?,
@@ -116,17 +126,17 @@ pub(crate) fn resolve_target(
     if let AnalysisSetting::Set(StopWordsSetting::Words(StopWords::Function(_))) =
         &change.stop_words
     {
-        return Err(refused_stop_words(&index.name));
+        return Err(refused_stop_words(index_name));
     }
     let stop_words = kept(&change.stop_words, config.stop_words.as_ref());
     let changed = IndexConfig {
         language: Some(language.name().to_string()),
         tokenizer: tokenizer.clone(),
         stop_words: stop_words.clone(),
-        ..(*config).clone()
+        ..config.clone()
     };
     require_configuration_within_size_limit(&changed, &language)?;
-    build_target(engine, &config, language, tokenizer, stop_words)
+    build_target(engine, config, language, tokenizer, stop_words)
 }
 
 /// Resolves the analysis that a change recorded as pending moves `index` to.

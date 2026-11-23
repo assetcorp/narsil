@@ -1,5 +1,5 @@
 use super::history_files::remove_history_folder;
-use super::host::suggestion_states;
+use super::host::{SuggestionsHost, suggestion_states};
 use crate::engine::{EngineInner, lifecycle};
 use crate::error::{ErrorCode, Result};
 
@@ -22,5 +22,5 @@ pub(crate) fn drop_suggestion_indexes_of(engine: &EngineInner, source_name: &str
 
 pub(crate) fn clear_leftovers_of_name(engine: &EngineInner, name: &str) -> Result<()> {
     drop_suggestion_indexes_of(engine, name)?;
-    remove_history_folder(engine.suggestions.files(engine), name)
+    remove_history_folder(engine.files().store(), name)
 }
