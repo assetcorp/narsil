@@ -1,6 +1,6 @@
 use crate::error::{ClusterError, ClusterResult, codes};
 
-pub(super) async fn off_executor<T, F>(work: F) -> ClusterResult<T>
+pub(crate) async fn off_executor<T, F>(work: F) -> ClusterResult<T>
 where
     T: Send + 'static,
     F: FnOnce() -> T + Send + 'static,

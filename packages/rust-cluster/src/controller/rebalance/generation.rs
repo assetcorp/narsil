@@ -8,7 +8,7 @@ use crate::controller::metadata::{metadata_key, validate_record};
 use crate::controller::stored_table;
 use crate::coordinator::etcd::EtcdCoordinator;
 use crate::data::synonym_set::{
-    SynonymSetRef, copy_synonym_set, delete_synonym_set, synonym_set_ref,
+    copy_synonym_set, delete_synonym_set, stored_synonym_set_of, synonym_set_ref,
 };
 use crate::error::{ClusterError, ClusterResult, codes};
 use crate::rebalance::{RebalanceRecord, clear_rebalance_progress};
@@ -23,23 +23,6 @@ fn settings_rejection(index_name: &str) -> impl Fn(&str) -> ClusterError + Sync 
         )
         .with_detail("indexName", Value::String(index_name.to_string()))
     }
-}
-
-fn decoded_metadata(bytes: &[u8]) -> Option<Map> {
-    match decode_msgpack(bytes) {
-        Ok(Value::Object(fields)) => Some(fields),
-        _ => None,
-    }
-}
-
-fn stored_synonym_set_of(bytes: &[u8]) -> Option<(String, SynonymSetRef)> {
-    let fields = decoded_metadata(bytes)?;
-    let index_uuid = fields.get("indexUuid")?.as_str()?.to_string();
-    let Some(Value::Object(settings)) = fields.get("settings") else {
-        return None;
-    };
-    let reference = synonym_set_ref(settings.get("synonyms")?).ok()?;
-    Some((index_uuid, reference))
 }
 
 fn without_sync_fields(settings: &Map) -> Map {
