@@ -8,9 +8,7 @@ use crate::handlers::common::{json_body, object};
 use crate::http::pipeline::RouteContext;
 use crate::http::respond::{HttpResponse, json};
 use crate::http::routes::Route;
-use crate::settings::{
-    Bm25Change, bm25_change_of, ok, provoked_refusal, synonym_rules_of, synonym_set_json,
-};
+use crate::settings::{Bm25Change, bm25_change_of, ok, provoked_refusal, synonym_set_json};
 
 const SYNONYM_SET_SHAPE: &str = "Send the synonym set as { \"synonyms\": [ ...rules ] }";
 
@@ -38,9 +36,7 @@ async fn replace_synonyms(
         }
         _ => return Err(ServerError::invalid(SYNONYM_SET_SHAPE)),
     };
-    node.synonyms(index_name).await.map_err(served_error)?;
-    let rules = synonym_rules_of(&rules)?;
-    node.replace_synonyms(index_name, &rules)
+    node.replace_synonyms_json(index_name, &rules)
         .await
         .map_err(served_error)?;
     Ok(ok())

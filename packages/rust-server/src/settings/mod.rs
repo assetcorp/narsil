@@ -30,4 +30,4 @@ pub(crate) use stream::streamed_output;
 #[cfg(feature = "cluster")]
 pub(crate) use sync_snapshot::{SYNC_SNAPSHOT_PREPARING, require_sync_feed, serve_snapshot};
 #[cfg(feature = "cluster")]
-pub(crate) use synonyms::{synonym_rules_of, synonym_set_json};
+pub(crate) use synonyms::synonym_set_json;
