@@ -1,5 +1,5 @@
 import { setTimeout as sleep } from 'node:timers/promises'
-import { Etcd3 } from 'etcd3'
+import { Etcd3, EtcdInvalidAuthTokenError, type Watcher } from 'etcd3'
 import { CONTROLLER_LEASE_KEY } from '../../../distribution/cluster/controller'
 import { type ClusterCoordinator, createEtcdCoordinator } from '../../../distribution/coordinator'
 import type { TlsBundles } from '../../distribution/transport/tcp-tls/fixtures'
@@ -9,6 +9,7 @@ import { send } from './workload'
 const POLL_MS = 200
 const REQUEST_TIMEOUT_MS = 20_000
 const CREATE_TIMEOUT_MS = 60_000
+const TOKEN_REPLICATION_WAIT_MS = 15_000
 
 export async function connectCoordinator(
   etcd: EtcdMembers,
@@ -39,6 +40,18 @@ export function connectRawEtcd(etcd: EtcdMembers, bundles: TlsBundles | null): E
           auth: { username: 'root', password: ETCD_ROOT_PASSWORD },
         }),
   })
+}
+
+export async function watchKey(raw: Etcd3, key: string): Promise<Watcher> {
+  const deadline = Date.now() + TOKEN_REPLICATION_WAIT_MS
+  for (;;) {
+    try {
+      return await raw.watch().key(key).create()
+    } catch (error) {
+      if (!(error instanceof EtcdInvalidAuthTokenError) || Date.now() > deadline) throw error
+      await sleep(POLL_MS)
+    }
+  }
 }
 
 export async function waitFor<T>(
