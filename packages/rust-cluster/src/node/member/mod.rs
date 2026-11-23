@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex, Weak};
 use narsil::Value;
 use tokio::sync::watch;
 
-use super::config::{ClusterNodeConfig, report_failure};
+use super::config::{ClusterNodeConfig, ClusterQueryConfig, report_failure};
 use super::heartbeat::Heartbeat;
 use super::join::{
     refuse_controller_on_another_major_version, wait_for_earlier_registration_to_lapse,
@@ -42,6 +42,7 @@ pub(super) struct NodeInner {
     pub(super) registration: NodeRegistration,
     pub(super) heartbeat_interval_ms: u64,
     in_flight_write_fraction: f64,
+    query: ClusterQueryConfig,
     on_error: Option<NodeErrorHandler>,
     pub(super) controller: Option<Controller>,
     pub(super) data: Option<DataRole>,
@@ -80,7 +81,7 @@ impl NodeInner {
             data,
             heartbeat_interval_ms,
             in_flight_write_fraction,
-            query: _,
+            query,
             on_error,
         } = config;
         let controller = registration
@@ -116,6 +117,7 @@ impl NodeInner {
             registration,
             heartbeat_interval_ms,
             in_flight_write_fraction,
+            query,
             on_error,
             controller,
             data,

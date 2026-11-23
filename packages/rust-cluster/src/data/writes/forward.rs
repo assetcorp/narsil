@@ -16,13 +16,25 @@ use crate::payload::forward::{ForwardKind, ForwardOperation, ForwardRequest, Wri
 const FNV_OFFSET_BASIS: u32 = 2_166_136_261;
 const FNV_PRIME: u32 = 16_777_619;
 
-pub(crate) fn routed_partition(document_id: &str, partition_count: usize) -> u32 {
+pub(crate) fn fnv1a(bytes: &[u8]) -> u32 {
     let mut hash = FNV_OFFSET_BASIS;
-    for byte in document_id.as_bytes() {
+    for byte in bytes {
         hash ^= u32::from(*byte);
         hash = hash.wrapping_mul(FNV_PRIME);
     }
-    (hash as usize % partition_count) as u32
+    hash
+}
+
+pub(crate) fn fnv1a_uint32s(values: &[u32]) -> u32 {
+    let bytes: Vec<u8> = values
+        .iter()
+        .flat_map(|value| value.to_be_bytes())
+        .collect();
+    fnv1a(&bytes)
+}
+
+pub(crate) fn routed_partition(document_id: &str, partition_count: usize) -> u32 {
+    (fnv1a(document_id.as_bytes()) as usize % partition_count) as u32
 }
 
 struct Run {

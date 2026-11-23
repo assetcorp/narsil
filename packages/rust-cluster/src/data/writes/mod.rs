@@ -29,7 +29,7 @@ use tokio::sync::{Semaphore, watch};
 use self::catch_up::{SnapshotSlots, catch_up_budget};
 use self::copy_failure::CopyFailures;
 pub(crate) use self::errors::abandoned_with_term;
-pub(crate) use self::forward::{routed_partition, unassigned};
+pub(crate) use self::forward::{fnv1a, fnv1a_uint32s, routed_partition, unassigned};
 use self::partition::Partitions;
 use self::reshard::ReshardState;
 pub(crate) use self::view::AllocationView;
