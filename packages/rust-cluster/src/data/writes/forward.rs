@@ -240,6 +240,22 @@ impl PrimaryWrites {
         batch: bool,
         check: BlockCheck,
     ) -> ClusterResult<Vec<Outcome>> {
+        let request = match self.name_of_forwarded_write(&request.index_name).await? {
+            Ok(index_name) if index_name == request.index_name => request,
+            Ok(index_name) => ForwardRequest {
+                index_name,
+                ..request
+            },
+            Err(blocked) => {
+                return Ok(request
+                    .operations
+                    .iter()
+                    .map(|operation| {
+                        Err(WriteFailure::from(blocked.refusal(&operation.document_id)))
+                    })
+                    .collect());
+            }
+        };
         let count = request.operations.len();
         let what = if batch {
             "forwarded batch"

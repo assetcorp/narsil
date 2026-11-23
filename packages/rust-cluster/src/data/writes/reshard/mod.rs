@@ -3,6 +3,7 @@ mod copy;
 mod forward;
 mod handlers;
 mod leadership;
+mod moved_name;
 mod payloads;
 mod running_job;
 mod source;

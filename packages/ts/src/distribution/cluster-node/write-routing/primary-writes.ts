@@ -17,6 +17,7 @@ import {
   sizeStoredMerges,
 } from './forwarded-document'
 import { inLeadingPartitionQueue } from './leading-queue'
+import { nameOfForwardedWrite } from './moved-name'
 import {
   appendDeletion,
   appendStoredCopy,
@@ -303,7 +304,10 @@ export function applyForwardedWrite(payload: ForwardPayload, deps: WriteRoutingD
   )
 }
 
-async function applyAdmittedForwardedWrite(payload: ForwardPayload, deps: WriteRoutingDeps): Promise<string> {
+async function applyAdmittedForwardedWrite(forwarded: ForwardPayload, deps: WriteRoutingDeps): Promise<string> {
+  const named = await nameOfForwardedWrite(forwarded.indexName, deps)
+  if (named.kind === 'blocked') throw named.refusal(forwarded.documentId)
+  const payload = named.indexName === forwarded.indexName ? forwarded : { ...forwarded, indexName: named.indexName }
   const condition = conditionOfFields(payload, payload.operation, payload.documentId)
   const resolution = await resolvePrimaryAssignment(payload.indexName, payload.documentId, deps, true)
   if (resolution === null) {
