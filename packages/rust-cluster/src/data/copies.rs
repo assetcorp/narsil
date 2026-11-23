@@ -102,18 +102,34 @@ impl LocalCopies {
         index_uuid: &str,
         partition_count: u32,
     ) -> ClusterResult<()> {
+        match self.create_new_copy(index_name, config, index_uuid, partition_count) {
+            Err(error) if error.code() == codes::INDEX_ALREADY_EXISTS => Ok(()),
+            other => other,
+        }
+    }
+
+    pub(super) fn create_new_copy(
+        &self,
+        index_name: &str,
+        config: IndexConfig,
+        index_uuid: &str,
+        partition_count: u32,
+    ) -> ClusterResult<()> {
         self.refuse_orphaned(index_name)?;
         let _turn = lock(&self.index_lifecycle);
-        let created = PartitionCopies::new(&self.engine).create_index(
+        Ok(PartitionCopies::new(&self.engine).create_index(
             index_name,
             config,
             index_uuid,
             partition_count,
-        );
-        match created {
-            Err(error) if error.code() == ErrorCode::INDEX_ALREADY_EXISTS => Ok(()),
-            other => Ok(other?),
-        }
+        )?)
+    }
+
+    pub(super) fn drop_local_index(&self, index_name: &str) -> ClusterResult<()> {
+        let _turn = lock(&self.index_lifecycle);
+        self.engine.drop_index(index_name)?;
+        self.forget_orphan(index_name);
+        Ok(())
     }
 
     pub(super) fn schema_of(&self, index_name: &str) -> Result<Value, NarsilError> {

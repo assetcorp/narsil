@@ -1,20 +1,22 @@
 use std::time::Duration;
 
+use narsil::held_analysis::PendingAnalysisChange;
 use narsil::{AnalysisChange, AnalysisSetting, StopWords, StopWordsSetting, Value};
 
 use super::handle::ClusterNode;
 use super::identity::generate_node_id;
 use super::rebalance::refuse_hidden_generation;
-use crate::constants::{ANALYSIS_CHANGE_POLL_INTERVAL_MS, MAX_SETTINGS_REPLACEMENT_ATTEMPTS};
+use crate::constants::{
+    ANALYSIS_CHANGE_POLL_INTERVAL_MS, BM25_TUNING_SPEC_VERSION, MAX_SETTINGS_REPLACEMENT_ATTEMPTS,
+};
 use crate::controller::{
     IndexMetadataSnapshot, PendingAnalysis, metadata_key, metadata_with_pending_analysis,
-    metadata_without_pending_analysis, read_index_metadata_snapshot,
+    metadata_without_pending_analysis, read_index_metadata_snapshot, validate_index_name,
 };
 use crate::error::{ClusterError, ClusterResult, codes};
-use crate::rebalance::rebalance_record_key;
+use crate::rebalance::read_rebalance_record;
 use crate::version::reaches_version;
 
-const ANALYSIS_CHANGE_SPEC_VERSION: &str = "1.1";
 const SETTINGS_CONTENTION_REASON: &str = "settings_contention";
 
 struct NamedSettings {
@@ -22,6 +24,17 @@ struct NamedSettings {
     tokenizer: Option<String>,
     stop_words: Option<String>,
     stop_word_list: Option<Vec<String>>,
+}
+
+impl From<PendingAnalysisChange> for NamedSettings {
+    fn from(checked: PendingAnalysisChange) -> NamedSettings {
+        NamedSettings {
+            language: checked.language,
+            tokenizer: checked.tokenizer,
+            stop_words: checked.stop_words,
+            stop_word_list: checked.stop_word_list,
+        }
+    }
 }
 
 enum Outcome {
@@ -200,14 +213,18 @@ impl ClusterNode {
     /// Changes the analysis settings of a cluster index, and returns once the controller publishes the new
     /// generation of its analysis.
     ///
-    /// The node records the change as the index's pending analysis. The controller then asks every node that holds a
+    /// A node with the data role first checks the language, the tokenizer and stop word names, and the index's
+    /// synonym rules under the new settings against its engine. The node then records the change as the index's
+    /// pending analysis. The controller then asks every node that holds a
     /// copy to build the new terms beside the old ones, and publishes the change once each one answers, so the
     /// change finishes where this node dies. A later change replaces one that is still building, so the latest
     /// change wins, and a change to the settings that the index holds completes with no new generation.
     ///
     /// # Errors
     ///
-    /// Fails with `CONFIG_INVALID` for a stop word function or a name that starts with `narsil-generation-`, with
+    /// Fails with `LANGUAGE_NOT_SUPPORTED` for a language that a data node's engine does not hold, with
+    /// `CONFIG_INVALID` for a stop word function, a name that starts with `narsil-generation-`, or, on a data node,
+    /// an unregistered tokenizer or stop word name or a synonym word that breaks the rules under the new settings, with
     /// `INDEX_NOT_FOUND` where the cluster holds no such index, with `ANALYSIS_CHANGE_NOT_READY` where a registered
     /// node runs a specification version below 1.1, with `CLUSTER_WRITE_BLOCKED` where the index's metadata kept
     /// changing over 5 attempts, with `PARTITION_REBALANCING_BACKPRESSURE` during a partition count change, with
@@ -223,16 +240,24 @@ impl ClusterNode {
         self.guard_shutdown()?;
         let coordinator = self.inner.coordinator();
         let serving = self.serving_name(index_name).await?;
+        validate_index_name(&serving)?;
         let snapshot = read_index_metadata_snapshot(coordinator, &serving).await?;
-        let (Some(_), Some(snapshot)) = (coordinator.schema(&serving).await?, snapshot) else {
+        let (Some(schema), Some(snapshot)) = (coordinator.schema(&serving).await?, snapshot) else {
             return Err(index_not_found(index_name));
         };
-        let target = target_of(index_name, &snapshot.published_analysis(), change)?;
+        let target = match &self.inner.data {
+            Some(data) => data
+                .check_analysis_change(&serving, index_name, &schema, change)
+                .await?
+                .map(NamedSettings::from)
+                .ok_or_else(|| index_not_found(index_name))?,
+            None => target_of(index_name, &snapshot.published_analysis(), change)?,
+        };
         let older: Vec<Value> = coordinator
             .list_nodes()
             .await?
             .into_iter()
-            .filter(|node| !reaches_version(&node.version, ANALYSIS_CHANGE_SPEC_VERSION))
+            .filter(|node| !reaches_version(&node.version, BM25_TUNING_SPEC_VERSION))
             .map(|node| Value::String(node.node_id))
             .collect();
         if !older.is_empty() {
@@ -248,11 +273,10 @@ impl ClusterNode {
         let Some(pending) = self.write_pending(&serving, &target).await? else {
             return Ok(());
         };
-        let rebalancing = coordinator
-            .get(&rebalance_record_key(index_name))
+        if read_rebalance_record(coordinator, index_name)
             .await?
-            .is_some_and(|record| !record.is_empty());
-        if rebalancing {
+            .is_some()
+        {
             self.clear_own_pending(&serving, &pending.change_id).await?;
             return Err(ClusterError::new(
                 codes::PARTITION_REBALANCING_BACKPRESSURE,

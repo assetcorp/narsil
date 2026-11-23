@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use super::analysis_change::{announce, rebuild_under, record_pending};
-use super::changes::analysis::pending_target;
+use super::changes::analysis::{AnalysisChange, pending_of, pending_target, resolve_config_target};
 use super::changes::drive::KeepCurrent;
 use super::changes::hold::HeldRun;
 use super::changes::rebuild::Rebuild;
@@ -13,6 +13,7 @@ use super::stats::text_bytes;
 use super::sync::notify::announcing_epoch;
 use super::synonyms::prepare_synonyms;
 use super::{EngineInner, Narsil};
+use crate::config::IndexConfig;
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::format::metadata_parts::{NamedAnalysis, PendingAnalysis};
 
@@ -65,6 +66,23 @@ impl<'a> HeldAnalysisChanges<'a> {
         HeldAnalysisChanges {
             engine: &engine.inner,
         }
+    }
+
+    /// Returns the analysis settings that `change` moves an index called `index` with `config` to, with a
+    /// generation of 0 for the caller to give, so that a cluster node can refuse a change before it records the
+    /// change as pending. The index need not be open in this engine, and `config` carries the index's synonym rules.
+    ///
+    /// Fails with `LANGUAGE_NOT_SUPPORTED` for a language that this engine does not hold, and with
+    /// `CONFIG_INVALID` for a tokenizer or stop word name that this engine has not registered, a stop word function,
+    /// settings past the configuration size limit, or a synonym word that breaks the synonym rules under the new
+    /// settings.
+    pub fn check_analysis_change(
+        &self,
+        index: &str,
+        config: &IndexConfig,
+        change: &AnalysisChange,
+    ) -> Result<PendingAnalysisChange> {
+        check_analysis_change(self.engine, index, config, change)
     }
 
     /// Builds the terms of the index called `index` under `pending` beside its old terms, and returns once they are
@@ -207,6 +225,28 @@ fn start_held_run(
         return Err(error);
     }
     Ok(Some(run))
+}
+
+pub(crate) fn check_analysis_change(
+    engine: &EngineInner,
+    name: &str,
+    config: &IndexConfig,
+    change: &AnalysisChange,
+) -> Result<PendingAnalysisChange> {
+    let target = resolve_config_target(engine, name, config, change)?;
+    prepare_synonyms(config.synonyms.as_deref(), &target.analyser, true, "")?;
+    let PendingAnalysis {
+        generation,
+        language,
+        analysis,
+    } = pending_of(&target, 0);
+    Ok(PendingAnalysisChange {
+        generation,
+        language,
+        tokenizer: analysis.tokenizer,
+        stop_words: analysis.stop_words,
+        stop_word_list: analysis.stop_word_list,
+    })
 }
 
 pub(crate) fn build_held_analysis(
