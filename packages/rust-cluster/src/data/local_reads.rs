@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use narsil::{DocumentProjection, IndexInfo, Map};
+use narsil::{DocumentProjection, IndexInfo, Map, Value};
 
 use super::analysis_change::AnalysisChanges;
 use super::blocking::off_executor;
@@ -92,5 +92,19 @@ impl LocalReads {
         })
         .await??;
         Ok(found.into_iter().collect())
+    }
+
+    pub(crate) async fn apply_held_bm25<F>(
+        &self,
+        index_name: &str,
+        index_uuid: &str,
+        latest: F,
+    ) -> ClusterResult<bool>
+    where
+        F: FnOnce() -> Option<Option<Value>> + Send + 'static,
+    {
+        let copies = Arc::clone(&self.copies);
+        let (index_name, index_uuid) = (index_name.to_string(), index_uuid.to_string());
+        off_executor(move || copies.apply_held_bm25(&index_name, &index_uuid, latest)).await?
     }
 }

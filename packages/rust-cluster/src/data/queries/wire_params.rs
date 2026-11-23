@@ -47,6 +47,10 @@ fn bm25(value: Option<&Value>, label: &str) -> ClusterResult<Option<Bm25Params>>
     }))
 }
 
+pub(in crate::data) fn stored_bm25(value: Option<&Value>) -> ClusterResult<Bm25Params> {
+    Ok(bm25(value, "bm25")?.unwrap_or_default())
+}
+
 fn scoring(value: Option<&Value>) -> ClusterResult<Option<ScoringMode>> {
     match value {
         None | Some(Value::Null) => Ok(None),

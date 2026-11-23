@@ -83,14 +83,17 @@ impl ClusterNode {
                 .compare_and_set(&key, Some(&current.bytes), &next)
                 .await?
             {
-                reads.bm25_view.apply_written(
-                    index_name,
-                    HeldBm25Setting {
-                        index_uuid: current.record.index_uuid.clone(),
-                        bm25: stored.map(Value::Object),
-                        revision: Some(revision as u64),
-                    },
-                );
+                reads
+                    .bm25_view
+                    .apply_written(
+                        index_name,
+                        HeldBm25Setting {
+                            index_uuid: current.record.index_uuid.clone(),
+                            bm25: stored.map(Value::Object),
+                            revision: Some(revision as u64),
+                        },
+                    )
+                    .await;
                 return Ok(());
             }
         }

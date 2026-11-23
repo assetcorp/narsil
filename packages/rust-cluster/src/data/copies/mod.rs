@@ -7,6 +7,7 @@ use narsil::replication::{CopyPosition, PartitionCopies};
 use narsil::{ErrorCode, IndexConfig, Narsil, NarsilError, Value};
 
 use super::config::DataNodeConfig;
+use super::queries::stored_bm25;
 use super::spool_directory::SpoolDirectory;
 use crate::controller::lock;
 use crate::error::{ClusterResult, codes};
@@ -310,6 +311,27 @@ impl LocalCopies {
         self.engine.update_synonyms(index_name, rules)?;
         let bm25 = config.bm25.clone().unwrap_or_default();
         Ok(self.engine.update_bm25(index_name, &bm25).map(|()| true)?)
+    }
+
+    pub(super) fn apply_held_bm25(
+        &self,
+        index_name: &str,
+        index_uuid: &str,
+        latest: impl FnOnce() -> Option<Option<Value>>,
+    ) -> ClusterResult<bool> {
+        let _turn = lock(&self.index_lifecycle);
+        if self.local_uuid(index_name)?.as_deref() != Some(index_uuid) {
+            return Ok(false);
+        }
+        let Some(bm25) = latest() else {
+            return Ok(false);
+        };
+        let params = stored_bm25(bm25.as_ref())?;
+        match self.engine.update_bm25(index_name, &params) {
+            Ok(()) => Ok(true),
+            Err(error) if error.code() == ErrorCode::INDEX_NOT_FOUND => Ok(false),
+            Err(error) => Err(error.into()),
+        }
     }
 
     pub(super) fn drop_superseded(&self, index_name: &str) -> ClusterResult<()> {

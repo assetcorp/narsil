@@ -89,7 +89,11 @@ impl ReadDeps {
                 Arc::clone(&settings.coordinator),
                 settings.on_error.clone(),
             ),
-            bm25_view: Bm25View::new(Arc::clone(&settings.coordinator), settings.on_error.clone()),
+            bm25_view: Bm25View::new(
+                Arc::clone(&settings.coordinator),
+                settings.local.clone(),
+                settings.on_error.clone(),
+            ),
             vector_reads: VectorReadView::new(Arc::clone(&settings.coordinator), settings.on_error),
             coordinator: settings.coordinator,
             transport: settings.transport,
