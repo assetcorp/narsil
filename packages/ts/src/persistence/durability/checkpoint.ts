@@ -49,15 +49,14 @@ export async function reclaimWalBeyondCount(
   indexName: string,
   partitionCount: number,
   partitions: Map<number, { walWriter: { close(): Promise<void> } }>,
-  onCloseError: (error: Error) => void,
+  closeFailsAlone: (error: Error) => boolean,
 ): Promise<void> {
   for (const [partitionId, partition] of [...partitions]) {
     if (partitionId < partitionCount) continue
     try {
       await partition.walWriter.close()
     } catch (err) {
-      onCloseError(err instanceof Error ? err : new Error(String(err)))
-      throw err
+      if (!closeFailsAlone(err instanceof Error ? err : new Error(String(err)))) throw err
     }
     partitions.delete(partitionId)
   }
