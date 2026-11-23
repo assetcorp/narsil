@@ -12,6 +12,7 @@ pub(crate) mod day_store;
 pub(crate) mod engine_hooks;
 pub(crate) mod history_files;
 pub(crate) mod history_groups;
+pub(crate) mod history_storage;
 pub(crate) mod host;
 pub(crate) mod host_operations;
 pub(crate) mod local_host;

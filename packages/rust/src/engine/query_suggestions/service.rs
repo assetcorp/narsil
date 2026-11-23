@@ -13,7 +13,15 @@ use super::types::{
     QuerySuggestionsConfig, QuerySuggestionsPreview, QuerySuggestionsSetting,
     QuerySuggestionsStatus, RecordQueryResult, RecordedQuery,
 };
+use super::suggestions_writer::suggestions_config;
+use crate::config::IndexConfig;
 use crate::error::Result;
+
+/// Returns the configuration of a suggestions index that analyses its phrases in `language`: the `query`, `count`,
+/// and `origin` fields, no stop words, and one partition.
+pub fn suggestions_index_config(language: &str) -> IndexConfig {
+    suggestions_config(language)
+}
 
 struct ServiceInner {
     runtime: SuggestionsRuntime,
