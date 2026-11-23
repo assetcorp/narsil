@@ -1,6 +1,7 @@
 use bytes::Bytes;
 use narsil::{Map, Value, encode_msgpack};
 
+use crate::constants::CARRIER_ERROR_TEXT_LIMIT_BYTES;
 use crate::error::{ClusterError, ClusterResult, codes};
 use crate::wire::{self, Reader};
 use crate::wire_size;
@@ -8,6 +9,14 @@ use crate::wire_size;
 /// The `type` of the message that a carrier sends in place of an answer where its listener failed or where it
 /// could not decode the request.
 pub const CARRIER_ERROR_TYPE: &str = "error";
+
+fn carrier_error_text(payload: &[u8]) -> String {
+    let mut end = payload.len().min(CARRIER_ERROR_TEXT_LIMIT_BYTES);
+    while end > 0 && end < payload.len() && payload[end] & 0b1100_0000 == 0b1000_0000 {
+        end -= 1;
+    }
+    String::from_utf8_lossy(&payload[..end]).into_owned()
+}
 
 /// The suffix that a node adds to a request's `type` to name its refusal of that request.
 pub const ERROR_TYPE_SUFFIX: &str = ".error";
@@ -68,7 +77,7 @@ impl TransportMessage {
         if self.message_type == CARRIER_ERROR_TYPE {
             return Some(ClusterError::new(
                 codes::TRANSPORT_PEER_UNAVAILABLE,
-                String::from_utf8_lossy(&self.payload).into_owned(),
+                carrier_error_text(&self.payload),
             ));
         }
         let Ok(Value::Object(map)) = narsil::decode_msgpack(&self.payload) else {

@@ -6,6 +6,7 @@ export interface BatchWrite<V> {
   docId: string
   value: V
   condition?: WriteCondition
+  mergeWithStored?(stored: V | undefined): V
 }
 
 export interface WriteFailure<V> {

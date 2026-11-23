@@ -1,6 +1,6 @@
 import { decodeStoredDocument } from '#platform/storage-host'
 import type { DurableDirectory } from '../durability/durable-filesystem'
-import type { SegmentManifest } from '../durability/segment/manifest'
+import type { PartitionManifestEntry, SegmentManifest } from '../durability/segment/manifest'
 import { checkPagedContents } from './check-contents'
 import { MERGE_READ_CACHE_BYTES } from './constants'
 import { loadFailed } from './format'
@@ -73,11 +73,19 @@ export async function bytesThatSegmentsHoldInMemory(
   manifest: SegmentManifest,
 ): Promise<number> {
   let bytes = 0
-  for (const partition of manifest.partitions) {
-    for (const ref of partition.segments) {
-      const paged = await isPagedSegmentFile(directory, ref.key)
-      bytes += paged ? bytesOfResidentSections(await pagedListingOf(directory, ref)) : ref.bytes
-    }
+  for (const partition of manifest.partitions)
+    bytes += await bytesThatPartitionSegmentsHoldInMemory(directory, partition)
+  return bytes
+}
+
+export async function bytesThatPartitionSegmentsHoldInMemory(
+  directory: DurableDirectory,
+  partition: PartitionManifestEntry,
+): Promise<number> {
+  let bytes = 0
+  for (const ref of partition.segments) {
+    const paged = await isPagedSegmentFile(directory, ref.key)
+    bytes += paged ? bytesOfResidentSections(await pagedListingOf(directory, ref)) : ref.bytes
   }
   return bytes
 }

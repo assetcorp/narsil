@@ -170,7 +170,7 @@ describe('a write in flight while its partition changes primary', () => {
     await cluster.node(newPrimary).insert(INDEX, entry('second client', 2), 'transfer-2')
     held.release()
 
-    expect(await write).toEqual({ state: 'refused', code: 'DOC_ALREADY_EXISTS' })
+    expect(await write).toEqual({ state: 'refused', code: 'REPLICATION_OUTCOME_UNKNOWN' })
     await expectEveryCopyHolds(cluster, new Map([['transfer-2', entry('second client', 2)]]))
   }, 90_000)
 

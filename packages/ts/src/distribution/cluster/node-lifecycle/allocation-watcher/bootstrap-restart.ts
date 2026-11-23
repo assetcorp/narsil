@@ -1,5 +1,6 @@
 import { ADMISSION_TIMEOUT_MS } from '../../../cluster-node/constants'
 import type { AllocationTable } from '../../../coordinator/types'
+import { PRIMARY_BOOTSTRAP_RESTART_DELAY_MS } from '../../constants'
 import { abortBootstrapState, bootstrapPartition, createBootstrapState } from '../bootstrap'
 import type { NodeLifecycleConfig } from '../types'
 import { type AllocationWatcherState, forgetAwaitedAdmission, partitionKey } from './state'
@@ -21,6 +22,39 @@ export function startBootstrap(
 
   const bootstrapState = createBootstrapState(indexName, partitionId, primaryNodeId)
   state.activeBootstraps.set(key, bootstrapState)
+  if (!state.trackedPartitions.has(key)) {
+    state.trackedPartitions.set(key, {
+      indexName,
+      partitionId,
+      isPrimary: primaryNodeId === config.registration.nodeId,
+      primaryNodeId,
+      primaryTerm,
+      inSync: false,
+    })
+  }
+
+  const settle = (succeeded: boolean): void => {
+    if (state.activeBootstraps.get(key) !== bootstrapState) {
+      return
+    }
+    state.activeBootstraps.delete(key)
+    if (state.stopped) {
+      return
+    }
+    const syncsReplica = primaryNodeId !== config.registration.nodeId
+    if (succeeded) {
+      if (syncsReplica) {
+        awaitAdmission(state, config, indexName, partitionId, primaryNodeId, primaryTerm)
+      }
+      return
+    }
+    forgetAwaitedAdmission(state, key)
+    if (syncsReplica) {
+      void restartBootstrapWhileOutOfSync(state, config, indexName, partitionId)
+    } else {
+      void restartBootstrapWhilePrimaryInitialising(state, config, indexName, partitionId)
+    }
+  }
 
   bootstrapPartition(
     bootstrapState,
@@ -33,27 +67,8 @@ export function startBootstrap(
     config.onBootstrapPartition,
     config.onError,
   )
-    .then(succeeded => {
-      const current = state.activeBootstraps.get(key) === bootstrapState
-      if (current) {
-        state.activeBootstraps.delete(key)
-      }
-      if (!succeeded) {
-        forgetAwaitedAdmission(state, key)
-        state.trackedPartitions.delete(key)
-        void restartBootstrapWhileOutOfSync(state, config, indexName, partitionId)
-      } else if (current && primaryNodeId !== config.registration.nodeId) {
-        awaitAdmission(state, config, indexName, partitionId, primaryNodeId, primaryTerm)
-      }
-    })
-    .catch(() => {
-      if (state.activeBootstraps.get(key) === bootstrapState) {
-        state.activeBootstraps.delete(key)
-      }
-      forgetAwaitedAdmission(state, key)
-      state.trackedPartitions.delete(key)
-      void restartBootstrapWhileOutOfSync(state, config, indexName, partitionId)
-    })
+    .then(settle)
+    .catch(() => settle(false))
 }
 
 function awaitAdmission(
@@ -84,8 +99,7 @@ function awaitAdmission(
   state.awaitedAdmissions.set(key, { primaryNodeId, primaryTerm, timer })
 }
 
-function waitBeforeBootstrapRestart(state: AllocationWatcherState, config: NodeLifecycleConfig): Promise<void> {
-  const delayMs = Math.min(config.bootstrapRetryMaxMs, config.bootstrapRetryBaseMs)
+function waitBeforeBootstrapRestart(state: AllocationWatcherState, delayMs: number): Promise<void> {
   if (delayMs <= 0) {
     return Promise.resolve()
   }
@@ -109,7 +123,7 @@ export async function restartBootstrapWhileOutOfSync(
     return
   }
 
-  await waitBeforeBootstrapRestart(state, config)
+  await waitBeforeBootstrapRestart(state, Math.min(config.bootstrapRetryMaxMs, config.bootstrapRetryBaseMs))
   if (state.stopped) {
     return
   }
@@ -147,4 +161,40 @@ export async function restartBootstrapWhileOutOfSync(
   }
 
   startBootstrap(state, config, indexName, partitionId, assignment.primary, assignment.primaryTerm)
+}
+
+async function restartBootstrapWhilePrimaryInitialising(
+  state: AllocationWatcherState,
+  config: NodeLifecycleConfig,
+  indexName: string,
+  partitionId: number,
+): Promise<void> {
+  const nodeId = config.registration.nodeId
+  while (!state.stopped) {
+    await waitBeforeBootstrapRestart(state, PRIMARY_BOOTSTRAP_RESTART_DELAY_MS)
+    if (state.stopped) {
+      return
+    }
+    let table: AllocationTable | null
+    try {
+      table = await config.coordinator.getAllocation(indexName)
+    } catch (error) {
+      if (!state.stopped) {
+        config.onError?.(error)
+      }
+      continue
+    }
+    const assignment = table?.assignments.get(partitionId)
+    if (state.stopped || assignment === undefined) {
+      return
+    }
+    if (assignment.primary !== nodeId || assignment.state !== 'INITIALISING') {
+      return
+    }
+    if (state.activeBootstraps.has(partitionKey(indexName, partitionId))) {
+      return
+    }
+    startBootstrap(state, config, indexName, partitionId, nodeId, assignment.primaryTerm)
+    return
+  }
 }

@@ -23,7 +23,7 @@ function otherCopiesByNode(allocation: AllocationTable, readBy: ReadonlyMap<numb
 
 function answerOf(deps: ClusterReadDeps, indexName: string, nodeId: string, partitionIds: number[]) {
   if (nodeId === deps.nodeId) return localCountAnswer(deps.engine, indexName, partitionIds)
-  const message = createCountMessage({ indexName, partitionIds }, deps.nodeId)
+  const message = createCountMessage({ indexName, partitionIds, everyCopy: true }, deps.nodeId)
   return sendReadRequest(deps, nodeId, message, indexName, validateCountResultPayload)
 }
 

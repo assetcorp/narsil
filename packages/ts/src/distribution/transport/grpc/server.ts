@@ -8,6 +8,7 @@ import type {
   sendUnaryData,
 } from '@grpc/grpc-js'
 import { GRPC_INBOUND_CONNECTION_LIMIT } from '../constants'
+import { drainedOrClosed } from '../drained-or-closed'
 import { decodeTransportMessage, encodeTransportMessage } from '../tcp/framing'
 import type { ListenHandler, RespondFn } from '../types'
 import { TransportError, TransportErrorCodes, type TransportMessage } from '../types'
@@ -205,9 +206,7 @@ export class GrpcServerHost {
       if (call.write(response.payload)) {
         return Promise.resolve()
       }
-      return new Promise<void>(resolve => {
-        call.once('drain', resolve)
-      })
+      return drainedOrClosed(call)
     }
 
     const fail = (err: unknown): void => {

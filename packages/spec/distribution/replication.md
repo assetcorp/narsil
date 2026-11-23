@@ -123,7 +123,7 @@ The primary and each in-sync replica of an `ACTIVE` partition can serve reads. T
 
 A node must refuse a read with `QUERY_NO_ACTIVE_REPLICA` in three cases:
 
-- It receives a `query.search`, a `query.stats`, a `query.count`, a `query.list`, a `query.suggest`, a `query.preflight`, or a `query.fetch` without a `contextId`, and the request includes a partition in `INITIALISING`.
+- It receives a `query.search`, a `query.stats`, a `query.count` that does not set `everyCopy`, a `query.list`, a `query.suggest`, a `query.preflight`, or a `query.fetch` without a `contextId`, and the request includes a partition in `INITIALISING`.
 - It receives one of those requests for a partition where another node is the primary and this node is a replica outside the in-sync set, because that copy can lack acknowledged writes.
 - It receives a `sync.read`, a `cluster.backup_partition`, a `cluster.reshard_start`, or a `cluster.reshard_cutover` whose `action` is `block`, for a partition in `INITIALISING`.
 

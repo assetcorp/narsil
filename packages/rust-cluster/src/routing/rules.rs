@@ -106,7 +106,12 @@ impl History {
         document_id: &str,
         error: ClusterError,
     ) -> ClusterError {
-        if let Some(ended_term) = &self.ended_term_before_interruption {
+        let decided_from_write_record = error.code() == codes::REPLICATION_WRITE_CONFLICT;
+        if let Some(ended_term) = self
+            .ended_term_before_interruption
+            .as_ref()
+            .filter(|_| !decided_from_write_record)
+        {
             ended_term.clone()
         } else if self.interrupted {
             interrupted_outcome(index_name, document_id, &error)

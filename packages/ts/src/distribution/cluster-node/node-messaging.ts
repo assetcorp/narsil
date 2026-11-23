@@ -6,6 +6,7 @@ import type { AllocationTable } from '../coordinator/types'
 import { createFetchMessage, validateFetchResultPayload } from '../query/codec'
 import { markNodeRejection, nodeRejectionOf, sendToEveryPartition } from '../query/failover'
 import { copiesInSelectionOrder, type PartitionRouting, randomSelector } from '../query/selection'
+import { refuseCarrierFailure } from '../transport/carrier-error'
 import type { FetchDocumentId, TransportMessage } from '../transport/types'
 import { ANSWER_DECODE_HEAP_BYTES_PER_PAYLOAD_BYTE, FETCH_GROUP_DOCUMENT_IDS } from './constants'
 import { remoteErrorDetails } from './error-reply'
@@ -34,7 +35,8 @@ export async function sendToNode(
   failure?: SendFailureContext,
 ): Promise<TransportMessage> {
   const targets = await resolveNodeTargets(config, targetNodeId)
-  return sendThroughTargets(targets, target => config.transport.send(target, message), {
+  const send = async (target: string) => refuseCarrierFailure(await config.transport.send(target, message), target)
+  return sendThroughTargets(targets, send, {
     message: failure?.message ?? `Node '${targetNodeId}' did not answer a cluster request`,
     details: { targetNodeId, ...failure?.details },
   })

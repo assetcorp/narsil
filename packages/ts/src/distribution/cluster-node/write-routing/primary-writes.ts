@@ -9,7 +9,13 @@ import { assertSufficientActiveReplicas, resolvePrimaryAssignment } from './assi
 import { type AppendedWrite, asWriteError, createGroupCommit, replicateAppendedWrites } from './batch-commit'
 import type { BatchOutcome, BatchWrite, WriteFailure } from './batch-write'
 import { compensateInsert, compensateRemove, compensateUpdate, throwWriteFailure } from './failures'
-import { decodeForwardedDocument } from './forwarded-document'
+import {
+  decodeForwardedDocument,
+  type ForwardedReplacement,
+  forwardedReplacementOf,
+  replacementFor,
+  sizeStoredMerges,
+} from './forwarded-document'
 import { inLeadingPartitionQueue } from './leading-queue'
 import {
   appendDeletion,
@@ -22,7 +28,7 @@ import { applyInProjectedGroups, projectOne } from './projected-groups'
 import { replicateEntry } from './replication'
 import { settleRollback } from './rollback'
 import type { WriteRoutingDeps } from './types'
-import { conditionOfFields, decideCondition } from './write-condition'
+import { type AppliedResends, conditionOfFields, decideCondition, noteAppliedResend } from './write-condition'
 
 export async function applyPrimaryInsert(
   indexName: string,
@@ -90,7 +96,7 @@ export async function applyPrimaryRemove(
 export async function applyPrimaryUpdate(
   indexName: string,
   docId: string,
-  document: AnyDocument,
+  replacement: ForwardedReplacement,
   partitionId: number,
   assignment: PartitionAssignment,
   deps: WriteRoutingDeps,
@@ -100,9 +106,10 @@ export async function applyPrimaryUpdate(
   const queued: PrimaryWriteScope = { indexName, partitionId, assignment, deps }
   await inLeadingPartitionQueue(queued, async scope => {
     if (condition !== undefined && decideCondition(scope, docId, condition) === 'acknowledge') return
+    const previousDocument = await deps.engine.get(indexName, docId, WHOLE_DOCUMENT)
+    const document = replacementFor(replacement, previousDocument)
     const projected = projectOne(deps, indexName, document)
     try {
-      const previousDocument = await deps.engine.get(indexName, docId, WHOLE_DOCUMENT)
       const previousRecord = previousRecordOf(scope, docId)
       const updated = await numberedWrite(
         scope,
@@ -177,6 +184,7 @@ export async function applyPrimaryUpdateBatch(
   partitionId: number,
   assignment: PartitionAssignment,
   deps: WriteRoutingDeps,
+  resends?: AppliedResends,
 ): Promise<BatchOutcome<AnyDocument>> {
   assertSufficientActiveReplicas(indexName, partitionId, assignment, deps)
   const queued: PrimaryWriteScope = { indexName, partitionId, assignment, deps }
@@ -187,19 +195,21 @@ export async function applyPrimaryUpdateBatch(
       const appended: AppendedWrite<AnyDocument>[] = []
       const acknowledged: BatchWrite<AnyDocument>[] = []
       const groupCommit = createGroupCommit(scope, appended, failed)
+      await sizeStoredMerges(deps, indexName, writes)
       await applyInProjectedGroups(deps, indexName, {
         writes,
         failed,
         afterGroup: groupCommit.afterGroup,
         apply: async write => {
           if (groupCommit.refuse(write)) return
-          const { docId, value, condition } = write
+          const { docId, condition } = write
           try {
-            if (condition !== undefined && decideCondition(scope, docId, condition) === 'acknowledge') {
+            if (condition !== undefined && decideCondition(scope, docId, condition, resends) === 'acknowledge') {
               acknowledged.push(write)
               return
             }
             const previousDocument = await deps.engine.get(indexName, docId, WHOLE_DOCUMENT)
+            const value = write.mergeWithStored?.(previousDocument) ?? write.value
             const previousRecord = previousRecordOf(scope, docId)
             const updated = await numberedWrite(
               scope,
@@ -207,6 +217,7 @@ export async function applyPrimaryUpdateBatch(
               (_, admitted) => appendStoredCopy(scope, docId, admitted),
               true,
             )
+            noteAppliedResend(resends, docId, condition, updated.entry)
             appended.push({ write, entry: updated.entry, previousDocument, previousRecord })
           } catch (err) {
             failed.push({ write, error: asWriteError(err, ErrorCodes.DOC_VALIDATION_FAILED, docId) })
@@ -233,6 +244,7 @@ export async function applyPrimaryRemoveBatch(
   partitionId: number,
   assignment: PartitionAssignment,
   deps: WriteRoutingDeps,
+  resends?: AppliedResends,
 ): Promise<BatchOutcome<null>> {
   assertSufficientActiveReplicas(indexName, partitionId, assignment, deps)
   const queued: PrimaryWriteScope = { indexName, partitionId, assignment, deps }
@@ -246,7 +258,7 @@ export async function applyPrimaryRemoveBatch(
       for (const write of writes) {
         const { docId, condition } = write
         try {
-          if (condition !== undefined && decideCondition(scope, docId, condition) === 'acknowledge') {
+          if (condition !== undefined && decideCondition(scope, docId, condition, resends) === 'acknowledge') {
             acknowledged.push(write)
             continue
           }
@@ -258,6 +270,7 @@ export async function applyPrimaryRemoveBatch(
             () => appendDeletion(scope, docId),
             true,
           )
+          noteAppliedResend(resends, docId, condition, removed.entry)
           appended.push({ write, entry: removed.entry, previousDocument, previousRecord })
         } catch (err) {
           failed.push({ write, error: asWriteError(err, ErrorCodes.QUERY_ROUTING_FAILED, docId) })
@@ -308,7 +321,7 @@ async function applyAdmittedForwardedWrite(payload: ForwardPayload, deps: WriteR
     if (payload.document === null) {
       throw new NarsilError(ErrorCodes.REPLICATION_ENTRY_INVALID, 'Invalid ForwardPayload: insert requires a document')
     }
-    const document = decodeForwardedDocument(payload.document, payload.documentId)
+    const document = decodeForwardedDocument(deps, payload.indexName, payload.document, payload.documentId)
     return applyPrimaryInsert(
       payload.indexName,
       document,
@@ -331,12 +344,12 @@ async function applyAdmittedForwardedWrite(payload: ForwardPayload, deps: WriteR
     return payload.documentId
   }
 
-  const replacement = await resolveForwardedUpdateDocument(
+  const replacement = forwardedReplacementOf(
+    deps,
     payload.indexName,
     payload.documentId,
     payload.document,
     payload.updateFields,
-    deps,
   )
   await applyPrimaryUpdate(
     payload.indexName,
@@ -348,30 +361,4 @@ async function applyAdmittedForwardedWrite(payload: ForwardPayload, deps: WriteR
     condition,
   )
   return payload.documentId
-}
-
-export async function resolveForwardedUpdateDocument(
-  indexName: string,
-  documentId: string,
-  document: Uint8Array | null,
-  updateFields: Record<string, unknown> | null,
-  deps: WriteRoutingDeps,
-): Promise<AnyDocument> {
-  if (document !== null) {
-    return decodeForwardedDocument(document, documentId)
-  }
-  if (updateFields === null) {
-    throw new NarsilError(
-      ErrorCodes.REPLICATION_ENTRY_INVALID,
-      'Invalid ForwardPayload: update requires a document or updateFields',
-    )
-  }
-  const existing = await deps.engine.get(indexName, documentId, WHOLE_DOCUMENT)
-  if (existing === undefined) {
-    throw new NarsilError(ErrorCodes.DOC_NOT_FOUND, `Document '${documentId}' does not exist in index '${indexName}'`, {
-      indexName,
-      documentId,
-    })
-  }
-  return { ...existing, ...updateFields }
 }

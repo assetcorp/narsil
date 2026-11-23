@@ -236,6 +236,22 @@ describe('writes to a partition that is INITIALISING', () => {
     return { linked, controller, router }
   }
 
+  async function servedOnRouter(router: LinkedMember, description: string): Promise<void> {
+    await eventually(
+      async () => {
+        const watches = router.allocationWatches().filter(watch => !watch.stopped)
+        expect(watches.length).toBeGreaterThan(0)
+        for (const watch of watches) {
+          const held = [...(watch.delivered.get(INDEX)?.assignments.values() ?? [])]
+          expect(held.length).toBeGreaterThan(0)
+          expect(held.map(assignment => assignment.state)).toEqual(held.map(() => 'ACTIVE'))
+        }
+      },
+      SETTLED_WITHIN_MS,
+      description,
+    )
+  }
+
   async function stoppedAndUnassigned(linked: LinkedCluster, holder: LinkedMember): Promise<void> {
     await holder.stop()
     const spare = await linked.start('depot-spare', ['data'])
@@ -305,6 +321,7 @@ describe('writes to a partition that is INITIALISING', () => {
       SETTLED_WITHIN_MS,
       'the successor never served the partition',
     )
+    await servedOnRouter(router, "the router's allocation watches never delivered the served partition")
 
     if (answer.refusals.length === 0) {
       expect(await router.node.get(INDEX, 'shelf'), 'an acknowledged write is missing after the failover').toBeDefined()
@@ -337,6 +354,7 @@ describe('writes to a partition that is INITIALISING', () => {
       SETTLED_WITHIN_MS,
       'the promoted holder never served the partition',
     )
+    await servedOnRouter(router, "the router's allocation watches never delivered the served partition")
     await expectTitles(router.node, titlesAfterWrites())
   }, 180_000)
 
@@ -365,6 +383,7 @@ describe('writes to a partition that is INITIALISING', () => {
       SETTLED_WITHIN_MS,
       'the restarted holder never served the partition',
     )
+    await servedOnRouter(router, "the router's allocation watches never delivered the served partition")
     await expectTitles(router.node, titlesBeforeWrites())
   }, 180_000)
 
