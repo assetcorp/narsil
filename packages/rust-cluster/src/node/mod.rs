@@ -1,6 +1,7 @@
 mod allocation;
 mod analysis_change;
 mod backup_calls;
+mod cluster_reports;
 mod config;
 mod create_index;
 mod device_sync;
@@ -10,6 +11,7 @@ mod heartbeat;
 mod identity;
 mod index_names;
 mod index_settings;
+mod index_upkeep;
 mod join;
 mod listen;
 mod local_copies;
@@ -30,8 +32,13 @@ pub use crate::backups::{
     CreateBackupOptions, DamagedBackup, RestoreBackupOptions, RestoreConstraints, RestorePlacement,
     read_restore_placement, validate_backup_name,
 };
+pub use crate::coordinator::etcd::CoordinatorRequestFigure;
 pub use crate::data::DataNodeConfig;
 pub use crate::reads::{ClusterIndexStats, ClusterPartitionStats};
+pub use cluster_reports::{
+    ClusterHealth, ClusterMetrics, CommitPointFigure, HealthStatus, IndexHealth,
+    PartitionReplicationFigure, ReplicaLagFigure,
+};
 pub(crate) use config::report_failure;
 pub use config::{
     ClusterNodeConfig, ClusterQueryConfig, ClusterRerankConfig, ControllerTiming, NodeErrorHandler,
@@ -40,6 +47,7 @@ pub use create_index::CreateIndexOptions;
 pub use device_sync::{ClusterDocumentExport, ClusterSyncSnapshot};
 pub use handle::ClusterNode;
 pub use identity::{generate_node_id, resolve_node_id};
+pub use index_upkeep::LocalMemoryStats;
 pub use not_ready::not_ready_handler;
 pub(crate) use not_ready::{decode_request_payload, not_ready};
 pub use query_suggestions::ClusterQuerySuggestions;

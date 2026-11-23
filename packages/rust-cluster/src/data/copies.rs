@@ -300,14 +300,14 @@ impl LocalCopies {
         index_name: &str,
         index_uuid: &str,
         config: &IndexConfig,
-    ) -> ClusterResult<()> {
+    ) -> ClusterResult<bool> {
         if self.index_uuid(index_name)?.as_deref() != Some(index_uuid) {
-            return Ok(());
+            return Ok(false);
         }
         let rules = config.synonyms.as_deref().unwrap_or_default();
         self.engine.update_synonyms(index_name, rules)?;
         let bm25 = config.bm25.clone().unwrap_or_default();
-        Ok(self.engine.update_bm25(index_name, &bm25)?)
+        Ok(self.engine.update_bm25(index_name, &bm25).map(|()| true)?)
     }
 
     pub(super) fn drop_superseded(&self, index_name: &str) -> ClusterResult<()> {

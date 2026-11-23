@@ -23,7 +23,7 @@ pub(crate) fn query_reads_phrases(term: Option<&str>) -> bool {
         .any(|quoted| !quoted.trim().is_empty())
 }
 
-fn copy_holders_of(table: &Table) -> BTreeSet<String> {
+pub(crate) fn copy_holders_of(table: &Table) -> BTreeSet<String> {
     let mut holders = BTreeSet::new();
     for assignment in table.assignments.values() {
         if let Some(primary) = &assignment.primary {

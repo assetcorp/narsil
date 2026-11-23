@@ -46,7 +46,7 @@ pub(crate) async fn serving_name(deps: &ReadDeps, index_name: &str) -> ClusterRe
     ))
 }
 
-async fn live_serving_name(deps: &ReadDeps, index_name: &str) -> ClusterResult<String> {
+pub(crate) async fn live_serving_name(deps: &ReadDeps, index_name: &str) -> ClusterResult<String> {
     refuse_hidden_generation(index_name)?;
     let live = deps
         .coordinator

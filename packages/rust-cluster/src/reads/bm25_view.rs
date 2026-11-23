@@ -79,6 +79,10 @@ impl Bm25View {
         }
     }
 
+    pub(crate) fn apply_written(&self, index_name: &str, written: HeldBm25Setting) {
+        hold(&self.held, index_name, written);
+    }
+
     pub(crate) fn held(&self, index_name: &str) -> Option<HeldBm25Setting> {
         lock(&self.held).get(index_name).cloned()
     }

@@ -41,6 +41,21 @@ fn bm25_settings(bm25: &Bm25Params) -> Map {
     settings
 }
 
+pub(super) fn stored_bm25_settings(bm25: &Bm25Params) -> Option<Map> {
+    let mut settings = bm25_pair(bm25.k1, bm25.b);
+    let mut named = Map::new();
+    for (name, pair) in bm25.fields.iter().flatten() {
+        if pair.k1.is_none() && pair.b.is_none() {
+            continue;
+        }
+        named.insert(name.clone(), Value::Object(bm25_pair(pair.k1, pair.b)));
+    }
+    if !named.is_empty() {
+        settings.insert("fields", Value::Object(named));
+    }
+    (!settings.is_empty()).then_some(settings)
+}
+
 pub(super) fn sets_field_pairs(bm25: Option<&Bm25Params>) -> bool {
     bm25.and_then(|bm25| bm25.fields.as_ref())
         .is_some_and(|fields| {
@@ -202,9 +217,13 @@ pub(super) fn index_settings_of(config: &IndexConfig) -> ClusterResult<Map> {
 }
 
 pub(super) fn encoded_synonym_rules(config: &IndexConfig) -> ClusterResult<Option<Vec<u8>>> {
-    let Some(rules) = config.synonyms.as_ref().filter(|rules| !rules.is_empty()) else {
+    encoded_rules(config.synonyms.as_deref().unwrap_or_default())
+}
+
+pub(super) fn encoded_rules(rules: &[SynonymRule]) -> ClusterResult<Option<Vec<u8>>> {
+    if rules.is_empty() {
         return Ok(None);
-    };
+    }
     let encoded: Vec<Value> = rules
         .iter()
         .map(|rule| {

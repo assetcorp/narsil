@@ -9,7 +9,7 @@ use super::stored_index::stored_index;
 use crate::error::{ClusterResult, codes};
 
 impl DataRole {
-    async fn on_copies<T, F>(&self, work: F) -> ClusterResult<T>
+    pub(super) async fn on_copies<T, F>(&self, work: F) -> ClusterResult<T>
     where
         T: Send + 'static,
         F: FnOnce(&LocalCopies) -> ClusterResult<T> + Send + 'static,
