@@ -45,6 +45,8 @@ pub mod codes {
     pub const ALLOCATION_NO_DATA_NODES: &str = "ALLOCATION_NO_DATA_NODES";
     /// The controller could not place a partition or write an allocation table.
     pub const ALLOCATION_FAILED: &str = "ALLOCATION_FAILED";
+    /// An index is changing its partition count, so a second change or an analysis change must wait for it.
+    pub const PARTITION_REBALANCING_BACKPRESSURE: &str = "PARTITION_REBALANCING_BACKPRESSURE";
     /// An entry exceeds what the replication log can hold.
     pub const REPLICATION_LOG_FULL: &str = "REPLICATION_LOG_FULL";
     /// A replication log entry failed its checksum.
@@ -135,8 +137,6 @@ pub mod codes {
     /// The cluster has a node below the specification version that changes analysis, so the index keeps its
     /// settings until that node is upgraded.
     pub const ANALYSIS_CHANGE_NOT_READY: &str = "ANALYSIS_CHANGE_NOT_READY";
-    /// The index is changing its partition count, so a caller tries its analysis change again once that ends.
-    pub const PARTITION_REBALANCING_BACKPRESSURE: &str = "PARTITION_REBALANCING_BACKPRESSURE";
     /// The index kept changing while a request recorded its settings, so the request stored nothing and the caller
     /// tries it again.
     pub const CLUSTER_WRITE_BLOCKED: &str = "CLUSTER_WRITE_BLOCKED";

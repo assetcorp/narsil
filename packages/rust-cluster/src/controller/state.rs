@@ -27,6 +27,8 @@ pub(crate) struct LoopState {
     pub(crate) watches: Vec<WatchHandle>,
     pub(crate) listening: bool,
     pub(crate) analysis_drivers: HashMap<String, AnalysisDriver>,
+    pub(crate) rebalance_drivers: HashMap<String, String>,
+    pub(crate) rebalance_epoch: u64,
 }
 
 fn abort(timer: &mut Timer) {
@@ -50,6 +52,8 @@ impl LoopState {
         self.departed_at.clear();
         self.analysis_drivers.clear();
         self.listening = false;
+        self.rebalance_drivers.clear();
+        self.rebalance_epoch += 1;
         std::mem::take(&mut self.watches)
     }
 

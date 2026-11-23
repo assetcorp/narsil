@@ -9,7 +9,7 @@ mod reconcile;
 mod role;
 mod schema_check;
 mod stored_index;
-mod synonym_set;
+pub(crate) mod synonym_set;
 mod watcher;
 mod writes;
 
