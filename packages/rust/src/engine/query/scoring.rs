@@ -70,6 +70,10 @@ impl GlobalStats {
         })
     }
 
+    pub(crate) fn supplied(stats: QueryStats) -> GlobalStats {
+        GlobalStats { stats }
+    }
+
     /// Returns the statistics that every partition scores the query with, which hold every term that the query
     /// reaches in any partition.
     pub(crate) fn stats(&self) -> &QueryStats {

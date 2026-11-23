@@ -23,6 +23,7 @@ mod killed_primary;
 mod lost_copy_wait;
 mod mixed_catch_up;
 mod mixed_failover;
+mod mixed_queries;
 mod mixed_reads;
 mod mixed_settings;
 mod mixed_writes;
