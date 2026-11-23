@@ -11,6 +11,7 @@ const PENDING_ANALYSIS_FIELD: &str = "pendingAnalysis";
 const ANALYSIS_FAILURE_FIELD: &str = "analysisFailure";
 const ANALYSIS_GENERATION_FIELD: &str = "analysisGeneration";
 const NAMED_ANALYSIS_FIELDS: [&str; 3] = ["tokenizer", "stopWords", "stopWordList"];
+const DEFAULT_LANGUAGE: &str = "english";
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct PendingAnalysis {
@@ -143,6 +144,28 @@ impl IndexMetadataSnapshot {
             .as_ref()
             .and_then(|settings| settings.get(PENDING_ANALYSIS_FIELD))
             .and_then(pending_of)
+    }
+
+    pub(crate) fn published_analysis(&self) -> PendingAnalysis {
+        let settings = self.settings.clone().unwrap_or_default();
+        let generation = match settings.get(ANALYSIS_GENERATION_FIELD) {
+            Some(Value::Number(generation)) => *generation,
+            _ => 0.0,
+        };
+        let mut named = settings;
+        named.insert("changeId", Value::String(String::new()));
+        named.insert("generation", Value::Number(generation));
+        if !matches!(named.get("language"), Some(Value::String(_))) {
+            named.insert("language", Value::String(DEFAULT_LANGUAGE.to_string()));
+        }
+        pending_of(&Value::Object(named)).unwrap_or(PendingAnalysis {
+            change_id: String::new(),
+            generation,
+            language: DEFAULT_LANGUAGE.to_string(),
+            tokenizer: None,
+            stop_words: None,
+            stop_word_list: None,
+        })
     }
 
     fn fields(&self) -> (Map, Map) {

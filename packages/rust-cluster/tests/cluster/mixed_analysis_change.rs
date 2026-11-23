@@ -1,9 +1,10 @@
-use narsil::{Map, Value, decode_msgpack, encode_msgpack};
+use narsil::{Map, Narsil, QueryParams, Value, decode_msgpack, encode_msgpack};
 use narsil_cluster::coordinator::etcd::EtcdCoordinator;
 
 use crate::data_node::{
     DataNode, Scratch, coordinator_at, etcd_endpoint, eventually, metadata_key, unique_key_prefix,
 };
+use crate::named_analysis::{open_with_named_analysis, with_named_analysis};
 use crate::typescript_node::{TypescriptNode, fields};
 
 const AVIARY: &str = "aviary";
@@ -319,4 +320,101 @@ async fn a_rust_controller_records_a_refused_pending_language_and_the_index_keep
         wait_until_stop_words_apply(perch).await;
     }
     aviary.stop().await;
+}
+
+fn copy_hits(engine: &Narsil, word: &str) -> Vec<String> {
+    let query = QueryParams {
+        term: Some(word.into()),
+        limit: Some(SIGHTING_COUNT),
+        ..QueryParams::default()
+    };
+    let mut ids: Vec<String> = engine
+        .query(AVIARY, &query)
+        .unwrap_or_else(|error| panic!("the Rust copy answers '{word}': {error:?}"))
+        .hits
+        .into_iter()
+        .map(|hit| hit.id)
+        .collect();
+    ids.sort();
+    ids
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_rust_data_node_builds_a_pending_change_that_the_controller_waits_for_and_its_copy_switches()
+ {
+    let Some(endpoint) = etcd_endpoint() else {
+        return;
+    };
+    let key_prefix = unique_key_prefix();
+    let coordinator =
+        coordinator_at(endpoint.clone(), key_prefix.clone(), HEARTBEAT_TTL_SECONDS).await;
+    let controller_scratch = Scratch::new();
+    let controller = DataNode::start_with_roles(
+        &coordinator,
+        CONTROLLER,
+        controller_scratch.path(),
+        &["controller"],
+    )
+    .await;
+    let rust_perch_scratch = Scratch::new();
+    let rust_perch = DataNode::start_configured(
+        &coordinator,
+        "aviary-rust-perch",
+        rust_perch_scratch.path(),
+        &["data"],
+        with_named_analysis,
+    )
+    .await;
+    let mut keeper = TypescriptNode::start(&endpoint, &key_prefix, KEEPER, "coordinator").await;
+    let typescript_perch = TypescriptNode::start(&endpoint, &key_prefix, PERCH_A, "data").await;
+    keeper.create_index(AVIARY, PARTITION_COUNT, 0).await;
+    for position in 0..SIGHTING_COUNT {
+        let answer = keeper
+            .insert(
+                AVIARY,
+                &format!("sighting-{position}"),
+                &sighting_title(position),
+            )
+            .await;
+        assert_eq!(answer.code(), None);
+    }
+
+    let changed = keeper
+        .call(
+            "changeAnalysis",
+            fields([
+                ("indexName", Value::from(AVIARY)),
+                (
+                    "change",
+                    Value::Object(fields([("stopWords", Value::from(STOP_WORD_LIST))])),
+                ),
+            ]),
+        )
+        .await;
+    assert_eq!(changed.code(), None);
+    assert_eq!(published_generation(&coordinator).await, 1.0);
+
+    keeper.shutdown().await;
+    typescript_perch.shutdown().await;
+    rust_perch.stop().await;
+    controller.stop().await;
+    coordinator.shutdown().await;
+
+    let engine = open_with_named_analysis(rust_perch_scratch.path());
+    let held = copy_hits(&engine, KEPT_WORD);
+    assert!(
+        !held.is_empty(),
+        "the Rust data node holds part of the index"
+    );
+    let expected = expected_ids(KEPT_WORD);
+    assert!(held.iter().all(|id| expected.contains(id)));
+    let deadline = tokio::time::Instant::now() + SWITCH_WAIT;
+    while !copy_hits(&engine, STOPPED_WORD).is_empty() {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the Rust copy answers under the new stop words"
+        );
+        tokio::time::sleep(SWITCH_POLL).await;
+    }
+    engine.shutdown().expect("the engine closes");
 }

@@ -1,3 +1,4 @@
+mod analysis_change;
 mod blocking;
 mod config;
 mod copies;

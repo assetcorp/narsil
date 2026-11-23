@@ -33,6 +33,7 @@ use crate::error::{ClusterError, ClusterResult};
 use crate::message::TransportMessage;
 use crate::transport::{NodeTransport, Respond};
 
+pub(crate) use self::analysis_metadata::{PendingAnalysis, read_index_metadata_snapshot};
 pub(crate) use self::messages::is_controller_message;
 pub(crate) use self::metadata::{
     IndexMetadata, index_metadata, records_previous_documents, stored_index_metadata,
