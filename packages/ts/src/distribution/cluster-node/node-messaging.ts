@@ -12,6 +12,7 @@ import { ANSWER_DECODE_HEAP_BYTES_PER_PAYLOAD_BYTE, FETCH_GROUP_DOCUMENT_IDS } f
 import { remoteErrorDetails } from './error-reply'
 import type { ClusterLocalEngine } from './local-engine'
 import { answerRefusalOf } from './memory/answer-room'
+import { type LiveAllocationReader, liveAllocationOnce } from './routable-allocation'
 import { type SendFailureContext, sendThroughTargets } from './transport-failure'
 import type { ClusterNodeConfig } from './types'
 import { restoreVectorValues } from './vector-bytes'
@@ -176,8 +177,13 @@ export async function readDocumentsFromCopies(
   allocation: AllocationTable,
   read: CopyRead,
   requireEveryPartition: boolean,
+  readLive?: LiveAllocationReader,
 ): Promise<Map<string, AnyDocument>> {
-  const documentRouting = routeDocumentIds(docIds, allocation)
+  let documentRouting = routeDocumentIds(docIds, allocation)
+  if (requireEveryPartition && documentRouting.routing.unavailablePartitions.length > 0) {
+    const live = await liveAllocationOnce(readLive, indexName)
+    if (live !== null) documentRouting = routeDocumentIds(docIds, live)
+  }
   const unreachablePartitions = documentRouting.routing.unavailablePartitions
 
   if (requireEveryPartition && unreachablePartitions.length > 0) {
