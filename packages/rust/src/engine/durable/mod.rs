@@ -16,6 +16,8 @@ mod load_from_files;
 pub(crate) mod load_source;
 pub(crate) mod log;
 pub(crate) mod metadata;
+pub(crate) mod partition_archive;
+pub(crate) mod partition_receive;
 mod recover;
 pub(crate) mod reload;
 mod removed_documents;

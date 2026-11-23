@@ -107,7 +107,7 @@ pub(crate) struct ReplicatedCopy {
     partitions: Vec<Mutex<PartitionCopy>>,
 }
 
-pub(super) fn no_such_partition(index: &str, partition: u32) -> NarsilError {
+pub(crate) fn no_such_partition(index: &str, partition: u32) -> NarsilError {
     NarsilError::new(
         ErrorCode::CONFIG_INVALID,
         format!("Index \"{index}\" holds no copy of partition {partition}"),
