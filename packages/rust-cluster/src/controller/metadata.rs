@@ -163,10 +163,17 @@ pub(crate) async fn stored_index_metadata(
     let Some(raw) = coordinator.get(&metadata_key(index_name)).await? else {
         return Ok(None);
     };
+    index_metadata_of(&raw, index_name)
+}
+
+pub(crate) fn index_metadata_of(
+    raw: &[u8],
+    index_name: &str,
+) -> ClusterResult<Option<(IndexMetadata, Option<Value>)>> {
     if raw.is_empty() {
         return Ok(None);
     }
-    let decoded = decode_msgpack(&raw).map_err(ClusterError::from)?;
+    let decoded = decode_msgpack(raw).map_err(ClusterError::from)?;
     let record = validate_record(&decoded, index_name)?;
     let settings = match decoded {
         Value::Object(mut fields) => fields.remove("settings"),

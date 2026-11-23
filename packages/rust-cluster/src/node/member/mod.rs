@@ -20,7 +20,10 @@ use crate::error::{ClusterError, ClusterResult, codes};
 use crate::memory::{NodeMemory, NodeMemorySettings};
 use crate::message::{TransportMessage, is_specified_message_type, message_types, refusal};
 use crate::node::NodeErrorHandler;
+use crate::reads::ReadDeps;
 use crate::routing::WriteRouter;
+
+mod routing;
 use crate::transport::{BoxFuture, Listening, NodeTransport, Respond, listen_handler};
 
 const CONTROLLER_ROLE: &str = "controller";
@@ -52,6 +55,7 @@ pub(super) struct NodeInner {
     listening: Mutex<Option<Listening>>,
     router: Mutex<Option<Arc<WriteRouter>>>,
     memory: Mutex<Option<Arc<NodeMemory>>>,
+    reads: Mutex<Option<Arc<ReadDeps>>>,
 }
 
 fn not_controller(node_id: &str) -> ClusterError {
@@ -76,6 +80,7 @@ impl NodeInner {
             data,
             heartbeat_interval_ms,
             in_flight_write_fraction,
+            query: _,
             on_error,
         } = config;
         let controller = registration
@@ -124,6 +129,7 @@ impl NodeInner {
             listening: Mutex::new(None),
             router: Mutex::new(None),
             memory: Mutex::new(None),
+            reads: Mutex::new(None),
         }
     }
 
@@ -166,36 +172,6 @@ impl NodeInner {
         if let Some(memory) = memory {
             memory.stop().await;
         }
-    }
-
-    pub(super) fn router(&self) -> ClusterResult<Arc<WriteRouter>> {
-        lock(&self.router).clone().ok_or_else(|| {
-            let node_id = self.node_id();
-            node_error(
-                codes::NODE_NOT_JOINED,
-                format!("Node '{node_id}' has not joined the cluster, so it routes no write"),
-                node_id,
-            )
-        })
-    }
-
-    async fn start_routing(&self) -> ClusterResult<()> {
-        let local = match &self.data {
-            Some(data) => Some(data.primary_writes()?),
-            None => None,
-        };
-        let router = WriteRouter::start(
-            self.node_id().to_string(),
-            Arc::clone(&self.coordinator),
-            Arc::clone(&self.transport),
-            local,
-            self.memory(),
-        )
-        .await?;
-        if let Some(previous) = lock(&self.router).replace(router) {
-            previous.stop();
-        }
-        Ok(())
     }
 
     pub(super) fn node_id(&self) -> &str {
@@ -367,6 +343,9 @@ impl NodeInner {
 
     pub(super) async fn leave(&self) {
         self.joined.store(false, Ordering::Release);
+        if let Some(reads) = lock(&self.reads).take() {
+            reads.stop();
+        }
         if let Some(router) = lock(&self.router).take() {
             router.stop();
         }

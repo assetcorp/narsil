@@ -96,6 +96,10 @@ impl WriteRouter {
         }
     }
 
+    pub(crate) fn view(&self) -> Arc<AllocationView> {
+        Arc::clone(&self.view)
+    }
+
     fn is_stopping(&self) -> bool {
         *self.stopping.borrow()
     }
