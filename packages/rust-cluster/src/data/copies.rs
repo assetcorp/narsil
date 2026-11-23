@@ -38,6 +38,7 @@ impl LocalCopies {
             embedding_adapters,
             rerank_adapters,
             log_retention_bytes: _,
+            snapshot_spool_directory: _,
         } = config;
         let engine = Narsil::open_with(engine, move |engine| {
             for (name, tokenizer) in tokenizers {

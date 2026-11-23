@@ -80,6 +80,7 @@ export interface ClusterCoordinator extends IndexMetadataWatch {
     getLeaseHolder(key: string): Promise<string | null>;
     getPartitionState(indexName: string, partitionId: number): Promise<PartitionState>;
     getSchema(indexName: string): Promise<SchemaDefinition | null>;
+    listAllocations(): Promise<string[]>;
     listNodes(): Promise<NodeRegistration[]>;
     listSchemas(): Promise<string[]>;
     putAllocation(indexName: string, table: AllocationTable): Promise<boolean>;

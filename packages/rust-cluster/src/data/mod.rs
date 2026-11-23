@@ -1,8 +1,11 @@
+mod analysis_change;
 mod blocking;
 mod config;
 mod copies;
+mod device_sync;
 mod local_reads;
 mod lost_copy;
+mod memory_figures;
 mod partition_stores;
 mod primary_copy;
 mod queries;
@@ -10,8 +13,10 @@ mod query_copies;
 mod reconcile;
 mod role;
 mod schema_check;
+mod search_contexts;
+mod snapshot_spool;
 mod stored_index;
-mod synonym_set;
+pub(crate) mod synonym_set;
 mod watcher;
 mod writes;
 

@@ -32,6 +32,7 @@ impl NodeInner {
             Arc::clone(&self.coordinator),
             Arc::clone(&self.transport),
             local,
+            self.memory(),
         )
         .await?;
         let reads = ReadDeps::start(ReadSettings {

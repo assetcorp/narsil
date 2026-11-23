@@ -1,12 +1,11 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
-use std::time::Duration;
 
 use narsil::Value;
 use tokio::sync::watch;
-use tokio::task::JoinHandle;
 
 use super::config::{ClusterNodeConfig, ClusterQueryConfig, report_failure};
+use super::heartbeat::Heartbeat;
 use super::join::{
     refuse_controller_on_another_major_version, wait_for_earlier_registration_to_lapse,
 };
@@ -18,6 +17,7 @@ use crate::coordinator::NodeRegistration;
 use crate::coordinator::etcd::EtcdCoordinator;
 use crate::data::DataRole;
 use crate::error::{ClusterError, ClusterResult, codes};
+use crate::memory::{NodeMemory, NodeMemorySettings};
 use crate::message::{TransportMessage, is_specified_message_type, message_types, refusal};
 use crate::node::NodeErrorHandler;
 use crate::reads::ReadDeps;
@@ -27,7 +27,6 @@ mod routing;
 use crate::transport::{BoxFuture, Listening, NodeTransport, Respond, listen_handler};
 
 const CONTROLLER_ROLE: &str = "controller";
-const PARTITION_BYTES_FIELD: &str = "partitionBytes";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Phase {
@@ -37,30 +36,27 @@ pub(super) enum Phase {
     Shutdown,
 }
 
-struct Heartbeat {
-    stop: watch::Sender<bool>,
-    task: JoinHandle<()>,
-}
-
 pub(super) struct NodeInner {
-    coordinator: Arc<EtcdCoordinator>,
+    pub(super) coordinator: Arc<EtcdCoordinator>,
     transport: Arc<dyn NodeTransport>,
-    registration: NodeRegistration,
-    heartbeat_interval_ms: u64,
+    pub(super) registration: NodeRegistration,
+    pub(super) heartbeat_interval_ms: u64,
     query: ClusterQueryConfig,
+    in_flight_write_fraction: f64,
     on_error: Option<NodeErrorHandler>,
     pub(super) controller: Option<Controller>,
     pub(super) data: Option<DataRole>,
     pub(super) phase: Mutex<Phase>,
     pub(super) lifecycle: tokio::sync::Mutex<()>,
     pub(super) stopping: watch::Sender<bool>,
-    joined: AtomicBool,
-    registered: AtomicBool,
+    pub(super) joined: AtomicBool,
+    pub(super) registered: AtomicBool,
     controller_standing: AtomicBool,
-    heartbeat: Mutex<Option<Heartbeat>>,
+    pub(super) heartbeat: Mutex<Option<Heartbeat>>,
     listening: Mutex<Option<Listening>>,
     router: Mutex<Option<Arc<WriteRouter>>>,
     reads: Mutex<Option<Arc<ReadDeps>>>,
+    memory: Mutex<Option<Arc<NodeMemory>>>,
 }
 
 fn not_controller(node_id: &str) -> ClusterError {
@@ -85,6 +81,7 @@ impl NodeInner {
             data,
             heartbeat_interval_ms,
             query,
+            in_flight_write_fraction,
             on_error,
         } = config;
         let controller = registration
@@ -120,6 +117,7 @@ impl NodeInner {
             registration,
             heartbeat_interval_ms,
             query,
+            in_flight_write_fraction,
             on_error,
             controller,
             data,
@@ -133,6 +131,48 @@ impl NodeInner {
             listening: Mutex::new(None),
             router: Mutex::new(None),
             reads: Mutex::new(None),
+            memory: Mutex::new(None),
+        }
+    }
+
+    pub(super) fn has_backup_store(&self) -> bool {
+        false
+    }
+
+    pub(super) fn memory(&self) -> Option<Arc<NodeMemory>> {
+        lock(&self.memory).clone()
+    }
+
+    async fn start_memory_reporting(&self) -> ClusterResult<()> {
+        let (measure, partition_sizes) = match &self.data {
+            Some(data) => {
+                let (measure, sizes) = data.memory_sources()?;
+                (measure, Some(sizes))
+            }
+            None => {
+                let measure: crate::memory::MemorySource =
+                    Arc::new(narsil::replication::read_process_memory);
+                (measure, None)
+            }
+        };
+        let memory = Arc::new(NodeMemory::new(NodeMemorySettings {
+            node_id: self.node_id().to_string(),
+            coordinator: Arc::clone(&self.coordinator),
+            measure,
+            partition_sizes,
+            in_flight_write_fraction: self.in_flight_write_fraction,
+        }));
+        let previous = lock(&self.memory).replace(Arc::clone(&memory));
+        if let Some(previous) = previous {
+            previous.stop().await;
+        }
+        memory.start().await
+    }
+
+    async fn stop_memory_reporting(&self) {
+        let memory = lock(&self.memory).take();
+        if let Some(memory) = memory {
+            memory.stop().await;
         }
     }
 
@@ -140,11 +180,19 @@ impl NodeInner {
         &self.registration.node_id
     }
 
-    fn report(&self, error: &ClusterError) {
+    pub(super) fn coordinator(&self) -> &EtcdCoordinator {
+        &self.coordinator
+    }
+
+    pub(super) fn transport(&self) -> &dyn NodeTransport {
+        self.transport.as_ref()
+    }
+
+    pub(super) fn report(&self, error: &ClusterError) {
         report_failure(self.on_error.as_ref(), error);
     }
 
-    fn is_stopping(&self) -> bool {
+    pub(super) fn is_stopping(&self) -> bool {
         *self.stopping.borrow()
     }
 
@@ -225,55 +273,6 @@ impl NodeInner {
         }
     }
 
-    async fn write_registration(&self) -> ClusterResult<()> {
-        let Err(error) = self.coordinator.register_node(&self.registration).await else {
-            return Ok(());
-        };
-        if error.code() != codes::CONFIG_INVALID
-            || self.registration.extra.get(PARTITION_BYTES_FIELD).is_none()
-        {
-            return Err(error);
-        }
-        let mut smaller = self.registration.clone();
-        smaller.extra.remove(PARTITION_BYTES_FIELD);
-        self.coordinator.register_node(&smaller).await?;
-        Err(error)
-    }
-
-    fn start_heartbeat(self: &Arc<Self>) {
-        let (stop, mut stopped) = watch::channel(false);
-        let inner = Arc::downgrade(self);
-        let every = Duration::from_millis(self.heartbeat_interval_ms);
-        let task = tokio::spawn(async move {
-            let mut ticks = tokio::time::interval(every);
-            ticks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-            ticks.tick().await;
-            loop {
-                tokio::select! {
-                    _ = ticks.tick() => {}
-                    _ = stopped.wait_for(|stopped| *stopped) => return,
-                }
-                let Some(inner) = inner.upgrade() else {
-                    return;
-                };
-                if let Err(error) = inner.write_registration().await {
-                    inner.report(&error);
-                }
-            }
-        });
-        if let Some(previous) = lock(&self.heartbeat).replace(Heartbeat { stop, task }) {
-            previous.task.abort();
-        }
-    }
-
-    async fn stop_heartbeat(&self) {
-        let Some(heartbeat) = lock(&self.heartbeat).take() else {
-            return;
-        };
-        let _ = heartbeat.stop.send(true);
-        let _ = heartbeat.task.await;
-    }
-
     async fn listen(self: &Arc<Self>) -> ClusterResult<()> {
         let inner: Weak<NodeInner> = Arc::downgrade(self);
         let fallback_id = self.node_id().to_string();
@@ -324,11 +323,14 @@ impl NodeInner {
             self.wait_until_free_to_register().await?;
             self.abort_if_stopping()?;
         }
-        self.coordinator.register_node(&self.registration).await?;
+        self.start_memory_reporting().await?;
+        let registration = self.current_registration().await;
+        self.coordinator.register_node(&registration).await?;
         self.registered.store(true, Ordering::Release);
         self.start_heartbeat();
         if let Some(data) = &self.data {
-            data.follow_allocations(Arc::clone(&self.transport)).await?;
+            data.follow_allocations(Arc::clone(&self.transport), self.memory())
+                .await?;
         }
         self.start_routing().await?;
         self.joined.store(true, Ordering::Release);
@@ -354,6 +356,7 @@ impl NodeInner {
         }
         self.controller_standing.store(false, Ordering::Release);
         self.stop_heartbeat().await;
+        self.stop_memory_reporting().await;
         if self.registered.swap(false, Ordering::AcqRel)
             && let Err(error) = self.coordinator.deregister_node(self.node_id()).await
         {

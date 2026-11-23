@@ -3,29 +3,43 @@ use std::sync::Arc;
 use narsil::coordination::score_with_rerank_adapter;
 use narsil::{DocumentProjection, IndexInfo, Map};
 
+use super::analysis_change::AnalysisChanges;
 use super::blocking::off_executor;
 use super::copies::LocalCopies;
 use super::queries::{QueryDeps, answer_query, answers_query};
+use super::search_contexts::SearchContexts;
 use super::writes::AllocationView;
 use crate::error::ClusterResult;
+use crate::memory::NodeMemory;
 use crate::message::{TransportMessage, refusal};
 
 pub(crate) struct LocalReads {
     node_id: String,
     copies: Arc<LocalCopies>,
     view: Arc<AllocationView>,
+    contexts: Arc<SearchContexts>,
+    analysis: Arc<AnalysisChanges>,
+    memory: Option<Arc<NodeMemory>>,
+}
+
+pub(super) struct LocalReadSources {
+    pub(super) node_id: String,
+    pub(super) copies: Arc<LocalCopies>,
+    pub(super) view: Arc<AllocationView>,
+    pub(super) contexts: Arc<SearchContexts>,
+    pub(super) analysis: Arc<AnalysisChanges>,
+    pub(super) memory: Option<Arc<NodeMemory>>,
 }
 
 impl LocalReads {
-    pub(super) fn new(
-        node_id: String,
-        copies: Arc<LocalCopies>,
-        view: Arc<AllocationView>,
-    ) -> LocalReads {
+    pub(super) fn new(sources: LocalReadSources) -> LocalReads {
         LocalReads {
-            node_id,
-            copies,
-            view,
+            node_id: sources.node_id,
+            copies: sources.copies,
+            view: sources.view,
+            contexts: sources.contexts,
+            analysis: sources.analysis,
+            memory: sources.memory,
         }
     }
 
@@ -46,6 +60,9 @@ impl LocalReads {
             node_id: &self.node_id,
             copies: Arc::clone(&self.copies),
             view: Arc::clone(&self.view),
+            contexts: Arc::clone(&self.contexts),
+            analysis: Arc::clone(&self.analysis),
+            memory: self.memory.clone(),
         };
         match answer_query(&deps, message).await {
             Ok(reply) => reply,

@@ -29,6 +29,9 @@ impl Inner {
 
     fn on_schema_event(self: &Arc<Self>, event: SchemaEvent) {
         let index_name = schema_index_name(&event).to_string();
+        let resuming = Arc::clone(self);
+        let resumed_name = index_name.clone();
+        tokio::spawn(async move { resuming.resume_rebalance(&resumed_name).await });
         let inner = Arc::clone(self);
         self.schema_queues.enqueue(&index_name, async move {
             let index_name = schema_index_name(&event).to_string();
@@ -59,6 +62,19 @@ impl Inner {
             })
             .await?;
         self.keep_watch(schemas);
+        let metadata_owner: Weak<Inner> = Arc::downgrade(self);
+        let metadata = self
+            .coordinator()
+            .watch_index_metadata(move |event| {
+                if let Some(inner) = metadata_owner.upgrade()
+                    && event.metadata.is_some()
+                    && inner.is_active()
+                {
+                    inner.start_analysis_driver(&event.index_name);
+                }
+            })
+            .await?;
+        self.keep_watch(metadata);
         Ok(())
     }
 
@@ -83,6 +99,21 @@ impl Inner {
             lock(&self.state).listening = true;
         }
         self.schedule_allocation(ALLOCATION_DEBOUNCE_MS);
+        let inner = Arc::clone(self);
+        tokio::spawn(async move {
+            if let Err(error) = inner.tear_down_dropped_allocations().await {
+                inner.report("", &error);
+            }
+            if let Err(error) = inner.resume_rebalances().await {
+                inner.report("", &error);
+            }
+        });
+        let inner = Arc::clone(self);
+        tokio::spawn(async move {
+            if let Err(error) = inner.resume_analysis_drivers().await {
+                inner.report("", &error);
+            }
+        });
         Ok(())
     }
 }

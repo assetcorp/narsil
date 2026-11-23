@@ -5,7 +5,7 @@ use narsil::{Map, SuggestParams, Value};
 use super::QueryDeps;
 use super::payload::{
     analysis_generation, answer, index_name, partition_ids, positive_integer, request_fields,
-    require_held_generation, string_field,
+    string_field,
 };
 use super::refusal::{ServedRead, refuse_unserved_read};
 use crate::constants::{MAX_SUGGEST_WIRE_LIMIT, MAX_TERM_LENGTH};
@@ -43,15 +43,19 @@ pub(super) async fn answer_suggest(
         ServedRead::Query,
     )
     .await?;
-    require_held_generation(&index_name, generation)?;
     let copies = Arc::clone(&deps.copies);
     let params = SuggestParams {
         prefix,
         limit: Some(limit as usize),
     };
-    let suggested =
-        off_executor(move || copies.suggest_partitions(&index_name, &params, &partition_ids))
-            .await??;
+    let read_index = index_name.clone();
+    let suggested = deps
+        .analysis
+        .answer_at(&index_name, generation, || async move {
+            off_executor(move || copies.suggest_partitions(&read_index, &params, &partition_ids))
+                .await?
+        })
+        .await?;
     let terms = suggested
         .terms
         .into_iter()
