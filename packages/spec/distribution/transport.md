@@ -710,7 +710,7 @@ A primary of the current generation sends this to every primary of the new gener
 }
 ```
 
-Each receiving primary removes every document that it holds whose ID routes to `sourcePartitionId` under `sourcePartitionCount`, and it answers:
+The receiving primary must refuse the request with `ALLOCATION_FAILED` where no rebalance record gives `jobId` as its job and `targetGeneration` as its new generation, or where `targetGeneration` is not a hidden generation whose partitions it leads, because the purge removes documents without a client's request. Otherwise each receiving primary removes every document that it holds in `targetGeneration` whose ID routes to `sourcePartitionId` under `sourcePartitionCount`, and it answers:
 
 ```text
 {

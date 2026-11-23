@@ -8,9 +8,10 @@ use super::rebalance::refuse_hidden_generation;
 use crate::constants::{ANALYSIS_CHANGE_POLL_INTERVAL_MS, MAX_SETTINGS_REPLACEMENT_ATTEMPTS};
 use crate::controller::{
     IndexMetadataSnapshot, PendingAnalysis, metadata_key, metadata_with_pending_analysis,
-    metadata_without_pending_analysis, read_index_metadata_snapshot, rebalance_record_key,
+    metadata_without_pending_analysis, read_index_metadata_snapshot,
 };
 use crate::error::{ClusterError, ClusterResult, codes};
+use crate::rebalance::rebalance_record_key;
 use crate::version::reaches_version;
 
 const ANALYSIS_CHANGE_SPEC_VERSION: &str = "1.1";
@@ -186,7 +187,7 @@ impl ClusterNode {
         Ok(())
     }
 
-    async fn serving_name(&self, index_name: &str) -> ClusterResult<String> {
+    pub(super) async fn serving_name(&self, index_name: &str) -> ClusterResult<String> {
         Ok(self
             .inner
             .coordinator()

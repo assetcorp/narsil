@@ -15,6 +15,7 @@ mod wire_values;
 
 use std::sync::Arc;
 
+pub(super) use self::refusal::{ServedRead, refuse_unserved_read};
 use super::analysis_change::AnalysisChanges;
 use super::copies::LocalCopies;
 use super::search_contexts::SearchContexts;

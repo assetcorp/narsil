@@ -8,6 +8,11 @@ use narsil_server::{
     ServerLimits, ServerOptions,
 };
 
+#[cfg(feature = "cluster")]
+mod cluster;
+
+#[cfg(not(feature = "cluster"))]
+const CLUSTER_ETCD_ENDPOINTS_VARIABLE: &str = "NARSIL_CLUSTER_ETCD_ENDPOINTS";
 const DEFAULT_LAUNCHER_PORT: u16 = 7700;
 const DEFAULT_LAUNCHER_HOST: &str = "127.0.0.1";
 const BEARER_PREFIX: &str = "Bearer ";
@@ -145,16 +150,51 @@ async fn wait_for_signal() -> &'static str {
     }
 }
 
+fn start_failure(failure: impl std::fmt::Display) -> String {
+    format!("Narsil HTTP server failed to start: {failure}")
+}
+
+#[cfg(feature = "cluster")]
+async fn run_cluster(
+    launch: cluster::ClusterLaunch,
+    options: ServerOptions,
+    host: &str,
+) -> Result<(), String> {
+    let started = launch.start().await?;
+    let served = match NarsilServer::cluster(Arc::clone(&started.node), options) {
+        Ok(server) => serve(server, host).await,
+        Err(failure) => {
+            started.node.shutdown().await;
+            Err(start_failure(failure))
+        }
+    };
+    started.close().await;
+    served
+}
+
 async fn run() -> Result<(), String> {
     let options = options_from_env()?;
     let host = options.host.clone().unwrap_or_default();
+    #[cfg(feature = "cluster")]
+    if let Some(launch) = cluster::ClusterLaunch::from_env()? {
+        return run_cluster(launch, options, &host).await;
+    }
+    #[cfg(not(feature = "cluster"))]
+    if text_from_env(CLUSTER_ETCD_ENDPOINTS_VARIABLE).is_some() {
+        return Err(format!(
+            "{CLUSTER_ETCD_ENDPOINTS_VARIABLE} is set, but this build of the server has no cluster mode; build it with the cluster feature"
+        ));
+    }
     let engine = Arc::new(engine_from_env()?);
-    let server = NarsilServer::new(engine, options)
-        .map_err(|failure| format!("Narsil HTTP server failed to start: {failure}"))?;
-    server
-        .listen()
-        .await
-        .map_err(|failure| format!("Narsil HTTP server failed to start: {failure}"))?;
+    let server = NarsilServer::new(engine, options).map_err(start_failure)?;
+    serve(server, &host).await
+}
+
+async fn serve(server: NarsilServer, host: &str) -> Result<(), String> {
+    if let Err(failure) = server.listen().await {
+        let _ = server.shutdown().await;
+        return Err(start_failure(failure));
+    }
     let port = server.listening_port().await.unwrap_or(0);
     println!("Narsil HTTP server listening on http://{host}:{port}");
     let signal = wait_for_signal().await;

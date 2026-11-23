@@ -11,6 +11,7 @@ mod log_order;
 mod partition;
 mod replica;
 mod replicate;
+mod reshard;
 mod rollback;
 mod run;
 mod scope;
@@ -30,6 +31,7 @@ use self::copy_failure::CopyFailures;
 pub(crate) use self::errors::abandoned_with_term;
 pub(crate) use self::forward::{fnv1a, fnv1a_uint32s, routed_partition, unassigned};
 use self::partition::Partitions;
+use self::reshard::ReshardState;
 pub(crate) use self::view::AllocationView;
 use super::blocking::off_executor;
 use super::copies::LocalCopies;
@@ -48,6 +50,7 @@ pub(crate) struct PrimaryWrites {
     view: Arc<AllocationView>,
     partitions: Partitions,
     failures: CopyFailures,
+    reshard: ReshardState,
     catch_up_bytes: Semaphore,
     stopping: watch::Sender<bool>,
     on_error: Option<NodeErrorHandler>,
@@ -79,6 +82,7 @@ impl PrimaryWrites {
             view: settings.view,
             partitions: Partitions::default(),
             failures: CopyFailures::default(),
+            reshard: ReshardState::default(),
             catch_up_bytes: catch_up_budget(),
             stopping: watch::Sender::new(false),
             on_error: settings.on_error,
@@ -103,6 +107,7 @@ impl PrimaryWrites {
 
     pub(super) fn stop(&self) {
         self.stopping.send_replace(true);
+        self.reshard.stop_every_job();
         self.catch_up_bytes.close();
         self.cancel_catch_up_feeds();
         self.view.stop();
@@ -161,10 +166,12 @@ impl PrimaryWrites {
     pub(super) fn forget_index(&self, index_name: &str) {
         self.partitions.forget_index(index_name);
         self.failures.forget_index(index_name);
+        self.reshard.forget_index(index_name);
     }
 
     pub(super) fn forget_partition(&self, index_name: &str, partition_id: u32) {
         self.partitions.forget_partition(index_name, partition_id);
         self.failures.forget_partition(index_name, partition_id);
+        self.reshard.forget_partition(index_name, partition_id);
     }
 }
