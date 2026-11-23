@@ -12,6 +12,9 @@ use super::partition_stores::{partition_stores_answer, requested_index};
 use super::reconcile::settle_local_indexes;
 use super::watcher::{AllocationWatcher, WatcherSettings};
 use super::writes::{AllocationView, PrimaryWrites, PrimaryWritesSettings};
+use crate::backups::{
+    BackupPrimary, BackupStore, PrimaryContext, answer_backup_partition, answer_restore_partition,
+};
 use crate::controller::lock;
 use crate::coordinator::etcd::EtcdCoordinator;
 use crate::error::ClusterResult;
@@ -29,6 +32,7 @@ pub(crate) struct DataRole {
     watcher: tokio::sync::Mutex<Option<AllocationWatcher>>,
     writes: Mutex<Option<Arc<PrimaryWrites>>>,
     device_sync: tokio::sync::Mutex<Option<Arc<DeviceSyncView>>>,
+    backups: Option<Arc<BackupPrimary>>,
 }
 
 impl DataRole {
@@ -37,6 +41,7 @@ impl DataRole {
         coordinator: Arc<EtcdCoordinator>,
         config: DataNodeConfig,
         on_error: Option<NodeErrorHandler>,
+        backups: Option<BackupStore>,
     ) -> DataRole {
         DataRole {
             node_id,
@@ -47,6 +52,7 @@ impl DataRole {
             watcher: tokio::sync::Mutex::new(None),
             writes: Mutex::new(None),
             device_sync: tokio::sync::Mutex::new(None),
+            backups: backups.map(|store| Arc::new(BackupPrimary::new(store))),
         }
     }
 
@@ -173,7 +179,27 @@ impl DataRole {
                 | message_types::REPLICATION_TERM_START
                 | message_types::REPLICATION_SYNC_REQUEST
                 | message_types::SYNC_READ
+                | message_types::CLUSTER_BACKUP_PARTITION
+                | message_types::CLUSTER_RESTORE_PARTITION
         )
+    }
+
+    async fn answer_backup_message(
+        &self,
+        message: &TransportMessage,
+    ) -> ClusterResult<TransportMessage> {
+        let context = PrimaryContext {
+            node_id: &self.node_id,
+            coordinator: &self.coordinator,
+            writes: self.primary_writes()?,
+        };
+        let primary = self.backups.as_ref();
+        match message.message_type.as_str() {
+            message_types::CLUSTER_BACKUP_PARTITION => {
+                answer_backup_partition(primary, context, message).await
+            }
+            _ => answer_restore_partition(primary, context, message).await,
+        }
     }
 
     pub(crate) async fn answer(&self, message: TransportMessage, respond: Respond) {
@@ -208,6 +234,11 @@ impl DataRole {
                     Err(error) => Err(error),
                 };
                 answered.unwrap_or_else(|error| refusal(&message, &self.node_id, &error))
+            }
+            message_types::CLUSTER_BACKUP_PARTITION | message_types::CLUSTER_RESTORE_PARTITION => {
+                self.answer_backup_message(&message)
+                    .await
+                    .unwrap_or_else(|error| refusal(&message, &self.node_id, &error))
             }
             _ => match self.answer_partition_stores(&message).await {
                 Ok(reply) => reply,

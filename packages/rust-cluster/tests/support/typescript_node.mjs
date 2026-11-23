@@ -2,8 +2,17 @@ import { join } from 'node:path'
 import { createInterface } from 'node:readline'
 import { pathToFileURL } from 'node:url'
 
-const [repositoryRoot, endpoint, keyPrefix, nodeId, roleList, heartbeatTtlSeconds, durabilityDirectory] =
-  process.argv.slice(2)
+const [
+  repositoryRoot,
+  endpoint,
+  keyPrefix,
+  nodeId,
+  roleList,
+  heartbeatTtlSeconds,
+  durabilityDirectory,
+  backupDirectory = '',
+  backupKeyPrefix = '',
+] = process.argv.slice(2)
 const dist = join(repositoryRoot, 'packages/ts/dist')
 const load = path => import(pathToFileURL(join(dist, path)).href)
 const { createClusterNode } = await load('distribution.mjs')
@@ -11,6 +20,11 @@ const { createEtcdCoordinator } = await load('distribution/coordinator/etcd.mjs'
 const { createTcpTransport } = await load('distribution/transport/tcp.mjs')
 
 const { registerLanguage, registerStopWords, registerTokenizer } = await load('index.mjs')
+const { createFilesystemPersistence } = await load('adapters/filesystem.mjs')
+const backups =
+  backupDirectory === ''
+    ? {}
+    : { backups: { store: createFilesystemPersistence({ directory: backupDirectory }), keyPrefix: backupKeyPrefix } }
 
 function letterShape(text) {
   const letters = [...text.toLowerCase()]
@@ -49,6 +63,7 @@ const node = await createClusterNode({
   nodeId,
   address,
   roles: roleList.split(','),
+  ...backups,
   engine: {
     workers: { enabled: false },
     embeddingAdapters,
@@ -101,6 +116,12 @@ const operations = {
   get: ({ indexName, documentId }) => node.get(indexName, documentId),
   partitionCounts: async ({ indexName }) =>
     (await node.getPartitionStats(indexName)).map(({ partitionId, documentCount }) => ({ partitionId, documentCount })),
+  createBackup: async ({ indexName, backupName }) => node.cluster.createBackup(indexName, backupName),
+  restoreBackup: async ({ backupName, indexName, replicationFactor }) =>
+    node.cluster.restoreBackup(backupName, { indexName, replicationFactor }),
+  deleteBackup: async ({ backupName }) => node.cluster.deleteBackup(backupName),
+  listBackups: async () => (await node.cluster.listBackups()).map(backup => backup.name),
+  getMultiple: async ({ indexName, documentIds }) => Object.fromEntries(await node.getMultiple(indexName, documentIds)),
 }
 
 function answer(id, outcome) {
