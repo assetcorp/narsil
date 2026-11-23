@@ -91,6 +91,26 @@ impl TypescriptNode {
         TypescriptNode::launch(endpoint, key_prefix, node_id, roles, None, Some(directory)).await
     }
 
+    pub async fn start_with_backups(
+        cluster: (&str, &str),
+        node_id: &str,
+        roles: &str,
+        directory: Option<&Path>,
+        backups: (&Path, &str),
+    ) -> TypescriptNode {
+        let (endpoint, key_prefix) = cluster;
+        TypescriptNode::spawn(
+            endpoint,
+            key_prefix,
+            node_id,
+            roles,
+            None,
+            directory,
+            Some(backups),
+        )
+        .await
+    }
+
     async fn launch(
         endpoint: &str,
         key_prefix: &str,
@@ -98,6 +118,27 @@ impl TypescriptNode {
         roles: &str,
         heartbeat_ttl_seconds: Option<u64>,
         directory: Option<&Path>,
+    ) -> TypescriptNode {
+        TypescriptNode::spawn(
+            endpoint,
+            key_prefix,
+            node_id,
+            roles,
+            heartbeat_ttl_seconds,
+            directory,
+            None,
+        )
+        .await
+    }
+
+    async fn spawn(
+        endpoint: &str,
+        key_prefix: &str,
+        node_id: &str,
+        roles: &str,
+        heartbeat_ttl_seconds: Option<u64>,
+        directory: Option<&Path>,
+        backups: Option<(&Path, &str)>,
     ) -> TypescriptNode {
         let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
         let heartbeat_ttl_seconds = heartbeat_ttl_seconds
@@ -108,6 +149,11 @@ impl TypescriptNode {
             .arg(manifest.join("../.."))
             .args([endpoint, key_prefix, node_id, roles, &heartbeat_ttl_seconds])
             .arg(directory.map(Path::as_os_str).unwrap_or_default())
+            .args(
+                backups
+                    .map(|(store, prefix)| vec![store.as_os_str().to_owned(), prefix.into()])
+                    .unwrap_or_default(),
+            )
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .kill_on_drop(true)

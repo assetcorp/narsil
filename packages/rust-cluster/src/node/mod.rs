@@ -20,6 +20,10 @@ mod search;
 mod started_at;
 mod writes;
 
+pub use crate::backups::{
+    BackupListing, BackupProgress, BackupProgressHandler, BackupSummary, ClusterBackupConfig,
+    CreateBackupOptions, DamagedBackup, RestoreBackupOptions, RestoreConstraints,
+};
 pub use crate::data::DataNodeConfig;
 pub use crate::reads::{ClusterIndexStats, ClusterPartitionStats};
 pub(crate) use config::report_failure;

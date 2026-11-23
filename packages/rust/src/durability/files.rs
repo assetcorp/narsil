@@ -179,6 +179,14 @@ impl DurableDirectory {
         self.sync_path(&parent)
     }
 
+    pub(crate) fn write_if_absent(&self, key: &str, data: &[u8]) -> Result<bool> {
+        let mut staged = self.create_staged(key)?;
+        staged.write_bytes(data)?;
+        let (stored, parent) = staged.commit_if_absent()?;
+        self.sync_path(&parent)?;
+        Ok(stored)
+    }
+
     fn settle_removal(&self, key: &str, parent: &Path, removal: io::Result<()>) -> Result<()> {
         match removal {
             Ok(()) => self.sync_path(parent),
