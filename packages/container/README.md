@@ -26,7 +26,7 @@ curl -X POST localhost:7700/indexes \
 
 The [HTTP server guide](../../docs/http-server.md) describes every route that the node serves.
 
-The image serves one node. To build the nodes of a cluster in code on the TypeScript server, follow the [cluster guide](../../docs/cluster.md).
+The image serves one node outside any cluster. To run the nodes of a cluster, build them in code with the TypeScript package, as the [cluster guide](../../docs/cluster.md) shows, or start the Rust server's `narsil-server` binary with its `cluster` feature, as [its README](../rust-server/README.md#join-a-cluster) describes.
 
 ## Choose a tag
 
@@ -39,7 +39,7 @@ The image serves one node. To build the nodes of a cluster in code on the TypeSc
 | `sha-<commit>` | The image that the publish workflow built from that commit. |
 | `latest-rust`, `<version>-rust`, and each tag above with `-rust` added | The same release served by the Rust server, which reads the same variables. |
 
-You can switch a node between the TypeScript server and the Rust server by changing the tag alone. Only the TypeScript server runs cluster mode, so a node that joins a cluster has to use a tag without `-rust`. The Rust image also leaves out the `transformers` kind of embedder and reranker, so its startup program exits with status 1 when a variable sets that kind.
+You can switch a node between the TypeScript server and the Rust server by changing the tag alone. The Rust image leaves out the `transformers` kind of embedder and reranker, so its startup program exits with status 1 when a variable sets that kind.
 
 Pin a version in production, so that a new release reaches your nodes only when you change the tag:
 
