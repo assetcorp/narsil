@@ -1,5 +1,6 @@
 mod allocation;
 mod analysis_change;
+mod backup_calls;
 mod config;
 mod create_index;
 mod device_sync;
@@ -10,6 +11,7 @@ mod identity;
 mod index_names;
 mod index_settings;
 mod join;
+mod listen;
 mod local_copies;
 mod member;
 mod not_ready;
@@ -20,6 +22,11 @@ mod search;
 mod started_at;
 mod writes;
 
+pub use crate::backups::{
+    BackupListing, BackupProgress, BackupProgressHandler, BackupSummary, ClusterBackupConfig,
+    CreateBackupOptions, DamagedBackup, RestoreBackupOptions, RestoreConstraints, RestorePlacement,
+    read_restore_placement, validate_backup_name,
+};
 pub use crate::data::DataNodeConfig;
 pub use crate::reads::{ClusterIndexStats, ClusterPartitionStats};
 pub(crate) use config::report_failure;

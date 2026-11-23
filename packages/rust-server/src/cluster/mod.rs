@@ -1,4 +1,5 @@
 mod allocation;
+mod backups;
 mod feed_settings;
 mod indexes;
 mod jobs;
@@ -86,6 +87,9 @@ pub(crate) async fn dispatch(
         | Route::Count
         | Route::IndexStats
         | Route::IndexPartitions => reads::handle(&state, &node, route, &context).await,
+        Route::CreateBackup | Route::ListBackups | Route::RestoreBackup | Route::DeleteBackup => {
+            backups::handle(&state, node, route, &context).await
+        }
         Route::CreateIndex | Route::DropIndex => {
             indexes::handle(&state, &node, route, &context).await
         }

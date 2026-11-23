@@ -29,6 +29,27 @@ pub trait PersistenceAdapter: Send + Sync {
     /// Returns every key that starts with `prefix`, in any order.
     fn list(&self, prefix: &str) -> std::result::Result<Vec<String>, AdapterError>;
 
+    /// Stores `data` under `key` only where the key holds nothing, and returns `Some(Ok(true))` where it stored the
+    /// data and `Some(Ok(false))` where the key already held a value. The check and the store are one atomic step
+    /// against every other save of the key, and a reader sees no value or all of `data`.
+    ///
+    /// Returns `None` where the store offers no such step, which is the default. A cluster refuses a backup store
+    /// that returns `None`, because a save followed by a load can't stop two clusters from both claiming a prefix.
+    /// A store that overrides this method also overrides [`PersistenceAdapter::offers_save_if_absent`].
+    fn save_if_absent(
+        &self,
+        _key: &str,
+        _data: &[u8],
+    ) -> Option<std::result::Result<bool, AdapterError>> {
+        None
+    }
+
+    /// Reports whether [`PersistenceAdapter::save_if_absent`] stores data, so that a cluster node can refuse a backup
+    /// store without it as the node starts. The default is false.
+    fn offers_save_if_absent(&self) -> bool {
+        false
+    }
+
     /// Returns the directory that holds the keys when the store is a local directory, which lets an engine run the
     /// write-ahead log there.
     fn directory(&self) -> Option<&Path> {
@@ -89,6 +110,26 @@ impl PersistenceAdapter for MemoryPersistence {
             .map(|(key, _)| key.clone())
             .collect())
     }
+
+    fn save_if_absent(
+        &self,
+        key: &str,
+        data: &[u8],
+    ) -> Option<std::result::Result<bool, AdapterError>> {
+        let mut entries = match self.entries.write() {
+            Ok(entries) => entries,
+            Err(_) => return Some(Err(poisoned())),
+        };
+        if entries.contains_key(key) {
+            return Some(Ok(false));
+        }
+        entries.insert(key.to_string(), data.to_vec());
+        Some(Ok(true))
+    }
+
+    fn offers_save_if_absent(&self) -> bool {
+        true
+    }
 }
 
 /// Writes each key to a file under one directory, flushing it to the disk and renaming it into place, so that a
@@ -140,6 +181,18 @@ impl PersistenceAdapter for FilesystemPersistence {
 
     fn list(&self, prefix: &str) -> std::result::Result<Vec<String>, AdapterError> {
         self.directory.list(prefix).map_err(boxed)
+    }
+
+    fn save_if_absent(
+        &self,
+        key: &str,
+        data: &[u8],
+    ) -> Option<std::result::Result<bool, AdapterError>> {
+        Some(self.directory.write_if_absent(key, data).map_err(boxed))
+    }
+
+    fn offers_save_if_absent(&self) -> bool {
+        true
     }
 
     fn directory(&self) -> Option<&Path> {

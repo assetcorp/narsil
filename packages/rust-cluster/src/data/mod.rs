@@ -1,4 +1,5 @@
 mod analysis_change;
+pub(crate) mod backup_copy;
 pub(crate) mod blocking;
 mod config;
 mod copies;
@@ -21,7 +22,7 @@ mod spool_directory;
 mod stored_index;
 pub(crate) mod synonym_set;
 mod watcher;
-mod writes;
+pub(crate) mod writes;
 
 pub use config::DataNodeConfig;
 pub(crate) use local_reads::LocalReads;

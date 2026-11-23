@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use narsil::Value;
 
+use crate::backups::{ClusterBackupConfig, validate_backup_config};
 use crate::constants::{
     DEFAULT_CONTROLLER_LEASE_TTL_MS, DEFAULT_IN_FLIGHT_WRITE_FRACTION,
     DEFAULT_NODE_HEARTBEAT_INTERVAL_MS, DEFAULT_NODE_LEFT_DELAY_MS,
@@ -89,6 +90,9 @@ pub struct ClusterNodeConfig {
     pub in_flight_write_fraction: f64,
     /// How the node answers a search that some partitions failed to answer.
     pub query: ClusterQueryConfig,
+    /// Where the cluster keeps its backups, which every node of the cluster sets alike, or `None` for a node that
+    /// takes no part in a backup.
+    pub backups: Option<ClusterBackupConfig>,
     /// Receives the failures that no awaited call returns.
     pub on_error: Option<NodeErrorHandler>,
 }
@@ -96,7 +100,7 @@ pub struct ClusterNodeConfig {
 impl ClusterNodeConfig {
     /// Returns the settings of a node that writes `registration`, with the default controller timing, the default
     /// heartbeat interval of 10 seconds, searches that answer from the partitions that answer within 5 seconds, no
-    /// error handler, and no data settings.
+    /// error handler, no data settings, and no backup store.
     pub fn new(
         coordinator: Arc<EtcdCoordinator>,
         transport: Arc<dyn NodeTransport>,
@@ -111,6 +115,7 @@ impl ClusterNodeConfig {
             heartbeat_interval_ms: DEFAULT_NODE_HEARTBEAT_INTERVAL_MS,
             in_flight_write_fraction: DEFAULT_IN_FLIGHT_WRITE_FRACTION,
             query: ClusterQueryConfig::default(),
+            backups: None,
             on_error: None,
         }
     }
@@ -179,6 +184,9 @@ pub(crate) fn validate_config(config: &ClusterNodeConfig) -> ClusterResult<()> {
             "ClusterNodeConfig.in_flight_write_fraction must be above 0 and at most 1",
         )
         .with_detail("in_flight_write_fraction", Value::Number(fraction)));
+    }
+    if let Some(backups) = &config.backups {
+        validate_backup_config(backups)?;
     }
     require_positive(config.heartbeat_interval_ms, "heartbeat_interval_ms")?;
     require_positive(
