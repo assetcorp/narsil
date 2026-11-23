@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 use narsil::Map;
 use tokio::sync::watch;
 
+use super::analysis_change::AnalysisChanges;
 use super::blocking::off_executor;
 use super::config::DataNodeConfig;
 use super::copies::LocalCopies;
@@ -12,7 +13,7 @@ use super::reconcile::settle_local_indexes;
 use super::watcher::{AllocationWatcher, WatcherSettings};
 use super::writes::{AllocationView, PrimaryWrites, PrimaryWritesSettings};
 use crate::controller::lock;
-use crate::coordinator::etcd::EtcdCoordinator;
+use crate::coordinator::etcd::{EtcdCoordinator, WatchHandle};
 use crate::error::ClusterResult;
 use crate::message::{TransportMessage, message_types, refusal};
 use crate::node::{NodeErrorHandler, not_ready, report_failure};
@@ -26,6 +27,7 @@ pub(crate) struct DataRole {
     settled: Mutex<Option<Arc<LocalCopies>>>,
     watcher: tokio::sync::Mutex<Option<AllocationWatcher>>,
     writes: Mutex<Option<Arc<PrimaryWrites>>>,
+    analysis: Mutex<Option<(Arc<AnalysisChanges>, WatchHandle)>>,
 }
 
 impl DataRole {
@@ -43,6 +45,7 @@ impl DataRole {
             settled: Mutex::new(None),
             watcher: tokio::sync::Mutex::new(None),
             writes: Mutex::new(None),
+            analysis: Mutex::new(None),
         }
     }
 
@@ -82,6 +85,16 @@ impl DataRole {
         transport: Arc<dyn NodeTransport>,
     ) -> ClusterResult<()> {
         let copies = self.settled_copies()?;
+        let analysis = AnalysisChanges::new(
+            self.node_id.clone(),
+            Arc::clone(&self.coordinator),
+            Arc::clone(&copies),
+            self.on_error.clone(),
+        );
+        let analysis_watch = analysis.watch().await?;
+        if let Some((_, previous)) = lock(&self.analysis).replace((analysis, analysis_watch)) {
+            previous.stop();
+        }
         let view = Arc::new(AllocationView::new(Arc::clone(&self.coordinator)));
         if let Err(error) = view.start().await {
             view.stop();
@@ -133,7 +146,19 @@ impl DataRole {
                 | message_types::REPLICATION_ENTRY_BATCH
                 | message_types::REPLICATION_TERM_START
                 | message_types::REPLICATION_SYNC_REQUEST
+                | message_types::CLUSTER_REBUILD_ANALYSIS
         )
+    }
+
+    async fn answer_rebuild_analysis(
+        &self,
+        message: &TransportMessage,
+    ) -> ClusterResult<TransportMessage> {
+        let analysis = lock(&self.analysis)
+            .as_ref()
+            .map(|(analysis, _)| Arc::clone(analysis))
+            .ok_or_else(|| not_ready(&self.node_id))?;
+        analysis.answer_rebuild(message).await
     }
 
     pub(crate) async fn answer(&self, message: TransportMessage, respond: Respond) {
@@ -162,6 +187,12 @@ impl DataRole {
                 Ok(writes) => writes.answer_term_start(&message).await,
                 Err(error) => refusal(&message, &self.node_id, &error),
             },
+            message_types::CLUSTER_REBUILD_ANALYSIS => {
+                match self.answer_rebuild_analysis(&message).await {
+                    Ok(reply) => reply,
+                    Err(error) => refusal(&message, &self.node_id, &error),
+                }
+            }
             _ => match self.answer_partition_stores(&message).await {
                 Ok(reply) => reply,
                 Err(error) => refusal(&message, &self.node_id, &error),
@@ -193,6 +224,9 @@ impl DataRole {
     }
 
     pub(crate) async fn close(&self) {
+        if let Some((_, analysis_watch)) = lock(&self.analysis).take() {
+            analysis_watch.stop();
+        }
         if let Some(writes) = lock(&self.writes).take() {
             writes.stop();
         }
