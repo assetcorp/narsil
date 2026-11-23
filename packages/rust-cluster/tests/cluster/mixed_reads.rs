@@ -3,12 +3,13 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use narsil::{
-    DocumentProjection, FacetSpec, GroupConfig, GroupReducer, ListParams, Map, Pin, QueryParams,
-    QueryResult, ScoringMode, SortDirection, SortField, SuggestParams, Value,
+    AdapterError, DocumentProjection, FacetSpec, GroupConfig, GroupReducer, ListParams, Map, Pin,
+    QueryParams, QueryResult, RerankAdapter, RerankConfig, ScoringMode, SortDirection, SortField,
+    SuggestParams, Value,
 };
 use narsil_cluster::coordinator::etcd::{EtcdCoordinator, EtcdCoordinatorConfig};
 use narsil_cluster::error::codes;
-use narsil_cluster::node::ClusterNode;
+use narsil_cluster::node::{ClusterNode, ClusterNodeConfig};
 
 use crate::data_node::{
     DataNode, Scratch, coordinator_at, etcd_endpoint, eventually, unique_key_prefix,
@@ -78,6 +79,33 @@ fn grinder_query(filters: Option<Value>) -> QueryParams {
 }
 
 type GroupShape = (Vec<(String, Option<Value>)>, Vec<String>, Option<Value>);
+
+const TRAILING_NUMBER_RERANKER: &str = "trailing-number";
+
+struct TrailingNumber;
+
+impl RerankAdapter for TrailingNumber {
+    fn score(&self, _query: &str, documents: &[String]) -> Result<Vec<f64>, AdapterError> {
+        Ok(documents
+            .iter()
+            .map(|text| {
+                text.rsplit(' ')
+                    .next()
+                    .and_then(|number| number.parse::<f64>().ok())
+                    .unwrap_or(-1.0)
+            })
+            .collect())
+    }
+}
+
+fn with_trailing_number_reranker(config: &mut ClusterNodeConfig) {
+    if let Some(data) = config.data.as_mut() {
+        data.rerank_adapters.insert(
+            TRAILING_NUMBER_RERANKER.to_string(),
+            Arc::new(TrailingNumber),
+        );
+    }
+}
 
 fn dfs_grinder_query(limit: usize) -> QueryParams {
     QueryParams {
@@ -149,6 +177,38 @@ async fn check_searches(node: &ClusterNode, documents: &[ShopDocument]) {
         .await
         .expect("the router places a pin");
     assert_eq!(hit_ids(&pinned), ["item-5", "item-0", "item-1"]);
+
+    let mut by_trailing_number: Vec<&ShopDocument> = documents.iter().collect();
+    by_trailing_number.sort_by(|left, right| right.price.total_cmp(&left.price));
+    let reranked = node
+        .query(
+            INDEX,
+            &QueryParams {
+                rerank: Some(RerankConfig {
+                    adapter: TRAILING_NUMBER_RERANKER.to_string(),
+                    fields: vec!["title".to_string()],
+                    query: None,
+                    window: None,
+                }),
+                ..dfs_grinder_query(3)
+            },
+        )
+        .await
+        .expect("the router reranks the best hits of every partition");
+    assert_eq!(
+        hit_ids(&reranked),
+        by_trailing_number[..3]
+            .iter()
+            .map(|document| document.id.clone())
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(reranked.count, DOCUMENT_TOTAL as u64);
+    for (hit, expected) in reranked.hits.iter().zip(&by_trailing_number) {
+        assert_eq!(
+            hit.document.get("title"),
+            Some(&Value::from(expected.title.as_str()))
+        );
+    }
 
     let mut kitchen: Vec<&ShopDocument> = documents
         .iter()
@@ -305,13 +365,14 @@ async fn active_primaries(coordinator: &EtcdCoordinator) -> Option<BTreeMap<u32,
     }
     HOLDER_IDS
         .iter()
+        .chain([&ROUTER_ID])
         .all(|holder| primaries.values().any(|primary| primary == holder))
         .then_some(primaries)
 }
 
 async fn settled_primaries(coordinator: &EtcdCoordinator) -> BTreeMap<u32, String> {
     eventually(
-        "every partition is ACTIVE and each holder leads one",
+        "every partition is ACTIVE and each data node leads one",
         || async { active_primaries(coordinator).await.is_some() },
     )
     .await;
@@ -327,7 +388,7 @@ fn without_id(document: &Map) -> Map {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_rust_coordinator_reads_every_partition_from_typescript_data_nodes() {
+async fn a_rust_coordinator_reads_every_partition_from_typescript_data_nodes_and_its_own_copies() {
     let Some(endpoint) = etcd_endpoint() else {
         return;
     };
@@ -340,11 +401,12 @@ async fn a_rust_coordinator_reads_every_partition_from_typescript_data_nodes() {
         TypescriptNode::start(&endpoint, &key_prefix, HOLDER_IDS[0], "data").await;
     let second_holder = TypescriptNode::start(&endpoint, &key_prefix, HOLDER_IDS[1], "data").await;
     let router_scratch = Scratch::new();
-    let router = DataNode::start_with_roles(
+    let router = DataNode::start_configured(
         &coordinator,
         ROUTER_ID,
         router_scratch.path(),
-        &["coordinator"],
+        &["coordinator", "data"],
+        with_trailing_number_reranker,
     )
     .await;
 
@@ -646,7 +708,7 @@ async fn a_rust_coordinator_reads_every_partition_from_typescript_data_nodes() {
     assert!(!partial.count_exact);
     for hit in &partial.hits {
         let partition = fnv1a_partition(&hit.id, PARTITIONS);
-        assert_eq!(primaries[&partition], HOLDER_IDS[0], "{}", hit.id);
+        assert_ne!(primaries[&partition], HOLDER_IDS[1], "{}", hit.id);
     }
 
     router.stop().await;

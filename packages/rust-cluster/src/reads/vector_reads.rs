@@ -42,6 +42,7 @@ impl Held {
                 let settled = HeldVectorSettings {
                     index_uuid: known.index_uuid.clone(),
                     settings: VectorReadSettings {
+                        schema: schema.clone(),
                         vector_fields: vector_field_segments_of(schema),
                         return_vectors: known.return_vectors,
                     },
@@ -99,6 +100,7 @@ impl VectorReadView {
         let live = HeldVectorSettings {
             index_uuid: record.index_uuid.clone(),
             settings: VectorReadSettings {
+                schema: schema.clone(),
                 vector_fields: vector_field_segments_of(&schema),
                 return_vectors,
             },
