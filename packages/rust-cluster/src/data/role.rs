@@ -8,6 +8,7 @@ use super::config::DataNodeConfig;
 use super::copies::LocalCopies;
 use super::lost_copy::LostCopyWait;
 use super::partition_stores::{partition_stores_answer, requested_index};
+use super::queries::{QueryDeps, answer_query, answers_query};
 use super::reconcile::settle_local_indexes;
 use super::watcher::{AllocationWatcher, WatcherSettings};
 use super::writes::{AllocationView, PrimaryWrites, PrimaryWritesSettings};
@@ -133,7 +134,24 @@ impl DataRole {
                 | message_types::REPLICATION_ENTRY_BATCH
                 | message_types::REPLICATION_TERM_START
                 | message_types::REPLICATION_SYNC_REQUEST
-        )
+        ) || answers_query(message_type)
+    }
+
+    async fn answer_query_message(&self, message: &TransportMessage) -> TransportMessage {
+        let deps = match (self.settled_copies(), self.primary_writes()) {
+            (Ok(copies), Ok(writes)) => QueryDeps {
+                node_id: &self.node_id,
+                copies,
+                view: writes.view(),
+            },
+            (Err(error), _) | (_, Err(error)) => {
+                return refusal(message, &self.node_id, &error);
+            }
+        };
+        match answer_query(&deps, message).await {
+            Ok(reply) => reply,
+            Err(error) => refusal(message, &self.node_id, &error),
+        }
     }
 
     pub(crate) async fn answer(&self, message: TransportMessage, respond: Respond) {
@@ -142,6 +160,10 @@ impl DataRole {
                 Ok(writes) => writes.answer_sync_request(&message, &respond).await,
                 Err(error) => respond.send(refusal(&message, &self.node_id, &error)).await,
             };
+        }
+        if answers_query(&message.message_type) {
+            let reply = self.answer_query_message(&message).await;
+            return respond.send(reply).await;
         }
         let reply = match message.message_type.as_str() {
             message_types::REPLICATION_FORWARD => match self.primary_writes() {

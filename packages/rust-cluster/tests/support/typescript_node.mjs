@@ -101,6 +101,22 @@ const operations = {
   get: ({ indexName, documentId }) => node.get(indexName, documentId),
   partitionCounts: async ({ indexName }) =>
     (await node.getPartitionStats(indexName)).map(({ partitionId, documentCount }) => ({ partitionId, documentCount })),
+  query: async ({ indexName, params }) => {
+    const result = await node.query(indexName, params)
+    return {
+      hits: result.hits.map(hit => ({ id: hit.id, score: hit.score ?? null, document: hit.document ?? null })),
+      count: result.count,
+      facets: result.facets ?? null,
+      coverage: result.coverage,
+    }
+  },
+  countDocuments: ({ indexName }) => node.countDocuments(indexName),
+  suggest: ({ indexName, params }) => node.suggest(indexName, params),
+  preflight: ({ indexName, params }) => node.preflight(indexName, params),
+  listDocuments: async ({ indexName, params }) => {
+    const result = await node.listDocuments(indexName, params)
+    return { ids: result.documents.map(listed => listed.id), total: result.total, cursor: result.cursor }
+  },
 }
 
 function answer(id, outcome) {
