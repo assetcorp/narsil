@@ -311,7 +311,7 @@ async fn route(
         }
     };
     if options.body == BodyRule::Json
-        && !options.on_query_threads
+        && (!options.on_query_threads || state.fronts_cluster())
         && let Some(refusal) = body_parse_refusal(&state.engine, route, body.as_ref()).await
     {
         return error(&refusal);
@@ -325,7 +325,7 @@ async fn route(
         hook_context,
     };
     let in_flight = state.requests.enter();
-    if options.on_query_threads {
+    if options.on_query_threads && !state.fronts_cluster() {
         return answer_on_query_threads(state, route, context, (pass, hold, in_flight)).await;
     }
     let handled = AssertUnwindSafe(dispatch(Arc::clone(state), route, context)).catch_unwind();

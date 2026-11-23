@@ -122,11 +122,7 @@ impl DataRole {
             view: Arc::clone(&view),
             on_error: self.on_error.clone(),
             log_retention_bytes: self.config.log_retention_bytes,
-            spool_directory: self
-                .config
-                .snapshot_spool_directory
-                .clone()
-                .unwrap_or_else(std::env::temp_dir),
+            spool_directory: copies.spool.path().to_path_buf(),
             memory,
         }));
         let started = AllocationWatcher::start(WatcherSettings {
@@ -196,6 +192,10 @@ impl DataRole {
                 | message_types::REPLICATION_SYNC_REQUEST
                 | message_types::SYNC_READ
                 | message_types::CLUSTER_REBUILD_ANALYSIS
+                | message_types::CLUSTER_RESHARD_START
+                | message_types::CLUSTER_RESHARD_FORWARD
+                | message_types::CLUSTER_RESHARD_CUTOVER
+                | message_types::CLUSTER_RESHARD_PURGE
         ) || answers_query(message_type)
     }
 
@@ -280,6 +280,13 @@ impl DataRole {
                     Err(error) => refusal(&message, &self.node_id, &error),
                 }
             }
+            message_types::CLUSTER_RESHARD_START
+            | message_types::CLUSTER_RESHARD_FORWARD
+            | message_types::CLUSTER_RESHARD_CUTOVER
+            | message_types::CLUSTER_RESHARD_PURGE => match self.primary_writes() {
+                Ok(writes) => writes.answer_reshard(&message).await,
+                Err(error) => refusal(&message, &self.node_id, &error),
+            },
             _ => match self.answer_partition_stores(&message).await {
                 Ok(reply) => reply,
                 Err(error) => refusal(&message, &self.node_id, &error),

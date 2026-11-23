@@ -9,9 +9,9 @@ use crate::constants::{
     CONTROLLER_LEASE_KEY, HIDDEN_GENERATION_PREFIX, MAX_PARTITION_COUNT,
     RESHARD_CONTROLLER_POLL_INTERVAL_MS,
 };
-use crate::controller::rebalance_record_key;
 use crate::error::{ClusterError, ClusterResult, codes};
 use crate::message::{TransportMessage, message_types};
+use crate::rebalance::rebalance_record_key;
 
 const ERROR_MESSAGE_SUFFIX: &str = ".error";
 
@@ -85,7 +85,10 @@ impl ClusterNode {
         ))
     }
 
-    async fn resolve_node_targets(&self, target_node_id: &str) -> ClusterResult<Vec<String>> {
+    pub(super) async fn resolve_node_targets(
+        &self,
+        target_node_id: &str,
+    ) -> ClusterResult<Vec<String>> {
         let nodes = self.inner.coordinator().list_nodes().await?;
         let address = nodes
             .iter()

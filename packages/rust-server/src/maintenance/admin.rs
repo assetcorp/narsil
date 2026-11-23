@@ -86,7 +86,7 @@ pub(crate) async fn change_analysis(
     accepted(&state, TaskLaunch::on("changeAnalysis", &index), operation).await
 }
 
-fn target_partition_count(body: &Value) -> Outcome<usize> {
+pub(crate) fn target_partition_count(body: &Value) -> Outcome<usize> {
     let target = match body {
         Value::Object(fields) => fields.get("targetPartitionCount"),
         _ => None,
