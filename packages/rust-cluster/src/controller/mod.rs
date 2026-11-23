@@ -1,4 +1,6 @@
 mod allocation;
+mod analysis_change;
+mod analysis_metadata;
 mod bootstrap;
 mod departures;
 mod election;
@@ -32,9 +34,14 @@ use crate::error::{ClusterError, ClusterResult};
 use crate::message::TransportMessage;
 use crate::transport::{NodeTransport, Respond};
 
+pub(crate) use self::analysis_metadata::{
+    IndexMetadataSnapshot, PendingAnalysis, metadata_with_pending_analysis,
+    metadata_without_pending_analysis, read_index_metadata_snapshot,
+};
 pub(crate) use self::messages::is_controller_message;
+pub(crate) use self::metadata::metadata_key;
 pub(crate) use self::metadata::{
-    IndexMetadata, index_metadata, metadata_key, records_previous_documents, stored_index_metadata,
+    IndexMetadata, index_metadata, records_previous_documents, stored_index_metadata,
     validate_index_name,
 };
 pub(crate) use self::settings::{previous_documents_recorded, stored_settings_readable};

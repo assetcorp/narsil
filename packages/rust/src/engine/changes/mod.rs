@@ -1,16 +1,18 @@
 pub(crate) mod analysis;
 pub(crate) mod drive;
+pub(crate) mod hold;
 pub(crate) mod rebuild;
 pub(crate) mod switch;
 
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Condvar, Mutex, MutexGuard};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread::ThreadId;
 
 use super::constants::MAX_REBALANCE_QUEUED_WRITES;
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::value::Value;
+use hold::HeldRun;
 
 /// The kind of work that rebuilds an index's partitions while the index keeps answering searches.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -43,6 +45,7 @@ pub(crate) struct LayoutChanges {
     released: Condvar,
     tracking: AtomicBool,
     rebalance_target: AtomicUsize,
+    held: Mutex<Option<Arc<HeldRun>>>,
 }
 
 fn backpressure(message: String) -> NarsilError {
@@ -162,6 +165,9 @@ impl LayoutChanges {
             if !waits {
                 return Ok(None);
             }
+            if let Some(held) = self.held_run() {
+                held.stop();
+            }
             slot = self
                 .released
                 .wait(slot)
@@ -215,6 +221,41 @@ impl LayoutChanges {
             .running
             .as_ref()
             .is_some_and(|running| running.kind == kind)
+    }
+
+    fn held(&self) -> MutexGuard<'_, Option<Arc<HeldRun>>> {
+        self.held
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// Returns the analysis change whose new terms wait for the controller's release, if one runs.
+    pub(crate) fn held_run(&self) -> Option<Arc<HeldRun>> {
+        self.held().clone()
+    }
+
+    /// Records `run` as the held analysis change of the index, unless the held change of the index already builds
+    /// the same pending change. Returns the run that the index holds afterwards, with the run that `run` replaced.
+    pub(crate) fn hold_run(&self, run: Arc<HeldRun>) -> (Arc<HeldRun>, Option<Arc<HeldRun>>) {
+        let mut held = self.held();
+        if let Some(current) = held.as_ref()
+            && current.pending == run.pending
+        {
+            return (Arc::clone(current), None);
+        }
+        let replaced = held.replace(Arc::clone(&run));
+        (run, replaced)
+    }
+
+    /// Forgets `run` where it is the held analysis change of the index.
+    pub(crate) fn forget_held_run(&self, run: &Arc<HeldRun>) {
+        let mut held = self.held();
+        if held
+            .as_ref()
+            .is_some_and(|current| Arc::ptr_eq(current, run))
+        {
+            *held = None;
+        }
     }
 
     /// Reports whether a rebalance runs on the index.

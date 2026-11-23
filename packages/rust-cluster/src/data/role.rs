@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 use narsil::Map;
 use tokio::sync::watch;
 
+use super::analysis_change::AnalysisChanges;
 use super::blocking::off_executor;
 use super::config::DataNodeConfig;
 use super::copies::LocalCopies;
@@ -15,7 +16,7 @@ use super::search_contexts::SearchContexts;
 use super::watcher::{AllocationWatcher, WatcherSettings};
 use super::writes::{AllocationView, PrimaryWrites, PrimaryWritesSettings};
 use crate::controller::lock;
-use crate::coordinator::etcd::EtcdCoordinator;
+use crate::coordinator::etcd::{EtcdCoordinator, WatchHandle};
 use crate::error::ClusterResult;
 use crate::memory::NodeMemory;
 use crate::message::{TransportMessage, message_types, refusal};
@@ -32,6 +33,7 @@ pub(crate) struct DataRole {
     writes: Mutex<Option<Arc<PrimaryWrites>>>,
     device_sync: tokio::sync::Mutex<Option<Arc<DeviceSyncView>>>,
     search_contexts: Arc<SearchContexts>,
+    analysis: Mutex<Option<(Arc<AnalysisChanges>, WatchHandle)>>,
 }
 
 impl DataRole {
@@ -51,6 +53,7 @@ impl DataRole {
             writes: Mutex::new(None),
             device_sync: tokio::sync::Mutex::new(None),
             search_contexts: Arc::new(SearchContexts::default()),
+            analysis: Mutex::new(None),
         }
     }
 
@@ -91,6 +94,16 @@ impl DataRole {
         memory: Option<Arc<NodeMemory>>,
     ) -> ClusterResult<()> {
         let copies = self.settled_copies()?;
+        let analysis = AnalysisChanges::new(
+            self.node_id.clone(),
+            Arc::clone(&self.coordinator),
+            Arc::clone(&copies),
+            self.on_error.clone(),
+        );
+        let analysis_watch = analysis.watch().await?;
+        if let Some((_, previous)) = lock(&self.analysis).replace((analysis, analysis_watch)) {
+            previous.stop();
+        }
         let view = Arc::new(AllocationView::new(Arc::clone(&self.coordinator)));
         if let Err(error) = view.start().await {
             view.stop();
@@ -181,6 +194,7 @@ impl DataRole {
                 | message_types::REPLICATION_TERM_START
                 | message_types::REPLICATION_SYNC_REQUEST
                 | message_types::SYNC_READ
+                | message_types::CLUSTER_REBUILD_ANALYSIS
         ) || answers_query(message_type)
     }
 
@@ -200,6 +214,17 @@ impl DataRole {
             Ok(reply) => reply,
             Err(error) => refusal(message, &self.node_id, &error),
         }
+    }
+
+    async fn answer_rebuild_analysis(
+        &self,
+        message: &TransportMessage,
+    ) -> ClusterResult<TransportMessage> {
+        let analysis = lock(&self.analysis)
+            .as_ref()
+            .map(|(analysis, _)| Arc::clone(analysis))
+            .ok_or_else(|| not_ready(&self.node_id))?;
+        analysis.answer_rebuild(message).await
     }
 
     pub(crate) async fn answer(&self, message: TransportMessage, respond: Respond) {
@@ -238,6 +263,12 @@ impl DataRole {
                     Err(error) => Err(error),
                 };
                 answered.unwrap_or_else(|error| refusal(&message, &self.node_id, &error))
+            }
+            message_types::CLUSTER_REBUILD_ANALYSIS => {
+                match self.answer_rebuild_analysis(&message).await {
+                    Ok(reply) => reply,
+                    Err(error) => refusal(&message, &self.node_id, &error),
+                }
             }
             _ => match self.answer_partition_stores(&message).await {
                 Ok(reply) => reply,
@@ -278,6 +309,9 @@ impl DataRole {
     }
 
     pub(crate) async fn close(&self) {
+        if let Some((_, analysis_watch)) = lock(&self.analysis).take() {
+            analysis_watch.stop();
+        }
         let device_sync = self.device_sync.lock().await.take();
         if let Some(device_sync) = device_sync {
             device_sync.stop().await;
