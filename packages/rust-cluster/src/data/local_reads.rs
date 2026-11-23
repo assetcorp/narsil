@@ -4,15 +4,28 @@ use narsil::{DocumentProjection, IndexInfo, Map};
 
 use super::blocking::off_executor;
 use super::copies::LocalCopies;
+use super::queries::{QueryDeps, answer_query, answers_query};
+use super::writes::AllocationView;
 use crate::error::ClusterResult;
+use crate::message::{TransportMessage, refusal};
 
 pub(crate) struct LocalReads {
+    node_id: String,
     copies: Arc<LocalCopies>,
+    view: Arc<AllocationView>,
 }
 
 impl LocalReads {
-    pub(super) fn new(copies: Arc<LocalCopies>) -> LocalReads {
-        LocalReads { copies }
+    pub(super) fn new(
+        node_id: String,
+        copies: Arc<LocalCopies>,
+        view: Arc<AllocationView>,
+    ) -> LocalReads {
+        LocalReads {
+            node_id,
+            copies,
+            view,
+        }
     }
 
     pub(crate) fn refuse_orphaned(&self, index_name: &str) -> ClusterResult<()> {
@@ -21,6 +34,22 @@ impl LocalReads {
 
     pub(crate) fn list_indexes(&self) -> Vec<IndexInfo> {
         self.copies.engine.list_indexes()
+    }
+
+    pub(crate) fn answers(message_type: &str) -> bool {
+        answers_query(message_type)
+    }
+
+    pub(crate) async fn answer(&self, message: &TransportMessage) -> TransportMessage {
+        let deps = QueryDeps {
+            node_id: &self.node_id,
+            copies: Arc::clone(&self.copies),
+            view: Arc::clone(&self.view),
+        };
+        match answer_query(&deps, message).await {
+            Ok(reply) => reply,
+            Err(error) => refusal(message, &self.node_id, &error),
+        }
     }
 
     pub(crate) async fn get_multiple(

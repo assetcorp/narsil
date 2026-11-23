@@ -1,11 +1,15 @@
 mod analysis_view;
+mod bm25;
+mod bm25_view;
 mod counts;
 mod every_copy;
 mod generation_routing;
 mod index_list;
-mod list;
+pub(crate) mod list;
 pub(crate) mod node_messaging;
+mod preflight;
 mod projection;
+mod query_conversion;
 mod routable_allocation;
 mod scatter;
 mod terms;
@@ -18,12 +22,14 @@ use std::sync::Arc;
 use narsil::{DocumentProjection, Map};
 
 pub(crate) use self::analysis_view::AnalysisView;
+use self::bm25_view::Bm25View;
 pub use self::counts::{ClusterIndexStats, ClusterPartitionStats};
 pub(crate) use self::counts::{count_cluster, partition_stats_cluster, stats_cluster};
 pub(crate) use self::generation_routing::read_following_the_name;
 pub(crate) use self::index_list::list_indexes_cluster;
 pub(crate) use self::list::list_cluster;
 use self::node_messaging::{CopyRead, read_documents_from_copies};
+pub(crate) use self::preflight::preflight_cluster;
 use self::projection::{
     apply_projection, fetch_fields_for, keeps_any_vector_field, resolve_projection,
 };
@@ -43,6 +49,7 @@ pub(crate) struct ReadDeps {
     pub(crate) view: Arc<AllocationView>,
     pub(crate) local: Option<Arc<LocalReads>>,
     pub(crate) analysis_view: AnalysisView,
+    pub(crate) bm25_view: Bm25View,
     pub(crate) vector_reads: VectorReadView,
 }
 
@@ -63,6 +70,7 @@ impl ReadDeps {
                 Arc::clone(&settings.coordinator),
                 settings.on_error.clone(),
             ),
+            bm25_view: Bm25View::new(Arc::clone(&settings.coordinator), settings.on_error.clone()),
             vector_reads: VectorReadView::new(Arc::clone(&settings.coordinator), settings.on_error),
             coordinator: settings.coordinator,
             transport: settings.transport,
@@ -71,6 +79,7 @@ impl ReadDeps {
         });
         let started = async {
             deps.analysis_view.start().await?;
+            deps.bm25_view.start().await?;
             deps.vector_reads.start().await
         }
         .await;
@@ -83,6 +92,7 @@ impl ReadDeps {
 
     pub(crate) fn stop(&self) {
         self.analysis_view.stop();
+        self.bm25_view.stop();
         self.vector_reads.stop();
     }
 }

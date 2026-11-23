@@ -125,6 +125,16 @@ pub const SUGGEST_OVERSAMPLE_FACTOR: f64 = 1.5;
 pub const SUGGEST_OVERSAMPLE_PADDING: usize = 10;
 pub const MAX_SUGGEST_SCATTER_LIMIT: usize = 160;
 pub const DEFAULT_QUERY_PARTITION_TIMEOUT_MS: u64 = 5_000;
+pub const DEFAULT_FACET_SIZE: usize = 10;
+pub const MAX_FACET_SIZE: usize = 1_000;
+pub const MAX_RESULTS_PER_PARTITION: usize = 10_000;
+pub const MAX_FACET_FIELDS: usize = 64;
+pub const MAX_FACET_VALUE_LENGTH: usize = 1_024;
+pub const MAX_GROUPS_PER_RESPONSE: usize = 65_536;
+pub const SEARCH_CONTEXT_KEEP_ALIVE_MS: u64 = 60_000;
+pub const SEARCH_CONTEXT_KEEP_ALIVE_LIMIT_MS: u64 = 86_400_000;
+pub const BM25_TUNING_SPEC_VERSION: &str = "1.1";
+pub const PHRASE_SEARCH_SPEC_VERSION: &str = "1.1";
 
 pub const CHANGE_CAPTURE_SPEC_VERSION: &str = "1.5";
 pub const HIDDEN_GENERATION_PREFIX: &str = "narsil-generation-";

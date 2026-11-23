@@ -305,6 +305,29 @@ pub(crate) fn validate_list_result_payload(decoded: Map) -> ClusterResult<ListPa
     })
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct PreflightAnswer {
+    pub(crate) count: u64,
+    pub(crate) analysis_stale: bool,
+}
+
+pub(crate) fn validate_preflight_result_payload(decoded: Map) -> ClusterResult<PreflightAnswer> {
+    let Some(count) = whole_number(decoded.get("count")).filter(|count| *count >= 0.0) else {
+        return Err(invalid(
+            "Invalid PreflightResultPayload: \"count\" must be a non-negative integer".to_string(),
+        ));
+    };
+    let Some(Value::Bool(analysis_stale)) = decoded.get("analysisStale") else {
+        return Err(invalid(
+            "Invalid PreflightResultPayload: \"analysisStale\" must be a boolean".to_string(),
+        ));
+    };
+    Ok(PreflightAnswer {
+        count: count as u64,
+        analysis_stale: *analysis_stale,
+    })
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct SuggestAnswer {
     pub(crate) terms: Vec<(String, u64)>,

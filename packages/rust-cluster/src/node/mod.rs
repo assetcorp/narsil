@@ -6,6 +6,7 @@ mod local_copies;
 mod member;
 mod not_ready;
 mod reads;
+mod search;
 mod started_at;
 mod writes;
 

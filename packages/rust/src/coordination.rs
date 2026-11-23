@@ -1,16 +1,42 @@
 use std::cmp::Ordering;
 
+use crate::config::{Bm25Params, validate_bm25_params};
 use crate::engine::query::cursor::{
     PageCursor, decode_matching_cursor, encode_page_cursor, list_binding, query_binding_of,
     sort_signature_of,
 };
 use crate::engine::query::facets::merge_bucket_lists;
+use crate::engine::query::grouping::hits_kept_per_group;
 use crate::engine::query::pinned::{Placed, deduped_pins, place_pins_within};
 use crate::engine::{Pin, QueryParams, SortDirection, SortField};
-use crate::error::Result;
+use crate::error::{ErrorCode, NarsilError, Result};
 use crate::ordering::{KeyBatch, OwnedSortValue};
-use crate::search::rankings::{RankedEntry, merge_rankings};
+use crate::schema::CompiledSchema;
+use crate::search::rankings::{RankedEntry, merge_rankings, merge_sorted};
 use crate::value::Value;
+
+/// Returns how many hits each group of a grouped search keeps, where the query sets `max_per_group`.
+pub fn hits_kept_by_group(max_per_group: Option<usize>) -> usize {
+    hits_kept_per_group(max_per_group)
+}
+
+/// Checks a query's BM25 parameters against the schema that an index stores, as one engine checks them before a
+/// search.
+///
+/// # Errors
+///
+/// Fails with `SEARCH_INVALID_FIELD` for a field that is no text field of `schema`, and with `CONFIG_INVALID` for a
+/// value out of range or a schema that no engine compiles.
+pub fn validate_query_bm25(bm25: &Bm25Params, schema: &Value) -> Result<()> {
+    let Value::Object(definition) = schema else {
+        return Err(NarsilError::new(
+            ErrorCode::CONFIG_INVALID,
+            "An index schema must be an object",
+        ));
+    };
+    let compiled = CompiledSchema::of(definition.clone())?;
+    validate_bm25_params(bm25, &compiled, ErrorCode::SEARCH_INVALID_FIELD, true)
+}
 
 /// The paging cursor of a search or a listing, in the form that every Narsil engine encodes, so that a cluster
 /// coordinator that merges the pages of many nodes hands out the cursor that one engine hands out for the same page.
@@ -148,7 +174,10 @@ impl RankedEntry for RankedReference {
 /// # Errors
 ///
 /// Fails with `CONFIG_INVALID` where the rankings exceed the native merge layout.
-pub fn merge_scored(lists: &[Vec<(Option<f64>, &str)>], limit: usize) -> Result<Vec<(usize, usize)>> {
+pub fn merge_scored(
+    lists: &[Vec<(Option<f64>, &str)>],
+    limit: usize,
+) -> Result<Vec<(usize, usize)>> {
     let references: Vec<Vec<RankedReference>> = lists
         .iter()
         .enumerate()
@@ -171,6 +200,18 @@ pub fn merge_scored(lists: &[Vec<(Option<f64>, &str)>], limit: usize) -> Result<
         .collect())
 }
 
+/// Merges lists whose entries hold the places `ranks` in one order, where list `i` holds the entries from
+/// `bounds[i]` to `bounds[i + 1]`, and returns the position of each entry of the merged list, at most `limit` of
+/// them.
+///
+/// # Errors
+///
+/// Fails with `CONFIG_INVALID` where the lists exceed the native merge layout or `bounds` does not end at the
+/// number of ranks.
+pub fn merge_ranked_lists(bounds: &[usize], ranks: &[u32], limit: usize) -> Result<Vec<usize>> {
+    merge_sorted(bounds, ranks, limit)
+}
+
 /// The counts that merging the facet buckets of many nodes kept, and how far below its true count any merged count
 /// can be.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -179,6 +220,8 @@ pub struct MergedFacetBuckets {
     pub buckets: Vec<(String, u32)>,
     /// The largest count that any value can lack.
     pub error_bound: u32,
+    /// The sum of the counts that the nodes left out, which the error bound of a shorter list starts from.
+    pub undercount: u32,
 }
 
 /// Merges the facet buckets of one field that many nodes counted, where `bounds` holds the largest count that each
@@ -193,10 +236,20 @@ pub fn merge_facet_buckets(
     ascending: bool,
     limit: Option<usize>,
 ) -> Result<MergedFacetBuckets> {
+    let undercount = bounds
+        .iter()
+        .try_fold(0u32, |sum, bound| sum.checked_add(*bound))
+        .ok_or_else(|| {
+            NarsilError::new(
+                ErrorCode::CONFIG_INVALID,
+                "The facet error bounds exceed the merge layout",
+            )
+        })?;
     let merged = merge_bucket_lists(lists, bounds, ascending, limit)?;
     Ok(MergedFacetBuckets {
         buckets: merged.buckets,
         error_bound: merged.error_bound,
+        undercount,
     })
 }
 
