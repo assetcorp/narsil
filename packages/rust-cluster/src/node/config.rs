@@ -5,7 +5,7 @@ use narsil::Value;
 
 use crate::constants::{
     DEFAULT_CONTROLLER_LEASE_TTL_MS, DEFAULT_NODE_HEARTBEAT_INTERVAL_MS,
-    DEFAULT_NODE_LEFT_DELAY_MS, DEFAULT_STANDBY_RETRY_MS,
+    DEFAULT_NODE_LEFT_DELAY_MS, DEFAULT_QUERY_PARTITION_TIMEOUT_MS, DEFAULT_STANDBY_RETRY_MS,
 };
 use crate::coordinator::etcd::EtcdCoordinator;
 use crate::coordinator::{NodeRegistration, validate_node_id};
@@ -48,6 +48,25 @@ impl Default for ControllerTiming {
     }
 }
 
+/// How a node answers a search that some partitions failed to answer, with the TypeScript defaults.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ClusterQueryConfig {
+    /// Whether a search answers from the partitions that did answer, reporting the rest in its coverage, or
+    /// refuses with `QUERY_PARTIAL_FAILURE`.
+    pub allow_partial_results: bool,
+    /// How long a search waits for each node's answer before it counts that node's partitions as timed out.
+    pub partition_timeout_ms: u64,
+}
+
+impl Default for ClusterQueryConfig {
+    fn default() -> ClusterQueryConfig {
+        ClusterQueryConfig {
+            allow_partial_results: true,
+            partition_timeout_ms: DEFAULT_QUERY_PARTITION_TIMEOUT_MS,
+        }
+    }
+}
+
 /// The settings of a [`ClusterNode`](super::ClusterNode).
 pub struct ClusterNodeConfig {
     /// The etcd coordinator that the node registers with and that its controller writes allocation tables through.
@@ -62,13 +81,16 @@ pub struct ClusterNodeConfig {
     pub data: Option<DataNodeConfig>,
     /// How often the node writes its registration again.
     pub heartbeat_interval_ms: u64,
+    /// How the node answers a search that some partitions failed to answer.
+    pub query: ClusterQueryConfig,
     /// Receives the failures that no awaited call returns.
     pub on_error: Option<NodeErrorHandler>,
 }
 
 impl ClusterNodeConfig {
     /// Returns the settings of a node that writes `registration`, with the default controller timing, the default
-    /// heartbeat interval of 10 seconds, no error handler, and no data settings.
+    /// heartbeat interval of 10 seconds, searches that answer from the partitions that answer within 5 seconds, no
+    /// error handler, and no data settings.
     pub fn new(
         coordinator: Arc<EtcdCoordinator>,
         transport: Arc<dyn NodeTransport>,
@@ -81,6 +103,7 @@ impl ClusterNodeConfig {
             controller: ControllerTiming::default(),
             data: None,
             heartbeat_interval_ms: DEFAULT_NODE_HEARTBEAT_INTERVAL_MS,
+            query: ClusterQueryConfig::default(),
             on_error: None,
         }
     }
@@ -143,5 +166,9 @@ pub(crate) fn validate_config(config: &ClusterNodeConfig) -> ClusterResult<()> {
         config.controller.standby_retry_ms,
         "controller.standby_retry_ms",
     )?;
-    require_positive(config.heartbeat_interval_ms, "heartbeat_interval_ms")
+    require_positive(config.heartbeat_interval_ms, "heartbeat_interval_ms")?;
+    require_positive(
+        config.query.partition_timeout_ms,
+        "query.partition_timeout_ms",
+    )
 }
