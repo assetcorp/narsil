@@ -6,7 +6,7 @@ use super::results::{invalid, whole_number};
 use crate::constants::{
     MAX_DOC_ID_LENGTH, MAX_FACET_BUCKETS, MAX_FACET_FIELDS, MAX_FACET_VALUE_LENGTH,
     MAX_GROUPS_PER_RESPONSE, MAX_PARTITION_COUNT, MAX_RESULTS_PER_PARTITION,
-    MAX_SEARCH_CONTEXT_ID_LENGTH, MAX_SORT_FIELDS, MAX_STATS_TOKENS,
+    MAX_SEARCH_CONTEXT_ID_LENGTH, MAX_SORT_FIELDS,
 };
 use crate::error::ClusterResult;
 
@@ -41,14 +41,6 @@ pub(crate) struct SearchAnswer {
     pub(crate) facet_error_bounds: Option<BTreeMap<String, u64>>,
     pub(crate) groups: Option<Vec<WireGroupEntry>>,
     pub(crate) context_id: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Default)]
-pub(crate) struct StatsAnswer {
-    pub(crate) total_documents: f64,
-    pub(crate) doc_frequencies: BTreeMap<String, f64>,
-    pub(crate) total_field_lengths: BTreeMap<String, f64>,
-    pub(crate) expanded: Vec<String>,
 }
 
 fn utf16_length(text: &str) -> usize {
@@ -363,82 +355,5 @@ pub(crate) fn validate_search_result_payload(decoded: Map) -> ClusterResult<Sear
         facet_error_bounds: facet_error_bounds_of(decoded.get("facetErrorBounds"))?,
         groups: groups_of(decoded.get("groups"))?,
         context_id: context_id_of(decoded.get("contextId"))?,
-    })
-}
-
-fn numeric_record(value: Option<&Value>, label: &str) -> ClusterResult<BTreeMap<String, f64>> {
-    let Some(Value::Object(entries)) = value else {
-        return Err(invalid(format!(
-            "Invalid payload: \"{label}\" must be an object"
-        )));
-    };
-    let mut record = BTreeMap::new();
-    for (key, entry) in entries.iter() {
-        if key.is_empty() {
-            return Err(invalid(format!(
-                "Invalid payload: each \"{label}\" key must be a non-empty string"
-            )));
-        }
-        match entry {
-            Value::Number(number) if number.is_finite() && *number >= 0.0 => {
-                record.insert(key.clone(), *number);
-            }
-            _ => {
-                return Err(invalid(format!(
-                    "Invalid payload: \"{label}.{key}\" must be a non-negative finite number"
-                )));
-            }
-        }
-    }
-    Ok(record)
-}
-
-fn token_list(value: Option<&Value>, label: &str) -> ClusterResult<Vec<String>> {
-    let tokens = match value {
-        None | Some(Value::Null) => return Ok(Vec::new()),
-        Some(Value::Array(tokens)) => tokens,
-        Some(_) => {
-            return Err(invalid(format!(
-                "Invalid payload: \"{label}\" must be an array or absent"
-            )));
-        }
-    };
-    if tokens.len() > MAX_STATS_TOKENS {
-        return Err(invalid(format!(
-            "Invalid payload: \"{label}\" exceeds maximum length of {MAX_STATS_TOKENS}"
-        ))
-        .with_detail("length", Value::from(tokens.len()))
-        .with_detail("limit", Value::from(MAX_STATS_TOKENS)));
-    }
-    tokens
-        .iter()
-        .map(|token| match token {
-            Value::String(token) if !token.is_empty() => Ok(token.clone()),
-            _ => Err(invalid(format!(
-                "Invalid payload: each \"{label}\" entry must be a non-empty string"
-            ))),
-        })
-        .collect()
-}
-
-pub(crate) fn validate_stats_result_payload(decoded: Map) -> ClusterResult<StatsAnswer> {
-    let Some(total_documents) = whole_number(decoded.get("totalDocuments")).filter(|n| *n >= 0.0)
-    else {
-        return Err(invalid(
-            "Invalid StatsResultPayload: \"totalDocuments\" must be a non-negative integer"
-                .to_string(),
-        ));
-    };
-    Ok(StatsAnswer {
-        total_documents,
-        doc_frequencies: numeric_record(
-            decoded.get("docFrequencies"),
-            "StatsResultPayload.docFrequencies",
-        )?,
-        total_field_lengths: numeric_record(
-            decoded.get("totalFieldLengths"),
-            "StatsResultPayload.totalFieldLengths",
-        )?,
-        expanded: token_list(decoded.get("expanded"), "StatsResultPayload.expanded")?,
     })
 }

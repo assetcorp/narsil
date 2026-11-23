@@ -6,7 +6,7 @@ use narsil::Value;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
-use super::config::{ClusterNodeConfig, report_failure};
+use super::config::{ClusterNodeConfig, ClusterQueryConfig, report_failure};
 use super::join::{
     refuse_controller_on_another_major_version, wait_for_earlier_registration_to_lapse,
 };
@@ -47,6 +47,7 @@ pub(super) struct NodeInner {
     transport: Arc<dyn NodeTransport>,
     registration: NodeRegistration,
     heartbeat_interval_ms: u64,
+    query: ClusterQueryConfig,
     on_error: Option<NodeErrorHandler>,
     pub(super) controller: Option<Controller>,
     pub(super) data: Option<DataRole>,
@@ -83,7 +84,7 @@ impl NodeInner {
             controller: timing,
             data,
             heartbeat_interval_ms,
-            query: _,
+            query,
             on_error,
         } = config;
         let controller = registration
@@ -118,6 +119,7 @@ impl NodeInner {
             transport,
             registration,
             heartbeat_interval_ms,
+            query,
             on_error,
             controller,
             data,

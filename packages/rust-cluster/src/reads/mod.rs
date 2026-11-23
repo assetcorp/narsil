@@ -4,14 +4,18 @@ mod bm25_view;
 mod counts;
 mod every_copy;
 mod generation_routing;
+mod groups;
 mod index_list;
 pub(crate) mod list;
 pub(crate) mod node_messaging;
-mod preflight;
+mod pinned;
+pub(crate) mod preflight;
 mod projection;
-mod query_conversion;
+pub(crate) mod query_conversion;
+mod ranked_documents;
 mod routable_allocation;
 mod scatter;
+mod search;
 mod terms;
 mod vector_reads;
 
@@ -34,12 +38,13 @@ use self::projection::{
     apply_projection, fetch_fields_for, keeps_any_vector_field, resolve_projection,
 };
 use self::routable_allocation::routable_allocation;
+pub(crate) use self::search::query_cluster;
 pub(crate) use self::terms::suggest_cluster;
 pub(crate) use self::vector_reads::VectorReadView;
 use crate::coordinator::etcd::EtcdCoordinator;
 use crate::data::{AllocationView, LocalReads};
 use crate::error::ClusterResult;
-use crate::node::NodeErrorHandler;
+use crate::node::{ClusterQueryConfig, NodeErrorHandler};
 use crate::transport::NodeTransport;
 
 pub(crate) struct ReadDeps {
@@ -48,6 +53,7 @@ pub(crate) struct ReadDeps {
     pub(crate) transport: Arc<dyn NodeTransport>,
     pub(crate) view: Arc<AllocationView>,
     pub(crate) local: Option<Arc<LocalReads>>,
+    pub(crate) query: ClusterQueryConfig,
     pub(crate) analysis_view: AnalysisView,
     pub(crate) bm25_view: Bm25View,
     pub(crate) vector_reads: VectorReadView,
@@ -59,6 +65,7 @@ pub(crate) struct ReadSettings {
     pub(crate) transport: Arc<dyn NodeTransport>,
     pub(crate) view: Arc<AllocationView>,
     pub(crate) local: Option<Arc<LocalReads>>,
+    pub(crate) query: ClusterQueryConfig,
     pub(crate) on_error: Option<NodeErrorHandler>,
 }
 
@@ -76,6 +83,7 @@ impl ReadDeps {
             transport: settings.transport,
             view: settings.view,
             local: settings.local,
+            query: settings.query,
         });
         let started = async {
             deps.analysis_view.start().await?;
