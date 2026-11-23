@@ -6,6 +6,7 @@ mod controller;
 pub mod coordinator;
 mod data;
 pub mod error;
+mod memory;
 pub mod message;
 pub mod node;
 mod ordering;

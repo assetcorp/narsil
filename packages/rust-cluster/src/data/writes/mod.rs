@@ -4,6 +4,8 @@ mod condition;
 mod copy_failure;
 mod errors;
 mod forward;
+mod forward_answer;
+mod forward_memory;
 mod log;
 mod log_order;
 mod partition;
@@ -13,6 +15,7 @@ mod rollback;
 mod run;
 mod scope;
 mod sync_apply;
+mod sync_read;
 mod term_start;
 mod view;
 
@@ -32,6 +35,7 @@ use super::blocking::off_executor;
 use super::copies::LocalCopies;
 use crate::coordinator::etcd::EtcdCoordinator;
 use crate::error::ClusterResult;
+use crate::memory::NodeMemory;
 use crate::message::TransportMessage;
 use crate::node::{NodeErrorHandler, generate_node_id, report_failure};
 use crate::transport::NodeTransport;
@@ -50,6 +54,7 @@ pub(crate) struct PrimaryWrites {
     log_retention_bytes: u64,
     spool_directory: PathBuf,
     snapshot_slots: Mutex<SnapshotSlots>,
+    memory: Option<Arc<NodeMemory>>,
 }
 
 pub(crate) struct PrimaryWritesSettings {
@@ -61,6 +66,7 @@ pub(crate) struct PrimaryWritesSettings {
     pub(crate) on_error: Option<NodeErrorHandler>,
     pub(crate) log_retention_bytes: u64,
     pub(crate) spool_directory: PathBuf,
+    pub(crate) memory: Option<Arc<NodeMemory>>,
 }
 
 impl PrimaryWrites {
@@ -79,6 +85,7 @@ impl PrimaryWrites {
             log_retention_bytes: settings.log_retention_bytes,
             spool_directory: settings.spool_directory,
             snapshot_slots: Mutex::default(),
+            memory: settings.memory,
         }
     }
 
