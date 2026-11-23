@@ -3,23 +3,19 @@ use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
 use narsil::replication::{CopyEpochStates, PartitionCopies};
+use narsil::{FeedSourceChange, FeedSourceListener};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
-use super::state::epoch_states_of_settings;
+use super::held::{HeldSyncIndex, read_held};
+use super::state::{change_between, changes_change_between};
 use crate::constants::{DEVICE_SYNC_RECONCILE_INTERVAL_MS, HIDDEN_GENERATION_PREFIX};
-use crate::controller::{lock, stored_index_metadata};
+use crate::controller::lock;
 use crate::coordinator::etcd::{EtcdCoordinator, WatchHandle};
 use crate::data::blocking::off_executor;
 use crate::data::copies::LocalCopies;
 use crate::error::{ClusterError, ClusterResult};
 use crate::node::{NodeErrorHandler, report_failure};
-
-#[derive(Clone)]
-struct HeldSyncIndex {
-    serving_name: String,
-    states: CopyEpochStates,
-}
 
 struct Reconciler {
     stop: watch::Sender<bool>,
@@ -31,6 +27,8 @@ pub(crate) struct DeviceSyncView {
     copies: Arc<LocalCopies>,
     on_error: Option<NodeErrorHandler>,
     held: Mutex<HashMap<String, HeldSyncIndex>>,
+    listeners: Mutex<HashMap<u64, FeedSourceListener>>,
+    next_listener: Mutex<u64>,
     turn: tokio::sync::Mutex<()>,
     watches: Mutex<Vec<WatchHandle>>,
     reconciler: Mutex<Option<Reconciler>>,
@@ -41,32 +39,8 @@ fn is_hidden_generation(index_name: &str) -> bool {
     index_name.starts_with(HIDDEN_GENERATION_PREFIX)
 }
 
-async fn read_held(
-    coordinator: &EtcdCoordinator,
-    index_name: &str,
-) -> ClusterResult<Option<HeldSyncIndex>> {
-    let Some((_, settings)) = stored_index_metadata(coordinator, index_name).await? else {
-        return Ok(None);
-    };
-    let serving_name = coordinator
-        .allocation(index_name)
-        .await?
-        .and_then(|table| table.generation)
-        .unwrap_or_else(|| index_name.to_string());
-    if stored_index_metadata(coordinator, &serving_name)
-        .await?
-        .is_none()
-    {
-        return Ok(None);
-    }
-    Ok(Some(HeldSyncIndex {
-        serving_name,
-        states: epoch_states_of_settings(settings.as_ref()),
-    }))
-}
-
 impl DeviceSyncView {
-    pub(crate) fn new(
+    pub(in crate::data) fn new(
         coordinator: Arc<EtcdCoordinator>,
         copies: Arc<LocalCopies>,
         on_error: Option<NodeErrorHandler>,
@@ -76,6 +50,8 @@ impl DeviceSyncView {
             copies,
             on_error,
             held: Mutex::new(HashMap::new()),
+            listeners: Mutex::new(HashMap::new()),
+            next_listener: Mutex::new(0),
             turn: tokio::sync::Mutex::new(()),
             watches: Mutex::new(Vec::new()),
             reconciler: Mutex::new(None),
@@ -99,7 +75,7 @@ impl DeviceSyncView {
         next: Option<&HeldSyncIndex>,
     ) -> ClusterResult<()> {
         let states = next.map(|held| held.states.clone()).unwrap_or_default();
-        let serving_name = next.map_or(index_name, |held| held.serving_name.as_str());
+        let serving_name = next.map_or(index_name, |held| held.serving.serving_name.as_str());
         let copies = Arc::clone(&self.copies);
         let (name, serving) = (index_name.to_string(), serving_name.to_string());
         off_executor(move || -> ClusterResult<()> {
@@ -122,11 +98,69 @@ impl DeviceSyncView {
             return Ok(());
         }
         let next = read_held(&self.coordinator, index_name).await?;
-        match &next {
+        let previous = match &next {
             Some(held) => lock(&self.held).insert(index_name.to_string(), held.clone()),
             None => lock(&self.held).remove(index_name),
         };
-        self.adopt_on_local_copies(index_name, next.as_ref()).await
+        self.adopt_on_local_copies(index_name, next.as_ref())
+            .await?;
+        let sync_change = change_between(previous.as_ref(), next.as_ref());
+        let changes_change = changes_change_between(previous.as_ref(), next.as_ref());
+        let mut changes = Vec::with_capacity(2);
+        for change in [sync_change, changes_change].into_iter().flatten() {
+            if !changes.contains(&change) {
+                changes.push(change);
+            }
+        }
+        for change in changes {
+            self.emit(index_name, FeedSourceChange::Changed(change));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn held(&self, index_name: &str) -> Option<HeldSyncIndex> {
+        lock(&self.held).get(index_name).cloned()
+    }
+
+    pub(crate) async fn current(&self, index_name: &str) -> ClusterResult<Option<HeldSyncIndex>> {
+        if let Some(held) = self.held(index_name) {
+            return Ok(Some(held));
+        }
+        self.refresh(index_name).await?;
+        Ok(self.held(index_name))
+    }
+
+    pub(crate) fn names_served_by_local(&self, local_name: &str) -> Vec<String> {
+        lock(&self.held)
+            .iter()
+            .filter(|(_, held)| held.serving.serving_name == local_name)
+            .map(|(index_name, _)| index_name.clone())
+            .collect()
+    }
+
+    fn emit(&self, index_name: &str, change: FeedSourceChange) {
+        let listeners: Vec<FeedSourceListener> = lock(&self.listeners).values().cloned().collect();
+        for listener in listeners {
+            listener(index_name, change);
+        }
+    }
+
+    pub(crate) fn listen(
+        self: &Arc<Self>,
+        listener: FeedSourceListener,
+    ) -> narsil::FeedSubscription {
+        let id = {
+            let mut next = lock(&self.next_listener);
+            *next = next.wrapping_add(1);
+            *next
+        };
+        lock(&self.listeners).insert(id, listener);
+        let view = Arc::downgrade(self);
+        narsil::FeedSubscription::new(move || {
+            if let Some(view) = view.upgrade() {
+                lock(&view.listeners).remove(&id);
+            }
+        })
     }
 
     fn names_served_by(&self, changed_name: &str) -> Vec<String> {
@@ -135,7 +169,7 @@ impl DeviceSyncView {
         }
         lock(&self.held)
             .iter()
-            .filter(|(_, held)| held.serving_name == changed_name)
+            .filter(|(_, held)| held.serving.serving_name == changed_name)
             .map(|(index_name, _)| index_name.clone())
             .collect()
     }
@@ -208,7 +242,7 @@ impl DeviceSyncView {
         }
         let served_elsewhere: Vec<(String, HeldSyncIndex)> = lock(&self.held)
             .iter()
-            .filter(|(index_name, held)| held.serving_name != **index_name)
+            .filter(|(index_name, held)| held.serving.serving_name != **index_name)
             .map(|(index_name, held)| (index_name.clone(), held.clone()))
             .collect();
         for (index_name, known) in served_elsewhere {
@@ -290,5 +324,6 @@ impl DeviceSyncView {
         }
         let _turn = self.turn.lock().await;
         lock(&self.held).clear();
+        lock(&self.listeners).clear();
     }
 }

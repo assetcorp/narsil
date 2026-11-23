@@ -28,17 +28,21 @@ mod synonym_store;
 mod transfer_limit;
 mod types;
 
+pub(crate) use files::{load_checked_bytes, sha256_hex};
+pub(crate) use jobs::{BackupJobKind, read_backup_jobs};
 pub(crate) use keys::validate_backup_config;
 pub use keys::validate_backup_name;
+pub(crate) use manifest::{CHANGES_BACKUP_TAKER, SYNC_BACKUP_TAKER, stored_files_of};
 pub(crate) use primary_handlers::{
     BackupPrimary, PrimaryContext, answer_backup_partition, answer_restore_partition,
 };
 pub(crate) use requests::{
-    request_backup, request_backup_deletion, request_restore, require_backup_store,
+    BackupRequestDeps, request_backup, request_backup_deletion, request_restore,
+    request_taken_backup, require_backup_store,
 };
 pub use restore_placement::{RestorePlacement, read_restore_placement};
 pub(crate) use service::{BackupService, BackupServiceSettings};
-pub(crate) use store::{BackupStore, list_backups};
+pub(crate) use store::{BackupStore, list_backup_names, list_backups, read_backup_manifest};
 pub use types::{
     BackupListing, BackupProgress, BackupProgressHandler, BackupSummary, ClusterBackupConfig,
     CreateBackupOptions, DamagedBackup, RestoreBackupOptions, RestoreConstraints,

@@ -105,8 +105,13 @@ use shutdown_gate::{Admission, ShutdownGate, shut_down_before_publication};
 pub use stale_review::StaleRebuild;
 pub use stats::{IndexStats, MemoryStats, PartitionStats};
 pub use suggest::{SuggestParams, SuggestResult, SuggestedTerm};
+pub use sync::engine_source::EngineFeedSource;
 pub use sync::feed::{SyncBounds, SyncCursor, SyncEntry, SyncFeedState, SyncRead};
 pub use sync::snapshot::SyncSnapshot;
+pub use sync::source::{
+    BoundsFreshness, ChangeSource, ChangesIndexState, DocumentTest, FeedSource, FeedSourceChange,
+    FeedSourceListener, FeedSubscription,
+};
 pub use sync::{SyncSetting, SyncStatus};
 pub use vectors::VectorMaintenanceStatus;
 pub use wait::WriteOptions;

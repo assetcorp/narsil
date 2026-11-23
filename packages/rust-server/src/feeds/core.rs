@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use narsil::{ErrorCode, Narsil, NarsilError};
+use narsil::{ChangeSource, ErrorCode, NarsilError};
 use tokio::time::Instant;
 
 use super::constants::FEED_INLINE_DECODE_BYTES;
@@ -10,7 +10,7 @@ use super::signals::SessionSignals;
 use super::wire::{CLOSE_RESYNC, CLOSE_SERVER_ERROR, resync_message};
 
 pub(crate) struct Core {
-    pub(crate) engine: Arc<Narsil>,
+    pub(crate) source: Arc<dyn ChangeSource>,
     pub(crate) hub: Arc<Hub>,
     pub(crate) index: String,
     pub(crate) signals: Arc<SessionSignals>,
@@ -27,14 +27,14 @@ pub(crate) async fn sleep_until(at: Option<Instant>) {
 
 impl Core {
     pub(crate) fn new(
-        engine: Arc<Narsil>,
+        source: Arc<dyn ChangeSource>,
         hub: Arc<Hub>,
         index: String,
         signals: Arc<SessionSignals>,
         outbox: Outbox,
     ) -> Core {
         Core {
-            engine,
+            source,
             hub,
             index,
             signals,
@@ -113,10 +113,10 @@ impl Core {
     pub(crate) async fn blocking<T, F>(&self, work: F) -> Option<T>
     where
         T: Send + 'static,
-        F: FnOnce(&Narsil) -> T + Send + 'static,
+        F: FnOnce(&dyn ChangeSource) -> T + Send + 'static,
     {
-        let engine = Arc::clone(&self.engine);
-        let task = tokio::task::spawn_blocking(move || work(&engine));
+        let source = Arc::clone(&self.source);
+        let task = tokio::task::spawn_blocking(move || work(source.as_ref()));
         tokio::select! {
             biased;
             _ = self.signals.urgent.notified() => None,
@@ -128,7 +128,7 @@ impl Core {
     pub(crate) async fn catch_up<T, F>(&self, work: F) -> Option<T>
     where
         T: Send + 'static,
-        F: FnOnce(&Narsil) -> T + Send + 'static,
+        F: FnOnce(&dyn ChangeSource) -> T + Send + 'static,
     {
         let reads = Arc::clone(&self.hub.reads);
         let permit = tokio::select! {
@@ -137,9 +137,9 @@ impl Core {
             _ = self.expiry() => None,
             permit = reads.acquire_owned() => permit.ok(),
         }?;
-        self.blocking(move |engine| {
+        self.blocking(move |source| {
             let _permit = permit;
-            work(engine)
+            work(source)
         })
         .await
     }

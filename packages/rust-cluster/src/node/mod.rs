@@ -36,6 +36,7 @@ pub use config::{
     ClusterNodeConfig, ClusterQueryConfig, ClusterRerankConfig, ControllerTiming, NodeErrorHandler,
 };
 pub use create_index::CreateIndexOptions;
+pub use device_sync::{ClusterDocumentExport, ClusterSyncSnapshot};
 pub use handle::ClusterNode;
 pub use identity::{generate_node_id, resolve_node_id};
 pub use not_ready::not_ready_handler;

@@ -5,7 +5,7 @@ use std::collections::VecDeque;
 use std::time::Duration;
 
 use bytes::Bytes;
-use narsil::{SyncCursor, Value};
+use narsil::{BoundsFreshness, SyncCursor, Value};
 use tokio::time::Instant;
 
 use super::constants::{FEED_HEAD_RETRY_MS, MAX_PENDING_CHECKPOINTS};
@@ -67,7 +67,7 @@ impl SyncFeed {
 
     async fn subscribe(&mut self, core: &mut Core, epoch: String, positions: Vec<Position>) {
         let index = core.index.clone();
-        let Some(state) = core.blocking(move |engine| state_of(engine, &index)).await else {
+        let Some(state) = core.blocking(move |source| state_of(source, &index)).await else {
             return;
         };
         let state = match state {
@@ -84,7 +84,7 @@ impl SyncFeed {
         };
         let (index, held_epoch, held) = (core.index.clone(), epoch.clone(), seq_nos.clone());
         let Some(opened) = core
-            .catch_up(move |engine| open(engine, &index, &held_epoch, &held))
+            .catch_up(move |source| open(source, &index, &held_epoch, &held))
             .await
         else {
             return;
@@ -158,7 +158,7 @@ impl SyncFeed {
             return;
         }
         let index = core.index.clone();
-        let Some(read) = core.blocking(move |engine| state_of(engine, &index)).await else {
+        let Some(read) = core.blocking(move |source| state_of(source, &index)).await else {
             return;
         };
         let Ok(Some(state)) = read else {
@@ -193,9 +193,9 @@ impl SyncFeed {
     async fn refresh_heads(&mut self, core: &mut Core) -> bool {
         let (index, count) = (core.index.clone(), self.heads.len());
         let Some(refreshed) = core
-            .blocking(move |engine| {
-                let bounds = bounds_of(engine, &index, count);
-                (state_of(engine, &index), bounds)
+            .blocking(move |source| {
+                let bounds = bounds_of(source, &index, count, BoundsFreshness::Recent);
+                (state_of(source, &index), bounds)
             })
             .await
         else {

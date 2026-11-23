@@ -34,6 +34,7 @@ pub(crate) use self::errors::abandoned_with_term;
 pub(crate) use self::forward::{fnv1a, fnv1a_uint32s, routed_partition, unassigned};
 use self::partition::Partitions;
 use self::reshard::ReshardState;
+pub(crate) use self::sync_read::{SyncReadReply, SyncReadRequest};
 pub(crate) use self::view::AllocationView;
 use super::blocking::off_executor;
 use super::copies::LocalCopies;

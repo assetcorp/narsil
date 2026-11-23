@@ -1,3 +1,6 @@
+mod answers;
+mod device_sync;
+
 use std::sync::{Arc, Mutex};
 
 use narsil::Map;
@@ -7,7 +10,9 @@ use super::analysis_change::AnalysisChanges;
 use super::blocking::off_executor;
 use super::config::DataNodeConfig;
 use super::copies::LocalCopies;
-use super::device_sync::DeviceSyncView;
+use super::device_sync::{
+    ClusterFeedSource, DeviceSnapshots, DeviceSyncView, FeedParts, PrimaryReads,
+};
 use super::local_reads::{LocalReadHandles, LocalReads};
 use super::lost_copy::LostCopyWait;
 use super::partition_stores::{partition_stores_answer, requested_index};
@@ -16,9 +21,8 @@ use super::reconcile::settle_local_indexes;
 use super::search_contexts::SearchContexts;
 use super::watcher::{AllocationWatcher, WatcherSettings};
 use super::writes::{AllocationView, PrimaryWrites, PrimaryWritesSettings};
-use crate::backups::{
-    BackupPrimary, BackupStore, PrimaryContext, answer_backup_partition, answer_restore_partition,
-};
+use crate::backups::{BackupPrimary, BackupStore};
+use crate::constants::DEVICE_SYNC_SPOOL_DIRECTORY;
 use crate::controller::lock;
 use crate::coordinator::etcd::{EtcdCoordinator, WatchHandle};
 use crate::error::ClusterResult;
@@ -38,6 +42,8 @@ pub(crate) struct DataRole {
     search_contexts: Arc<SearchContexts>,
     device_sync: tokio::sync::Mutex<Option<Arc<DeviceSyncView>>>,
     analysis: Mutex<Option<(Arc<AnalysisChanges>, WatchHandle)>>,
+    feed: Arc<ClusterFeedSource>,
+    snapshots: Arc<DeviceSnapshots>,
     backups: Option<Arc<BackupPrimary>>,
 }
 
@@ -49,6 +55,12 @@ impl DataRole {
         on_error: Option<NodeErrorHandler>,
         backups: Option<BackupStore>,
     ) -> DataRole {
+        let feed: Arc<ClusterFeedSource> = Arc::default();
+        let snapshots = Arc::new(DeviceSnapshots::new(
+            Arc::clone(&feed),
+            backups.clone(),
+            on_error.clone(),
+        ));
         DataRole {
             node_id,
             coordinator,
@@ -60,6 +72,8 @@ impl DataRole {
             search_contexts: Arc::new(SearchContexts::default()),
             device_sync: tokio::sync::Mutex::new(None),
             analysis: Mutex::new(None),
+            feed,
+            snapshots,
             backups: backups.map(|store| Arc::new(BackupPrimary::new(store))),
         }
     }
@@ -70,6 +84,8 @@ impl DataRole {
         let on_error = self.on_error.as_ref();
         match settle_local_indexes(&self.coordinator, &copies, &self.node_id, on_error).await {
             Ok(()) => {
+                self.snapshots
+                    .place_spool(copies.spool.path().join(DEVICE_SYNC_SPOOL_DIRECTORY));
                 *lock(&self.settled) = Some(copies);
                 Ok(())
             }
@@ -131,6 +147,7 @@ impl DataRole {
             spool_directory: copies.spool.path().to_path_buf(),
             memory,
         }));
+        let feed_transport = Arc::clone(&transport);
         let started = AllocationWatcher::start(WatcherSettings {
             node_id: self.node_id.clone(),
             coordinator: Arc::clone(&self.coordinator),
@@ -149,7 +166,7 @@ impl DataRole {
             }
         };
         writes.start();
-        if let Some(previous) = lock(&self.writes).replace(writes) {
+        if let Some(previous) = lock(&self.writes).replace(Arc::clone(&writes)) {
             previous.stop();
         }
         if let Some(previous) = self.watcher.lock().await.replace(started) {
@@ -157,33 +174,27 @@ impl DataRole {
         }
         let device_sync = Arc::new(DeviceSyncView::new(
             Arc::clone(&self.coordinator),
-            copies,
+            Arc::clone(&copies),
             self.on_error.clone(),
         ));
         let mut held = self.device_sync.lock().await;
         if let Some(previous) = held.replace(Arc::clone(&device_sync)) {
+            self.feed.detach();
             previous.stop().await;
         }
-        device_sync.start().await
-    }
-
-    pub(crate) fn keeps_write_ahead_log(&self) -> bool {
-        self.config
-            .engine
-            .durability
-            .as_ref()
-            .is_some_and(|durability| {
-                durability.directory.is_some()
-                    && durability.tier != Some(narsil::DurabilityTier::Snapshot)
-            })
-    }
-
-    pub(crate) async fn refresh_device_sync(&self, index_name: &str) -> ClusterResult<()> {
-        let view = self.device_sync.lock().await.clone();
-        match view {
-            Some(view) => view.refresh(index_name).await,
-            None => Ok(()),
-        }
+        device_sync.start().await?;
+        self.feed.attach(FeedParts {
+            runtime: tokio::runtime::Handle::current(),
+            reads: Arc::new(PrimaryReads {
+                node_id: self.node_id.clone(),
+                transport: feed_transport,
+                writes: Arc::clone(&writes),
+                view: device_sync,
+            }),
+            copies,
+            coordinator: Arc::clone(&self.coordinator),
+        });
+        Ok(())
     }
 
     pub(crate) fn answers(message_type: &str) -> bool {
@@ -205,45 +216,6 @@ impl DataRole {
                 | message_types::CLUSTER_BACKUP_PARTITION
                 | message_types::CLUSTER_RESTORE_PARTITION
         ) || answers_query(message_type)
-    }
-
-    async fn answer_query_message(&self, message: &TransportMessage) -> TransportMessage {
-        match self.local_reads() {
-            Ok(reads) => reads.answer(message).await,
-            Err(error) => refusal(message, &self.node_id, &error),
-        }
-    }
-
-    fn analysis_changes(&self) -> ClusterResult<Arc<AnalysisChanges>> {
-        lock(&self.analysis)
-            .as_ref()
-            .map(|(analysis, _)| Arc::clone(analysis))
-            .ok_or_else(|| not_ready(&self.node_id))
-    }
-
-    async fn answer_rebuild_analysis(
-        &self,
-        message: &TransportMessage,
-    ) -> ClusterResult<TransportMessage> {
-        self.analysis_changes()?.answer_rebuild(message).await
-    }
-
-    async fn answer_backup_message(
-        &self,
-        message: &TransportMessage,
-    ) -> ClusterResult<TransportMessage> {
-        let context = PrimaryContext {
-            node_id: &self.node_id,
-            coordinator: &self.coordinator,
-            writes: self.primary_writes()?,
-        };
-        let primary = self.backups.as_ref();
-        match message.message_type.as_str() {
-            message_types::CLUSTER_BACKUP_PARTITION => {
-                answer_backup_partition(primary, context, message).await
-            }
-            _ => answer_restore_partition(primary, context, message).await,
-        }
     }
 
     pub(crate) async fn answer(&self, message: TransportMessage, respond: Respond) {
@@ -351,6 +323,8 @@ impl DataRole {
 
     pub(crate) async fn close(&self) {
         self.search_contexts.stop();
+        self.feed.detach();
+        self.snapshots.close().await;
         let device_sync = self.device_sync.lock().await.take();
         if let Some(device_sync) = device_sync {
             device_sync.stop().await;
