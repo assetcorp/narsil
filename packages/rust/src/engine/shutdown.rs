@@ -49,7 +49,7 @@ impl Narsil {
             return Ok(());
         };
         self.inner.search_limits.stop.stop_every_search();
-        self.inner.suggestions.stop(&self.inner);
+        self.inner.suggestions.stop(&*self.inner);
         self.inner.shut_down.store(true, Ordering::Release);
         for index in self.inner.index_list() {
             index.residency.wake_waiters();
