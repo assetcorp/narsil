@@ -5,7 +5,8 @@ use narsil::{
 use super::payload::{string_field, string_list};
 use super::wire_values::{number, object, text, whole, wrong};
 use crate::constants::{
-    MAX_FACET_BUCKETS, MAX_FIELD_NAME_LENGTH, MAX_FIELDS_LIST, MAX_QUERY_LIMIT,
+    MAX_FACET_BUCKETS, MAX_FACET_FIELDS, MAX_FACET_RANGES, MAX_FIELD_NAME_LENGTH, MAX_FIELDS_LIST,
+    MAX_QUERY_LIMIT,
 };
 use crate::error::{ClusterResult, codes};
 
@@ -55,6 +56,15 @@ pub(super) fn facets(
     let items = match value {
         None | Some(Value::Null) => return Ok(None),
         Some(Value::Array(items)) if items.is_empty() => return Ok(None),
+        Some(Value::Array(items)) if items.len() > MAX_FACET_FIELDS => {
+            return Err(wrong(
+                codes::SEARCH_INVALID_FIELD,
+                "facets",
+                &format!("exceeds maximum length of {MAX_FACET_FIELDS}"),
+            )
+            .with_detail("length", Value::from(items.len() as f64))
+            .with_detail("limit", Value::from(MAX_FACET_FIELDS as f64)));
+        }
         Some(Value::Array(items)) => items,
         Some(_) => {
             return Err(wrong(
@@ -90,6 +100,15 @@ pub(super) fn facets(
         };
         let ranges = match entry.get("ranges") {
             None | Some(Value::Null) => None,
+            Some(Value::Array(ranges)) if ranges.len() > MAX_FACET_RANGES => {
+                return Err(wrong(
+                    codes::CONFIG_INVALID,
+                    &format!("{label}.ranges"),
+                    &format!("exceeds maximum length of {MAX_FACET_RANGES}"),
+                )
+                .with_detail("length", Value::from(ranges.len() as f64))
+                .with_detail("limit", Value::from(MAX_FACET_RANGES as f64)));
+            }
             Some(Value::Array(ranges)) => Some(
                 ranges
                     .iter()
