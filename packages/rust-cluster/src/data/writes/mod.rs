@@ -15,6 +15,7 @@ mod rollback;
 mod run;
 mod scope;
 mod sync_apply;
+mod sync_read;
 mod term_start;
 mod view;
 

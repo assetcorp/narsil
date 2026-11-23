@@ -1,6 +1,7 @@
 mod adopt;
 mod append;
 pub(crate) mod copy_state;
+mod epoch_states;
 mod logged;
 mod memory_reading;
 mod primary;
@@ -16,6 +17,7 @@ use crate::error::{ErrorCode, NarsilError, Result};
 use crate::value::Value;
 use copy_state::ReplicatedCopy;
 
+pub use epoch_states::{CopyChangesState, CopyEpochStates, CopySyncState};
 pub(crate) use logged::fail_stopped_logs;
 pub use memory_reading::{NodeMemoryReading, read_process_memory};
 

@@ -6,6 +6,7 @@ use tokio::sync::watch;
 use super::blocking::off_executor;
 use super::config::DataNodeConfig;
 use super::copies::LocalCopies;
+use super::device_sync::DeviceSyncView;
 use super::lost_copy::LostCopyWait;
 use super::partition_stores::{partition_stores_answer, requested_index};
 use super::reconcile::settle_local_indexes;
@@ -27,6 +28,7 @@ pub(crate) struct DataRole {
     settled: Mutex<Option<Arc<LocalCopies>>>,
     watcher: tokio::sync::Mutex<Option<AllocationWatcher>>,
     writes: Mutex<Option<Arc<PrimaryWrites>>>,
+    device_sync: tokio::sync::Mutex<Option<Arc<DeviceSyncView>>>,
 }
 
 impl DataRole {
@@ -44,6 +46,7 @@ impl DataRole {
             settled: Mutex::new(None),
             watcher: tokio::sync::Mutex::new(None),
             writes: Mutex::new(None),
+            device_sync: tokio::sync::Mutex::new(None),
         }
     }
 
@@ -103,7 +106,7 @@ impl DataRole {
             node_id: self.node_id.clone(),
             coordinator: Arc::clone(&self.coordinator),
             transport,
-            copies,
+            copies: Arc::clone(&copies),
             view,
             writes: Arc::clone(&writes),
             on_error: self.on_error.clone(),
@@ -123,7 +126,35 @@ impl DataRole {
         if let Some(previous) = self.watcher.lock().await.replace(started) {
             previous.stop().await;
         }
-        Ok(())
+        let device_sync = Arc::new(DeviceSyncView::new(
+            Arc::clone(&self.coordinator),
+            copies,
+            self.on_error.clone(),
+        ));
+        let mut held = self.device_sync.lock().await;
+        if let Some(previous) = held.replace(Arc::clone(&device_sync)) {
+            previous.stop().await;
+        }
+        device_sync.start().await
+    }
+
+    pub(crate) fn keeps_write_ahead_log(&self) -> bool {
+        self.config
+            .engine
+            .durability
+            .as_ref()
+            .is_some_and(|durability| {
+                durability.directory.is_some()
+                    && durability.tier != Some(narsil::DurabilityTier::Snapshot)
+            })
+    }
+
+    pub(crate) async fn refresh_device_sync(&self, index_name: &str) -> ClusterResult<()> {
+        let view = self.device_sync.lock().await.clone();
+        match view {
+            Some(view) => view.refresh(index_name).await,
+            None => Ok(()),
+        }
     }
 
     pub(crate) fn answers(message_type: &str) -> bool {
@@ -136,6 +167,7 @@ impl DataRole {
                 | message_types::REPLICATION_ENTRY_BATCH
                 | message_types::REPLICATION_TERM_START
                 | message_types::REPLICATION_SYNC_REQUEST
+                | message_types::SYNC_READ
         )
     }
 
@@ -165,6 +197,13 @@ impl DataRole {
                 Ok(writes) => writes.answer_term_start(&message).await,
                 Err(error) => refusal(&message, &self.node_id, &error),
             },
+            message_types::SYNC_READ => {
+                let answered = match self.primary_writes() {
+                    Ok(writes) => writes.answer_sync_read(&message).await,
+                    Err(error) => Err(error),
+                };
+                answered.unwrap_or_else(|error| refusal(&message, &self.node_id, &error))
+            }
             _ => match self.answer_partition_stores(&message).await {
                 Ok(reply) => reply,
                 Err(error) => refusal(&message, &self.node_id, &error),
@@ -196,6 +235,10 @@ impl DataRole {
     }
 
     pub(crate) async fn close(&self) {
+        let device_sync = self.device_sync.lock().await.take();
+        if let Some(device_sync) = device_sync {
+            device_sync.stop().await;
+        }
         if let Some(writes) = lock(&self.writes).take() {
             writes.stop();
         }
