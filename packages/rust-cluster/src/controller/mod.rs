@@ -9,6 +9,7 @@ mod messages;
 mod metadata;
 mod placement;
 mod queue;
+mod rebalance;
 mod recovery;
 mod replication_factor;
 mod resign;
