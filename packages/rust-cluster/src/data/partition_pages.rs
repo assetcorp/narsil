@@ -28,11 +28,7 @@ impl LocalCopies {
             .engine
             .list_partitions(index_name, &params, &[], &[partition_id])?;
         Ok(PartitionPage {
-            document_ids: page
-                .documents
-                .into_iter()
-                .map(|listed| listed.id)
-                .collect(),
+            document_ids: page.documents.into_iter().map(|listed| listed.id).collect(),
             cursor: page.cursor,
         })
     }

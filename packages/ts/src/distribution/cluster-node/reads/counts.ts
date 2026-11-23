@@ -23,14 +23,19 @@ async function gatherPartitionCounts(
   const readBy = new Map<number, string>()
   let language = ''
 
-  const gathered = await gatherFromEveryPartition(allocation, indexName, async group => {
-    if (group.nodeId === deps.nodeId) {
-      return { nodeId: group.nodeId, answer: await localCountAnswer(deps.engine, indexName, group.partitionIds) }
-    }
-    const message = createCountMessage({ indexName, partitionIds: group.partitionIds }, deps.nodeId)
-    const answer = await sendReadRequest(deps, group.nodeId, message, indexName, validateCountResultPayload)
-    return { nodeId: group.nodeId, answer }
-  })
+  const gathered = await gatherFromEveryPartition(
+    allocation,
+    indexName,
+    async group => {
+      if (group.nodeId === deps.nodeId) {
+        return { nodeId: group.nodeId, answer: await localCountAnswer(deps.engine, indexName, group.partitionIds) }
+      }
+      const message = createCountMessage({ indexName, partitionIds: group.partitionIds }, deps.nodeId)
+      const answer = await sendReadRequest(deps, group.nodeId, message, indexName, validateCountResultPayload)
+      return { nodeId: group.nodeId, answer }
+    },
+    deps.readLiveAllocation,
+  )
 
   for (const { nodeId, answer } of gathered) {
     if (language.length === 0) {
