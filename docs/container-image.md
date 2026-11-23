@@ -240,7 +240,7 @@ The two servers keep their indexes in one file format, so the node keeps its ind
 
 ## Cluster mode
 
-The image serves one node. When that node joins a cluster, it has to use a tag without `-rust`, because only the TypeScript server runs cluster mode. The [cluster guide](cluster.md) shows how you can build the nodes of a cluster in code.
+The image serves one node outside any cluster, because no variable configures cluster mode. To run the nodes of a cluster, build them in code with the TypeScript package, as the [cluster guide](cluster.md) shows, or start the Rust server's `narsil-server` binary with its `cluster` feature, as [its README](https://github.com/assetcorp/narsil/tree/main/packages/rust-server#join-a-cluster) describes.
 
 ## Change a setting
 

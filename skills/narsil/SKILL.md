@@ -29,7 +29,7 @@ Embed Narsil when one process writes and searches the index, as a browser page d
 | Go | the `github.com/assetcorp/narsil/packages/go/engine` module | the `github.com/assetcorp/narsil/packages/go` module | [references/go.md](references/go.md) |
 | Any other | none | JSON over HTTP | [references/server.md](references/server.md) |
 
-To serve, start the image `ghcr.io/assetcorp/narsil`, which holds the TypeScript server, or its tags that end in `-rust`, which hold the Rust server. Both read the same settings and answer the same routes, and only the TypeScript server runs a cluster. Read [references/server.md](references/server.md) before you choose.
+To serve, start the image `ghcr.io/assetcorp/narsil`, which holds the TypeScript server, or its tags that end in `-rust`, which hold the Rust server. Both read the same settings and answer the same routes, and each image serves one node outside any cluster. Read [references/server.md](references/server.md) before you choose.
 
 ## 2. Read the language reference
 
