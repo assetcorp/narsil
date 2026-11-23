@@ -11,6 +11,7 @@ mod primary_apply;
 mod primary_room;
 mod reads;
 mod replace;
+mod restorable;
 mod types;
 
 use super::index::IndexState;
@@ -23,7 +24,11 @@ pub use epoch_states::{CopyChangesState, CopyEpochStates, CopySyncState};
 pub(crate) use logged::fail_stopped_logs;
 pub use memory_reading::{NodeMemoryReading, read_process_memory};
 
-pub use backup::{BackupListedFile, BackupPartitionFiles, PartitionBackup};
+pub use backup::{
+    BackupListedFile, BackupPartitionFiles, PartitionBackup, decode_backup_index_configuration,
+    encode_backup_index_configuration,
+};
+pub use restorable::require_restorable_config;
 pub use types::{
     AppliedRun, CopyPosition, EntryOperation, HeldTerm, PrimaryLimits, PrimaryRefusal, PrimaryRun,
     PrimaryWrite, PrimaryWritten, PriorDocument, ReplicatedEntry, WriteRecord,
