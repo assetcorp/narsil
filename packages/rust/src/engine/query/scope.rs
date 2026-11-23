@@ -15,6 +15,7 @@ use crate::value::Value;
 pub(crate) struct QueryScope {
     filter: Option<CompiledFilter>,
     meter: WorkMeter,
+    confined: bool,
 }
 
 /// The bitset of the live ordinals that a filter accepts in each segment of one partition, in segment order.
@@ -56,7 +57,17 @@ impl QueryScope {
         Ok(QueryScope {
             filter,
             meter: WorkMeter::within(limits),
+            confined: false,
         })
+    }
+
+    pub(crate) fn confined_to_partitions(mut self, confined: bool) -> QueryScope {
+        self.confined = confined;
+        self
+    }
+
+    pub(crate) fn lists_matches(&self) -> bool {
+        self.filter.is_some() || self.confined
     }
 
     /// Returns the word that the engine sets to stop every search in flight.
@@ -102,13 +113,16 @@ impl QueryScope {
         &self,
         snapshots: &'s [std::sync::Arc<PartitionSnapshot>],
     ) -> Result<Option<Vec<Cow<'s, str>>>> {
-        if self.filter.is_none() {
+        if !self.lists_matches() {
             return Ok(None);
         }
         let mut ids = Vec::new();
         for snapshot in snapshots {
             for entry in &snapshot.segments {
                 let Some(bits) = self.segment_bits(entry)? else {
+                    for ordinal in entry.live_ordinals() {
+                        ids.push(entry.id_of(ordinal)?);
+                    }
                     continue;
                 };
                 for_each_ordinal(&bits, |ordinal| {

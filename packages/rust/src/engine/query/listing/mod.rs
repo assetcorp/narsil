@@ -112,6 +112,7 @@ fn listed_page(
     params: &ListParams,
     sort: &[SortField],
     limits: &SearchLimits,
+    partition_ids: Option<&[u32]>,
 ) -> Result<ListResult> {
     let started = Instant::now();
     let limit = list_page_size(params.limit)?;
@@ -133,7 +134,15 @@ fn listed_page(
     let snapshots: Vec<Arc<PartitionSnapshot>> = index
         .partitions()
         .iter()
-        .map(|partition| partition.snapshot())
+        .enumerate()
+        .filter(|(position, _)| {
+            partition_ids.is_none_or(|listed| {
+                listed
+                    .iter()
+                    .any(|&partition_id| partition_id as usize == *position)
+            })
+        })
+        .map(|(_, partition)| partition.snapshot())
         .collect();
     let listing = match &signature {
         None => id_order_page(
@@ -197,7 +206,28 @@ impl Narsil {
     /// filter's pattern tests.
     pub fn list_documents(&self, index: &str, params: &ListParams) -> Result<ListResult> {
         self.inner.read_index(index, |current| {
-            listed_page(current, params, &[], &self.inner.search_limits)
+            listed_page(current, params, &[], &self.inner.search_limits, None)
+        })
+    }
+
+    /// Returns one page of [`Narsil::list_documents_sorted`] from the partitions of the index that `partition_ids`
+    /// lists, the way a cluster data node answers the partitions that a coordinator routed to it.
+    #[doc(hidden)]
+    pub fn list_partitions(
+        &self,
+        index: &str,
+        params: &ListParams,
+        sort: &[SortField],
+        partition_ids: &[u32],
+    ) -> Result<ListResult> {
+        self.inner.read_index(index, |current| {
+            listed_page(
+                current,
+                params,
+                sort,
+                &self.inner.search_limits,
+                Some(partition_ids),
+            )
         })
     }
 
@@ -220,7 +250,7 @@ impl Narsil {
         sort: &[SortField],
     ) -> Result<ListResult> {
         self.inner.read_index(index, |current| {
-            listed_page(current, params, sort, &self.inner.search_limits)
+            listed_page(current, params, sort, &self.inner.search_limits, None)
         })
     }
 }

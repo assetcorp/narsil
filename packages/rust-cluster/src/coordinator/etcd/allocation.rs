@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use etcd_client::{Compare, CompareOp, Txn, TxnOp};
+use etcd_client::{Compare, CompareOp, GetOptions, Txn, TxnOp};
 
 use super::EtcdCoordinator;
 use super::client::EtcdWrite;
@@ -142,6 +142,30 @@ impl EtcdCoordinator {
             .delete("deleteAllocation", self.inner.keys.allocation(index_name))
             .await?;
         Ok(())
+    }
+
+    /// Returns the name of every index with a stored allocation table, in code point order.
+    ///
+    /// # Errors
+    ///
+    /// Fails with `CONFIG_INVALID` after shutdown, and with `COORDINATOR_UNAVAILABLE` where etcd cannot be reached.
+    pub async fn list_allocations(&self) -> ClusterResult<Vec<String>> {
+        self.inner.ensure_open()?;
+        let prefix = self.inner.keys.allocation_prefix();
+        let options = GetOptions::new().with_prefix().with_keys_only();
+        let found = self
+            .inner
+            .get("listAllocations", prefix.as_bytes(), Some(options))
+            .await?;
+        let mut names: Vec<String> = found
+            .kvs()
+            .iter()
+            .filter_map(|entry| {
+                record_name(&String::from_utf8_lossy(entry.key()), &prefix).map(str::to_string)
+            })
+            .collect();
+        names.sort();
+        Ok(names)
     }
 
     /// Calls `handler` with every allocation table that etcd stores from now on, until the returned handle stops

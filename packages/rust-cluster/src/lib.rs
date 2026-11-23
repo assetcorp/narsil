@@ -11,6 +11,7 @@ pub mod message;
 pub mod node;
 mod ordering;
 mod payload;
+mod rebalance;
 mod routing;
 pub mod transport;
 mod version;

@@ -222,6 +222,10 @@ impl AllocationWatcher {
         })
     }
 
+    pub(super) fn unserved_partition_count(&self) -> usize {
+        lock(&self.context.state).unserved.len()
+    }
+
     pub(super) async fn stop(mut self) {
         if let Some(watch) = self.watch.take() {
             watch.stop();
@@ -230,6 +234,7 @@ impl AllocationWatcher {
         let tasks: Vec<JoinHandle<()>> = {
             let mut state = lock(&self.context.state);
             state.stopped = true;
+            state.unserved.clear();
             state.pending.clear();
             state.arrivals.clear();
             state.awaited.clear();

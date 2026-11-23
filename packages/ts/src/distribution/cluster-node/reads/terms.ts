@@ -60,21 +60,26 @@ export async function suggestCluster(
   const nodeLimit = suggestNodeLimit(clientLimit)
   const gathered = await rerunOnNewerGeneration(deps.analysisView, indexName, async () => {
     const analysisGeneration = await deps.analysisView.generationFor(indexName)
-    return gatherFromEveryPartition(allocation, indexName, async group => {
-      if (group.nodeId === deps.nodeId) {
-        const local = await deps.analysisView
-          .answerAt(indexName, analysisGeneration, () =>
-            deps.engine.suggestPartitions(indexName, { prefix, limit: nodeLimit }, group.partitionIds),
-          )
-          .catch(rethrowAsRefusal)
-        return { terms: local.terms, analysisStale: local.analysisStale === true }
-      }
-      const message = createSuggestMessage(
-        { indexName, partitionIds: group.partitionIds, prefix, limit: nodeLimit, analysisGeneration },
-        deps.nodeId,
-      )
-      return sendReadRequest(deps, group.nodeId, message, indexName, validateSuggestResultPayload)
-    })
+    return gatherFromEveryPartition(
+      allocation,
+      indexName,
+      async group => {
+        if (group.nodeId === deps.nodeId) {
+          const local = await deps.analysisView
+            .answerAt(indexName, analysisGeneration, () =>
+              deps.engine.suggestPartitions(indexName, { prefix, limit: nodeLimit }, group.partitionIds),
+            )
+            .catch(rethrowAsRefusal)
+          return { terms: local.terms, analysisStale: local.analysisStale === true }
+        }
+        const message = createSuggestMessage(
+          { indexName, partitionIds: group.partitionIds, prefix, limit: nodeLimit, analysisGeneration },
+          deps.nodeId,
+        )
+        return sendReadRequest(deps, group.nodeId, message, indexName, validateSuggestResultPayload)
+      },
+      deps.readLiveAllocation,
+    )
   })
 
   const mergedFrequencies = new Map<string, number>()
