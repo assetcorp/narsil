@@ -124,7 +124,24 @@ fn only_outcome(mut outcomes: Vec<Result<(), ClusterError>>) -> ClusterResult<()
 }
 
 impl ClusterNode {
+    async fn write_one(&self, index_name: &str, write: ClientWrite) -> ClusterResult<()> {
+        let router = self.inner.router()?;
+        self.track(Some(index_name), async {
+            only_outcome(router.write(index_name, vec![write], false).await?)
+        })
+        .await
+    }
+
     async fn write_all(
+        &self,
+        index_name: &str,
+        prepared: Vec<(String, ClusterResult<ClientWrite>)>,
+    ) -> ClusterResult<WriteBatchResult> {
+        self.track(Some(index_name), self.route_all(index_name, prepared))
+            .await
+    }
+
+    async fn route_all(
         &self,
         index_name: &str,
         prepared: Vec<(String, ClusterResult<ClientWrite>)>,
@@ -189,8 +206,7 @@ impl ClusterNode {
             None => generate_node_id()?,
         };
         let write = insert_write(document, document_id.clone())?;
-        let router = self.inner.router()?;
-        only_outcome(router.write(index_name, vec![write], false).await?)?;
+        self.write_one(index_name, write).await?;
         Ok(document_id)
     }
 
@@ -240,8 +256,7 @@ impl ClusterNode {
         document: Map,
     ) -> ClusterResult<()> {
         let write = update_write(document_id.to_string(), &document)?;
-        let router = self.inner.router()?;
-        only_outcome(router.write(index_name, vec![write], false).await?)
+        self.write_one(index_name, write).await
     }
 
     /// Replaces many stored documents, each with the whole document paired with its id, and reports each one's
@@ -272,8 +287,7 @@ impl ClusterNode {
     /// Fails as [`ClusterNode::update`] does.
     pub async fn remove(&self, index_name: &str, document_id: &str) -> ClusterResult<()> {
         let write = remove_write(document_id.to_string())?;
-        let router = self.inner.router()?;
-        only_outcome(router.write(index_name, vec![write], false).await?)
+        self.write_one(index_name, write).await
     }
 
     /// Removes many documents from a cluster index and reports each one's outcome in the order of `document_ids`.

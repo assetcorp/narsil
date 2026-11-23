@@ -189,10 +189,12 @@ impl ClusterNode {
         index_name: &str,
         target_partition_count: u64,
     ) -> ClusterResult<()> {
-        self.guard_shutdown()?;
         let job = self
-            .request_rebalance(index_name, target_partition_count)
+            .track(
+                Some(index_name),
+                self.request_rebalance(index_name, target_partition_count),
+            )
             .await?;
-        self.wait_for_swap(index_name, &job).await
+        self.track(None, self.wait_for_swap(index_name, &job)).await
     }
 }

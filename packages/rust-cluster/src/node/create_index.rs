@@ -375,12 +375,11 @@ impl ClusterNode {
         options: CreateIndexOptions,
     ) -> ClusterResult<()> {
         refuse_hidden_generation(index_name)?;
-        self.guard_shutdown()?;
-        if let Some(data) = &self.inner.data {
-            data.refuse_orphaned_name(index_name)?;
-        }
-        self.await_torn_down_copy(index_name).await?;
-        self.clear_leftovers_of_name(index_name).await?;
-        self.route_create_index(index_name, config, &options).await
+        self.track(Some(index_name), async {
+            self.await_torn_down_copy(index_name).await?;
+            self.clear_leftovers_of_name(index_name).await?;
+            self.route_create_index(index_name, config, &options).await
+        })
+        .await
     }
 }
