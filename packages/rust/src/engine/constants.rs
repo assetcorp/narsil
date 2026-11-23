@@ -1,3 +1,4 @@
+pub(crate) const ANALYSIS_HOLD_APPLY_INTERVAL_MS: u64 = 100;
 pub(crate) const BATCH_CHUNK_DOCUMENTS: usize = 1_000;
 pub(crate) const EXPORT_CHUNK_BYTES: usize = 1_048_576;
 pub(crate) const IMPORT_BATCH_DOCUMENTS: usize = 1_000;
