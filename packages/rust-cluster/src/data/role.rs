@@ -199,14 +199,20 @@ impl DataRole {
     }
 
     async fn answer_query_message(&self, message: &TransportMessage) -> TransportMessage {
-        let deps = match (self.settled_copies(), self.primary_writes()) {
-            (Ok(copies), Ok(writes)) => QueryDeps {
+        let deps = match (
+            self.settled_copies(),
+            self.primary_writes(),
+            self.analysis_changes(),
+        ) {
+            (Ok(copies), Ok(writes), Ok(analysis)) => QueryDeps {
                 node_id: &self.node_id,
                 copies,
                 view: writes.view(),
                 contexts: Arc::clone(&self.search_contexts),
+                analysis,
+                memory: writes.memory(),
             },
-            (Err(error), _) | (_, Err(error)) => {
+            (Err(error), _, _) | (_, Err(error), _) | (_, _, Err(error)) => {
                 return refusal(message, &self.node_id, &error);
             }
         };
@@ -216,15 +222,18 @@ impl DataRole {
         }
     }
 
+    fn analysis_changes(&self) -> ClusterResult<Arc<AnalysisChanges>> {
+        lock(&self.analysis)
+            .as_ref()
+            .map(|(analysis, _)| Arc::clone(analysis))
+            .ok_or_else(|| not_ready(&self.node_id))
+    }
+
     async fn answer_rebuild_analysis(
         &self,
         message: &TransportMessage,
     ) -> ClusterResult<TransportMessage> {
-        let analysis = lock(&self.analysis)
-            .as_ref()
-            .map(|(analysis, _)| Arc::clone(analysis))
-            .ok_or_else(|| not_ready(&self.node_id))?;
-        analysis.answer_rebuild(message).await
+        self.analysis_changes()?.answer_rebuild(message).await
     }
 
     pub(crate) async fn answer(&self, message: TransportMessage, respond: Respond) {

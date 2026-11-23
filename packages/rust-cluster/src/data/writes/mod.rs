@@ -89,6 +89,10 @@ impl PrimaryWrites {
         }
     }
 
+    pub(crate) fn memory(&self) -> Option<Arc<NodeMemory>> {
+        self.memory.clone()
+    }
+
     pub(crate) fn spool_directory(&self) -> &Path {
         &self.spool_directory
     }
