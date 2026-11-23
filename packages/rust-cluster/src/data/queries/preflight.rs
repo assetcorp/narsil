@@ -4,7 +4,7 @@ use narsil::partitions::PartitionQuery;
 use narsil::{Map, Value};
 
 use super::QueryDeps;
-use super::payload::{answer, index_name, partition_ids, request_fields, require_held_generation};
+use super::payload::{answer, index_name, partition_ids, request_fields};
 use super::refusal::{ServedRead, refuse_unserved_read};
 use super::wire_params::{WireParams, wire_params};
 use crate::data::blocking::off_executor;
@@ -34,16 +34,20 @@ pub(super) async fn answer_preflight(
         ServedRead::Query,
     )
     .await?;
-    require_held_generation(&index_name, analysis_generation)?;
     let confinement = PartitionQuery {
         partition_ids,
         index_bm25,
         ..PartitionQuery::default()
     };
     let copies = Arc::clone(&deps.copies);
-    let counted =
-        off_executor(move || copies.preflight_partitions(&index_name, &params, &confinement))
-            .await??;
+    let read_index = index_name.clone();
+    let counted = deps
+        .analysis
+        .answer_at(&index_name, analysis_generation, || async move {
+            off_executor(move || copies.preflight_partitions(&read_index, &params, &confinement))
+                .await?
+        })
+        .await?;
     let mut payload = Map::with_capacity(2);
     payload.insert("count", Value::from(counted.count));
     payload.insert("analysisStale", Value::Bool(counted.analysis_stale));

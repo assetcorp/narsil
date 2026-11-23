@@ -8,10 +8,10 @@ use super::blocking::off_executor;
 use super::config::DataNodeConfig;
 use super::copies::LocalCopies;
 use super::device_sync::DeviceSyncView;
-use super::local_reads::LocalReads;
+use super::local_reads::{LocalReadHandles, LocalReads};
 use super::lost_copy::LostCopyWait;
 use super::partition_stores::{partition_stores_answer, requested_index};
-use super::queries::{QueryDeps, answer_query, answers_query};
+use super::queries::answers_query;
 use super::reconcile::settle_local_indexes;
 use super::search_contexts::SearchContexts;
 use super::watcher::{AllocationWatcher, WatcherSettings};
@@ -35,8 +35,8 @@ pub(crate) struct DataRole {
     settled: Mutex<Option<Arc<LocalCopies>>>,
     watcher: tokio::sync::Mutex<Option<AllocationWatcher>>,
     writes: Mutex<Option<Arc<PrimaryWrites>>>,
-    device_sync: tokio::sync::Mutex<Option<Arc<DeviceSyncView>>>,
     search_contexts: Arc<SearchContexts>,
+    device_sync: tokio::sync::Mutex<Option<Arc<DeviceSyncView>>>,
     analysis: Mutex<Option<(Arc<AnalysisChanges>, WatchHandle)>>,
     backups: Option<Arc<BackupPrimary>>,
 }
@@ -57,8 +57,8 @@ impl DataRole {
             settled: Mutex::new(None),
             watcher: tokio::sync::Mutex::new(None),
             writes: Mutex::new(None),
-            device_sync: tokio::sync::Mutex::new(None),
             search_contexts: Arc::new(SearchContexts::default()),
+            device_sync: tokio::sync::Mutex::new(None),
             analysis: Mutex::new(None),
             backups: backups.map(|store| Arc::new(BackupPrimary::new(store))),
         }
@@ -208,32 +208,24 @@ impl DataRole {
     }
 
     async fn answer_query_message(&self, message: &TransportMessage) -> TransportMessage {
-        let deps = match (self.settled_copies(), self.primary_writes()) {
-            (Ok(copies), Ok(writes)) => QueryDeps {
-                node_id: &self.node_id,
-                copies,
-                view: writes.view(),
-                contexts: Arc::clone(&self.search_contexts),
-            },
-            (Err(error), _) | (_, Err(error)) => {
-                return refusal(message, &self.node_id, &error);
-            }
-        };
-        match answer_query(&deps, message).await {
-            Ok(reply) => reply,
+        match self.local_reads() {
+            Ok(reads) => reads.answer(message).await,
             Err(error) => refusal(message, &self.node_id, &error),
         }
+    }
+
+    fn analysis_changes(&self) -> ClusterResult<Arc<AnalysisChanges>> {
+        lock(&self.analysis)
+            .as_ref()
+            .map(|(analysis, _)| Arc::clone(analysis))
+            .ok_or_else(|| not_ready(&self.node_id))
     }
 
     async fn answer_rebuild_analysis(
         &self,
         message: &TransportMessage,
     ) -> ClusterResult<TransportMessage> {
-        let analysis = lock(&self.analysis)
-            .as_ref()
-            .map(|(analysis, _)| Arc::clone(analysis))
-            .ok_or_else(|| not_ready(&self.node_id))?;
-        analysis.answer_rebuild(message).await
+        self.analysis_changes()?.answer_rebuild(message).await
     }
 
     async fn answer_backup_message(
@@ -326,12 +318,13 @@ impl DataRole {
     }
 
     pub(crate) fn local_reads(&self) -> ClusterResult<Arc<LocalReads>> {
-        Ok(Arc::new(LocalReads::new(
-            self.node_id.clone(),
-            self.settled_copies()?,
-            self.primary_writes()?.view(),
-            Arc::clone(&self.search_contexts),
-        )))
+        Ok(Arc::new(LocalReads::new(LocalReadHandles {
+            node_id: self.node_id.clone(),
+            copies: self.settled_copies()?,
+            writes: self.primary_writes()?,
+            contexts: Arc::clone(&self.search_contexts),
+            analysis: self.analysis_changes()?,
+        })))
     }
 
     pub(crate) fn primary_writes(&self) -> ClusterResult<Arc<PrimaryWrites>> {
@@ -357,14 +350,14 @@ impl DataRole {
     }
 
     pub(crate) async fn close(&self) {
-        if let Some((_, analysis_watch)) = lock(&self.analysis).take() {
-            analysis_watch.stop();
-        }
+        self.search_contexts.stop();
         let device_sync = self.device_sync.lock().await.take();
         if let Some(device_sync) = device_sync {
             device_sync.stop().await;
         }
-        self.search_contexts.stop();
+        if let Some((_, analysis_watch)) = lock(&self.analysis).take() {
+            analysis_watch.stop();
+        }
         if let Some(writes) = lock(&self.writes).take() {
             writes.stop();
         }
