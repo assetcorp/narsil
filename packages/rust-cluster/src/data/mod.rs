@@ -9,6 +9,7 @@ mod query_copies;
 mod reconcile;
 mod role;
 mod schema_check;
+mod search_contexts;
 mod stored_index;
 mod synonym_set;
 mod watcher;

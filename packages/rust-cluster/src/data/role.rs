@@ -10,6 +10,7 @@ use super::lost_copy::LostCopyWait;
 use super::partition_stores::{partition_stores_answer, requested_index};
 use super::queries::{QueryDeps, answer_query, answers_query};
 use super::reconcile::settle_local_indexes;
+use super::search_contexts::SearchContexts;
 use super::watcher::{AllocationWatcher, WatcherSettings};
 use super::writes::{AllocationView, PrimaryWrites, PrimaryWritesSettings};
 use crate::controller::lock;
@@ -27,6 +28,7 @@ pub(crate) struct DataRole {
     settled: Mutex<Option<Arc<LocalCopies>>>,
     watcher: tokio::sync::Mutex<Option<AllocationWatcher>>,
     writes: Mutex<Option<Arc<PrimaryWrites>>>,
+    search_contexts: Arc<SearchContexts>,
 }
 
 impl DataRole {
@@ -44,6 +46,7 @@ impl DataRole {
             settled: Mutex::new(None),
             watcher: tokio::sync::Mutex::new(None),
             writes: Mutex::new(None),
+            search_contexts: Arc::new(SearchContexts::default()),
         }
     }
 
@@ -85,6 +88,10 @@ impl DataRole {
         let copies = self.settled_copies()?;
         let view = Arc::new(AllocationView::new(Arc::clone(&self.coordinator)));
         if let Err(error) = view.start().await {
+            view.stop();
+            return Err(error);
+        }
+        if let Err(error) = self.search_contexts.start(&self.coordinator).await {
             view.stop();
             return Err(error);
         }
@@ -143,6 +150,7 @@ impl DataRole {
                 node_id: &self.node_id,
                 copies,
                 view: writes.view(),
+                contexts: Arc::clone(&self.search_contexts),
             },
             (Err(error), _) | (_, Err(error)) => {
                 return refusal(message, &self.node_id, &error);
@@ -215,6 +223,7 @@ impl DataRole {
     }
 
     pub(crate) async fn close(&self) {
+        self.search_contexts.stop();
         if let Some(writes) = lock(&self.writes).take() {
             writes.stop();
         }

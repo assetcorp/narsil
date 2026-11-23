@@ -4,6 +4,7 @@ use narsil::{DocumentProjection, Map, Value};
 
 use super::QueryDeps;
 use super::payload::{answer, index_name, invalid, request_fields, string_field, string_list};
+use super::projection::{kept_fields, without_paths};
 use super::refusal::{ServedRead, refuse_unserved_read};
 use crate::constants::{
     MAX_DOC_ID_LENGTH, MAX_FETCH_DOCUMENT_IDS, MAX_FIELD_NAME_LENGTH, MAX_FIELDS_LIST,
@@ -19,7 +20,10 @@ struct FetchRequest {
     index_name: String,
     document_ids: Vec<(String, u32)>,
     projection: DocumentProjection,
+    include: Option<Vec<String>>,
+    vectors: bool,
     context_id: Option<String>,
+    release_context: bool,
 }
 
 fn document_id(value: &Value, at: usize) -> ClusterResult<(String, u32)> {
@@ -108,25 +112,62 @@ fn fetch_request(message: &TransportMessage) -> ClusterResult<FetchRequest> {
             codes::CONFIG_INVALID,
         )?),
     };
-    match fields.get("releaseContext") {
-        None | Some(Value::Null) | Some(Value::Bool(_)) => {}
+    let release_context = match fields.get("releaseContext") {
+        None | Some(Value::Null) => true,
+        Some(Value::Bool(release)) => *release,
         Some(_) => {
             return Err(invalid(
                 codes::CONFIG_INVALID,
                 "Invalid FetchPayload: \"releaseContext\" must be a boolean, or null",
             ));
         }
-    }
+    };
     Ok(FetchRequest {
         index_name,
         document_ids,
         projection: DocumentProjection::Fields {
-            include,
+            include: include.clone(),
             exclude: None,
             vectors: Some(vectors),
         },
+        include,
+        vectors,
         context_id,
+        release_context,
     })
+}
+
+fn context_documents(
+    deps: &QueryDeps<'_>,
+    request: &FetchRequest,
+    context_id: &str,
+) -> ClusterResult<Vec<(String, Map)>> {
+    let ranked = deps.contexts.read(context_id);
+    if request.release_context {
+        deps.contexts.release(context_id);
+    }
+    let Some(ranked) = ranked else {
+        if request.document_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        return Err(missing_context(deps.node_id, context_id));
+    };
+    let mut documents = Vec::with_capacity(request.document_ids.len());
+    for (doc_id, _) in &request.document_ids {
+        let Some(stored) = ranked.documents.get(doc_id) else {
+            continue;
+        };
+        let stored = match request.vectors {
+            true => stored.clone(),
+            false => without_paths(stored.clone(), &ranked.vector_paths),
+        };
+        let document = match &request.include {
+            Some(include) => kept_fields(&stored, include),
+            None => stored,
+        };
+        documents.push((doc_id.clone(), document));
+    }
+    Ok(documents)
 }
 
 fn missing_context(node_id: &str, context_id: &str) -> crate::error::ClusterError {
@@ -146,8 +187,7 @@ pub(super) async fn answer_fetch(
 ) -> ClusterResult<TransportMessage> {
     let request = fetch_request(message)?;
     let documents = match &request.context_id {
-        Some(_) if request.document_ids.is_empty() => Vec::new(),
-        Some(context_id) => return Err(missing_context(deps.node_id, context_id)),
+        Some(context_id) => context_documents(deps, &request, context_id)?,
         None => {
             let mut partition_ids: Vec<u32> = request
                 .document_ids
