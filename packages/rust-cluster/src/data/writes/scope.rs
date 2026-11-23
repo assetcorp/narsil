@@ -121,6 +121,8 @@ impl PrimaryWrites {
                 primary,
             ));
         }
+        self.assert_reshard_open(index_name, partition_id, assignment.primary_term as u64)
+            .await?;
         let scope = Scope {
             index_name: index_name.to_string(),
             partition_id,

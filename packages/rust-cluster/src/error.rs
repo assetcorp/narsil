@@ -79,9 +79,6 @@ pub mod codes {
     /// A node refuses an insert or an update because a node that holds a copy of the index reports full memory,
     /// because the writes in flight on the node would pass its bound, or because the write would not fit in memory.
     pub const CLUSTER_WRITE_BLOCKED: &str = "CLUSTER_WRITE_BLOCKED";
-    /// A node refuses to build an answer, or to hold the documents that a search ranked, because the bytes would
-    /// take the process past its memory limit.
-    pub const TOO_MANY_REQUESTS: &str = "TOO_MANY_REQUESTS";
     /// Device sync would go on, or a feed would read a log, through a node that keeps no write-ahead log.
     pub const SYNC_DURABILITY_REQUIRED: &str = "SYNC_DURABILITY_REQUIRED";
     /// Device sync would go on through a node that has no backup store.
@@ -100,14 +97,36 @@ pub mod codes {
     pub const QUERY_NO_ACTIVE_REPLICA: &str = "QUERY_NO_ACTIVE_REPLICA";
     /// The node that holds the copy did not answer within the transport's deadline.
     pub const QUERY_NODE_TIMEOUT: &str = "QUERY_NODE_TIMEOUT";
-    /// The data node holds another analysis generation of the index than the query asked for.
-    pub const ANALYSIS_GENERATION_MISSING: &str = "ANALYSIS_GENERATION_MISSING";
-    /// The data node holds no search context under the id that a fetch names.
-    pub const SEARCH_CONTEXT_MISSING: &str = "SEARCH_CONTEXT_MISSING";
-    /// A query names a field that the request cannot search, sort, or return.
+    /// A read left out a partition that no copy answered, where the read answers whole or not at all.
+    pub const QUERY_PARTIAL_FAILURE: &str = "QUERY_PARTIAL_FAILURE";
+    /// A search names a field that the index cannot search, sort, facet, or group on.
     pub const SEARCH_INVALID_FIELD: &str = "SEARCH_INVALID_FIELD";
-    /// A query asks for a sort direction, sort mode, scoring mode, or search mode that no engine knows.
+    /// A search or a listing carries a filter that breaks a filter rule.
+    pub const SEARCH_INVALID_FILTER: &str = "SEARCH_INVALID_FILTER";
+    /// A search asks for a mode, a sort direction, or a combination of options that the engine refuses.
     pub const SEARCH_INVALID_MODE: &str = "SEARCH_INVALID_MODE";
+    /// A cursor is malformed, or another request produced it.
+    pub const SEARCH_INVALID_CURSOR: &str = "SEARCH_INVALID_CURSOR";
+    /// A request reaches past the first 10,000 results.
+    pub const SEARCH_RESULT_WINDOW_EXCEEDED: &str = "SEARCH_RESULT_WINDOW_EXCEEDED";
+    /// A search's pattern tests passed the engine's work cap.
+    pub const SEARCH_WORK_CAP_EXCEEDED: &str = "SEARCH_WORK_CAP_EXCEEDED";
+    /// A quoted phrase breaks a phrase rule.
+    pub const SEARCH_INVALID_PHRASE: &str = "SEARCH_INVALID_PHRASE";
+    /// A copy has yet to build the positions that a phrase search reads.
+    pub const SEARCH_PHRASE_NOT_READY: &str = "SEARCH_PHRASE_NOT_READY";
+    /// A node no longer holds the search context that a coordinator reads the ranked documents from.
+    pub const SEARCH_CONTEXT_MISSING: &str = "SEARCH_CONTEXT_MISSING";
+    /// A copy has yet to build the statistics that a search's BM25 setting needs.
+    pub const BM25_NOT_READY: &str = "BM25_NOT_READY";
+    /// A query vector's length differs from the field's dimension.
+    pub const VECTOR_DIMENSION_MISMATCH: &str = "VECTOR_DIMENSION_MISMATCH";
+    /// A copy holds no analysis generation that a request names.
+    pub const ANALYSIS_GENERATION_MISSING: &str = "ANALYSIS_GENERATION_MISSING";
+    /// A node has no room in memory to answer.
+    pub const TOO_MANY_REQUESTS: &str = "TOO_MANY_REQUESTS";
+    /// An index's rerank settings name no registered adapter, or a node holds none.
+    pub const RERANK_CONFIG_INVALID: &str = "RERANK_CONFIG_INVALID";
     /// A document or a document id breaks the rules that every Narsil engine stores documents under.
     pub const DOC_VALIDATION_FAILED: &str = "DOC_VALIDATION_FAILED";
     /// An insert names a document id that the index holds.
