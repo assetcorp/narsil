@@ -1,5 +1,7 @@
 #![doc = include_str!("../README.md")]
 
+#[cfg(feature = "cluster")]
+mod cluster;
 mod constants;
 mod documents;
 mod errors;
