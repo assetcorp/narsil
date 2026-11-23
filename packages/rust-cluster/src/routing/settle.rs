@@ -63,7 +63,7 @@ impl WriteRouter {
     ) -> ClusterResult<Vec<(String, Map)>> {
         let payload = encode_fetch_request(serving_name, documents);
         let answer = self
-            .send_to_primary(primary, message_types::QUERY_FETCH, payload)
+            .send_to_primary(primary, message_types::QUERY_FETCH, payload, || Ok(()))
             .await?;
         let decoded = decode_answer(&answer, serving_name).map_err(|failure| failure.error)?;
         fetched_documents(&decoded)

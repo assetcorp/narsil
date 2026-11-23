@@ -32,6 +32,17 @@ pub(super) fn unsent_after_window(
         .collect()
 }
 
+fn require_open_window(
+    serving_name: &str,
+    document_id: &str,
+    deadline: Instant,
+) -> ClusterResult<()> {
+    if Instant::now() >= deadline {
+        return Err(window_ended_outcome(serving_name, document_id));
+    }
+    Ok(())
+}
+
 impl WriteRouter {
     fn refusal_from(
         &self,
@@ -52,6 +63,7 @@ impl WriteRouter {
         primary: &str,
         message_type: &str,
         payload: Vec<u8>,
+        assert_sending: impl Fn() -> ClusterResult<()>,
     ) -> ClusterResult<TransportMessage> {
         let message = TransportMessage::new(
             message_type,
@@ -61,6 +73,7 @@ impl WriteRouter {
         );
         let mut failure = None;
         for target in self.view.targets(primary) {
+            assert_sending()?;
             match self.transport.send(&target, message.clone()).await {
                 Ok(answer) if answer.message_type == CARRIER_ERROR_TYPE => {
                     failure = answer.failure();
@@ -95,10 +108,13 @@ impl WriteRouter {
         index_uuid: Option<&str>,
         primary: &str,
         write: &PendingWrite,
+        deadline: Instant,
     ) -> Attempted {
         let payload = encode_forward_request(serving_name, index_uuid, &write.outgoing());
         let answer = self
-            .send_to_primary(primary, message_types::REPLICATION_FORWARD, payload)
+            .send_to_primary(primary, message_types::REPLICATION_FORWARD, payload, || {
+                require_open_window(serving_name, write.document_id(), deadline)
+            })
             .await
             .map_err(Refused::of)?;
         let decoded = decode_answer(&answer, serving_name)
@@ -115,11 +131,20 @@ impl WriteRouter {
         index_uuid: Option<&str>,
         primary: &str,
         chunk: &[PendingWrite],
+        deadline: Instant,
     ) -> ClusterResult<Vec<Attempted>> {
+        let Some(first) = chunk.first() else {
+            return Ok(Vec::new());
+        };
         let operations: Vec<_> = chunk.iter().map(PendingWrite::outgoing).collect();
         let payload = encode_forward_batch_request(serving_name, index_uuid, &operations);
         let answer = self
-            .send_to_primary(primary, message_types::REPLICATION_FORWARD_BATCH, payload)
+            .send_to_primary(
+                primary,
+                message_types::REPLICATION_FORWARD_BATCH,
+                payload,
+                || require_open_window(serving_name, first.document_id(), deadline),
+            )
             .await?;
         let decoded = decode_answer(&answer, serving_name)
             .map_err(|failure| self.refusal_from(failure, serving_name, primary).error)?;
@@ -171,7 +196,7 @@ impl WriteRouter {
         }
         if let [only] = writes {
             let attempted = self
-                .forward_one(serving_name, index_uuid, primary, only)
+                .forward_one(serving_name, index_uuid, primary, only, deadline)
                 .await;
             return vec![(only.position, attempted)];
         }
@@ -209,7 +234,7 @@ impl WriteRouter {
                 continue;
             }
             let answered = match self
-                .forward_chunk(serving_name, index_uuid, primary, &chunk)
+                .forward_chunk(serving_name, index_uuid, primary, &chunk, deadline)
                 .await
             {
                 Ok(answered) => answered,
