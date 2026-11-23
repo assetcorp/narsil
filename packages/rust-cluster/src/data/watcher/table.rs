@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use super::admission_wait::{replica_needs_resync, settle_awaited};
 use super::state::{Action, PartitionKey, Tracked, WatcherState};
-use crate::allocator::{ACTIVE, Assignment, Assignments, INITIALISING, Table};
+use crate::allocator::{ACTIVE, Assignment, Assignments, INITIALISING, Table, UNASSIGNED};
 
 pub(crate) fn partition_of(partition_id: f64) -> Option<u32> {
     let whole = partition_id.is_finite() && partition_id.fract() == 0.0;
@@ -16,6 +16,12 @@ fn is_assigned(assignment: &Assignment, node_id: &str) -> bool {
 
 fn already_holds_data(assignment: &Assignment, node_id: &str) -> bool {
     assignment.state == ACTIVE
+        && (assignment.is_primary(node_id) || assignment.holds_in_sync(node_id))
+}
+
+fn serves_partition(assignment: &Assignment, node_id: &str) -> bool {
+    assignment.state != INITIALISING
+        && assignment.state != UNASSIGNED
         && (assignment.is_primary(node_id) || assignment.holds_in_sync(node_id))
 }
 
@@ -166,6 +172,7 @@ fn remove_dropped_partitions(
         .collect();
     for key in dropped {
         state.tracked.remove(&key);
+        state.unserved.remove(&key);
         state.abort_bootstrap(&key);
         state.forget_awaited(&key);
         if keeps_copy_for_recovery(table, key.1, node_id) {
@@ -239,6 +246,11 @@ pub(super) fn process_table(
                 in_sync: assignment.holds_in_sync(node_id),
             },
         );
+        if serves_partition(assignment, node_id) {
+            state.unserved.remove(&key);
+        } else {
+            state.unserved.insert(key.clone());
+        }
         if already_holds_data(assignment, node_id) {
             actions.push(Action::HoldPartition(key.clone()));
         }

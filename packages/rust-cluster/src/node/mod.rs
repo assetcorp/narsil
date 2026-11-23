@@ -7,6 +7,7 @@ mod join;
 mod local_copies;
 mod member;
 mod not_ready;
+mod readiness;
 mod started_at;
 mod writes;
 
@@ -17,5 +18,6 @@ pub use handle::ClusterNode;
 pub use identity::{generate_node_id, resolve_node_id};
 pub use not_ready::not_ready_handler;
 pub(crate) use not_ready::{decode_request_payload, not_ready};
+pub use readiness::{NodeInfo, NodeReadiness};
 pub use started_at::next_started_at;
 pub use writes::{WriteBatchFailure, WriteBatchResult};

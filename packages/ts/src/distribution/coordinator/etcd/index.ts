@@ -1,4 +1,5 @@
 import type { ComparatorBuilder, Etcd3 as Etcd3Client, IKeyValue } from 'etcd3'
+import { compareCodePoints } from '../../../core/ordering'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import { CONTROLLER_LEASE_KEY } from '../constants'
 import type {
@@ -264,6 +265,16 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
     async deleteAllocation(indexName: string): Promise<void> {
       assertNotShutdown()
       await client.delete().key(keys.allocation(indexName)).exec()
+    },
+
+    async listAllocations(): Promise<string[]> {
+      assertNotShutdown()
+      const prefix = keys.allocationPrefix()
+      const result = await client.getAll().prefix(prefix).keys()
+      return result
+        .map(fullKey => recordName(fullKey, prefix))
+        .filter(indexName => indexName !== null)
+        .sort(compareCodePoints)
     },
 
     async watchAllocation(handler: (event: AllocationEvent) => void): Promise<() => void> {

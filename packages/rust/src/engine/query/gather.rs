@@ -4,6 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use super::bm25::merged_bm25;
+use super::confined::PartitionQuery;
 use super::cursor::query_binding_of;
 use super::documents::{Location, QuerySnapshots};
 use super::facets::{MatchedSegment, count_facets};
@@ -32,6 +33,7 @@ pub(crate) struct QueryRun<'q> {
     pub(crate) limit: usize,
     pub(crate) offset: usize,
     pub(crate) signature: Option<String>,
+    pub(crate) confinement: Option<&'q PartitionQuery>,
     requested: &'q QueryParams,
     binding: OnceCell<String>,
 }
@@ -41,6 +43,7 @@ pub(crate) struct RunShape<'q> {
     pub(crate) limit: usize,
     pub(crate) offset: usize,
     pub(crate) signature: Option<String>,
+    pub(crate) confinement: Option<&'q PartitionQuery>,
 }
 
 impl<'q> QueryRun<'q> {
@@ -54,10 +57,11 @@ impl<'q> QueryRun<'q> {
             index,
             params,
             scope,
-            snapshots: QuerySnapshots::of(index)?,
+            snapshots: QuerySnapshots::confined(index, shape.confinement)?,
             limit: shape.limit,
             offset: shape.offset,
             signature: shape.signature,
+            confinement: shape.confinement,
             requested: shape.requested,
             binding: OnceCell::new(),
         })
@@ -115,7 +119,12 @@ pub(crate) fn search_text(
     let Some(text) = analyse_text(index, &run.snapshots.layout, params)? else {
         return Ok(outcome);
     };
-    let bm25 = merged_bm25(params.bm25.as_ref(), index.config().bm25.as_ref());
+    let config = index.config();
+    let index_bm25 = run
+        .confinement
+        .and_then(|confinement| confinement.index_bm25.as_ref())
+        .or(config.bm25.as_ref());
+    let bm25 = merged_bm25(params.bm25.as_ref(), index_bm25);
     let snapshots = &run.snapshots.partitions;
     let mut search = TextSearch {
         params,
@@ -125,10 +134,12 @@ pub(crate) fn search_text(
         collect,
         without_hits,
     };
-    let global = match scoring_mode(index, params) {
-        ScoringMode::Local => None,
-        _ if snapshots.len() < 2 => None,
-        _ => Some(global_stats(snapshots, &search)?),
+    let supplied = run.confinement.and_then(PartitionQuery::query_stats);
+    let global = match (supplied, scoring_mode(index, params)) {
+        (Some(stats), _) => Some(GlobalStats::supplied(stats)),
+        (None, ScoringMode::Local) => None,
+        (None, _) if snapshots.len() < 2 => None,
+        (None, _) => Some(global_stats(snapshots, &search)?),
     };
     search.global = global.as_ref();
     let scope = run.scope;

@@ -9,6 +9,7 @@ use super::copies::LocalCopies;
 use super::device_sync::DeviceSyncView;
 use super::lost_copy::LostCopyWait;
 use super::partition_stores::{partition_stores_answer, requested_index};
+use super::queries::{QueryDeps, answer_query, answers_query};
 use super::reconcile::settle_local_indexes;
 use super::watcher::{AllocationWatcher, WatcherSettings};
 use super::writes::{AllocationView, PrimaryWrites, PrimaryWritesSettings};
@@ -100,12 +101,12 @@ impl DataRole {
             view: Arc::clone(&view),
             on_error: self.on_error.clone(),
             log_retention_bytes: self.config.log_retention_bytes,
-            memory,
             spool_directory: self
                 .config
                 .snapshot_spool_directory
                 .clone()
                 .unwrap_or_else(std::env::temp_dir),
+            memory,
         }));
         let started = AllocationWatcher::start(WatcherSettings {
             node_id: self.node_id.clone(),
@@ -173,7 +174,24 @@ impl DataRole {
                 | message_types::REPLICATION_TERM_START
                 | message_types::REPLICATION_SYNC_REQUEST
                 | message_types::SYNC_READ
-        )
+        ) || answers_query(message_type)
+    }
+
+    async fn answer_query_message(&self, message: &TransportMessage) -> TransportMessage {
+        let deps = match (self.settled_copies(), self.primary_writes()) {
+            (Ok(copies), Ok(writes)) => QueryDeps {
+                node_id: &self.node_id,
+                copies,
+                view: writes.view(),
+            },
+            (Err(error), _) | (_, Err(error)) => {
+                return refusal(message, &self.node_id, &error);
+            }
+        };
+        match answer_query(&deps, message).await {
+            Ok(reply) => reply,
+            Err(error) => refusal(message, &self.node_id, &error),
+        }
     }
 
     pub(crate) async fn answer(&self, message: TransportMessage, respond: Respond) {
@@ -182,6 +200,10 @@ impl DataRole {
                 Ok(writes) => writes.answer_sync_request(&message, &respond).await,
                 Err(error) => respond.send(refusal(&message, &self.node_id, &error)).await,
             };
+        }
+        if answers_query(&message.message_type) {
+            let reply = self.answer_query_message(&message).await;
+            return respond.send(reply).await;
         }
         let reply = match message.message_type.as_str() {
             message_types::REPLICATION_FORWARD => match self.primary_writes() {
@@ -215,6 +237,14 @@ impl DataRole {
             },
         };
         respond.send(reply).await;
+    }
+
+    pub(crate) async fn unserved_partition_count(&self) -> usize {
+        self.watcher
+            .lock()
+            .await
+            .as_ref()
+            .map_or(0, AllocationWatcher::unserved_partition_count)
     }
 
     pub(crate) fn primary_writes(&self) -> ClusterResult<Arc<PrimaryWrites>> {

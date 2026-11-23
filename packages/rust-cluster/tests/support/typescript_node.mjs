@@ -95,12 +95,32 @@ const operations = {
   update: ({ indexName, documentId, document, vectorFields }) =>
     node.update(indexName, documentId, withVectors(document, vectorFields)),
   remove: ({ indexName, documentId }) => node.remove(indexName, documentId),
+  dropIndex: ({ indexName }) => node.dropIndex(indexName),
+  rebalance: ({ indexName, targetPartitionCount }) => node.rebalance(indexName, targetPartitionCount),
+  setReplicationFactor: ({ indexName, replicationFactor }) =>
+    node.cluster.setReplicationFactor(indexName, replicationFactor),
   insertBatch: async ({ indexName, documents }) => batchOutcome(await node.insertBatch(indexName, documents)),
   updateBatch: async ({ indexName, updates }) => batchOutcome(await node.updateBatch(indexName, updates)),
   removeBatch: async ({ indexName, documentIds }) => batchOutcome(await node.removeBatch(indexName, documentIds)),
   get: ({ indexName, documentId }) => node.get(indexName, documentId),
   partitionCounts: async ({ indexName }) =>
     (await node.getPartitionStats(indexName)).map(({ partitionId, documentCount }) => ({ partitionId, documentCount })),
+  query: async ({ indexName, params }) => {
+    const result = await node.query(indexName, params)
+    return {
+      hits: result.hits.map(hit => ({ id: hit.id, score: hit.score ?? null, document: hit.document ?? null })),
+      count: result.count,
+      facets: result.facets ?? null,
+      coverage: result.coverage,
+    }
+  },
+  countDocuments: ({ indexName }) => node.countDocuments(indexName),
+  suggest: ({ indexName, params }) => node.suggest(indexName, params),
+  preflight: ({ indexName, params }) => node.preflight(indexName, params),
+  listDocuments: async ({ indexName, params }) => {
+    const result = await node.listDocuments(indexName, params)
+    return { ids: result.documents.map(listed => listed.id), total: result.total, cursor: result.cursor }
+  },
 }
 
 function answer(id, outcome) {

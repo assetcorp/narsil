@@ -52,9 +52,9 @@ pub(crate) struct PrimaryWrites {
     stopping: watch::Sender<bool>,
     on_error: Option<NodeErrorHandler>,
     log_retention_bytes: u64,
-    memory: Option<Arc<NodeMemory>>,
     spool_directory: PathBuf,
     snapshot_slots: Mutex<SnapshotSlots>,
+    memory: Option<Arc<NodeMemory>>,
 }
 
 pub(crate) struct PrimaryWritesSettings {
@@ -65,8 +65,8 @@ pub(crate) struct PrimaryWritesSettings {
     pub(crate) view: Arc<AllocationView>,
     pub(crate) on_error: Option<NodeErrorHandler>,
     pub(crate) log_retention_bytes: u64,
-    pub(crate) memory: Option<Arc<NodeMemory>>,
     pub(crate) spool_directory: PathBuf,
+    pub(crate) memory: Option<Arc<NodeMemory>>,
 }
 
 impl PrimaryWrites {
@@ -83,9 +83,9 @@ impl PrimaryWrites {
             stopping: watch::Sender::new(false),
             on_error: settings.on_error,
             log_retention_bytes: settings.log_retention_bytes,
-            memory: settings.memory,
             spool_directory: settings.spool_directory,
             snapshot_slots: Mutex::default(),
+            memory: settings.memory,
         }
     }
 
