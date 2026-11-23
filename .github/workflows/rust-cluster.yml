@@ -75,6 +75,8 @@ jobs:
 
     env:
       PART_1_TESTS: cluster
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
+      CARGO_PROFILE_DEV_OPT_LEVEL: ${{ matrix.label == 'linux-x64' && '1' || '0' }}
 
     steps:
       - name: Checkout
