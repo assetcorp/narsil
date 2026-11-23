@@ -1,10 +1,13 @@
 use crate::error::{ErrorCode, NarsilError, Result};
-use crate::format::envelope::{Compression, Expectation, MAX_FILE_BYTES, open_checksummed, pack};
+use crate::format::envelope::{Expectation, MAX_FILE_BYTES, open_checksummed};
 use crate::format::fields::whole_number;
 use crate::format::metadata_parts::is_sync_epoch;
-use crate::value::{Map, Value, decode_value, encode_value};
+use crate::value::{Value, decode_value};
 
-const BACKUP_MANIFEST_ENVELOPE_VERSION: u8 = 1;
+pub(crate) use super::backup_manifest_write::backup_manifest_to_wire;
+pub use super::backup_manifest_write::encode_backup_manifest;
+
+pub(crate) const BACKUP_MANIFEST_ENVELOPE_VERSION: u8 = 1;
 const MAX_PARTITION_COUNT: f64 = 65_536.0;
 const MAX_REPLICATION_FACTOR: f64 = 255.0;
 const MAX_BACKUP_FILES_PER_PARTITION: usize = 1_000_000;
@@ -13,48 +16,77 @@ const MAX_BACKUP_FILE_PATH_LENGTH: usize = 1_024;
 const MAX_HISTORY_FILE_BYTES: u64 = 16_777_216;
 const SHA256_HEX_DIGITS: usize = 64;
 
+/// A file of a cluster backup, stored under the SHA-256 of its bytes.
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct StoredFile {
-    sha256: String,
-    pub(crate) bytes: u64,
+pub struct StoredFile {
+    /// The SHA-256 of the file's bytes, as 64 lowercase hexadecimal digits.
+    pub sha256: String,
+    /// The file's length in bytes.
+    pub bytes: u64,
 }
 
+/// A file that a partition of a cluster backup lists, under its key without the leading `<indexName>/`.
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct ListedFile {
-    pub(crate) key: String,
-    pub(crate) file: StoredFile,
+pub struct ListedFile {
+    /// The file's key without the leading `<indexName>/`.
+    pub key: String,
+    /// Where the store holds the file's bytes.
+    pub file: StoredFile,
 }
 
+/// One partition of a cluster backup.
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct BackupPartition {
-    pub(crate) partition_id: u64,
-    pub(crate) last_seq_no: f64,
-    pub(crate) manifest: StoredFile,
-    pub(crate) files: Vec<ListedFile>,
+pub struct BackupPartition {
+    /// The partition's id.
+    pub partition_id: u64,
+    /// The sequence number of the newest write that the partition's files hold.
+    pub last_seq_no: f64,
+    /// The partition's segment manifest.
+    pub manifest: StoredFile,
+    /// Every file that the partition's manifest lists, in its order.
+    pub files: Vec<ListedFile>,
 }
 
+/// The rules that placed the partitions of a backed up index.
 #[derive(Debug, Clone, PartialEq)]
-struct AllocationConstraints {
-    zone_awareness: bool,
-    zone_attribute: String,
-    max_shards_per_node: Option<f64>,
+pub struct BackupConstraints {
+    /// Whether the cluster spreads each partition's copies across zones.
+    pub zone_awareness: bool,
+    /// The node attribute that holds a node's zone.
+    pub zone_attribute: String,
+    /// The most copies that one node holds, or `None` for no limit.
+    pub max_shards_per_node: Option<f64>,
 }
 
+/// The manifest of a cluster backup, which the store holds under `<keyPrefix>/backups/<backupName>`.
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct BackupManifest {
-    pub(crate) name: String,
-    cluster_uuid: String,
-    pub(crate) index_name: String,
-    pub(crate) started_at: f64,
-    completed_at: f64,
-    pub(crate) partition_count: u64,
-    pub(crate) sync_epoch: Option<String>,
-    taken_by: Option<String>,
-    replication_factor: f64,
-    constraints: AllocationConstraints,
-    pub(crate) config: StoredFile,
-    pub(crate) query_history: Option<Vec<StoredFile>>,
-    pub(crate) partitions: Vec<BackupPartition>,
+pub struct BackupManifest {
+    /// The backup's name.
+    pub name: String,
+    /// The UUID of the cluster that took the backup.
+    pub cluster_uuid: String,
+    /// The index that the backup holds.
+    pub index_name: String,
+    /// When the backup started, in milliseconds since the Unix epoch.
+    pub started_at: f64,
+    /// When the controller wrote the manifest, in milliseconds since the Unix epoch.
+    pub completed_at: f64,
+    /// The index's partition count.
+    pub partition_count: u64,
+    /// The index's sync epoch where device sync was on.
+    pub sync_epoch: Option<String>,
+    /// `sync` or `changes` for a backup that device sync or change capture took.
+    pub taken_by: Option<String>,
+    /// The index's replication factor.
+    pub replication_factor: f64,
+    /// The rules that placed the index's partitions.
+    pub constraints: BackupConstraints,
+    /// The index configuration payload.
+    pub config: StoredFile,
+    /// The query history files, where the backup holds them.
+    pub query_history: Option<Vec<StoredFile>>,
+    /// One entry for each partition, in partition id order.
+    pub partitions: Vec<BackupPartition>,
 }
 
 fn damaged(backup_name: &str, reason: &str) -> NarsilError {
@@ -160,7 +192,7 @@ fn backup_partition(
     })
 }
 
-fn constraints_of(value: Option<&Value>) -> Option<AllocationConstraints> {
+fn constraints_of(value: Option<&Value>) -> Option<BackupConstraints> {
     let map = value?.as_object()?;
     let zone_awareness = map.get("zoneAwareness")?.as_bool()?;
     let zone_attribute = map
@@ -171,7 +203,7 @@ fn constraints_of(value: Option<&Value>) -> Option<AllocationConstraints> {
         Some(Value::Null) => None,
         other => Some(whole_number(other).filter(|shards| *shards > 0.0)?),
     };
-    Some(AllocationConstraints {
+    Some(BackupConstraints {
         zone_awareness,
         zone_attribute: zone_attribute.to_string(),
         max_shards_per_node,
@@ -269,7 +301,13 @@ pub(crate) fn backup_manifest_from_wire(raw: &Value, backup_name: &str) -> Resul
     })
 }
 
-pub(crate) fn decode_backup_manifest(bytes: &[u8], backup_name: &str) -> Result<BackupManifest> {
+/// Returns the manifest of the backup `backup_name` that `bytes` hold.
+///
+/// # Errors
+///
+/// Fails with `BACKUP_DAMAGED` where the bytes fail to decode or break a rule of a backup manifest, such as a
+/// name other than `backup_name`.
+pub fn decode_backup_manifest(bytes: &[u8], backup_name: &str) -> Result<BackupManifest> {
     let what = format!("manifest of backup '{backup_name}'");
     let expected = Expectation {
         version: BACKUP_MANIFEST_ENVELOPE_VERSION,
@@ -285,93 +323,4 @@ pub(crate) fn decode_backup_manifest(bytes: &[u8], backup_name: &str) -> Result<
             )
         })?;
     backup_manifest_from_wire(&raw, backup_name)
-}
-
-fn stored_file_wire(file: &StoredFile) -> Value {
-    let mut map = Map::new();
-    map.insert("sha256", Value::String(file.sha256.clone()));
-    map.insert("bytes", Value::Number(file.bytes as f64));
-    Value::Object(map)
-}
-
-pub(crate) fn backup_manifest_to_wire(manifest: &BackupManifest) -> Value {
-    let mut map = Map::new();
-    map.insert("name", Value::String(manifest.name.clone()));
-    map.insert("clusterUuid", Value::String(manifest.cluster_uuid.clone()));
-    map.insert("indexName", Value::String(manifest.index_name.clone()));
-    map.insert("startedAt", Value::Number(manifest.started_at));
-    map.insert("completedAt", Value::Number(manifest.completed_at));
-    map.insert(
-        "partitionCount",
-        Value::Number(manifest.partition_count as f64),
-    );
-    if let Some(epoch) = &manifest.sync_epoch {
-        map.insert("syncEpoch", Value::String(epoch.clone()));
-    }
-    if let Some(taker) = &manifest.taken_by {
-        map.insert("takenBy", Value::String(taker.clone()));
-    }
-    map.insert(
-        "replicationFactor",
-        Value::Number(manifest.replication_factor),
-    );
-    let mut constraints = Map::new();
-    constraints.insert(
-        "zoneAwareness",
-        Value::Bool(manifest.constraints.zone_awareness),
-    );
-    constraints.insert(
-        "zoneAttribute",
-        Value::String(manifest.constraints.zone_attribute.clone()),
-    );
-    constraints.insert(
-        "maxShardsPerNode",
-        manifest
-            .constraints
-            .max_shards_per_node
-            .map_or(Value::Null, Value::Number),
-    );
-    map.insert("constraints", Value::Object(constraints));
-    map.insert("config", stored_file_wire(&manifest.config));
-    if let Some(history) = &manifest.query_history {
-        map.insert(
-            "queryHistory",
-            Value::Array(history.iter().map(stored_file_wire).collect()),
-        );
-    }
-    let partitions = manifest
-        .partitions
-        .iter()
-        .map(|partition| {
-            let mut entry = Map::new();
-            entry.insert("partitionId", Value::Number(partition.partition_id as f64));
-            entry.insert("lastSeqNo", Value::Number(partition.last_seq_no));
-            entry.insert("manifest", stored_file_wire(&partition.manifest));
-            let files = partition
-                .files
-                .iter()
-                .map(|listed| {
-                    let mut file = Map::new();
-                    file.insert("key", Value::String(listed.key.clone()));
-                    file.insert("sha256", Value::String(listed.file.sha256.clone()));
-                    file.insert("bytes", Value::Number(listed.file.bytes as f64));
-                    Value::Object(file)
-                })
-                .collect();
-            entry.insert("files", Value::Array(files));
-            Value::Object(entry)
-        })
-        .collect();
-    map.insert("partitions", Value::Array(partitions));
-    Value::Object(map)
-}
-
-pub(crate) fn encode_backup_manifest(manifest: &BackupManifest) -> Result<Vec<u8>> {
-    let payload = encode_value(&backup_manifest_to_wire(manifest))?;
-    pack(
-        &payload,
-        BACKUP_MANIFEST_ENVELOPE_VERSION,
-        Compression::None,
-        "backup manifest",
-    )
 }

@@ -283,6 +283,7 @@ name = "delali-narsil-cluster"
 version = "0.1.0"
 dependencies = [
  "bytes",
+ "crc32fast",
  "delali-narsil",
  "etcd-client",
  "futures-core",

@@ -101,6 +101,11 @@ impl DataRole {
             on_error: self.on_error.clone(),
             log_retention_bytes: self.config.log_retention_bytes,
             memory,
+            spool_directory: self
+                .config
+                .snapshot_spool_directory
+                .clone()
+                .unwrap_or_else(std::env::temp_dir),
         }));
         let started = AllocationWatcher::start(WatcherSettings {
             node_id: self.node_id.clone(),

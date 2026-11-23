@@ -1,95 +1,12 @@
-use std::collections::BTreeMap;
-use std::time::{Duration, Instant};
-
-use narsil::Value;
-use narsil_cluster::coordinator::etcd::EtcdCoordinator;
 use narsil_cluster::transport::NodeTransport;
 
 use crate::data_node::{Scratch, cluster_coordinator, eventually};
 use crate::ledger::{
-    DIVERGED_DOCUMENT_ID, LEDGER, Ledger, Member, PAUSE_BETWEEN_WRITES, document_ids,
-    first_difference, holds_exactly, placement, start_cluster,
+    DIVERGED_DOCUMENT_ID, LEDGER, Ledger, document_ids, holds_exactly, placement, start_cluster,
 };
 
-const BOOTSTRAP_FAILED: &str = "NODE_BOOTSTRAP_FAILED";
-const PRIMARY_ERROR: &str = "SNAPSHOT_SYNC_PRIMARY_ERROR";
-const SNAPSHOT_FAILED: &str = "SNAPSHOT_SYNC_SNAPSHOT_FAILED";
-const REFUSED_SYNCS_TO_WATCH: usize = 3;
-const REFUSED_SYNCS_WAIT: Duration = Duration::from_secs(60);
-
-impl Member {
-    fn snapshot_refusals(&self) -> usize {
-        self.data()
-            .reported
-            .lock()
-            .expect("no reporter panicked")
-            .iter()
-            .filter(|error| {
-                let details = error.details();
-                error.code() == BOOTSTRAP_FAILED
-                    && details.get("innerCode").and_then(Value::as_str) == Some(PRIMARY_ERROR)
-                    && details
-                        .get("cause")
-                        .and_then(Value::as_str)
-                        .is_some_and(|cause| cause.contains(SNAPSHOT_FAILED))
-            })
-            .count()
-    }
-}
-
-async fn stays_refused_while_writes_continue(
-    coordinator: &EtcdCoordinator,
-    ledger: &mut Ledger,
-    primary: &Member,
-    replica: &Member,
-    kept: &BTreeMap<String, String>,
-    prefix: &str,
-) {
-    let deadline = Instant::now() + REFUSED_SYNCS_WAIT;
-    let mut serial = 0;
-    while replica.snapshot_refusals() < REFUSED_SYNCS_TO_WATCH {
-        assert!(
-            Instant::now() < deadline,
-            "timed out waiting for {} to report {REFUSED_SYNCS_TO_WATCH} syncs that the primary refused for a snapshot",
-            replica.node_id
-        );
-        ledger
-            .insert_all(primary.data(), &[format!("{prefix}-{serial}")])
-            .await;
-        serial += 1;
-        let placed = placement(coordinator).await.expect("the ledger is placed");
-        assert_eq!(
-            placed.primary, primary.node_id,
-            "the ledger keeps its primary"
-        );
-        assert!(
-            !placed.lists_in_sync(replica.node_id),
-            "{} stays out of the in-sync set",
-            replica.node_id
-        );
-        let difference =
-            first_difference(replica.data(), kept, &ledger.written_outside(kept)).await;
-        assert!(
-            difference.is_none(),
-            "{} keeps the copy that it had and takes no write that the primary acknowledged since: {difference:?}, reported {:?}",
-            replica.node_id,
-            replica
-                .data()
-                .reported
-                .lock()
-                .expect("no reporter panicked")
-        );
-        tokio::time::sleep(PAUSE_BETWEEN_WRITES).await;
-    }
-    assert!(
-        holds_exactly(primary.data(), &ledger.written, &[]).await,
-        "{} holds every acknowledged write",
-        primary.node_id
-    );
-}
-
 #[tokio::test(flavor = "multi_thread")]
-async fn a_rust_replica_catches_up_from_a_rust_primary_and_keeps_its_copy_once_it_falls_past_the_retained_log()
+async fn a_rust_replica_catches_up_from_a_rust_primary_and_takes_a_snapshot_once_it_falls_past_the_retained_log()
  {
     let Some(coordinator) = cluster_coordinator().await else {
         return;
@@ -130,7 +47,6 @@ async fn a_rust_replica_catches_up_from_a_rust_primary_and_keeps_its_copy_once_i
         "the returning replica holds every acknowledged write"
     );
 
-    let synced = ledger.written.clone();
     members[replica_at].stop().await;
     ledger
         .insert_all(members[primary_at].data(), &document_ids("past-the-log", 3))
@@ -141,15 +57,28 @@ async fn a_rust_replica_catches_up_from_a_rust_primary_and_keeps_its_copy_once_i
     ledger
         .insert_until_accepted(members[primary_at].data(), "the-restarted-primary-serves")
         .await;
-    stays_refused_while_writes_continue(
-        &coordinator,
-        &mut ledger,
-        &members[primary_at],
-        &members[replica_at],
-        &synced,
-        "after-the-primary-restarted",
+    eventually(
+        "the replica that fell past the retained log is admitted after a snapshot",
+        || async {
+            placement(&coordinator)
+                .await
+                .is_some_and(|placed| placed.admits(replica_id))
+        },
     )
     .await;
+    ledger
+        .insert_all(
+            members[primary_at].data(),
+            &document_ids("after-snapshot", 3),
+        )
+        .await;
+    for member in &members {
+        assert!(
+            holds_exactly(member.data(), &ledger.written, &[]).await,
+            "{} holds every acknowledged write",
+            member.node_id
+        );
+    }
 
     ledger.forwarder.shutdown().await;
     for member in &mut members {
@@ -160,7 +89,7 @@ async fn a_rust_replica_catches_up_from_a_rust_primary_and_keeps_its_copy_once_i
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_replica_holding_an_entry_from_an_earlier_term_is_never_admitted_and_keeps_its_copy() {
+async fn a_replica_holding_an_entry_from_an_earlier_term_takes_a_snapshot_that_drops_the_entry() {
     let Some(coordinator) = cluster_coordinator().await else {
         return;
     };
@@ -199,21 +128,28 @@ async fn a_replica_holding_an_entry_from_an_earlier_term_is_never_admitted_and_k
     let diverged_title = "written by the departed primary and never replicated";
     let (_, diverged_term) = members[departed_at].diverge_while_stopped(diverged_title);
     assert!((diverged_term as f64) < promoted_term);
-    let mut kept = ledger.written.clone();
-    kept.insert(DIVERGED_DOCUMENT_ID.to_string(), diverged_title.to_string());
     ledger
         .insert_until_accepted(members[successor_at].data(), "after-failover")
         .await;
     members[departed_at].restart(&coordinator).await;
-    stays_refused_while_writes_continue(
-        &coordinator,
-        &mut ledger,
-        &members[successor_at],
-        &members[departed_at],
-        &kept,
-        "while-the-departed-primary-retries",
+    eventually(
+        "the departed primary is admitted as a replica after a snapshot",
+        || async {
+            placement(&coordinator)
+                .await
+                .is_some_and(|placed| placed.admits(departed_id))
+        },
     )
     .await;
+    assert!(
+        holds_exactly(
+            members[departed_at].data(),
+            &ledger.written,
+            &[DIVERGED_DOCUMENT_ID.to_string()]
+        )
+        .await,
+        "the departed primary holds every acknowledged write and drops the entry that only it wrote"
+    );
     assert!(
         matches!(
             members[successor_at]
