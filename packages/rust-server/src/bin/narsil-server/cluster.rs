@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use narsil::{DurabilityConfig, Map, NarsilConfig};
+use narsil::{DurabilityConfig, FilesystemPersistence, Map, NarsilConfig};
 use narsil_cluster::SPEC_VERSION;
 use narsil_cluster::coordinator::etcd::{
     EtcdAuthConfig, EtcdCoordinator, EtcdCoordinatorConfig, EtcdTlsConfig,
@@ -9,8 +9,8 @@ use narsil_cluster::coordinator::etcd::{
 use narsil_cluster::coordinator::{NodeCapacity, NodeRegistration};
 use narsil_cluster::error::ClusterError;
 use narsil_cluster::node::{
-    ClusterNode, ClusterNodeConfig, ControllerTiming, CreateIndexOptions, DataNodeConfig,
-    next_started_at, resolve_node_id,
+    ClusterBackupConfig, ClusterNode, ClusterNodeConfig, ControllerTiming, CreateIndexOptions,
+    DataNodeConfig, next_started_at, resolve_node_id,
 };
 use narsil_cluster::transport::grpc::{GrpcTransport, GrpcTransportConfig};
 use narsil_cluster::transport::tcp::{TcpTransport, TcpTransportConfig};
@@ -37,6 +37,7 @@ pub(crate) struct ClusterLaunch {
     transport_tls: Option<TlsConfig>,
     controller: ControllerTiming,
     durability_directory: Option<PathBuf>,
+    backups: Option<ClusterBackupConfig>,
     pub(crate) cluster_options: ClusterOptions,
 }
 
@@ -91,6 +92,27 @@ fn etcd_auth() -> Result<Option<EtcdAuthConfig>, String> {
         (None, None) => Ok(None),
         _ => Err(
             "NARSIL_CLUSTER_ETCD_USERNAME and NARSIL_CLUSTER_ETCD_PASSWORD must be set together"
+                .to_string(),
+        ),
+    }
+}
+
+fn backup_config() -> Result<Option<ClusterBackupConfig>, String> {
+    let directory = text_from_env("NARSIL_CLUSTER_BACKUP_DIR");
+    let key_prefix = text_from_env("NARSIL_CLUSTER_BACKUP_KEY_PREFIX");
+    match (directory, key_prefix) {
+        (Some(directory), Some(key_prefix)) => {
+            let store = FilesystemPersistence::new(&directory).map_err(|failure| {
+                format!("NARSIL_CLUSTER_BACKUP_DIR names \"{directory}\", which cannot hold backups: {failure}")
+            })?;
+            Ok(Some(ClusterBackupConfig {
+                store: Arc::new(store),
+                key_prefix,
+            }))
+        }
+        (None, None) => Ok(None),
+        _ => Err(
+            "NARSIL_CLUSTER_BACKUP_DIR and NARSIL_CLUSTER_BACKUP_KEY_PREFIX must be set together"
                 .to_string(),
         ),
     }
@@ -191,6 +213,7 @@ impl ClusterLaunch {
             transport_tls: transport_tls()?,
             controller: controller_timing()?,
             durability_directory: text_from_env("NARSIL_DURABILITY_DIR").map(PathBuf::from),
+            backups: backup_config()?,
             cluster_options: ClusterOptions {
                 create_index: create_index_options()?,
             },
@@ -264,6 +287,7 @@ impl ClusterLaunch {
         let config = ClusterNodeConfig {
             controller: self.controller,
             data: self.data(),
+            backups: self.backups.clone(),
             on_error: Some(Arc::new(move |error: &ClusterError| {
                 eprintln!("{reporting_id}: {error}");
             })),

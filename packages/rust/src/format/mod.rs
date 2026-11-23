@@ -1,6 +1,7 @@
 pub(crate) mod archive;
 pub(crate) mod archive_tar;
 pub(crate) mod backup_manifest;
+pub(crate) mod backup_manifest_write;
 pub(crate) mod document_export;
 pub(crate) mod earlier_payload;
 pub(crate) mod envelope;
