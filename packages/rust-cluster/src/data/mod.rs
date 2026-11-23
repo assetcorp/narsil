@@ -2,6 +2,7 @@ mod blocking;
 mod config;
 mod copies;
 mod lost_copy;
+mod partition_pages;
 mod partition_stores;
 mod primary_copy;
 mod reconcile;
