@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
+import { decode, encode } from '@msgpack/msgpack'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createClusterNode } from '../../../distribution/cluster-node'
 import { clusterNodeEngine } from '../../../distribution/cluster-node/server-engine'
@@ -21,6 +22,61 @@ const BANNED = 'cheap knockoffs'
 const KEY_PREFIX = 'clusters/catalogue'
 const SETTING = { enabled: true, fields: ['title'], minPeople: 2, minResults: 1, schedule: 'off' }
 const SETTLE_TIMEOUT_MS = 60_000
+const STALE_INDEX_UUID = '0190a000-0000-7000-8000-000000000000'
+const HEADER_BYTES = 32
+const LEADING_HEADER_BYTES = 8
+const CHECKSUM_FLAG = 0x0008
+const SCRAMBLED_ID_BYTES = 16
+const DAY_MS = 86_400_000
+const CRC32_POLYNOMIAL = 0xedb88320
+
+const CRC32_TABLE = Array.from({ length: 256 }, (_, index) => {
+  let value = index
+  for (let bit = 0; bit < 8; bit++) value = value & 1 ? CRC32_POLYNOMIAL ^ (value >>> 1) : value >>> 1
+  return value >>> 0
+})
+
+function crc32(bytes: Uint8Array): number {
+  let crc = 0xffffffff
+  for (const byte of bytes) crc = CRC32_TABLE[(crc ^ byte) & 0xff] ^ (crc >>> 8)
+  return (crc ^ 0xffffffff) >>> 0
+}
+
+function dayOf(instant: number): string {
+  return new Date(instant).toISOString().slice(0, 10)
+}
+
+function historyPath(nodeDirectory: string, day: string): string {
+  return join(nodeDirectory, '_query-counts', SOURCE, `${day}.nrsl`)
+}
+
+function staleIndexFile(template: Uint8Array, day: string, savedAt: number): Uint8Array {
+  const length = new DataView(template.buffer, template.byteOffset, template.byteLength).getUint32(8)
+  const decoded = decode(template.subarray(HEADER_BYTES, HEADER_BYTES + length)) as Record<string, unknown>
+  const people = [
+    globalThis.crypto.getRandomValues(new Uint8Array(SCRAMBLED_ID_BYTES)),
+    globalThis.crypto.getRandomValues(new Uint8Array(SCRAMBLED_ID_BYTES)),
+  ]
+  const payload = encode({
+    ...decoded,
+    day,
+    savedAt,
+    indexUuid: STALE_INDEX_UUID,
+    groups: { mallory: [{ phrase: PHRASE, count: 2, people }] },
+  })
+  const file = new Uint8Array(HEADER_BYTES + payload.byteLength)
+  file.set(template.subarray(0, LEADING_HEADER_BYTES))
+  const view = new DataView(file.buffer)
+  view.setUint32(8, payload.byteLength)
+  view.setUint16(12, CHECKSUM_FLAG)
+  view.setUint32(14, crc32(payload))
+  file.set(payload, HEADER_BYTES)
+  return file
+}
+
+function digestOf(bytes: Uint8Array): string {
+  return createHash('sha256').update(bytes).digest('hex')
+}
 
 async function codeOf(work: Promise<unknown>): Promise<string> {
   try {
@@ -64,6 +120,7 @@ describe('cluster backups that hold popular query suggestion history', () => {
   const transports: NodeTransport[] = []
   let scratch = ''
   let storeDirectory = ''
+  let staleDigest = ''
   let controller: ClusterNode
 
   async function startNode(nodeId: string, roles: NodeRole[]): Promise<ClusterNode> {
@@ -109,6 +166,13 @@ describe('cluster backups that hold popular query suggestion history', () => {
         outcome: 'recorded',
       })
     }
+    await onCounter.preview(SOURCE)
+    const now = Date.now()
+    const template = new Uint8Array(await readFile(historyPath(join(scratch, 'node-b'), dayOf(now))))
+    const staleDay = dayOf(now - 2 * DAY_MS)
+    const stale = staleIndexFile(template, staleDay, now - 2 * DAY_MS)
+    staleDigest = digestOf(stale)
+    await writeFile(historyPath(join(scratch, 'node-b'), staleDay), stale)
     await controller.cluster.createBackup(SOURCE, 'with-history', { queryHistory: true })
     await controller.cluster.createBackup(SOURCE, 'without-history')
   }, SETTLE_TIMEOUT_MS)
@@ -121,13 +185,15 @@ describe('cluster backups that hold popular query suggestion history', () => {
     await rm(storeDirectory, { recursive: true, force: true })
   })
 
-  it('stores every node history file only where the caller asks for it', async () => {
+  it('stores every node history file of the present index only where the caller asks for it', async () => {
     const onDisk = [
       ...(await historyDigestsUnder(join(scratch, 'node-a'), SOURCE)),
       ...(await historyDigestsUnder(join(scratch, 'node-b'), SOURCE)),
     ].sort()
-    expect(onDisk).toHaveLength(2)
-    expect((await manifestHistoryOf(storeDirectory, 'with-history'))?.sort()).toEqual(onDisk)
+    expect(onDisk).toHaveLength(3)
+    expect(onDisk).toContain(staleDigest)
+    const present = onDisk.filter(digest => digest !== staleDigest)
+    expect((await manifestHistoryOf(storeDirectory, 'with-history'))?.sort()).toEqual(present)
     expect(await manifestHistoryOf(storeDirectory, 'without-history')).toBeUndefined()
   })
 
