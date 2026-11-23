@@ -8,6 +8,7 @@ mod step;
 mod types;
 
 pub use feed::{ChangeFeed, ChangeFeedStop};
+pub(crate) use filter::ChangeFilter;
 pub use setting::{ChangesSetting, ChangesStatus};
 pub use types::{
     Change, ChangeGroup, ChangePosition, ChangeType, ChangesEvent, ChangesRequest,

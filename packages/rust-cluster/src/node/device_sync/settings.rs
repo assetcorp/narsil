@@ -134,6 +134,26 @@ pub(super) fn next_changes_settings(
     Ok(Some(others))
 }
 
+pub(super) fn require_sync_on(index_name: &str, current: &Map) -> ClusterResult<()> {
+    if feature_on(current, "sync") {
+        return Ok(());
+    }
+    Err(ClusterError::new(
+        codes::SYNC_NOT_ENABLED,
+        format!("Index '{index_name}' has device sync off"),
+    )
+    .with_detail("indexName", Value::from(index_name)))
+}
+
+pub(super) fn next_active_settings(current: &Map) -> Option<Map> {
+    if current.get("syncActive") == Some(&Value::Bool(true)) {
+        return None;
+    }
+    let mut next = sync_fields_of(current);
+    next.insert("syncActive", Value::Bool(true));
+    Some(next)
+}
+
 fn whole(fields: &Map, key: &str) -> Option<u64> {
     match fields.get(key) {
         Some(Value::Number(number)) if number.fract() == 0.0 && *number >= 1.0 => {
@@ -180,23 +200,4 @@ pub(super) fn changes_status_of(settings: &Map) -> ChangesStatus {
         history_max_bytes: whole(changes, "historyMaxBytes"),
         epoch: epoch_of(settings),
     }
-}
-
-pub(super) fn not_ready(
-    code: &str,
-    what: &str,
-    minimum: &str,
-    older: Vec<String>,
-    index_name: &str,
-) -> ClusterError {
-    ClusterError::new(
-        code,
-        format!(
-            "The cluster has {} node(s) below specification version {minimum}, which {what}. Try again once every node registers that version",
-            older.len()
-        ),
-    )
-    .with_detail("indexName", Value::from(index_name))
-    .with_detail("nodeIds", Value::Array(older.into_iter().map(Value::String).collect()))
-    .with_detail("minimumVersion", Value::from(minimum))
 }

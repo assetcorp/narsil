@@ -27,8 +27,9 @@ pub mod held_analysis {
 #[doc(hidden)]
 pub mod replication {
     pub use crate::engine::replication::{
-        AppliedRun, BackupListedFile, BackupPartitionFiles, CopyChangesState, CopyEpochStates,
-        CopyPosition, CopySyncState, EntryOperation, HeldTerm, NodeMemoryReading, PartitionBackup,
+        AppliedRun, BackupArchive, BackupArchiveFile, BackupArchivePartition, BackupFileReader,
+        BackupListedFile, BackupPartitionFiles, CopyChangesState, CopyEpochStates, CopyPosition,
+        CopySyncState, EntryOperation, HeldTerm, NodeMemoryReading, PartitionBackup,
         PartitionCopies, PrimaryLimits, PrimaryRefusal, PrimaryRun, PrimaryWrite, PrimaryWritten,
         PriorDocument, ReplicatedEntry, WriteRecord, decode_backup_index_configuration,
         encode_backup_index_configuration, read_process_memory, require_restorable_config,
@@ -78,6 +79,10 @@ pub use engine::{
 pub use engine::{
     AnalysisConfig, AnalysisRebuildMode, IdGenerator, IndexLifecycleConfig, IndexResidencyState,
     MemoryConfig, StaleAnalysis, StaleAnalysisListener, StaleRebuild,
+};
+pub use engine::{
+    BoundsFreshness, ChangeSource, ChangesIndexState, DocumentTest, EngineFeedSource, FeedSource,
+    FeedSourceChange, FeedSourceListener, FeedSubscription,
 };
 pub use engine::{
     Change, ChangeFeed, ChangeFeedStop, ChangeGroup, ChangePosition, ChangeType, ChangesEvent,

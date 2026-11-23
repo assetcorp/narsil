@@ -29,6 +29,7 @@ use crate::value::{Map, Value};
 enum ArchiveFiles {
     Stored(Backing, PinnedCheckpoint),
     Memory(SnapshotStore),
+    Read(Box<dyn CheckpointStore>),
 }
 
 /// One checkpoint of an index, whose files a snapshot archive or a document export reads: the newest checkpoint
@@ -74,10 +75,25 @@ impl ArchiveCheckpoint {
         })
     }
 
+    pub(crate) fn over_store(
+        store: Box<dyn CheckpointStore>,
+        manifest_bytes: Vec<u8>,
+        manifest: SegmentManifest,
+        capture_epoch: Option<String>,
+    ) -> ArchiveCheckpoint {
+        ArchiveCheckpoint {
+            manifest_bytes,
+            manifest,
+            capture_epoch,
+            files: ArchiveFiles::Read(store),
+        }
+    }
+
     fn store(&self) -> &dyn CheckpointStore {
         match &self.files {
             ArchiveFiles::Stored(backing, _) => backing.files(),
             ArchiveFiles::Memory(store) => store.store(),
+            ArchiveFiles::Read(store) => store.as_ref(),
         }
     }
 

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use narsil::{ChangePosition, Map, SyncCursor, SyncRead, Value};
+use narsil::{ChangePosition, Map, SyncCursor, SyncEntry, SyncRead, Value};
 
 use super::PrimaryWrites;
 use crate::allocator::{Assignment, Table};
@@ -13,20 +13,20 @@ use crate::wire::{write_array_header, write_map_header, write_str, write_uint};
 const UINT32_MAX: u64 = 0xffff_ffff;
 const INITIALISING: &str = "INITIALISING";
 
-struct SyncReadRequest {
-    index_name: String,
-    index_uuid: String,
-    partition_id: u32,
-    after_seq_no: u64,
-    max_bytes: u32,
+pub(crate) struct SyncReadRequest {
+    pub(crate) index_name: String,
+    pub(crate) index_uuid: String,
+    pub(crate) partition_id: u32,
+    pub(crate) after_seq_no: u64,
+    pub(crate) max_bytes: u32,
 }
 
-struct SyncReadReply {
-    entries: Vec<Vec<u8>>,
-    head: u64,
-    highest_seq_no: u64,
-    oldest_seq_no: u64,
-    bytes_behind: u64,
+pub(crate) struct SyncReadReply {
+    pub(crate) entries: Vec<SyncEntry>,
+    pub(crate) head: u64,
+    pub(crate) highest_seq_no: u64,
+    pub(crate) oldest_seq_no: u64,
+    pub(crate) bytes_behind: u64,
 }
 
 fn whole_number(fields: &Map, key: &str) -> Option<u64> {
@@ -67,13 +67,13 @@ fn validate_sync_read_request(decoded: &Value) -> Option<SyncReadRequest> {
 }
 
 fn encode_sync_read_reply(reply: &SyncReadReply) -> Vec<u8> {
-    let entry_bytes: usize = reply.entries.iter().map(Vec::len).sum();
+    let entry_bytes: usize = reply.entries.iter().map(|entry| entry.payload.len()).sum();
     let mut out = Vec::with_capacity(entry_bytes + 96);
     write_map_header(&mut out, 5);
     write_str(&mut out, "entries");
     write_array_header(&mut out, reply.entries.len());
     for entry in &reply.entries {
-        out.extend_from_slice(entry);
+        out.extend_from_slice(&entry.payload);
     }
     write_str(&mut out, "head");
     write_uint(&mut out, reply.head);
@@ -139,7 +139,7 @@ impl PrimaryWrites {
         .with_detail("localNodeId", Value::from(self.node_id.as_str())))
     }
 
-    async fn answer_sync_read_request(
+    pub(crate) async fn answer_sync_read_request(
         &self,
         request: SyncReadRequest,
     ) -> ClusterResult<SyncReadReply> {
@@ -196,10 +196,7 @@ impl PrimaryWrites {
                 }],
             )?;
             let (entries, oldest_seq_no) = match read {
-                SyncRead::Entries(entries) => (
-                    entries.into_iter().map(|entry| entry.payload).collect(),
-                    bounds.oldest_seq_no,
-                ),
+                SyncRead::Entries(entries) => (entries, bounds.oldest_seq_no),
                 SyncRead::HistoryGone => (
                     Vec::new(),
                     bounds.oldest_seq_no.max(after_seq_no.saturating_add(2)),

@@ -164,6 +164,16 @@ error_codes! {
     DOC_MISSING_REQUIRED_FIELD,
     /// A configuration value is invalid.
     CONFIG_INVALID,
+    /// A cluster node runs a specification version that serves no device sync.
+    SYNC_NOT_READY,
+    /// A cluster node that leads a partition did not answer a read in time.
+    QUERY_NODE_TIMEOUT,
+    /// A partition of a cluster index has no copy that can serve a read.
+    QUERY_NO_ACTIVE_REPLICA,
+    /// A cluster node refused a read for a partition that another node leads.
+    PARTITION_NOT_PRIMARY,
+    /// A cluster node gave an answer that a read cannot use.
+    QUERY_ROUTING_FAILED,
 }
 
 impl fmt::Display for ErrorCode {
