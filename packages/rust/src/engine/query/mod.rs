@@ -1,29 +1,31 @@
 mod assemble;
 mod bm25;
+pub(crate) mod confined;
 pub(crate) mod constants;
 mod coverage;
-mod cursor;
+pub(crate) mod cursor;
 pub(crate) mod documents;
 mod embedded;
-mod facets;
+pub(crate) mod facets;
 mod fulltext;
-mod fusion;
+pub(crate) mod fusion;
 mod gather;
-mod grouping;
+pub(crate) mod grouping;
 mod groups;
 mod highlight;
 mod hybrid;
 pub(crate) mod listing;
 mod page_start;
-mod pagination;
+pub(crate) mod pagination;
 pub(crate) mod params;
+pub(crate) mod partition_stats;
 mod phrases;
-mod pinned;
+pub(crate) mod pinned;
 pub(crate) mod preflight;
 pub(crate) mod projected;
 pub(crate) mod projection;
 mod ranked;
-mod rerank;
+pub(crate) mod rerank;
 pub(crate) mod results;
 mod scope;
 mod scored;
@@ -47,6 +49,7 @@ use crate::error::{ErrorCode, NarsilError, Result};
 use crate::pattern::SearchLimits;
 use crate::search::components::ScoreComponents as SegmentComponents;
 use crate::value::Value;
+use confined::PartitionQuery;
 use constants::{DEFAULT_PAGE_SIZE, MAX_PREFIX_LENGTH, MAX_TOLERANCE, RESULT_WINDOW};
 use cursor::sort_signature_of;
 use embedded::{EmbeddedQuery, resolve_vector_text};
@@ -109,6 +112,7 @@ fn shaped_query(
     params: &QueryParams,
     requested: &QueryParams,
     limits: &SearchLimits,
+    confinement: Option<&PartitionQuery>,
 ) -> Result<QueryResult> {
     let limit = params.limit.unwrap_or(DEFAULT_PAGE_SIZE);
     let offset = params.offset.unwrap_or(0);
@@ -118,7 +122,8 @@ fn shaped_query(
     require_integer_up_to("tolerance", params.tolerance, MAX_TOLERANCE)?;
     require_integer_up_to("prefixLength", params.prefix_length, MAX_PREFIX_LENGTH)?;
     require_sortable_fields(index, params.sort.as_deref())?;
-    let scope = QueryScope::new(index, params.filters.as_ref(), limits)?;
+    let scope = QueryScope::new(index, params.filters.as_ref(), limits)?
+        .confined_to_partitions(confinement.is_some());
     require_usable_query_fields(index, params)?;
     require_vector_searchable(index, params, search)?;
     let shape = RunShape {
@@ -126,6 +131,7 @@ fn shaped_query(
         limit,
         offset,
         signature,
+        confinement,
     };
     let run = QueryRun::new(index, params, &scope, shape)?;
     if search != SearchPlan::Vector {
@@ -138,6 +144,13 @@ fn shaped_query(
     let projection = resolve_projection(params.document.as_ref(), index);
     let page = shaped_page(&run, search, &projection)?;
     let partitions = run.snapshots.partitions.len();
+    let (total_partitions, queried_partitions) = match confinement {
+        Some(confinement) => (
+            confinement.partition_ids.len(),
+            confinement.held_count(partitions),
+        ),
+        None => (partitions, partitions),
+    };
     Ok(QueryResult {
         hits: page.hits,
         count: page.count,
@@ -148,12 +161,46 @@ fn shaped_query(
         groups: page.groups,
         analysis_stale: index.analysis_stale(),
         coverage: QueryCoverage {
-            total_partitions: partitions,
-            queried_partitions: partitions,
+            total_partitions,
+            queried_partitions,
             timed_out_partitions: 0,
-            failed_partitions: 0,
+            failed_partitions: total_partitions.saturating_sub(queried_partitions),
         },
     })
+}
+
+/// Returns the result of `params` on the partitions of the index called `name` that `confinement` lists, scored
+/// against the statistics and the BM25 setting that it supplies, with every pinned document left unplaced, so that
+/// a cluster coordinator can place the pins after it merges the answers of every node.
+pub(crate) fn answer_partition_query(
+    engine: &EngineInner,
+    name: &str,
+    params: &QueryParams,
+    confinement: &PartitionQuery,
+    started: Instant,
+) -> Result<QueryResult> {
+    let mut unpinned = params.clone();
+    unpinned.pinned = None;
+    unpinned.rerank = None;
+    let limits = &engine.search_limits;
+    let mut result = engine.read_index_prepared(
+        name,
+        None,
+        |current, earlier| resolve_vector_text(current, &unpinned, earlier),
+        |current, embedded| {
+            spread::counted(|| {
+                shaped_query(
+                    current,
+                    &embedded.params,
+                    &unpinned,
+                    limits,
+                    Some(confinement),
+                )
+            })
+        },
+    )?;
+    result.elapsed = started.elapsed();
+    Ok(result)
 }
 
 fn run_query<'a>(
@@ -164,7 +211,7 @@ fn run_query<'a>(
 ) -> Result<QueryStep<'a>> {
     spread::counted(|| {
         let Some(rerank) = &params.rerank else {
-            let answered = shaped_query(index, &embedded.params, params, limits)?;
+            let answered = shaped_query(index, &embedded.params, params, limits, None)?;
             return Ok(QueryStep::Answered(answered));
         };
         let request = RerankRequest {

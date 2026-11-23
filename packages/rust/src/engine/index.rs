@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, RwLock, RwLockWriteGuard};
 
 use super::changes::LayoutChanges;
@@ -49,6 +49,7 @@ pub(crate) struct IndexState {
     retired: AtomicBool,
     pub(crate) changes: LayoutChanges,
     analysis_stale: AtomicBool,
+    memory_analysis_generation: AtomicU64,
     suggestions: RwLock<Arc<SuggestionState>>,
     pub(crate) residency: IndexResidency,
 }
@@ -106,6 +107,7 @@ impl IndexState {
             retired: AtomicBool::new(false),
             changes: LayoutChanges::default(),
             analysis_stale: AtomicBool::new(false),
+            memory_analysis_generation: AtomicU64::new(0),
             suggestions: RwLock::new(Arc::new(SuggestionState::default())),
             residency: IndexResidency::default(),
         }
@@ -144,6 +146,20 @@ impl IndexState {
 
     pub(crate) fn set_analysis_stale(&self, stale: bool) {
         self.analysis_stale.store(stale, Ordering::Release);
+    }
+
+    /// Returns the analysis generation that the index's terms come from: the one that the metadata of a durable
+    /// index records, or the one that an index without a write-ahead log keeps in memory.
+    pub(crate) fn analysis_generation(&self) -> u64 {
+        match self.log() {
+            Some(log) => log.metadata(self).analysis_generation.unwrap_or(0),
+            None => self.memory_analysis_generation.load(Ordering::Acquire),
+        }
+    }
+
+    pub(crate) fn record_analysis_generation(&self, generation: u64) {
+        self.memory_analysis_generation
+            .store(generation, Ordering::Release);
     }
 
     /// Returns the write-ahead log of a durable index, or `None` for an index that keeps everything in memory.

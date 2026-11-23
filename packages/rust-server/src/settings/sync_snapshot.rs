@@ -13,7 +13,7 @@ use crate::http::pipeline::RouteContext;
 use crate::http::respond::{HttpResponse, empty, insert_header, with_body};
 use crate::state::ServerState;
 
-const SYNC_SNAPSHOT_PREPARING: &str = "SYNC_SNAPSHOT_PREPARING";
+pub(crate) const SYNC_SNAPSHOT_PREPARING: &str = "SYNC_SNAPSHOT_PREPARING";
 const NO_STORE: &str = "no-store";
 const BYTE_RANGES: &str = "bytes";
 
@@ -34,7 +34,46 @@ fn chunk_length(from: u64, end_exclusive: u64) -> usize {
     })
 }
 
-fn read_chunk(snapshot: &SyncSnapshot, from: u64, end_exclusive: u64) -> narsil::Result<Bytes> {
+pub(crate) trait SnapshotDownload: Send + Sync + 'static {
+    fn entity_tag(&self) -> &str;
+    fn byte_length(&self) -> u64;
+    fn read_at(&self, offset: u64, buffer: &mut [u8]) -> narsil::Result<usize>;
+}
+
+impl SnapshotDownload for SyncSnapshot {
+    fn entity_tag(&self) -> &str {
+        SyncSnapshot::entity_tag(self)
+    }
+
+    fn byte_length(&self) -> u64 {
+        SyncSnapshot::byte_length(self)
+    }
+
+    fn read_at(&self, offset: u64, buffer: &mut [u8]) -> narsil::Result<usize> {
+        SyncSnapshot::read_at(self, offset, buffer)
+    }
+}
+
+#[cfg(feature = "cluster")]
+impl SnapshotDownload for narsil_cluster::node::ClusterSyncSnapshot {
+    fn entity_tag(&self) -> &str {
+        narsil_cluster::node::ClusterSyncSnapshot::entity_tag(self)
+    }
+
+    fn byte_length(&self) -> u64 {
+        narsil_cluster::node::ClusterSyncSnapshot::byte_length(self)
+    }
+
+    fn read_at(&self, offset: u64, buffer: &mut [u8]) -> narsil::Result<usize> {
+        narsil_cluster::node::ClusterSyncSnapshot::read_at(self, offset, buffer)
+    }
+}
+
+fn read_chunk(
+    snapshot: &dyn SnapshotDownload,
+    from: u64,
+    end_exclusive: u64,
+) -> narsil::Result<Bytes> {
     let mut buffer = vec![0u8; chunk_length(from, end_exclusive)];
     let read = snapshot.read_at(from, &mut buffer)?;
     buffer.truncate(read);
@@ -42,7 +81,7 @@ fn read_chunk(snapshot: &SyncSnapshot, from: u64, end_exclusive: u64) -> narsil:
 }
 
 async fn send_rest(
-    snapshot: Arc<SyncSnapshot>,
+    snapshot: Arc<dyn SnapshotDownload>,
     sender: ChunkSender,
     mut from: u64,
     end_exclusive: u64,
@@ -50,7 +89,8 @@ async fn send_rest(
     while from < end_exclusive {
         let reader = Arc::clone(&snapshot);
         let read =
-            tokio::task::spawn_blocking(move || read_chunk(&reader, from, end_exclusive)).await;
+            tokio::task::spawn_blocking(move || read_chunk(reader.as_ref(), from, end_exclusive))
+                .await;
         let chunk = match read {
             Ok(Ok(chunk)) if !chunk.is_empty() => chunk,
             _ => return,
@@ -71,10 +111,7 @@ fn refused_range(length: u64, entity_tag: &str) -> HttpResponse {
     response
 }
 
-pub(crate) async fn sync_snapshot(
-    state: &Arc<ServerState>,
-    context: &RouteContext,
-) -> Outcome<HttpResponse> {
+pub(crate) fn require_sync_feed(state: &ServerState) -> Outcome<()> {
     if state.feeds.sync.is_none() {
         return Err(ServerError::new(
             404,
@@ -82,12 +119,25 @@ pub(crate) async fn sync_snapshot(
             "Route not found",
         ));
     }
-    let name = context.param(0).to_string();
-    let wanted = name.clone();
+    Ok(())
+}
+
+pub(crate) async fn sync_snapshot(
+    state: &Arc<ServerState>,
+    context: &RouteContext,
+) -> Outcome<HttpResponse> {
+    require_sync_feed(state)?;
+    let wanted = context.param(0).to_string();
     let snapshot = engine_call(state, move |engine| engine.sync_snapshot(&wanted))
         .await
         .map_err(|failure| preparing(failure, SYNC_SNAPSHOT_PREPARING))?;
-    let snapshot = Arc::new(snapshot);
+    serve_snapshot(context, Arc::new(snapshot)).await
+}
+
+pub(crate) async fn serve_snapshot(
+    context: &RouteContext,
+    snapshot: Arc<dyn SnapshotDownload>,
+) -> Outcome<HttpResponse> {
     let length = snapshot.byte_length();
     let entity_tag = snapshot.entity_tag().to_string();
     let range = request_header(context, "range");
@@ -102,10 +152,11 @@ pub(crate) async fn sync_snapshot(
             } => (206, start, end_exclusive),
         };
     let reader = Arc::clone(&snapshot);
-    let first = tokio::task::spawn_blocking(move || read_chunk(&reader, start, end_exclusive))
-        .await
-        .map_err(|_| ServerError::internal())?
-        .map_err(ServerError::from)?;
+    let first =
+        tokio::task::spawn_blocking(move || read_chunk(reader.as_ref(), start, end_exclusive))
+            .await
+            .map_err(|_| ServerError::internal())?
+            .map_err(ServerError::from)?;
     if first.is_empty() && start < end_exclusive {
         return Err(ServerError::internal());
     }

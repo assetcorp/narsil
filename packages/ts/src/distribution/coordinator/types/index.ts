@@ -161,6 +161,14 @@ export interface ClusterCoordinator extends IndexMetadataWatch {
    */
   deleteAllocation(indexName: string): Promise<void>
   /**
+   * Lists the name of every stored allocation, which is how a newly elected
+   * controller finds the allocation of an index dropped while no controller held
+   * the lease.
+   *
+   * @returns Every index name holding an allocation, sorted by code point.
+   */
+  listAllocations(): Promise<string[]>
+  /**
    * Watches allocations changing.
    *
    * @param handler - Called once per change.

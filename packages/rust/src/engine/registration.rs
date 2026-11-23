@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use super::EngineInner;
+use super::adapter_registry::AdapterRegistry;
 use super::vectors::embedding::validate_embedding_fields;
 use crate::adapters::{EmbeddingAdapter, RerankAdapter};
 use crate::error::{ErrorCode, NarsilError, Result};
@@ -67,15 +68,20 @@ pub(crate) fn register_rerank_adapter(
     adapter: Arc<dyn RerankAdapter>,
 ) -> Result<()> {
     engine.guard_shutdown()?;
+    register_rerank_in(&engine.adapters, name, adapter)
+}
+
+pub(crate) fn register_rerank_in(
+    registry: &AdapterRegistry,
+    name: &str,
+    adapter: Arc<dyn RerankAdapter>,
+) -> Result<()> {
     if javascript_trim(name).is_empty() {
         return Err(NarsilError::new(
             ErrorCode::RERANK_CONFIG_INVALID,
             "A rerank adapter needs a non-empty string name",
         ));
     }
-    engine
-        .adapters
-        .rerank_mut()
-        .insert(name.to_string(), adapter);
+    registry.rerank_mut().insert(name.to_string(), adapter);
     Ok(())
 }

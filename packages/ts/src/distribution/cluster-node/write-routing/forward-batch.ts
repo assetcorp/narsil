@@ -15,6 +15,7 @@ import { requireAssignedPrimary, resolvePartitionId } from './assignment'
 import type { BatchWrite, WriteFailure } from './batch-write'
 import { decodeForwardedDocument, forwardedReplacementOf } from './forwarded-document'
 import { writableAssignment } from './initialising-partition'
+import { nameOfForwardedWrite } from './moved-name'
 import { applyPrimaryInsertBatch, applyPrimaryRemoveBatch, applyPrimaryUpdateBatch } from './primary-writes'
 import type { WriteRoutingDeps } from './types'
 import { type AppliedResends, conditionOfFields } from './write-condition'
@@ -89,11 +90,18 @@ function leadsEveryPartition(table: AllocationTable | null, payload: ForwardBatc
 }
 
 async function applyAdmittedForwardedBatch(
-  payload: ForwardBatchPayload,
+  forwarded: ForwardBatchPayload,
   deps: WriteRoutingDeps,
   refusal: NarsilError | null,
 ): Promise<ForwardBatchOperationResult[]> {
-  const results: ForwardBatchOperationResult[] = new Array(payload.operations.length)
+  const results: ForwardBatchOperationResult[] = new Array(forwarded.operations.length)
+  const named = await nameOfForwardedWrite(forwarded.indexName, deps)
+  if (named.kind === 'blocked') {
+    return forwarded.operations.map(operation =>
+      failureResult(operation.documentId, named.refusal(operation.documentId)),
+    )
+  }
+  const payload = named.indexName === forwarded.indexName ? forwarded : { ...forwarded, indexName: named.indexName }
   let table = await deps.coordinator.getAllocation(payload.indexName)
   if (deps.refreshAllocation !== undefined && !leadsEveryPartition(table, payload, deps.nodeId)) {
     table = await deps.refreshAllocation(payload.indexName)

@@ -1,10 +1,13 @@
 mod batch;
 mod column;
 mod constants;
+mod document_values;
 mod native;
 mod values;
 
-pub(crate) use batch::KeyBatch;
+pub use document_values::document_sort_values;
+
+pub(crate) use batch::{KeyBatch, RankedKeys};
 pub(crate) use column::SortColumn;
 pub(crate) use constants::SORT_VALUE_MAX_CODE_POINTS;
 pub(crate) use native::{

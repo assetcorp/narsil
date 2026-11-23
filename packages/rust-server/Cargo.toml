@@ -17,11 +17,17 @@ path = "src/lib.rs"
 
 [[bin]]
 name = "narsil-server"
-path = "src/bin/narsil-server.rs"
+path = "src/bin/narsil-server/main.rs"
+
+[[example]]
+name = "fault_node"
+path = "examples/fault_node/main.rs"
+required-features = ["cluster"]
 
 [dependencies]
 bytes = "=1.12.1"
 delali-narsil = { path = "../rust", version = "0.2.2" }
+delali-narsil-cluster = { version = "0.1.0", path = "../rust-cluster", optional = true }
 form_urlencoded = "=1.2.2"
 futures-util = "=0.3.34"
 getrandom = "=0.4.3"
@@ -49,3 +55,6 @@ hyper = { version = "=1.12.0", features = ["client", "http1"] }
 hyper-util = { version = "=0.1.21", features = ["tokio"] }
 serde_json = { version = "=1.0.154", features = ["preserve_order"] }
 tokio = { version = "=1.54.1", features = ["rt-multi-thread", "net", "macros", "time", "process", "io-util"] }
+
+[features]
+cluster = ["dep:delali-narsil-cluster"]

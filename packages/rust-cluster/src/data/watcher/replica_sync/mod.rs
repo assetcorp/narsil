@@ -13,12 +13,16 @@ use crate::data::blocking::off_executor;
 use crate::data::stored_index::{StoredIndex, stored_index};
 use crate::error::{ClusterError, ClusterResult, codes};
 
-const CODES_THAT_TRY_THE_NEXT_ADDRESS: [&str; 5] = [
+const CODES_THAT_TRY_THE_NEXT_ADDRESS: [&str; 9] = [
     codes::SNAPSHOT_SYNC_TRANSPORT_FAILED,
     codes::SNAPSHOT_SYNC_TIMEOUT,
     codes::SNAPSHOT_SYNC_DECODE_FAILED,
     codes::SNAPSHOT_SYNC_FRAME_INVALID,
+    codes::SNAPSHOT_SYNC_CHECKSUM_MISMATCH,
+    codes::SNAPSHOT_SYNC_CHUNK_OUT_OF_ORDER,
+    codes::SNAPSHOT_SYNC_CHUNK_OVERFLOW,
     codes::SNAPSHOT_SYNC_CHUNK_MISSING,
+    codes::SNAPSHOT_SYNC_END_MISSING,
 ];
 
 const PRIMARY_CODES_THAT_TRY_THE_NEXT_ADDRESS: [&str; 4] = [

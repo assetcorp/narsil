@@ -5,7 +5,7 @@ use std::time::Duration;
 use super::build_runner::BuildRunner;
 use super::day_store::{CountRequest, DayContext, DayStore};
 use super::history_files::{remove_history_folder, remove_restore_leftovers};
-use super::host::{locked, suggestion_states, wall_ms, warn};
+use super::host::{SuggestionsHost, SuggestionsOwner, locked, wall_ms, warn};
 use super::phrase::{accepted_phrase, is_group, is_person};
 use super::scramble::Scrambler;
 use super::setting::ResolvedSetting;
@@ -15,7 +15,6 @@ use super::types::{
 };
 use crate::durability::checkpoint_store::{AdapterStore, CheckpointStore};
 use crate::durability::persistence::MemoryPersistence;
-use crate::engine::EngineInner;
 use crate::engine::name_turns::NameTurns;
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::format::metadata_parts::config_invalid;
@@ -62,11 +61,8 @@ impl SuggestionsRuntime {
         }
     }
 
-    pub(crate) fn files<'a>(&'a self, engine: &'a EngineInner) -> &'a dyn CheckpointStore {
-        match &engine.durable {
-            Some(durable) => durable.files(),
-            None => &self.memory_files,
-        }
+    pub(crate) fn memory_files(&self) -> &dyn CheckpointStore {
+        &self.memory_files
     }
 
     pub(crate) fn scrambler(&self) -> Option<&Scrambler> {
@@ -91,32 +87,31 @@ impl SuggestionsRuntime {
 
     pub(crate) fn enabled_setting(
         &self,
-        engine: &EngineInner,
+        host: &dyn SuggestionsHost,
         index_name: &str,
     ) -> Result<ResolvedSetting> {
-        let index = engine.open_index(index_name)?;
-        match index.suggestion_state().setting.as_ref() {
+        match host.require_state(index_name)?.setting.as_ref() {
             Some(setting) if setting.enabled => Ok(setting.resolve()),
             _ => Err(not_enabled(index_name)),
         }
     }
 
-    fn context<'a>(&'a self, engine: &'a EngineInner) -> Option<DayContext<'a>> {
+    fn context<'a>(&'a self, host: &'a dyn SuggestionsHost) -> Option<DayContext<'a>> {
         Some(DayContext {
-            engine,
-            files: self.files(engine),
+            host,
+            files: host.files().store(),
             scrambler: self.scrambler.as_ref()?,
         })
     }
 
-    pub(crate) fn save_day(&self, engine: &EngineInner, index_name: &str) {
-        if let Some(context) = self.context(engine) {
+    pub(crate) fn save_day(&self, host: &dyn SuggestionsHost, index_name: &str) {
+        if let Some(context) = self.context(host) {
             self.days.save(&context, index_name);
         }
     }
 
-    pub(crate) fn retire_days(&self, engine: &EngineInner, today: &str) {
-        if let Some(context) = self.context(engine) {
+    pub(crate) fn retire_days(&self, host: &dyn SuggestionsHost, today: &str) {
+        if let Some(context) = self.context(host) {
             for index_name in self.days.indexes() {
                 self.days.retire(&context, &index_name, today);
             }
@@ -125,13 +120,13 @@ impl SuggestionsRuntime {
 
     pub(crate) fn record(
         &self,
-        engine: &EngineInner,
+        host: &dyn SuggestionsHost,
         index_name: &str,
         query: &RecordedQuery,
     ) -> Result<RecordQueryResult> {
         self.guard_stopping()?;
-        let setting = self.enabled_setting(engine, index_name)?;
-        let Some(context) = self.context(engine) else {
+        let setting = self.enabled_setting(host, index_name)?;
+        let Some(context) = self.context(host) else {
             return Ok(result_of(RecordQueryOutcome::NoKey));
         };
         if !is_person(&query.person) || !is_group(&query.group) {
@@ -156,27 +151,32 @@ impl SuggestionsRuntime {
         Ok(result_of(outcome))
     }
 
-    pub(crate) fn discard_history(&self, engine: &EngineInner, index_name: &str) -> Result<()> {
+    pub(crate) fn discard_history(
+        &self,
+        host: &dyn SuggestionsHost,
+        index_name: &str,
+    ) -> Result<()> {
         self.timers.forget_save(index_name);
         self.days.discard(index_name);
-        remove_history_folder(self.files(engine), index_name)
+        remove_history_folder(host.files().store(), index_name)
     }
 
-    pub(crate) fn on_drop(&self, engine: &EngineInner, index_name: &str) {
+    pub(crate) fn on_drop(&self, host: &dyn SuggestionsHost, index_name: &str) {
         self.timers.forget_index(index_name);
         self.builds.forget(index_name);
         self.days.discard(index_name);
-        let _ = remove_history_folder(self.files(engine), index_name);
+        let _ = remove_history_folder(host.files().store(), index_name);
     }
 
-    pub(crate) fn start(&self, engine: &Arc<EngineInner>) {
+    pub(crate) fn start(&self, owner: &Arc<dyn SuggestionsOwner>) {
+        let host = owner.host();
         if self.scrambler.is_some() {
-            let _ = remove_restore_leftovers(self.files(engine));
-            sweep_now(engine);
-            self.timers.start(engine);
+            let _ = remove_restore_leftovers(host.files().store());
+            sweep_now(host);
+            self.timers.start(owner);
             return;
         }
-        let states = suggestion_states(engine);
+        let states = host.states();
         let mut enabled = states
             .iter()
             .filter(|(_, state)| state.enabled())
@@ -186,19 +186,19 @@ impl SuggestionsRuntime {
         }
         for (index_name, _) in enabled {
             let reason = QuerySuggestionsWarningReason::NoKey;
-            warn(engine, index_name, reason, None, None);
+            warn(host, index_name, reason, None, None);
         }
-        sweep_now(engine);
+        sweep_now(host);
     }
 
-    pub(crate) fn stop(&self, engine: &EngineInner) {
+    pub(crate) fn stop(&self, host: &dyn SuggestionsHost) {
         let _turn = locked(&self.stop_turn);
         if self.stopping.swap(true, Ordering::SeqCst) {
             return;
         }
         self.timers.stop();
         self.builds.settle();
-        if let Some(context) = self.context(engine) {
+        if let Some(context) = self.context(host) {
             for index_name in self.days.indexes() {
                 self.days.save(&context, &index_name);
             }

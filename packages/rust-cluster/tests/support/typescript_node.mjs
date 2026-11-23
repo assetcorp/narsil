@@ -2,15 +2,33 @@ import { join } from 'node:path'
 import { createInterface } from 'node:readline'
 import { pathToFileURL } from 'node:url'
 
-const [repositoryRoot, endpoint, keyPrefix, nodeId, roleList, heartbeatTtlSeconds, durabilityDirectory] =
-  process.argv.slice(2)
+const [
+  repositoryRoot,
+  endpoint,
+  keyPrefix,
+  nodeId,
+  roleList,
+  heartbeatTtlSeconds,
+  durabilityDirectory,
+  backupDirectory = '',
+  backupKeyPrefix = '',
+] = process.argv.slice(2)
 const dist = join(repositoryRoot, 'packages/ts/dist')
 const load = path => import(pathToFileURL(join(dist, path)).href)
-const { createClusterNode } = await load('distribution.mjs')
+const { createClusterNode, clusterNodeEngine } = await load('distribution.mjs')
+const { querySuggestions } = await load('query-suggestions.mjs')
 const { createEtcdCoordinator } = await load('distribution/coordinator/etcd.mjs')
 const { createTcpTransport } = await load('distribution/transport/tcp.mjs')
 
 const { registerLanguage, registerStopWords, registerTokenizer } = await load('index.mjs')
+const { encode, decode } = await import(
+  pathToFileURL(join(repositoryRoot, 'packages/ts/node_modules/@msgpack/msgpack/dist.esm/index.mjs')).href
+)
+const { createFilesystemPersistence } = await load('adapters/filesystem.mjs')
+const backups =
+  backupDirectory === ''
+    ? {}
+    : { backups: { store: createFilesystemPersistence({ directory: backupDirectory }), keyPrefix: backupKeyPrefix } }
 
 function letterShape(text) {
   const letters = [...text.toLowerCase()]
@@ -49,8 +67,10 @@ const node = await createClusterNode({
   nodeId,
   address,
   roles: roleList.split(','),
+  ...backups,
   engine: {
     workers: { enabled: false },
+    querySuggestions: { key: new Uint8Array(32).fill(11) },
     embeddingAdapters,
     ...(durabilityDirectory === '' ? {} : { durability: { directory: durabilityDirectory, mode: 'sync' } }),
   },
@@ -95,13 +115,62 @@ const operations = {
   update: ({ indexName, documentId, document, vectorFields }) =>
     node.update(indexName, documentId, withVectors(document, vectorFields)),
   remove: ({ indexName, documentId }) => node.remove(indexName, documentId),
+  dropIndex: ({ indexName }) => node.dropIndex(indexName),
+  rebalance: ({ indexName, targetPartitionCount }) => node.rebalance(indexName, targetPartitionCount),
+  setReplicationFactor: ({ indexName, replicationFactor }) =>
+    node.cluster.setReplicationFactor(indexName, replicationFactor),
   insertBatch: async ({ indexName, documents }) => batchOutcome(await node.insertBatch(indexName, documents)),
   updateBatch: async ({ indexName, updates }) => batchOutcome(await node.updateBatch(indexName, updates)),
   removeBatch: async ({ indexName, documentIds }) => batchOutcome(await node.removeBatch(indexName, documentIds)),
   get: ({ indexName, documentId }) => node.get(indexName, documentId),
+  changeAnalysis: ({ indexName, change }) => node.changeAnalysis(indexName, change),
+  matchingIds: async ({ indexName, term }) =>
+    (await node.query(indexName, { term, limit: 10_000 })).hits.map(hit => hit.id).sort(),
   partitionCounts: async ({ indexName }) =>
     (await node.getPartitionStats(indexName)).map(({ partitionId, documentCount }) => ({ partitionId, documentCount })),
+  query: async ({ indexName, params }) => {
+    const result = await node.query(indexName, params)
+    return {
+      hits: result.hits.map(hit => ({ id: hit.id, score: hit.score ?? null, document: hit.document ?? null })),
+      count: result.count,
+      facets: result.facets ?? null,
+      coverage: result.coverage,
+    }
+  },
+  countDocuments: ({ indexName }) => node.countDocuments(indexName),
+  suggest: ({ indexName, params }) => node.suggest(indexName, params),
+  preflight: ({ indexName, params }) => node.preflight(indexName, params),
+  listDocuments: async ({ indexName, params }) => {
+    const result = await node.listDocuments(indexName, params)
+    return { ids: result.documents.map(listed => listed.id), total: result.total, cursor: result.cursor }
+  },
+  send: async ({ target, messageType, payload }) => {
+    rawMessagesSent += 1
+    const reply = await transport.send(target, {
+      type: messageType,
+      sourceId: nodeId,
+      requestId: `${nodeId}-raw-${rawMessagesSent}`,
+      payload: encode(payload),
+    })
+    return { type: reply.type, payload: decode(reply.payload) }
+  },
+  createBackup: async ({ indexName, backupName }) => node.cluster.createBackup(indexName, backupName),
+  restoreBackup: async ({ backupName, indexName, replicationFactor }) =>
+    node.cluster.restoreBackup(backupName, { indexName, replicationFactor }),
+  deleteBackup: async ({ backupName }) => node.cluster.deleteBackup(backupName),
+  listBackups: async () => (await node.cluster.listBackups()).map(backup => backup.name),
+  getMultiple: async ({ indexName, documentIds }) => Object.fromEntries(await node.getMultiple(indexName, documentIds)),
+  recordQuery: ({ indexName, query }) => suggestions().recordQuery(indexName, query),
+  previewSuggestions: async ({ indexName }) => (await suggestions().preview(indexName)).entries,
+  buildSuggestions: ({ indexName }) => suggestions().build(indexName),
+  suggestionStatus: ({ indexName }) => suggestions().status(indexName),
 }
+
+function suggestions() {
+  return querySuggestions(clusterNodeEngine(node))
+}
+
+let rawMessagesSent = 0
 
 function answer(id, outcome) {
   process.stdout.write(`${JSON.stringify({ id, ...outcome })}\n`)

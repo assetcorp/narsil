@@ -19,14 +19,14 @@ use crate::search::{
 };
 use crate::state::ServerState;
 
-fn body_object(context: &RouteContext) -> Outcome<Map> {
+pub(crate) fn body_object(context: &RouteContext) -> Outcome<Map> {
     match json_body(context)? {
         Value::Object(body) => Ok(body),
         _ => Err(not_an_object()),
     }
 }
 
-fn phrase_of(body: &Map) -> Outcome<String> {
+pub(crate) fn phrase_of(body: &Map) -> Outcome<String> {
     match body.get("query") {
         Some(Value::String(query)) => Ok(query.clone()),
         _ => Err(ServerError::invalid(
@@ -35,7 +35,7 @@ fn phrase_of(body: &Map) -> Outcome<String> {
     }
 }
 
-fn ok() -> HttpResponse {
+pub(crate) fn ok() -> HttpResponse {
     json(200, &object(vec![("ok", Value::Bool(true))]))
 }
 
@@ -75,7 +75,7 @@ fn identify_failure() -> ServerError {
     )
 }
 
-fn unidentified() -> HttpResponse {
+pub(crate) fn unidentified() -> HttpResponse {
     json(
         200,
         &recorded_value(RecordQueryResult {
@@ -85,7 +85,10 @@ fn unidentified() -> HttpResponse {
     )
 }
 
-async fn record(state: Arc<ServerState>, context: RouteContext) -> Outcome<HttpResponse> {
+pub(crate) async fn recorded_query(
+    state: &ServerState,
+    context: RouteContext,
+) -> Outcome<Option<RecordedQuery>> {
     let body = body_object(&context)?;
     let extra: Vec<Value> = body
         .keys()
@@ -109,18 +112,24 @@ async fn record(state: Arc<ServerState>, context: RouteContext) -> Outcome<HttpR
     let identity = AssertUnwindSafe(identify.identify(request))
         .catch_unwind()
         .await;
-    let (person, group) = match identity {
-        Ok(Ok(None)) => return Ok(unidentified()),
+    match identity {
+        Ok(Ok(None)) => Ok(None),
         Ok(Ok(Some(QueryIdentity {
             person: Some(person),
             group: Some(group),
-        }))) => (person, group),
-        _ => return Err(identify_failure()),
-    };
-    let recorded = RecordedQuery {
-        query,
-        person,
-        group,
+        }))) => Ok(Some(RecordedQuery {
+            query,
+            person,
+            group,
+        })),
+        _ => Err(identify_failure()),
+    }
+}
+
+async fn record(state: Arc<ServerState>, context: RouteContext) -> Outcome<HttpResponse> {
+    let index = context.param(0).to_string();
+    let Some(recorded) = recorded_query(&state, context).await? else {
+        return Ok(unidentified());
     };
     let result = engine_call(&state, move |engine| {
         engine.query_suggestions().record_query(&index, &recorded)
@@ -129,7 +138,7 @@ async fn record(state: Arc<ServerState>, context: RouteContext) -> Outcome<HttpR
     Ok(json(200, &recorded_value(result)))
 }
 
-fn preview_limit(context: &RouteContext) -> Outcome<Option<u32>> {
+pub(crate) fn preview_limit(context: &RouteContext) -> Outcome<Option<u32>> {
     let Some(raw) = context.query_value("limit") else {
         return Ok(None);
     };
@@ -164,7 +173,7 @@ async fn read_bans(state: Arc<ServerState>, context: RouteContext) -> Outcome<Ht
     Ok(json(200, &bans_value(bans)))
 }
 
-fn ban_list(body: &Map) -> Outcome<Vec<String>> {
+pub(crate) fn ban_list(body: &Map) -> Outcome<Vec<String>> {
     let refusal = || {
         ServerError::invalid("The body must carry the ban list as an array of strings in \"bans\"")
     };
@@ -221,18 +230,21 @@ fn manual_refusal() -> ServerError {
     )
 }
 
-async fn manual(state: Arc<ServerState>, context: RouteContext) -> Outcome<HttpResponse> {
-    let body = body_object(&context)?;
-    let query = phrase_of(&body)?;
+pub(crate) fn manual_suggestion(body: &Map) -> Outcome<ManualQuerySuggestion> {
+    let query = phrase_of(body)?;
     let group = match body.get("group") {
         Some(Value::String(group)) => group.clone(),
         _ => return Err(manual_refusal()),
     };
-    let suggestion = ManualQuerySuggestion {
+    Ok(ManualQuerySuggestion {
         group,
         query,
         count: manual_count(body.get("count"))?,
-    };
+    })
+}
+
+async fn manual(state: Arc<ServerState>, context: RouteContext) -> Outcome<HttpResponse> {
+    let suggestion = manual_suggestion(&body_object(&context)?)?;
     let index = context.param(0).to_string();
     let name = engine_call(&state, move |engine| {
         engine

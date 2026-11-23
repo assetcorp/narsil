@@ -12,6 +12,7 @@ use super::partition::QueueTurn;
 use super::scope::{Outcome, Scope};
 use crate::controller::lock;
 use crate::error::{ClusterError, ClusterResult, codes};
+use crate::memory::cluster_refusal_of;
 use crate::payload::forward::{ForwardKind, ForwardOperation, WriteFailure};
 
 pub(super) struct Planned {
@@ -132,6 +133,7 @@ impl PrimaryWrites {
         let run = match self.engine_write(scope, writes, state.limits).await {
             Ok(run) => run,
             Err(error) => {
+                let error = cluster_refusal_of(error, &self.node_id);
                 for held in pending {
                     state.fail(held.position, error.clone());
                 }
@@ -167,7 +169,7 @@ impl PrimaryWrites {
                 }
                 Err(refusal) => {
                     let error = refusal_of(scope, refusal, &state.limits);
-                    state.fail(held.position, error);
+                    state.fail(held.position, cluster_refusal_of(error, &self.node_id));
                 }
             }
         }

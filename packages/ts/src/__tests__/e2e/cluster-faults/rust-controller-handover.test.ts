@@ -15,6 +15,7 @@ import {
   leaseHolder,
   searchCount,
   waitFor,
+  watchKey,
 } from './mixed-cluster'
 import { send } from './workload'
 
@@ -128,8 +129,8 @@ describe.skipIf(process.env[RUST_NODE_VARIABLE] === undefined)(
       expect(faults).toEqual([])
     }, 120_000)
 
-    it('leaves a partition count change untouched while it holds the lease, and the change finishes once a TypeScript controller takes the lease back', async () => {
-      const watcher = await started().raw.watch().key(`${keyPrefix}/kv/${REBALANCE_RECORD_KEY}`).create()
+    it('finishes a partition count change that the TypeScript controller started, once it takes the lease', async () => {
+      const watcher = await watchKey(started().raw, `${keyPrefix}/kv/${REBALANCE_RECORD_KEY}`)
       const recorded = new Promise<void>(resolve => {
         watcher.once('put', () => {
           started().fleet.cutCoordinator(TYPESCRIPT_CONTROLLER)
@@ -158,20 +159,7 @@ describe.skipIf(process.env[RUST_NODE_VARIABLE] === undefined)(
         () => leaseHolder(started().coordinator),
         holder => holder === nodeIdOf(RUST_CONTROLLER),
       )
-      const record = await started().coordinator.get(REBALANCE_RECORD_KEY)
-      expect(record).not.toBeNull()
       started().fleet.healCoordinator(TYPESCRIPT_CONTROLLER)
-      await sleep(STANDBY_RETRY_MS * STANDBY_ROUNDS_WATCHED)
-      expect(await leaseHolder(started().coordinator)).toBe(nodeIdOf(RUST_CONTROLLER))
-      expect(await started().coordinator.get(REBALANCE_RECORD_KEY)).toEqual(record)
-
-      await started().fleet.kill(RUST_CONTROLLER)
-      await waitFor(
-        'The TypeScript controller took no lease back',
-        TAKEOVER_MS,
-        () => leaseHolder(started().coordinator),
-        holder => holder === nodeIdOf(TYPESCRIPT_CONTROLLER),
-      )
       const generation = await waitFor(
         'The partition count change did not finish',
         CHANGE_FINISH_MS,
@@ -182,6 +170,7 @@ describe.skipIf(process.env[RUST_NODE_VARIABLE] === undefined)(
         },
         serving => serving !== null,
       )
+      expect(await leaseHolder(started().coordinator)).toBe(nodeIdOf(RUST_CONTROLLER))
       const swapped = await started().coordinator.getAllocation(generation ?? '')
       expect(swapped?.assignments.size).toBe(TARGET_PARTITION_COUNT)
       for (const slot of TYPESCRIPT_DATA_SLOTS) expect(await searchCount(baseOf(slot), INDEX_NAME)).toBe(ENTRY_COUNT)

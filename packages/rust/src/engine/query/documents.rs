@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use crate::engine::index::IndexState;
 use crate::engine::layout::TextLayout;
+use crate::engine::query::confined::PartitionQuery;
 use crate::engine::query::projected::hit_document;
 use crate::engine::query::projection::Projection;
 use crate::error::Result;
@@ -29,13 +30,24 @@ pub(crate) struct QuerySnapshots {
 
 impl QuerySnapshots {
     pub(crate) fn of(index: &IndexState) -> Result<QuerySnapshots> {
+        QuerySnapshots::confined(index, None)
+    }
+
+    pub(crate) fn confined(
+        index: &IndexState,
+        confinement: Option<&PartitionQuery>,
+    ) -> Result<QuerySnapshots> {
         index.read_published(|| {
             let pin = index.vectors.sequence().pin()?;
             let layout = index.partitions();
-            let partitions = layout
+            let partitions: Vec<Arc<PartitionSnapshot>> = layout
                 .iter()
                 .map(|partition| partition.snapshot())
                 .collect();
+            let partitions = match confinement {
+                Some(confinement) => confinement.confine(index, partitions),
+                None => partitions,
+            };
             Ok(QuerySnapshots {
                 layout,
                 partitions,

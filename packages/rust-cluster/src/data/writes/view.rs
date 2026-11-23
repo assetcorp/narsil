@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use narsil::{Value, decode_msgpack};
@@ -8,8 +9,8 @@ use crate::allocator::{Assignment, Table};
 use crate::controller::{
     belongs_to_another_index, lock, previous_documents_recorded, records_previous_documents,
 };
-use crate::coordinator::NodeEvent;
 use crate::coordinator::etcd::{EtcdCoordinator, WatchHandle};
+use crate::coordinator::{NodeEvent, NodeRegistration};
 use crate::error::ClusterResult;
 
 fn torn_down(table: &Table) -> bool {
@@ -26,7 +27,8 @@ fn settings_records_previous_documents(metadata: &[u8]) -> bool {
 pub(crate) struct AllocationView {
     coordinator: Arc<EtcdCoordinator>,
     tables: Mutex<HashMap<String, Table>>,
-    addresses: Mutex<HashMap<String, String>>,
+    nodes: Mutex<HashMap<String, NodeRegistration>>,
+    nodes_listed: AtomicBool,
     previous_documents: Mutex<HashMap<String, bool>>,
     changed: watch::Sender<u64>,
     watches: Mutex<Vec<WatchHandle>>,
@@ -37,7 +39,8 @@ impl AllocationView {
         AllocationView {
             coordinator,
             tables: Mutex::new(HashMap::new()),
-            addresses: Mutex::new(HashMap::new()),
+            nodes: Mutex::new(HashMap::new()),
+            nodes_listed: AtomicBool::new(false),
             previous_documents: Mutex::new(HashMap::new()),
             changed: watch::Sender::new(0),
             watches: Mutex::new(Vec::new()),
@@ -52,13 +55,13 @@ impl AllocationView {
                 let Some(view) = view.upgrade() else {
                     return;
                 };
-                let mut addresses = lock(&view.addresses);
+                let mut nodes = lock(&view.nodes);
                 match event {
                     NodeEvent::Joined(node) => {
-                        addresses.insert(node.node_id, node.address);
+                        nodes.insert(node.node_id.clone(), node);
                     }
                     NodeEvent::Left(node_id) => {
-                        addresses.remove(&node_id);
+                        nodes.remove(&node_id);
                     }
                 }
             })
@@ -85,14 +88,24 @@ impl AllocationView {
             .await?;
         lock(&self.watches).push(metadata);
         let registered = self.coordinator.list_nodes().await?;
-        let mut addresses = lock(&self.addresses);
+        let mut nodes = lock(&self.nodes);
         for node in registered {
-            addresses.entry(node.node_id).or_insert(node.address);
+            nodes.entry(node.node_id.clone()).or_insert(node);
         }
+        drop(nodes);
+        self.nodes_listed.store(true, Ordering::Release);
         Ok(())
     }
 
+    pub(crate) async fn registered_nodes(&self) -> ClusterResult<Vec<NodeRegistration>> {
+        if self.nodes_listed.load(Ordering::Acquire) {
+            return Ok(lock(&self.nodes).values().cloned().collect());
+        }
+        self.coordinator.list_nodes().await
+    }
+
     pub(crate) fn stop(&self) {
+        self.nodes_listed.store(false, Ordering::Release);
         for watch in lock(&self.watches).drain(..) {
             watch.stop();
         }
@@ -114,7 +127,7 @@ impl AllocationView {
         table.clone()
     }
 
-    pub(super) async fn read_live(&self, index_name: &str) -> ClusterResult<Option<Table>> {
+    pub(crate) async fn read_live(&self, index_name: &str) -> ClusterResult<Option<Table>> {
         let Some(stored) = self.coordinator.allocation(index_name).await? else {
             lock(&self.tables).remove(index_name);
             return Ok(None);
@@ -159,9 +172,12 @@ impl AllocationView {
     }
 
     pub(crate) fn targets(&self, node_id: &str) -> Vec<String> {
-        match lock(&self.addresses).get(node_id) {
+        match lock(&self.nodes)
+            .get(node_id)
+            .map(|node| node.address.as_str())
+        {
             Some(address) if !address.is_empty() && address != node_id => {
-                vec![address.clone(), node_id.to_string()]
+                vec![address.to_string(), node_id.to_string()]
             }
             _ => vec![node_id.to_string()],
         }

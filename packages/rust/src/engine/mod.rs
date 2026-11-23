@@ -12,6 +12,7 @@ mod engine_config;
 pub(crate) mod event_hold;
 pub(crate) mod events;
 mod export;
+mod held_analysis;
 mod hooked;
 mod ids;
 pub(crate) mod index;
@@ -29,9 +30,9 @@ pub(crate) mod query;
 pub(crate) mod query_suggestions;
 mod reads;
 mod rebalance;
-mod registration;
+pub(crate) mod registration;
 pub(crate) mod replication;
-mod rerank_settings;
+pub(crate) mod rerank_settings;
 mod restore;
 mod segments;
 mod settings;
@@ -72,18 +73,21 @@ pub use engine_config::{
 use engine_config::{EngineSettings, engine_settings};
 pub use events::{EarlierLayout, FeedChange, ListenerId, NarsilEvent, NarsilEventKind, WorkStatus};
 pub use export::{DocumentImportResult, ImportRefusal};
+pub use held_analysis::{HeldAnalysisChanges, PendingAnalysisChange};
 use index::IndexState;
 pub use index_lifecycle::IndexResidencyState;
 pub use memory::{ParseKind, ParseShortfall};
 use name_turns::NameTurns;
 pub use plugins::Plugin;
 pub use portability::SnapshotOptions;
+pub use query::confined::{PartitionQuery, SuppliedStatistics};
 pub use query::listing::{ListParams, ListResult, ListedDocument};
 pub use query::params::{
     DocumentProjection, FacetSpec, GroupConfig, GroupReduce, GroupReducer, HighlightConfig,
     HybridConfig, HybridStrategy, Pin, QueryParams, RerankConfig, SearchMode, SortDirection,
     SortField, SortMode, TermMatch, VectorQuery,
 };
+pub use query::partition_stats::{PartitionStatistics, StatsExpansion};
 pub use query::preflight::PreflightResult;
 pub use query::results::{
     FacetResult, GroupResult, HighlightMatch, HighlightPosition, Hit, QueryCoverage, QueryResult,
@@ -101,8 +105,13 @@ use shutdown_gate::{Admission, ShutdownGate, shut_down_before_publication};
 pub use stale_review::StaleRebuild;
 pub use stats::{IndexStats, MemoryStats, PartitionStats};
 pub use suggest::{SuggestParams, SuggestResult, SuggestedTerm};
+pub use sync::engine_source::EngineFeedSource;
 pub use sync::feed::{SyncBounds, SyncCursor, SyncEntry, SyncFeedState, SyncRead};
 pub use sync::snapshot::SyncSnapshot;
+pub use sync::source::{
+    BoundsFreshness, ChangeSource, ChangesIndexState, DocumentTest, FeedSource, FeedSourceChange,
+    FeedSourceListener, FeedSubscription,
+};
 pub use sync::{SyncSetting, SyncStatus};
 pub use vectors::VectorMaintenanceStatus;
 pub use wait::WriteOptions;
@@ -320,7 +329,8 @@ impl Narsil {
         let engine = Narsil::with_durability(durable, pattern_work_cap, settings, scrambler);
         register(&engine)?;
         engine.recover_stored()?;
-        engine.inner.suggestions.start(&engine.inner);
+        let owner: Arc<dyn query_suggestions::host::SuggestionsOwner> = engine.inner.clone();
+        engine.inner.suggestions.start(&owner);
         Ok(engine)
     }
 

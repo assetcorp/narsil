@@ -35,7 +35,8 @@ const FAILURES_OUTSIDE_A_CHECK = [
   [/The seed exceeded its \d+ ms limit/, 'the seed finishes within its time limit'],
 ]
 
-const SETTINGS_LINE = /^NARSIL_FAULT_SEED=(\d+) NARSIL_FAULT_CAMPAIGN=1: (tcp|grpc) carrier( over TLS)?, /m
+const SETTINGS_LINE =
+  /^NARSIL_FAULT_SEED=(\d+) NARSIL_FAULT_CAMPAIGN=1(?: NARSIL_FAULT_RUST_SLOTS=(\d(?:,\d)*))?: (tcp|grpc) carrier( over TLS)?, /m
 
 function readLog(path) {
   let descriptor
@@ -70,8 +71,9 @@ export function describeFailure(seed, logPath) {
     if (pattern.test(log) && !checks.includes(check)) checks.push(check)
   }
   return {
-    carrier: matchesSeed ? settings[2] : null,
-    tls: matchesSeed ? settings[3] !== undefined : null,
+    carrier: matchesSeed ? settings[3] : null,
+    tls: matchesSeed ? settings[4] !== undefined : null,
+    rustSlots: matchesSeed ? (settings[2] ?? '') : null,
     checks,
   }
 }

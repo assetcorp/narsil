@@ -18,6 +18,7 @@ import {
   pullRequestPlan,
   seededRandom,
 } from './fault-plan'
+import { RUST_NODE_VARIABLE } from './fleet'
 import { createLedger } from './oracle'
 import { type FaultState, NO_FAULT, type QuietWrite, SEARCH_TERM, send, startWorkload, type Workload } from './workload'
 
@@ -46,6 +47,25 @@ const SOCKETS_LEFT_OPEN_LINE = 'SOCKETS LEFT OPEN AT SHUTDOWN'
 const CLEAN_EXIT_LINE = 'exited with code 0 and signal null'
 const CAMPAIGN_WRITE_TIMEOUT_MS = DEFAULT_TRANSPORT_CONFIG.requestTimeout + CAMPAIGN_WRITE_TIMEOUT_MARGIN_MS
 const SETTLE_AFTER_LAST_FAULT_MS = DEFAULT_TRANSPORT_CONFIG.requestTimeout
+const RUST_SLOT_STREAM_SALT = 0x27d4eb2f
+const RUST_SLOTS = rustSlotsOf(process.env.NARSIL_FAULT_RUST_SLOTS)
+
+function campaignRustSlots(): number[] {
+  const random = seededRandom(SEED ^ RUST_SLOT_STREAM_SALT)
+  const layouts = [[], [Math.floor(random() * NODE_COUNT)], Array.from({ length: NODE_COUNT }, (_, slot) => slot)]
+  return layouts[Math.floor(random() * layouts.length)] ?? []
+}
+
+function rustSlotsOf(raw: string | undefined): number[] {
+  if (raw === undefined || raw === '') {
+    return CAMPAIGN && process.env[RUST_NODE_VARIABLE] !== undefined ? campaignRustSlots() : []
+  }
+  const slots = raw.split(',').map(slot => (/^\d+$/.test(slot) ? Number(slot) : -1))
+  if (slots.some(slot => slot < 0 || slot >= NODE_COUNT)) {
+    throw new Error(`NARSIL_FAULT_RUST_SLOTS must list slots from 0 to ${NODE_COUNT - 1}, separated by commas`)
+  }
+  return [...new Set(slots)]
+}
 
 function slowWrites(quiet: readonly QuietWrite[]): string[] {
   if (quiet.length < MIN_QUIET_WRITES_FOR_LATENCY) return []
@@ -70,9 +90,10 @@ describe('a three-node cluster on three etcd members under seeded faults', () =>
 
   beforeAll(async () => {
     console.log(
-      `NARSIL_FAULT_SEED=${SEED}${CAMPAIGN ? ' NARSIL_FAULT_CAMPAIGN=1' : plan.plain ? ' NARSIL_FAULT_PLAIN=1' : ''}: ${plan.transport} carrier${plan.plain ? '' : ' over TLS'}, ${plan.writers} writers, ${plan.searchers} searchers`,
+      `NARSIL_FAULT_SEED=${SEED}${CAMPAIGN ? ' NARSIL_FAULT_CAMPAIGN=1' : plan.plain ? ' NARSIL_FAULT_PLAIN=1' : ''}${RUST_SLOTS.length > 0 ? ` NARSIL_FAULT_RUST_SLOTS=${RUST_SLOTS.join(',')}` : ''}: ${plan.transport} carrier${plan.plain ? '' : ' over TLS'}, ${plan.writers} writers, ${plan.searchers} searchers`,
     )
     cluster = await startClusterUnderTest(NODE_COUNT, plan.plain, {
+      rustSlots: RUST_SLOTS,
       partitionCount: PARTITION_COUNT,
       replicationFactor: REPLICATION_FACTOR,
       heartbeatTtlSeconds: 10,

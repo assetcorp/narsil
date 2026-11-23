@@ -1,6 +1,6 @@
 use narsil::{
-    ChangePosition, ErrorCode, Narsil, NarsilError, SyncBounds, SyncCursor, SyncEntry,
-    SyncFeedState, SyncRead,
+    BoundsFreshness, ChangePosition, ChangeSource, ErrorCode, NarsilError, SyncBounds, SyncCursor,
+    SyncEntry, SyncFeedState, SyncRead,
 };
 
 use super::SyncFeed;
@@ -24,32 +24,36 @@ struct Read {
     current: Result<Option<SyncFeedState>, NarsilError>,
 }
 
-pub(super) fn state_of(engine: &Narsil, index: &str) -> Result<Option<SyncFeedState>, NarsilError> {
-    match engine.sync_feed_state(index) {
+pub(super) fn state_of(
+    source: &dyn ChangeSource,
+    index: &str,
+) -> Result<Option<SyncFeedState>, NarsilError> {
+    match source.index_state(index) {
         Err(error) if error.code() == ErrorCode::INDEX_NOT_FOUND => Ok(None),
         other => other,
     }
 }
 
 pub(super) fn bounds_of(
-    engine: &Narsil,
+    source: &dyn ChangeSource,
     index: &str,
     count: usize,
+    freshness: BoundsFreshness,
 ) -> Result<Vec<SyncBounds>, NarsilError> {
     (0..count as u32)
-        .map(|partition| engine.sync_bounds(index, partition))
+        .map(|partition| source.bounds(index, partition, freshness))
         .collect()
 }
 
 pub(super) fn open(
-    engine: &Narsil,
+    source: &dyn ChangeSource,
     index: &str,
     epoch: &str,
     seq_nos: &[u64],
 ) -> Result<Opened, NarsilError> {
     let mut heads = Vec::with_capacity(seq_nos.len());
     for (partition, seq_no) in seq_nos.iter().enumerate() {
-        let bounds = engine.sync_bounds(index, partition as u32)?;
+        let bounds = source.bounds(index, partition as u32, BoundsFreshness::Current)?;
         if *seq_no < bounds.oldest_seq_no.saturating_sub(1) {
             return Ok(Opened::Resync("history"));
         }
@@ -66,9 +70,9 @@ pub(super) fn open(
             seq_no: *seq_no,
         })
         .collect();
-    let bytes_behind = engine.sync_bytes_behind(index, &positions)?;
-    let snapshot_bytes = engine.sync_snapshot_bytes(index)?;
-    if state_of(engine, index)?.is_none_or(|state| state.epoch != epoch) {
+    let bytes_behind = source.bytes_behind(index, &positions)?;
+    let snapshot_bytes = source.snapshot_bytes(index)?;
+    if state_of(source, index)?.is_none_or(|state| state.epoch != epoch) {
         return Ok(Opened::Resync("epoch"));
     }
     Ok(Opened::Subscribed {
@@ -114,10 +118,10 @@ impl SyncFeed {
         };
         let index = core.index.clone();
         let read = core
-            .catch_up(move |engine| {
+            .catch_up(move |source| {
                 let mut cursor = cursor;
-                let entries = engine.read_sync_entries(&index, &mut cursor, up_to, max_bytes);
-                let current = state_of(engine, &index);
+                let entries = source.read(&index, &mut cursor, up_to, max_bytes);
+                let current = state_of(source, &index);
                 Read {
                     cursor,
                     entries,

@@ -9,18 +9,18 @@ use crate::index::tail::{Appended, TailSegment};
 use crate::pattern::{SearchLimits, WorkMeter};
 use crate::value::Map;
 
-pub(super) struct ChangeFilter {
+pub(crate) struct ChangeFilter {
     compiled: CompiledFilter,
 }
 
 impl ChangeFilter {
-    pub(super) fn new(filter: &Filter, index: &IndexState) -> Result<ChangeFilter> {
+    pub(crate) fn new(filter: &Filter, index: &IndexState) -> Result<ChangeFilter> {
         Ok(ChangeFilter {
             compiled: CompiledFilter::new(&filter.to_value(), &index.schema)?,
         })
     }
 
-    pub(super) fn matches(
+    pub(crate) fn matches(
         &self,
         index: &IndexState,
         limits: &SearchLimits,

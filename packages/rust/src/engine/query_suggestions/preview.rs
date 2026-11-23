@@ -2,10 +2,10 @@ use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 
 use super::build::{due_phrases_of, groups_to_write, meets_min_results, merge_history};
-use super::host::wall_ms;
+use super::host::{SuggestionsHost, wall_ms};
 use super::merge::compare_utf16;
+use super::runtime::SuggestionsRuntime;
 use super::types::{QuerySuggestionPreviewEntry, QuerySuggestionsPreview};
-use crate::engine::Narsil;
 use crate::error::Result;
 
 fn preview_order(
@@ -20,16 +20,16 @@ fn preview_order(
 }
 
 pub(crate) fn preview_build(
-    narsil: &Narsil,
+    runtime: &SuggestionsRuntime,
+    host: &dyn SuggestionsHost,
     index_name: &str,
     max: usize,
 ) -> Result<QuerySuggestionsPreview> {
-    let engine = &narsil.inner;
-    let setting = engine.suggestions.enabled_setting(engine, index_name)?;
-    engine.suggestions.require_scrambler()?;
-    let merged = merge_history(narsil, index_name, &setting, wall_ms())?;
-    let (groups, _) = groups_to_write(narsil, index_name, &setting, &merged.result);
-    let state = engine.open_index(index_name)?.suggestion_state();
+    let setting = runtime.enabled_setting(host, index_name)?;
+    runtime.require_scrambler()?;
+    let merged = merge_history(runtime, host, index_name, &setting, wall_ms())?;
+    let (groups, _) = groups_to_write(host, index_name, &setting, &merged.result);
+    let state = host.require_state(index_name)?;
     let banned: HashSet<&String> = state.banned.iter().collect();
     let mut candidates = Vec::new();
     for group in groups {
@@ -55,7 +55,8 @@ pub(crate) fn preview_build(
         let passes = match checked.get(candidate.query.as_str()) {
             Some(passes) => *passes,
             None => {
-                let passes = meets_min_results(narsil, index_name, &setting, &candidate.query)?;
+                let passes =
+                    meets_min_results(runtime, host, index_name, &setting, &candidate.query)?;
                 checked.insert(&candidate.query, passes);
                 passes
             }

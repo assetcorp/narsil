@@ -151,6 +151,7 @@ pub fn http_status_for_code(code: &str) -> u16 {
         | "NODE_NOT_READY"
         | "NODE_NOT_CONTROLLER"
         | "NODE_BOOTSTRAP_FAILED"
+        | "NODE_COPY_MISSING"
         | "COORDINATOR_UNAVAILABLE"
         | "SNAPSHOT_SYNC_CAPACITY_EXHAUSTED"
         | "SNAPSHOT_SYNC_SNAPSHOT_FAILED"

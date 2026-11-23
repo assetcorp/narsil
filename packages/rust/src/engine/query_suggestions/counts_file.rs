@@ -23,12 +23,13 @@ const KEY_FINGERPRINT: &str = "keyFingerprint";
 const KEY_SAVED_AT: &str = "savedAt";
 const KEY_INDEX_UUID: &str = "indexUuid";
 const KEY_GROUPS: &str = "groups";
-const TOP_LEVEL_KEYS: usize = 4;
+const REQUIRED_TOP_LEVEL_KEYS: usize = 4;
 const PHRASE_KEYS: usize = 3;
 
 pub(crate) struct OpenedCounts<'a> {
     pub(crate) day: String,
     pub(crate) saved_at: u64,
+    pub(crate) index_uuid: Option<String>,
     fingerprint: [u8; KEY_FINGERPRINT_BYTES],
     payload: Payload<'a>,
     groups: Range<usize>,
@@ -50,14 +51,28 @@ fn is_day(value: &str) -> bool {
         )
 }
 
-fn write_top_level(out: &mut Vec<u8>, day: &str, fingerprint: &[u8], saved_at: u64) {
-    write_map_header(out, TOP_LEVEL_KEYS);
+struct FileHeader<'a> {
+    day: &'a str,
+    fingerprint: &'a [u8],
+    saved_at: u64,
+    index_uuid: Option<&'a str>,
+}
+
+fn write_top_level(out: &mut Vec<u8>, header: &FileHeader<'_>) {
+    write_map_header(
+        out,
+        REQUIRED_TOP_LEVEL_KEYS + usize::from(header.index_uuid.is_some()),
+    );
     write_string(out, KEY_DAY);
-    write_string(out, day);
+    write_string(out, header.day);
     write_string(out, KEY_FINGERPRINT);
-    write_binary(out, fingerprint);
+    write_binary(out, header.fingerprint);
     write_string(out, KEY_SAVED_AT);
-    write_uint(out, saved_at);
+    write_uint(out, header.saved_at);
+    if let Some(index_uuid) = header.index_uuid {
+        write_string(out, KEY_INDEX_UUID);
+        write_string(out, index_uuid);
+    }
     write_string(out, KEY_GROUPS);
 }
 
@@ -102,9 +117,16 @@ pub(crate) fn encode_counts_file(
     counts: &DayCounts,
     fingerprint: &[u8; KEY_FINGERPRINT_BYTES],
     saved_at: u64,
+    index_uuid: Option<&str>,
 ) -> Result<Vec<u8>> {
     let mut payload = Vec::new();
-    write_top_level(&mut payload, &counts.day, fingerprint, saved_at);
+    let header = FileHeader {
+        day: &counts.day,
+        fingerprint,
+        saved_at,
+        index_uuid,
+    };
+    write_top_level(&mut payload, &header);
     write_groups(&mut payload, counts);
     sealed(&payload)
 }
@@ -113,6 +135,7 @@ struct TopLevel {
     day: String,
     fingerprint: Vec<u8>,
     saved_at: u64,
+    index_uuid: Option<String>,
     groups: Range<usize>,
 }
 
@@ -120,6 +143,7 @@ fn read_top_level(payload: &[u8]) -> Result<TopLevel> {
     let mut reader = Decoder::new(payload);
     let keys = reader.read_map_length()?;
     let (mut day, mut fingerprint, mut saved_at, mut groups) = (None, None, None, None);
+    let mut index_uuid = None;
     let mut seen: HashSet<&str> = HashSet::new();
     for _ in 0..keys {
         let key = reader.read_str()?;
@@ -134,10 +158,12 @@ fn read_top_level(payload: &[u8]) -> Result<TopLevel> {
             KEY_FINGERPRINT => fingerprint = Some(reader.read_bin()?.to_vec()),
             KEY_SAVED_AT => saved_at = Some(read_uint(&mut reader)?),
             KEY_INDEX_UUID => {
-                let length = utf16_length(reader.read_str()?);
+                let uuid = reader.read_str()?;
+                let length = utf16_length(uuid);
                 if length == 0 || length > MAX_INDEX_UUID_LENGTH {
                     return Err(malformed("The file holds an indexUuid of the wrong length"));
                 }
+                index_uuid = Some(uuid.to_string());
             }
             KEY_GROUPS => {
                 let start = reader.position();
@@ -160,10 +186,24 @@ fn read_top_level(payload: &[u8]) -> Result<TopLevel> {
             day,
             fingerprint,
             saved_at,
+            index_uuid,
             groups,
         }),
         _ => Err(malformed("The file lacks a required key")),
     }
+}
+
+pub(crate) fn counts_file_index_uuid(bytes: &[u8]) -> Option<String> {
+    if bytes.len() as u64 > MAX_HISTORY_FILE_BYTES {
+        return None;
+    }
+    let expectation = Expectation {
+        version: QUERY_COUNTS_FILE_FORMAT_VERSION,
+        what: WHAT,
+        allows_compression: false,
+    };
+    let (_, payload) = open_checksummed(bytes, &expectation).ok()?;
+    read_top_level(payload.bytes()).ok()?.index_uuid
 }
 
 pub(crate) fn open_counts_file<'a>(
@@ -201,6 +241,7 @@ pub(crate) fn open_counts_file<'a>(
     OpenedCountsFile::Counts(OpenedCounts {
         day: top.day,
         saved_at: top.saved_at,
+        index_uuid: top.index_uuid,
         fingerprint: found,
         payload,
         groups: top.groups,
@@ -231,9 +272,15 @@ impl OpenedCounts<'_> {
         Ok(names)
     }
 
-    pub(crate) fn without_index_uuid(&self) -> Result<Vec<u8>> {
+    pub(crate) fn with_index_uuid(&self, index_uuid: Option<&str>) -> Result<Vec<u8>> {
         let mut payload = Vec::new();
-        write_top_level(&mut payload, &self.day, &self.fingerprint, self.saved_at);
+        let header = FileHeader {
+            day: &self.day,
+            fingerprint: &self.fingerprint,
+            saved_at: self.saved_at,
+            index_uuid,
+        };
+        write_top_level(&mut payload, &header);
         payload.extend_from_slice(self.groups_bytes());
         sealed(&payload)
     }

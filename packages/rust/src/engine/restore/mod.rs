@@ -3,7 +3,7 @@ mod install;
 mod prepare;
 mod sink;
 mod swap;
-mod validate;
+pub(crate) mod validate;
 
 use std::io::{self, Read};
 

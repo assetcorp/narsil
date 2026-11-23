@@ -179,12 +179,19 @@ pub(crate) async fn streamed_write<F>(
 where
     F: FnOnce(&Narsil, &mut dyn Write) -> narsil::Result<()> + Send + 'static,
 {
-    let (sender, mut receiver) = chunk_channel();
     let engine = Arc::clone(engine);
+    streamed_output(content_type, move |out| work(&engine, out)).await
+}
+
+pub(crate) async fn streamed_output<F>(content_type: &'static str, work: F) -> Outcome<HttpResponse>
+where
+    F: FnOnce(&mut dyn Write) -> narsil::Result<()> + Send + 'static,
+{
+    let (sender, mut receiver) = chunk_channel();
     let runtime = Handle::current();
     let writing = tokio::task::spawn_blocking(move || {
         let mut writer = ChunkWriter::new(sender, runtime);
-        let outcome = work(&engine, &mut writer);
+        let outcome = work(&mut writer);
         writer.finish(outcome)
     });
     match receiver.recv().await {

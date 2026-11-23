@@ -8,6 +8,7 @@ import type { AnalysisView } from '../analysis-change/view'
 import type { Bm25View } from '../bm25-view'
 import type { ClusterLocalEngine } from '../local-engine'
 import { readRejectionOf, refuseDecodeWithoutRoom, sendToNode } from '../node-messaging'
+import { type LiveAllocationReader, liveAllocationOnce } from '../routable-allocation'
 import type { SearchContextRegistry } from '../search-contexts'
 import type { ClusterNodeConfig } from '../types'
 import type { VectorReadView } from './vector-reads'
@@ -17,6 +18,7 @@ export interface ClusterReadDeps {
   nodeId: string
   engine: ClusterLocalEngine
   resolveNodeTargets: (targetNodeId: string) => Promise<string[]>
+  readLiveAllocation?: LiveAllocationReader
   searchContexts?: SearchContextRegistry
   bm25View: Bm25View
   analysisView: AnalysisView
@@ -32,8 +34,13 @@ export async function gatherFromEveryPartition<T>(
   allocation: AllocationTable,
   indexName: string,
   read: (group: ScatterGroup) => Promise<T>,
+  readLive?: LiveAllocationReader,
 ): Promise<T[]> {
-  const routing = selectReplicasForQuery(allocation, randomSelector)
+  let routing = selectReplicasForQuery(allocation, randomSelector)
+  if (routing.unavailablePartitions.length > 0) {
+    const live = await liveAllocationOnce(readLive, indexName)
+    if (live !== null) routing = selectReplicasForQuery(live, randomSelector)
+  }
   if (routing.unavailablePartitions.length > 0) {
     throw new NarsilError(
       ErrorCodes.QUERY_NO_ACTIVE_REPLICA,

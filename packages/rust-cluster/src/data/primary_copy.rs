@@ -1,3 +1,5 @@
+use std::io::{Read, Write};
+
 use narsil::replication::{
     AppliedRun, CopyPosition, HeldTerm, PartitionCopies, PrimaryLimits, PrimaryRun, PrimaryWrite,
     ReplicatedEntry, WriteRecord,
@@ -94,6 +96,32 @@ impl LocalCopies {
         self.on_copy_of(index_name, index_uuid, |copies| {
             copies.reload_partition(index_name, partition_id)
         })
+    }
+
+    pub(super) fn archive_partition(
+        &self,
+        index_name: &str,
+        partition_id: u32,
+        out: &mut dyn Write,
+    ) -> ClusterResult<CopyPosition> {
+        self.refuse_orphaned(index_name)?;
+        Ok(PartitionCopies::new(&self.engine).archive_partition(index_name, partition_id, out)?)
+    }
+
+    pub(super) fn restore_partition(
+        &self,
+        index_name: &str,
+        partition_id: u32,
+        position: CopyPosition,
+        archive: &mut dyn Read,
+    ) -> ClusterResult<()> {
+        self.refuse_orphaned(index_name)?;
+        Ok(PartitionCopies::new(&self.engine).restore_partition(
+            index_name,
+            partition_id,
+            position,
+            archive,
+        )?)
     }
 
     pub(super) fn empty_partition(

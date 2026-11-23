@@ -1,13 +1,10 @@
 use std::collections::HashSet;
-use std::sync::Arc;
 
-use crate::durability::store::DurabilityStore;
-use crate::engine::index::IndexState;
+use crate::engine::sync::source::{BoundsFreshness, ChangeSource};
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::format::metadata_parts::is_sync_epoch;
 use crate::value::Value;
 
-use super::filter::ChangeFilter;
 use super::step::Following;
 use super::types::{ChangePosition, ChangesRequest, ChangesSubscribed, ResyncReason};
 
@@ -105,85 +102,58 @@ fn positions_of(seq_nos: &[u64]) -> Vec<ChangePosition> {
         .collect()
 }
 
-pub(super) fn open_locked(
-    index: &IndexState,
-    store: &Arc<DurabilityStore>,
+pub(super) fn open_from_source(
+    source: &dyn ChangeSource,
+    index_name: &str,
     request: &ChangesRequest,
 ) -> Result<Opened> {
-    require_request_shape(&index.name, request)?;
-    let Some(log) = index.log() else {
-        return Err(not_enabled(&index.name));
+    require_request_shape(index_name, request)?;
+    let Some(state) = source.changes_state(index_name)? else {
+        return Err(not_enabled(index_name));
     };
-    let (Some(epoch), records_previous) = log.recorded_capture() else {
-        return Err(not_enabled(&index.name));
-    };
-    let filter = request
+    let test = request
         .filter
         .as_ref()
-        .map(|filter| ChangeFilter::new(filter, index))
+        .map(|filter| source.document_test(index_name, filter))
         .transpose()?;
-    if filter.is_some() && !records_previous {
-        return Err(previous_document_required(&index.name));
+    if test.is_some() && !state.previous_document {
+        return Err(previous_document_required(index_name));
     }
     if let Some(requested) = &request.epoch
-        && *requested != epoch
+        && *requested != state.epoch
     {
         return Ok(Opened::Resync(ResyncReason::Epoch));
     }
-    let partition_count = index.partitions().len();
+    let partition_count = state.partition_count as usize;
     let given = request
         .positions
         .as_deref()
-        .map(|positions| require_positions(&index.name, positions, partition_count))
+        .map(|positions| require_positions(index_name, positions, partition_count))
         .transpose()?;
-    let mut heads = Vec::with_capacity(partition_count);
-    for partition_id in 0..partition_count as u32 {
-        heads.push(store.log_positions(&index.name, partition_id)?);
+    let mut bounds = Vec::with_capacity(partition_count);
+    for partition_id in 0..state.partition_count {
+        bounds.push(source.bounds(index_name, partition_id, BoundsFreshness::Current)?);
     }
     if let Some(given) = &given {
-        for (position, bounds) in given.iter().zip(&heads) {
-            if *position < bounds.oldest.saturating_sub(1) {
+        for (position, bounds) in given.iter().zip(&bounds) {
+            if *position < bounds.oldest_seq_no.saturating_sub(1) {
                 return Ok(Opened::Resync(ResyncReason::History));
             }
-            if *position > bounds.highest {
+            if *position > bounds.highest_seq_no {
                 return Ok(Opened::Resync(ResyncReason::Ahead));
             }
         }
     }
-    let heads: Vec<u64> = heads.iter().map(|bounds| bounds.head).collect();
+    let heads: Vec<u64> = bounds.iter().map(|bounds| bounds.head).collect();
     let starts = given.unwrap_or_else(|| heads.clone());
     let subscribed = ChangesSubscribed {
-        epoch: epoch.clone(),
-        partition_count: partition_count as u32,
+        epoch: state.epoch.clone(),
+        partition_count: state.partition_count,
         positions: positions_of(&starts),
         heads: positions_of(&heads),
         bytes_behind: 0,
-        previous_document: records_previous,
+        previous_document: state.previous_document,
     };
-    let following = Following::new(epoch, filter, &starts, heads);
+    let following = Following::new(state.epoch, test, &starts, heads);
     Ok(Opened::Following(Box::new(following), subscribed))
-}
-
-pub(super) fn bytes_behind(
-    store: &DurabilityStore,
-    index_name: &str,
-    positions: &[ChangePosition],
-) -> Result<u64> {
-    let mut bytes = 0u64;
-    for position in positions {
-        bytes = bytes.saturating_add(store.log_bytes_after(
-            index_name,
-            position.partition_id,
-            position.seq_no,
-        )?);
-    }
-    Ok(bytes)
-}
-
-pub(super) fn log_store_for_changes(index: &IndexState) -> Result<Arc<DurabilityStore>> {
-    index
-        .log()
-        .and_then(|log| log.log_store())
-        .cloned()
-        .ok_or_else(|| not_enabled(&index.name))
 }

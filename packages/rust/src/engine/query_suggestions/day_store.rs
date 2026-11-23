@@ -9,14 +9,13 @@ use super::counts_file::{OpenedCountsFile, encode_counts_file, open_counts_file}
 use super::day_counts::{DayCounts, DayLimits};
 use super::history_files::{HistoryRead, day_file_key, read_history_file};
 use super::history_groups::{HeldGroups, history_groups, note_groups};
-use super::host::{locked, suggestion_state_of, warn, warn_of_failure};
+use super::host::{SuggestionsHost, locked, warn, warn_of_failure};
 use super::scramble::Scrambler;
 use super::setting::ResolvedSetting;
 use super::suggestions_writer::marked_suggestion_indexes;
 use super::types::{QuerySuggestionsWarningReason, RecordQueryOutcome};
 use crate::durability::checkpoint_store::CheckpointStore;
 use crate::durability::platform::now_ms;
-use crate::engine::EngineInner;
 use crate::engine::event_hold::hold_events;
 use crate::error::Result;
 
@@ -41,7 +40,7 @@ fn limits_of(setting: &ResolvedSetting) -> DayLimits {
 }
 
 pub(crate) struct DayContext<'a> {
-    pub(crate) engine: &'a EngineInner,
+    pub(crate) host: &'a dyn SuggestionsHost,
     pub(crate) files: &'a dyn CheckpointStore,
     pub(crate) scrambler: &'a Scrambler,
 }
@@ -96,8 +95,10 @@ impl DayStore {
         );
         let _events = hold_events();
         let mut days = locked(&held);
-        let Some(state) =
-            suggestion_state_of(context.engine, index_name).filter(|state| state.enabled())
+        let Some(state) = context
+            .host
+            .state(index_name)
+            .filter(|state| state.enabled())
         else {
             return Ok(None);
         };
@@ -126,7 +127,7 @@ impl DayStore {
             _ => return Ok(Some(outcome)),
         };
         if days.warned.insert((day, reason)) {
-            warn(context.engine, index_name, reason, None, None);
+            warn(context.host, index_name, reason, None, None);
         }
         Ok(Some(outcome))
     }
@@ -195,7 +196,7 @@ fn group_allowed(
         &mut days.groups,
         cutoff,
     ));
-    known.extend(marked_suggestion_indexes(context.engine, index_name).into_keys());
+    known.extend(marked_suggestion_indexes(context.host, index_name).into_keys());
     known.contains(group) || known.len() < max_groups as usize
 }
 
@@ -246,6 +247,10 @@ fn load_day(
         HistoryRead::Bytes(bytes) => {
             match open_counts_file(&bytes, Some(&counts.day), context.scrambler.fingerprint()) {
                 OpenedCountsFile::Counts(opened) => {
+                    let host = context.host;
+                    if host.clustered() && opened.index_uuid != host.index_uuid(index_name) {
+                        return Ok(counts);
+                    }
                     opened.visit(&mut |visited| {
                         let count = u32::try_from(visited.count).unwrap_or(u32::MAX);
                         counts.restore_phrase(visited.group, visited.phrase, count, visited.people);
@@ -258,7 +263,7 @@ fn load_day(
             }
         }
     };
-    warn(context.engine, index_name, unreadable, Some(key), None);
+    warn(context.host, index_name, unreadable, Some(key), None);
     Ok(counts)
 }
 
@@ -277,12 +282,18 @@ fn write_day(context: &DayContext<'_>, index_name: &str, counts: &mut DayCounts)
         return;
     }
     let key = day_file_key(index_name, &counts.day);
-    let written = encode_counts_file(counts, context.scrambler.fingerprint(), now_ms())
+    let host = context.host;
+    let index_uuid = host
+        .clustered()
+        .then(|| host.index_uuid(index_name))
+        .flatten();
+    let fingerprint = context.scrambler.fingerprint();
+    let written = encode_counts_file(counts, fingerprint, now_ms(), index_uuid.as_deref())
         .and_then(|bytes| context.files.write_commit(&key, &bytes));
     match written {
         Ok(()) => counts.mark_saved(),
         Err(error) => warn_of_failure(
-            context.engine,
+            context.host,
             index_name,
             QuerySuggestionsWarningReason::SaveFailed,
             &error,

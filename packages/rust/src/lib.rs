@@ -5,6 +5,8 @@ mod analysis;
 mod config;
 #[doc(hidden)]
 pub mod conformance;
+#[doc(hidden)]
+pub mod coordination;
 mod durability;
 mod engine;
 mod error;
@@ -19,12 +21,46 @@ mod ordering;
 mod pattern;
 mod pins;
 #[doc(hidden)]
+pub mod held_analysis {
+    pub use crate::engine::{HeldAnalysisChanges, PendingAnalysisChange};
+}
+#[doc(hidden)]
 pub mod replication {
     pub use crate::engine::replication::{
-        AppliedRun, CopyPosition, EntryOperation, HeldTerm, PartitionCopies, PrimaryLimits,
-        PrimaryRefusal, PrimaryRun, PrimaryWrite, PrimaryWritten, PriorDocument, ReplicatedEntry,
-        WriteRecord,
+        AppliedRun, BackupArchive, BackupArchiveFile, BackupArchivePartition, BackupFileReader,
+        BackupListedFile, BackupPartitionFiles, CopyChangesState, CopyEpochStates, CopyPosition,
+        CopySyncState, EntryOperation, HeldTerm, NodeMemoryReading, PartitionBackup,
+        PartitionCopies, PrimaryLimits, PrimaryRefusal, PrimaryRun, PrimaryWrite, PrimaryWritten,
+        PriorDocument, ReplicatedEntry, WriteRecord, decode_backup_index_configuration,
+        encode_backup_index_configuration, read_process_memory, require_restorable_config,
     };
+    pub use crate::format::backup_manifest::{
+        BackupConstraints, BackupManifest, BackupPartition, ListedFile, StoredFile,
+        backup_partition, decode_backup_manifest, encode_backup_manifest, stored_file,
+    };
+    pub use crate::format::backup_manifest_write::{backup_partition_wire, stored_file_wire};
+}
+#[doc(hidden)]
+pub mod partitions {
+    pub use crate::engine::{
+        PartitionQuery, PartitionStatistics, StatsExpansion, SuppliedStatistics,
+    };
+    pub use crate::ordering::document_sort_values;
+}
+#[doc(hidden)]
+pub mod suggestions_host {
+    pub use crate::engine::query_suggestions::build_record::BuildRecord;
+    pub use crate::engine::query_suggestions::counts_stream::{
+        HistoryStream, HistoryStreamReader, StreamedHistoryFile,
+    };
+    pub use crate::engine::query_suggestions::history_storage::HistoryFiles;
+    pub use crate::engine::query_suggestions::host::{
+        HistoryFilesRef, IndexView, RemoteFile, SuggestionsHost,
+    };
+    pub use crate::engine::query_suggestions::service::{
+        RestoredHistoryWriter, SuggestionsService, suggestions_index_config,
+    };
+    pub use crate::engine::query_suggestions::stored_state::SuggestionState;
 }
 mod schema;
 mod search;
@@ -38,7 +74,7 @@ pub use analysis::{Language, StopWordFunction, StopWords, Token, TokenSource, To
 pub use config::{
     AdapterSetting, Bm25FieldParams, Bm25Params, EmbeddingConfig, HnswSettings, IndexConfig,
     Metric, PartitionConfig, Quantization, ScoringMode, StopWordsSetting, Storage, SynonymRule,
-    TokenizerSetting, VectorPromotion, index_config_from_stored_settings,
+    TokenizerSetting, VectorPromotion, index_config_from_stored_settings, validate_index_name,
 };
 pub use durability::persistence::{FilesystemPersistence, MemoryPersistence, PersistenceAdapter};
 #[doc(hidden)]
@@ -58,6 +94,10 @@ pub use engine::{
 pub use engine::{
     AnalysisConfig, AnalysisRebuildMode, IdGenerator, IndexLifecycleConfig, IndexResidencyState,
     MemoryConfig, StaleAnalysis, StaleAnalysisListener, StaleRebuild,
+};
+pub use engine::{
+    BoundsFreshness, ChangeSource, ChangesIndexState, DocumentTest, EngineFeedSource, FeedSource,
+    FeedSourceChange, FeedSourceListener, FeedSubscription,
 };
 pub use engine::{
     Change, ChangeFeed, ChangeFeedStop, ChangeGroup, ChangePosition, ChangeType, ChangesEvent,

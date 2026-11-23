@@ -1,6 +1,6 @@
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
-use super::config::{ClusterNodeConfig, validate_config};
+use super::config::{ClusterNodeConfig, rerank_host_of, validate_config};
 use super::member::{NodeInner, Phase, node_error};
 use crate::controller::{Controller, lock};
 use crate::error::{ClusterResult, codes};
@@ -14,9 +14,13 @@ use crate::error::{ClusterResult, codes};
 ///
 /// A node with the `controller` role stands for the controller lease once it joins. While it holds the lease, it
 /// places every index's partitions on the data nodes, answers the in-sync, bootstrap, and resignation messages that
-/// a primary sends, and refuses the replication factor, rebalance, backup, and query suggestion requests with
-/// `CLUSTER_OPERATION_UNSUPPORTED`. A node on another major specification version than the active controller
-/// cannot join.
+/// a primary sends, applies a replication factor change and places the index again, drives a partition count change
+/// to its cutover, runs the backup, restore, and backup deletion jobs, and runs the popular query suggestion builds
+/// that a schedule or another node asks for. A node on another major specification version than the active
+/// controller cannot join.
+///
+/// Every node answers the request of the controller for the query history files that it keeps, and
+/// [`ClusterNode::query_suggestions`] counts searches and manages the suggestions of an index from any node.
 pub struct ClusterNode {
     pub(super) inner: Arc<NodeInner>,
 }
@@ -28,11 +32,14 @@ impl ClusterNode {
     ///
     /// Fails with `CONFIG_INVALID` where the registration holds no role, an unknown role, an empty address, or an
     /// invalid node id, where `data` holds settings for a node without the `data` role or none for a node with it,
-    /// or where a timing value is zero.
+    /// where a timing value is zero, where `in_flight_write_fraction` is not above 0 and at most 1, or where the rerank
+    /// timeout or window falls outside its range. Fails with `RERANK_CONFIG_INVALID` where a rerank adapter's name is
+    /// empty.
     pub fn new(config: ClusterNodeConfig) -> ClusterResult<ClusterNode> {
         validate_config(&config)?;
+        let rerank = rerank_host_of(&config)?;
         Ok(ClusterNode {
-            inner: Arc::new(NodeInner::new(config)),
+            inner: Arc::new_cyclic(|this| NodeInner::new(config, rerank, Weak::clone(this))),
         })
     }
 
@@ -103,14 +110,16 @@ impl ClusterNode {
         }
     }
 
-    /// Leaves the cluster for good: the node gives up the controller lease where it holds it, stops renewing its
-    /// registration, deregisters, stops listening, and closes the engine of its `data` role.
+    /// Leaves the cluster for good: the node refuses new operations, waits for every operation that runs on it to
+    /// return, gives up the controller lease where it holds it, stops renewing its registration, deregisters, stops
+    /// listening, and closes the engine of its `data` role.
     ///
     /// A shutdown during a start ends the wait for an earlier registration, and the start then fails with
     /// `NODE_NOT_JOINED`. The coordinator and the transport stay open, because the caller owns them. A second
     /// call does nothing.
     pub async fn shutdown(&self) {
         self.inner.stopping.send_replace(true);
+        self.inner.operations.drain().await;
         let _turn = self.inner.lifecycle.lock().await;
         let earlier = std::mem::replace(&mut *lock(&self.inner.phase), Phase::Shutdown);
         if earlier != Phase::Shutdown {

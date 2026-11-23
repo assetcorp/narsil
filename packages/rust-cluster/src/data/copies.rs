@@ -5,12 +5,14 @@ use narsil::replication::{CopyPosition, PartitionCopies};
 use narsil::{ErrorCode, IndexConfig, Map, Narsil, NarsilError, Value};
 
 use super::config::DataNodeConfig;
+use super::spool_directory::SpoolDirectory;
 use crate::controller::lock;
 use crate::error::{ClusterError, ClusterResult, codes};
 
 pub(super) struct LocalCopies {
     node_id: String,
     pub(super) engine: Narsil,
+    pub(super) spool: SpoolDirectory,
     orphaned: Mutex<HashSet<String>>,
     unreadable: Mutex<HashSet<String>>,
     index_lifecycle: Mutex<()>,
@@ -39,6 +41,10 @@ impl LocalCopies {
             rerank_adapters,
             log_retention_bytes: _,
         } = config;
+        let durability_directory = engine
+            .durability
+            .as_ref()
+            .and_then(|durability| durability.directory.clone());
         let engine = Narsil::open_with(engine, move |engine| {
             for (name, tokenizer) in tokenizers {
                 engine.register_tokenizer(&name, tokenizer)?;
@@ -54,9 +60,17 @@ impl LocalCopies {
             }
             Ok(())
         })?;
+        let spool = match SpoolDirectory::open(durability_directory.as_deref()) {
+            Ok(spool) => spool,
+            Err(error) => {
+                let _ = engine.shutdown();
+                return Err(error);
+            }
+        };
         Ok(LocalCopies {
             node_id,
             engine,
+            spool,
             orphaned: Mutex::new(HashSet::new()),
             unreadable: Mutex::new(HashSet::new()),
             index_lifecycle: Mutex::new(()),
@@ -88,18 +102,34 @@ impl LocalCopies {
         index_uuid: &str,
         partition_count: u32,
     ) -> ClusterResult<()> {
+        match self.create_new_copy(index_name, config, index_uuid, partition_count) {
+            Err(error) if error.code() == codes::INDEX_ALREADY_EXISTS => Ok(()),
+            other => other,
+        }
+    }
+
+    pub(super) fn create_new_copy(
+        &self,
+        index_name: &str,
+        config: IndexConfig,
+        index_uuid: &str,
+        partition_count: u32,
+    ) -> ClusterResult<()> {
         self.refuse_orphaned(index_name)?;
         let _turn = lock(&self.index_lifecycle);
-        let created = PartitionCopies::new(&self.engine).create_index(
+        Ok(PartitionCopies::new(&self.engine).create_index(
             index_name,
             config,
             index_uuid,
             partition_count,
-        );
-        match created {
-            Err(error) if error.code() == ErrorCode::INDEX_ALREADY_EXISTS => Ok(()),
-            other => Ok(other?),
-        }
+        )?)
+    }
+
+    pub(super) fn drop_local_index(&self, index_name: &str) -> ClusterResult<()> {
+        let _turn = lock(&self.index_lifecycle);
+        self.engine.drop_index(index_name)?;
+        self.forget_orphan(index_name);
+        Ok(())
     }
 
     pub(super) fn schema_of(&self, index_name: &str) -> Result<Value, NarsilError> {
