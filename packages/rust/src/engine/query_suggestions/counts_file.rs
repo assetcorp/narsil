@@ -193,6 +193,19 @@ fn read_top_level(payload: &[u8]) -> Result<TopLevel> {
     }
 }
 
+pub(crate) fn counts_file_index_uuid(bytes: &[u8]) -> Option<String> {
+    if bytes.len() as u64 > MAX_HISTORY_FILE_BYTES {
+        return None;
+    }
+    let expectation = Expectation {
+        version: QUERY_COUNTS_FILE_FORMAT_VERSION,
+        what: WHAT,
+        allows_compression: false,
+    };
+    let (_, payload) = open_checksummed(bytes, &expectation).ok()?;
+    read_top_level(payload.bytes()).ok()?.index_uuid
+}
+
 pub(crate) fn open_counts_file<'a>(
     bytes: &'a [u8],
     expected_day: Option<&str>,

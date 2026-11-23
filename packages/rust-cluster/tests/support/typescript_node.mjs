@@ -15,7 +15,8 @@ const [
 ] = process.argv.slice(2)
 const dist = join(repositoryRoot, 'packages/ts/dist')
 const load = path => import(pathToFileURL(join(dist, path)).href)
-const { createClusterNode } = await load('distribution.mjs')
+const { createClusterNode, clusterNodeEngine } = await load('distribution.mjs')
+const { querySuggestions } = await load('query-suggestions.mjs')
 const { createEtcdCoordinator } = await load('distribution/coordinator/etcd.mjs')
 const { createTcpTransport } = await load('distribution/transport/tcp.mjs')
 
@@ -69,6 +70,7 @@ const node = await createClusterNode({
   ...backups,
   engine: {
     workers: { enabled: false },
+    querySuggestions: { key: new Uint8Array(32).fill(11) },
     embeddingAdapters,
     ...(durabilityDirectory === '' ? {} : { durability: { directory: durabilityDirectory, mode: 'sync' } }),
   },
@@ -158,6 +160,14 @@ const operations = {
   deleteBackup: async ({ backupName }) => node.cluster.deleteBackup(backupName),
   listBackups: async () => (await node.cluster.listBackups()).map(backup => backup.name),
   getMultiple: async ({ indexName, documentIds }) => Object.fromEntries(await node.getMultiple(indexName, documentIds)),
+  recordQuery: ({ indexName, query }) => suggestions().recordQuery(indexName, query),
+  previewSuggestions: async ({ indexName }) => (await suggestions().preview(indexName)).entries,
+  buildSuggestions: ({ indexName }) => suggestions().build(indexName),
+  suggestionStatus: ({ indexName }) => suggestions().status(indexName),
+}
+
+function suggestions() {
+  return querySuggestions(clusterNodeEngine(node))
 }
 
 let rawMessagesSent = 0

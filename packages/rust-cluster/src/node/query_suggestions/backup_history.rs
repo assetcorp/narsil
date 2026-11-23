@@ -1,4 +1,6 @@
-use narsil::suggestions_host::{RemoteFile, RestoredHistoryWriter};
+use narsil::suggestions_host::{
+    HistoryFiles, RemoteFile, RestoredHistoryWriter, SuggestionsService,
+};
 use tokio::runtime::Handle;
 use tokio::sync::mpsc::{Sender, channel};
 
@@ -16,13 +18,13 @@ const DOC_NOT_FOUND: &str = "DOC_NOT_FOUND";
 
 type FileSender = Sender<ClusterResult<Vec<u8>>>;
 
-fn send_local_files(suggestions: &NodeSuggestions, index_name: &str, sender: &FileSender) -> bool {
-    if let Ok(service) = suggestions.service() {
-        service.save_day(index_name);
-    }
-    let Some(files) = lock(&suggestions.files).clone() else {
-        return true;
-    };
+fn send_local_files(
+    service: &SuggestionsService,
+    files: &HistoryFiles,
+    index_name: &str,
+    sender: &FileSender,
+) -> bool {
+    service.save_day(index_name);
     let keys = match files.day_file_keys(index_name) {
         Ok(keys) => keys,
         Err(error) => {
@@ -32,8 +34,10 @@ fn send_local_files(suggestions: &NodeSuggestions, index_name: &str, sender: &Fi
     };
     for key in keys {
         let sent = match files.read(&key) {
-            Ok(Some(bytes)) => sender.blocking_send(Ok(bytes)),
-            Ok(None) => continue,
+            Ok(Some(bytes)) if service.holds_history_of(index_name, &bytes) => {
+                sender.blocking_send(Ok(bytes))
+            }
+            Ok(_) => continue,
             Err(error) => {
                 let _ = sender.blocking_send(Err(error.into()));
                 return false;
@@ -52,12 +56,17 @@ fn send_every_file(
     index_name: &str,
     sender: &FileSender,
 ) {
-    if !send_local_files(suggestions, index_name, sender) {
-        return;
-    }
-    let Some(files) = lock(&suggestions.files).clone() else {
+    let (Ok(service), Some(files)) = (suggestions.service(), lock(&suggestions.files).clone())
+    else {
         return;
     };
+    if let Err(error) = runtime.block_on(suggestions.view.refresh(index_name)) {
+        let _ = sender.blocking_send(Err(error));
+        return;
+    }
+    if !send_local_files(&service, &files, index_name, sender) {
+        return;
+    }
     let source = RemoteSource {
         node_id: suggestions.node_id.clone(),
         node: suggestions.node.clone(),
@@ -66,6 +75,7 @@ fn send_every_file(
     };
     for remote in RemoteHistory::new(source, index_name) {
         if let RemoteFile::File { bytes, .. } = remote
+            && service.holds_history_of(index_name, &bytes)
             && sender.blocking_send(Ok(bytes)).is_err()
         {
             return;

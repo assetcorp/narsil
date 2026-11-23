@@ -1,6 +1,7 @@
 use std::io::Read;
 use std::sync::Arc;
 
+use super::counts_file::counts_file_index_uuid;
 use super::counts_stream::HistoryStream;
 use super::host::{SuggestionsHost, SuggestionsOwner};
 use super::host_operations;
@@ -249,6 +250,17 @@ impl SuggestionsService {
             return Err(config_invalid(format!("A group holds {GROUP_FORMAT}")));
         }
         Ok(suggestions_index_name(index_name, group))
+    }
+
+    /// Reports whether `bytes` hold a history file of `index_name` as it stands now: any readable file for a host
+    /// outside a cluster, and for a cluster node only a file that carries the present UUID of the index, so that a
+    /// backup leaves out the files that an earlier index of the same name left behind.
+    pub fn holds_history_of(&self, index_name: &str, bytes: &[u8]) -> bool {
+        let host = &*self.inner.host;
+        let Some(file_uuid) = counts_file_index_uuid(bytes) else {
+            return !host.clustered();
+        };
+        !host.clustered() || host.index_uuid(index_name).as_deref() == Some(file_uuid.as_str())
     }
 
     /// Writes the unsaved counts of `index_name` to its history files.
