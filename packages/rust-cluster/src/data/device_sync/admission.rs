@@ -3,7 +3,7 @@ use std::sync::Arc;
 use narsil::Value;
 
 use super::bridge::wait_on;
-use super::feed_source::SharedFeedSource;
+use super::shared_source::SharedFeedSource;
 use crate::constants::{CHANGE_CAPTURE_SPEC_VERSION, DEVICE_SYNC_SPEC_VERSION};
 use crate::coordinator::etcd::EtcdCoordinator;
 use crate::error::{ClusterError, ClusterResult, codes};

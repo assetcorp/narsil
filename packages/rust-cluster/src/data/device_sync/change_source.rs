@@ -7,7 +7,8 @@ use narsil::{
 
 use super::admission::CHANGE_CAPTURE_READINESS;
 use super::bridge::wait_on;
-use super::feed_source::{FeedParts, SharedFeedSource};
+use super::feed_source::FeedParts;
+use super::shared_source::SharedFeedSource;
 use crate::data::stored_index::stored_index;
 use crate::error::{ClusterError, ClusterResult, codes};
 
