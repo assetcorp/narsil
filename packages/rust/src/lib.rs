@@ -28,7 +28,9 @@ pub mod replication {
 }
 #[doc(hidden)]
 pub mod partitions {
-    pub use crate::engine::{PartitionQuery, SuppliedStatistics};
+    pub use crate::engine::{
+        PartitionQuery, PartitionStatistics, StatsExpansion, SuppliedStatistics,
+    };
 }
 mod schema;
 mod search;

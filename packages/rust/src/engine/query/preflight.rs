@@ -1,10 +1,12 @@
 use std::time::{Duration, Instant};
 
+use super::confined::PartitionQuery;
 use super::constants::{MAX_PREFIX_LENGTH, MAX_TOLERANCE, PREFLIGHT_VECTOR_DEPTH};
 use super::embedded::resolve_vector_text;
 use super::gather::{QueryRun, RunShape, search_text};
 use super::hybrid::hybrid_hits;
 use super::params::{QueryParams, TermMatch};
+use super::partition_stats::{PartitionStatistics, StatsExpansion, collect_partition_stats};
 use super::phrases::require_usable_phrases;
 use super::require_integer_up_to;
 use super::scope::QueryScope;
@@ -78,13 +80,15 @@ fn preflight_count(
     resolved: &QueryParams,
     limits: &SearchLimits,
     started: Instant,
+    confinement: Option<&PartitionQuery>,
 ) -> Result<PreflightResult> {
     let counting = counting_params(resolved);
     let plan = plan_search(&counting)?;
     require_integer_up_to("tolerance", resolved.tolerance, MAX_TOLERANCE)?;
     require_integer_up_to("prefixLength", resolved.prefix_length, MAX_PREFIX_LENGTH)?;
     require_sortable_fields(index, resolved.sort.as_deref())?;
-    let scope = QueryScope::new(index, resolved.filters.as_ref(), limits)?;
+    let scope = QueryScope::new(index, resolved.filters.as_ref(), limits)?
+        .confined_to_partitions(confinement.is_some());
     require_usable_query_fields(index, resolved)?;
     require_vector_searchable(index, resolved, plan)?;
     let shape = RunShape {
@@ -92,7 +96,7 @@ fn preflight_count(
         limit: PREFLIGHT_VECTOR_DEPTH,
         offset: 0,
         signature: None,
-        confinement: None,
+        confinement,
     };
     let run = QueryRun::new(index, resolved, &scope, shape)?;
     if plan != SearchPlan::Vector {
@@ -143,8 +147,54 @@ impl Narsil {
                     &embedded.params,
                     &self.inner.search_limits,
                     started,
+                    None,
                 )
             },
         )
+    }
+
+    /// Returns the count of [`Narsil::preflight`] from the partitions of the index that `confinement` lists, scored
+    /// under the BM25 setting that it supplies, the way a cluster data node answers the partitions that a
+    /// coordinator routed to it.
+    #[doc(hidden)]
+    pub fn preflight_partitions(
+        &self,
+        index: &str,
+        params: &QueryParams,
+        confinement: &PartitionQuery,
+    ) -> Result<PreflightResult> {
+        let started = Instant::now();
+        self.inner.read_index_prepared(
+            index,
+            None,
+            |current, earlier| resolve_vector_text(current, params, earlier),
+            |current, embedded| {
+                preflight_count(
+                    current,
+                    params,
+                    &embedded.params,
+                    &self.inner.search_limits,
+                    started,
+                    Some(confinement),
+                )
+            },
+        )
+    }
+
+    /// Returns the BM25 statistics of the partitions of the index that `confinement` lists for a query of `terms`,
+    /// counting every token that the query reaches under `expansion` and every one of `tokens` as given, which a
+    /// cluster coordinator sums across every data node before it scores a DFS query.
+    #[doc(hidden)]
+    pub fn query_stats_partitions(
+        &self,
+        index: &str,
+        confinement: &PartitionQuery,
+        terms: &[String],
+        expansion: Option<&StatsExpansion>,
+        tokens: &[String],
+    ) -> Result<PartitionStatistics> {
+        self.inner.read_index(index, |current| {
+            collect_partition_stats(current, confinement, terms, expansion, tokens)
+        })
     }
 }
