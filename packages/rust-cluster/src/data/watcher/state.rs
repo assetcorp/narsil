@@ -38,6 +38,7 @@ impl BootstrapSlot {
 pub(super) struct WatcherState {
     pub(super) stopped: bool,
     pub(super) tracked: HashMap<PartitionKey, Tracked>,
+    pub(super) unserved: HashSet<PartitionKey>,
     pub(super) bootstraps: HashMap<PartitionKey, BootstrapSlot>,
     pub(super) awaited: HashMap<PartitionKey, AwaitedAdmission>,
     pub(super) retained: HashSet<PartitionKey>,
