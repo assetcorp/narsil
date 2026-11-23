@@ -21,9 +21,13 @@ mod pins;
 #[doc(hidden)]
 pub mod replication {
     pub use crate::engine::replication::{
-        AppliedRun, CopyPosition, EntryOperation, HeldTerm, PartitionCopies, PrimaryLimits,
-        PrimaryRefusal, PrimaryRun, PrimaryWrite, PrimaryWritten, PriorDocument, ReplicatedEntry,
-        WriteRecord,
+        AppliedRun, BackupListedFile, BackupPartitionFiles, CopyPosition, EntryOperation, HeldTerm,
+        PartitionBackup, PartitionCopies, PrimaryLimits, PrimaryRefusal, PrimaryRun, PrimaryWrite,
+        PrimaryWritten, PriorDocument, ReplicatedEntry, WriteRecord,
+    };
+    pub use crate::format::backup_manifest::{
+        BackupConstraints, BackupManifest, BackupPartition, ListedFile, StoredFile,
+        decode_backup_manifest, encode_backup_manifest,
     };
 }
 mod schema;

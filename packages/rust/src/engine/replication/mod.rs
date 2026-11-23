@@ -1,6 +1,7 @@
 mod adopt;
 mod append;
 mod archive;
+mod backup;
 pub(crate) mod copy_state;
 mod logged;
 mod primary;
@@ -18,6 +19,7 @@ use copy_state::ReplicatedCopy;
 
 pub(crate) use logged::fail_stopped_logs;
 
+pub use backup::{BackupListedFile, BackupPartitionFiles, PartitionBackup};
 pub use types::{
     AppliedRun, CopyPosition, EntryOperation, HeldTerm, PrimaryLimits, PrimaryRefusal, PrimaryRun,
     PrimaryWrite, PrimaryWritten, PriorDocument, ReplicatedEntry, WriteRecord,
