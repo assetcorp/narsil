@@ -2,7 +2,7 @@ mod assemble;
 mod bm25;
 pub(crate) mod constants;
 mod coverage;
-mod cursor;
+pub(crate) mod cursor;
 pub(crate) mod documents;
 mod embedded;
 mod facets;

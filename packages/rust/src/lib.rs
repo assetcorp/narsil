@@ -5,6 +5,8 @@ mod analysis;
 mod config;
 #[doc(hidden)]
 pub mod conformance;
+#[doc(hidden)]
+pub mod coordination;
 mod durability;
 mod engine;
 mod error;

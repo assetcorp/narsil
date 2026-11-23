@@ -6,6 +6,7 @@ use tokio::sync::watch;
 use super::blocking::off_executor;
 use super::config::DataNodeConfig;
 use super::copies::LocalCopies;
+use super::local_reads::LocalReads;
 use super::lost_copy::LostCopyWait;
 use super::partition_stores::{partition_stores_answer, requested_index};
 use super::reconcile::settle_local_indexes;
@@ -168,6 +169,10 @@ impl DataRole {
             },
         };
         respond.send(reply).await;
+    }
+
+    pub(crate) fn local_reads(&self) -> ClusterResult<Arc<LocalReads>> {
+        Ok(Arc::new(LocalReads::new(self.settled_copies()?)))
     }
 
     pub(crate) fn primary_writes(&self) -> ClusterResult<Arc<PrimaryWrites>> {

@@ -4,7 +4,7 @@ mod constants;
 mod native;
 mod values;
 
-pub(crate) use batch::KeyBatch;
+pub(crate) use batch::{KeyBatch, RankedKeys};
 pub(crate) use column::SortColumn;
 pub(crate) use constants::SORT_VALUE_MAX_CODE_POINTS;
 pub(crate) use native::{
