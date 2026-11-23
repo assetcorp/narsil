@@ -18,6 +18,7 @@ pub(crate) mod listing;
 mod page_start;
 mod pagination;
 pub(crate) mod params;
+pub(crate) mod partition_stats;
 mod phrases;
 mod pinned;
 pub(crate) mod preflight;

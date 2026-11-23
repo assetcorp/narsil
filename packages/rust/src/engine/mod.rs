@@ -85,6 +85,7 @@ pub use query::params::{
     HybridConfig, HybridStrategy, Pin, QueryParams, RerankConfig, SearchMode, SortDirection,
     SortField, SortMode, TermMatch, VectorQuery,
 };
+pub use query::partition_stats::{PartitionStatistics, StatsExpansion};
 pub use query::preflight::PreflightResult;
 pub use query::results::{
     FacetResult, GroupResult, HighlightMatch, HighlightPosition, Hit, QueryCoverage, QueryResult,

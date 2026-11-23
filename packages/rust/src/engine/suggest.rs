@@ -162,7 +162,11 @@ fn completed_word(analyser: &Analyser, prefix: &str) -> Result<Option<(String, S
     Ok(Some((word, stemmed)))
 }
 
-fn suggested_terms(index: &IndexState, params: &SuggestParams) -> Result<Vec<SuggestedTerm>> {
+fn suggested_terms(
+    index: &IndexState,
+    params: &SuggestParams,
+    partition_ids: Option<&[u32]>,
+) -> Result<Vec<SuggestedTerm>> {
     let limit = suggestion_limit(params.limit);
     let prefix = javascript_trim(&params.prefix);
     if prefix.is_empty() {
@@ -174,7 +178,15 @@ fn suggested_terms(index: &IndexState, params: &SuggestParams) -> Result<Vec<Sug
     };
     let per_partition = limit.saturating_mul(SUGGEST_PARTITION_OVERSAMPLE);
     let mut merged = GroupList::default();
-    for partition in layout.iter() {
+    for (position, partition) in layout.iter().enumerate() {
+        let listed = partition_ids.is_none_or(|listed| {
+            listed
+                .iter()
+                .any(|&partition_id| partition_id as usize == position)
+        });
+        if !listed {
+            continue;
+        }
         let snapshot = partition.snapshot();
         for (token, group) in partition_suggestions(&snapshot, &word, &stemmed, per_partition)? {
             merged.absorb(token, group);
@@ -209,7 +221,27 @@ impl Narsil {
     pub fn suggest(&self, index: &str, params: &SuggestParams) -> Result<SuggestResult> {
         let started = Instant::now();
         self.inner.read_index(index, |current| {
-            let terms = suggested_terms(current, params)?;
+            let terms = suggested_terms(current, params, None)?;
+            Ok(SuggestResult {
+                terms,
+                elapsed: started.elapsed(),
+                analysis_stale: current.analysis_stale(),
+            })
+        })
+    }
+
+    /// Returns the completions of [`Narsil::suggest`] from the partitions of the index that `partition_ids` lists,
+    /// the way a cluster data node answers the partitions that a coordinator routed to it.
+    #[doc(hidden)]
+    pub fn suggest_partitions(
+        &self,
+        index: &str,
+        params: &SuggestParams,
+        partition_ids: &[u32],
+    ) -> Result<SuggestResult> {
+        let started = Instant::now();
+        self.inner.read_index(index, |current| {
+            let terms = suggested_terms(current, params, Some(partition_ids))?;
             Ok(SuggestResult {
                 terms,
                 elapsed: started.elapsed(),
