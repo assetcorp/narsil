@@ -28,7 +28,7 @@ pub(crate) async fn routed_for_versions(
     if !carries_bm25 && !reads_phrases {
         return Ok(table.clone());
     }
-    let nodes = deps.coordinator.list_nodes().await?;
+    let nodes = deps.view.registered_nodes().await?;
     let bm25_table = match carries_bm25 {
         true => allocation_for_bm25_query(index_name, table, &nodes)?,
         false => table.clone(),
