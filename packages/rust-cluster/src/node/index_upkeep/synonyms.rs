@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use narsil::{
     IndexConfig, Map, Narsil, StopWordsSetting, SynonymRule, TokenizerSetting, Value,
-    index_config_from_stored_settings,
+    index_config_from_stored_settings, synonym_rules_from_json,
 };
 
 use super::super::index_settings::encoded_rules;
@@ -22,6 +22,11 @@ use crate::reads::{ReadDeps, live_serving_name};
 use crate::rebalance::read_rebalance_record;
 
 const NAMED_ANALYSIS_FIELDS: [&str; 3] = ["tokenizer", "stopWords", "stopWordList"];
+
+enum SynonymInput<'a> {
+    Rules(&'a [SynonymRule]),
+    Json(&'a Value),
+}
 
 fn index_not_found(index_name: &str) -> ClusterError {
     ClusterError::new(
@@ -162,7 +167,7 @@ impl ClusterNode {
         &self,
         deps: &Arc<ReadDeps>,
         index_name: &str,
-        rules: &[SynonymRule],
+        input: SynonymInput<'_>,
     ) -> ClusterResult<()> {
         let coordinator = self.inner.coordinator();
         validate_index_name(index_name)?;
@@ -170,6 +175,14 @@ impl ClusterNode {
         require_settled(coordinator, deps, index_name, &serving).await?;
         let Some(first) = read_index_metadata_snapshot(coordinator, &serving).await? else {
             return Err(index_not_found(index_name));
+        };
+        let parsed;
+        let rules: &[SynonymRule] = match input {
+            SynonymInput::Rules(rules) => rules,
+            SynonymInput::Json(value) => {
+                parsed = synonym_rules_from_json(value)?;
+                &parsed
+            }
         };
         let schema = coordinator
             .schema(&serving)
@@ -238,7 +251,27 @@ impl ClusterNode {
         let reads = self.inner.reads()?;
         self.track(
             Some(index_name),
-            self.replace_stored_synonyms(&reads, index_name, rules),
+            self.replace_stored_synonyms(&reads, index_name, SynonymInput::Rules(rules)),
+        )
+        .await
+    }
+
+    /// Replaces the synonym set of a cluster index with rules in their JSON form, a list whose rules each hold
+    /// `words` alone or `word` and `synonyms`. The node reads the rules only once the index is known and settled, so
+    /// malformed rules meet the same checks in the same order as on a TypeScript node.
+    ///
+    /// # Errors
+    ///
+    /// Fails as [`ClusterNode::replace_synonyms`] does, and with `CONFIG_INVALID` for rules of the wrong shape.
+    pub async fn replace_synonyms_json(
+        &self,
+        index_name: &str,
+        rules: &Value,
+    ) -> ClusterResult<()> {
+        let reads = self.inner.reads()?;
+        self.track(
+            Some(index_name),
+            self.replace_stored_synonyms(&reads, index_name, SynonymInput::Json(rules)),
         )
         .await
     }

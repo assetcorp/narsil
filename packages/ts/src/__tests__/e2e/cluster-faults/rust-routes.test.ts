@@ -4,7 +4,18 @@ import { generateTlsBundles, type TlsBundles } from '../../distribution/transpor
 import { type EtcdMembers, startEtcdMembers } from './etcd-members'
 import { type Fleet, RUST_NODE_VARIABLE, startFleet } from './fleet'
 import { insertEntries } from './mixed-cluster'
-import { answer, countOf, errorCode, finishedTask, raw, rawAnswer, sameAnswer, settled } from './route-parity'
+import {
+  answer,
+  countOf,
+  errorCode,
+  finishedTask,
+  idsOf,
+  insertBatch,
+  raw,
+  rawAnswer,
+  sameAnswer,
+  settled,
+} from './route-parity'
 
 const TYPESCRIPT_SLOT = 0
 const RUST_SLOT = 1
@@ -12,6 +23,8 @@ const SECOND_TYPESCRIPT_SLOT = 2
 const INDEX_NAME = 'harbour-ledger'
 const MISSING_INDEX = 'harbour-missing'
 const HIDDEN_INDEX = 'narsil-generation-harbour'
+const RESHARDED_INDEX = 'harbour-resharded'
+const RESHARD_DOCUMENTS = 3_000
 const ENTRY_COUNT = 12
 const PARTITION_COUNT = 2
 const REPLICATION_FACTOR = 2
@@ -319,9 +332,36 @@ describe.skipIf(process.env[RUST_NODE_VARIABLE] === undefined)(
       expect(await expectSameRefusal('POST', `/indexes/${MISSING_INDEX}/synonyms`, { synonyms: [] })).toBe(
         'INDEX_NOT_FOUND',
       )
+      expect(await expectSameRefusal('POST', `/indexes/${MISSING_INDEX}/synonyms`, { synonyms: 'loose' })).toBe(
+        'INDEX_NOT_FOUND',
+      )
       expect(await expectSameRefusal('GET', `/indexes/${MISSING_INDEX}/synonyms`)).toBe('INDEX_NOT_FOUND')
       expect(await expectSameRefusal('GET', `/indexes/${HIDDEN_INDEX}/synonyms`)).toBe('CONFIG_INVALID')
       await sameAnswer(bases(), 'POST', `/indexes/${INDEX_NAME}/synonyms`, { synonyms: [] })
+    })
+
+    it('refuses malformed synonym rules during a partition count change with the answer of a TypeScript node', async () => {
+      const created = await answer(baseOf(TYPESCRIPT_SLOT), 'POST', '/indexes', {
+        name: RESHARDED_INDEX,
+        config: { schema: { title: 'string' } },
+      })
+      expect(created.status, JSON.stringify(created.body)).toBe(201)
+      await insertBatch(baseOf(RUST_SLOT), RESHARDED_INDEX, idsOf('reshard', RESHARD_DOCUMENTS))
+      const started = await answer(baseOf(TYPESCRIPT_SLOT), 'POST', `/indexes/${RESHARDED_INDEX}/_rebalance`, {
+        targetPartitionCount: PARTITION_COUNT * 2,
+      })
+      expect(started.status, JSON.stringify(started.body)).toBe(202)
+      const path = `/indexes/${RESHARDED_INDEX}/synonyms`
+      const refusals = await settled(
+        'Neither node refused malformed rules for the change in partition count',
+        SETTLE_MS,
+        async () => Promise.all(bases().map(base => answer(base, 'POST', path, { synonyms: 'loose' }))),
+        replies => replies.some(reply => errorCode(reply) === 'PARTITION_REBALANCING_BACKPRESSURE'),
+      )
+      expect(refusals[1]).toEqual(refusals[0])
+      const record = (await finishedTask(baseOf(TYPESCRIPT_SLOT), started, SETTLE_MS)) as { status: string }
+      expect(record.status).toBe('succeeded')
+      expect(await expectSameRefusal('POST', path, { synonyms: 'loose' })).toBe('CONFIG_INVALID')
     })
 
     it('stores a BM25 setting from the Rust node that both nodes then score with, and refuses bad settings alike', async () => {
