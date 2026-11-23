@@ -96,6 +96,7 @@ const operations = {
     node.update(indexName, documentId, withVectors(document, vectorFields)),
   remove: ({ indexName, documentId }) => node.remove(indexName, documentId),
   dropIndex: ({ indexName }) => node.dropIndex(indexName),
+  rebalance: ({ indexName, targetPartitionCount }) => node.rebalance(indexName, targetPartitionCount),
   setReplicationFactor: ({ indexName, replicationFactor }) =>
     node.cluster.setReplicationFactor(indexName, replicationFactor),
   insertBatch: async ({ indexName, documents }) => batchOutcome(await node.insertBatch(indexName, documents)),

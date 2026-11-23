@@ -14,8 +14,8 @@ use crate::error::{ClusterResult, codes};
 ///
 /// A node with the `controller` role stands for the controller lease once it joins. While it holds the lease, it
 /// places every index's partitions on the data nodes, answers the in-sync, bootstrap, and resignation messages that
-/// a primary sends, applies a replication factor change and places the index again, and refuses the rebalance,
-/// backup, and query suggestion requests with `CLUSTER_OPERATION_UNSUPPORTED`. A node on another major specification version than the active controller
+/// a primary sends, applies a replication factor change and places the index again, drives a partition count change
+/// to its cutover, and refuses the backup and query suggestion requests with `CLUSTER_OPERATION_UNSUPPORTED`. A node on another major specification version than the active controller
 /// cannot join.
 pub struct ClusterNode {
     pub(super) inner: Arc<NodeInner>,
