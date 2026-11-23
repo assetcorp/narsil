@@ -12,7 +12,7 @@ impl ClusterNode {
     pub fn feed_source(&self) -> Arc<dyn ChangeSource> {
         match &self.inner.data {
             Some(data) => data.feed_source(),
-            None => Arc::new(SharedFeedSource(Arc::default())),
+            None => Arc::new(SharedFeedSource(Arc::default(), None)),
         }
     }
 

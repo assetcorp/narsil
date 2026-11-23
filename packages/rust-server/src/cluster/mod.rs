@@ -1,5 +1,6 @@
 mod feed_settings;
 mod operations;
+mod snapshots;
 mod writes;
 
 use std::sync::Arc;
@@ -65,6 +66,8 @@ pub(crate) async fn dispatch(
         Route::GetSync | Route::UpdateSync | Route::GetChanges | Route::UpdateChanges => {
             feed_settings::handle(&node, route, &context).await
         }
+        Route::SyncSnapshot => snapshots::sync_snapshot(&state, &node, &context).await,
+        Route::ExportDocuments => snapshots::export_documents(&node, &context).await,
         _ => Err(unsupported(operation_of(route))),
     }
 }

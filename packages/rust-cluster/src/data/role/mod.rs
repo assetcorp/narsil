@@ -1,4 +1,5 @@
 mod answers;
+mod device_sync;
 
 use std::sync::{Arc, Mutex};
 
@@ -10,7 +11,7 @@ use super::blocking::off_executor;
 use super::config::DataNodeConfig;
 use super::copies::LocalCopies;
 use super::device_sync::{
-    ClusterFeedSource, DeviceSyncView, FeedParts, PrimaryReads, SharedFeedSource,
+    ClusterFeedSource, DeviceSnapshots, DeviceSyncView, FeedParts, PrimaryReads,
 };
 use super::lost_copy::LostCopyWait;
 use super::partition_stores::{partition_stores_answer, requested_index};
@@ -20,6 +21,7 @@ use super::search_contexts::SearchContexts;
 use super::watcher::{AllocationWatcher, WatcherSettings};
 use super::writes::{AllocationView, PrimaryWrites, PrimaryWritesSettings};
 use crate::backups::{BackupPrimary, BackupStore};
+use crate::constants::DEVICE_SYNC_SPOOL_DIRECTORY;
 use crate::controller::lock;
 use crate::coordinator::etcd::{EtcdCoordinator, WatchHandle};
 use crate::error::ClusterResult;
@@ -40,6 +42,7 @@ pub(crate) struct DataRole {
     search_contexts: Arc<SearchContexts>,
     analysis: Mutex<Option<(Arc<AnalysisChanges>, WatchHandle)>>,
     feed: Arc<ClusterFeedSource>,
+    snapshots: Arc<DeviceSnapshots>,
     backups: Option<Arc<BackupPrimary>>,
 }
 
@@ -51,6 +54,18 @@ impl DataRole {
         on_error: Option<NodeErrorHandler>,
         backups: Option<BackupStore>,
     ) -> DataRole {
+        let feed: Arc<ClusterFeedSource> = Arc::default();
+        let spool_directory = config
+            .snapshot_spool_directory
+            .clone()
+            .unwrap_or_else(std::env::temp_dir)
+            .join(DEVICE_SYNC_SPOOL_DIRECTORY);
+        let snapshots = Arc::new(DeviceSnapshots::new(
+            Arc::clone(&feed),
+            backups.clone(),
+            spool_directory,
+            on_error.clone(),
+        ));
         DataRole {
             node_id,
             coordinator,
@@ -62,7 +77,8 @@ impl DataRole {
             device_sync: tokio::sync::Mutex::new(None),
             search_contexts: Arc::new(SearchContexts::default()),
             analysis: Mutex::new(None),
-            feed: Arc::default(),
+            feed,
+            snapshots,
             backups: backups.map(|store| Arc::new(BackupPrimary::new(store))),
         }
     }
@@ -188,29 +204,6 @@ impl DataRole {
         Ok(())
     }
 
-    pub(crate) fn feed_source(&self) -> Arc<SharedFeedSource> {
-        Arc::new(SharedFeedSource(Arc::clone(&self.feed)))
-    }
-
-    pub(crate) fn keeps_write_ahead_log(&self) -> bool {
-        self.config
-            .engine
-            .durability
-            .as_ref()
-            .is_some_and(|durability| {
-                durability.directory.is_some()
-                    && durability.tier != Some(narsil::DurabilityTier::Snapshot)
-            })
-    }
-
-    pub(crate) async fn refresh_device_sync(&self, index_name: &str) -> ClusterResult<()> {
-        let view = self.device_sync.lock().await.clone();
-        match view {
-            Some(view) => view.refresh(index_name).await,
-            None => Ok(()),
-        }
-    }
-
     pub(crate) fn answers(message_type: &str) -> bool {
         matches!(
             message_type,
@@ -319,6 +312,7 @@ impl DataRole {
             analysis_watch.stop();
         }
         self.feed.detach();
+        self.snapshots.close().await;
         let device_sync = self.device_sync.lock().await.take();
         if let Some(device_sync) = device_sync {
             device_sync.stop().await;

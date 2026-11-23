@@ -1,5 +1,8 @@
 mod feeds;
 mod settings;
+mod snapshots;
+
+pub use snapshots::{ClusterDocumentExport, ClusterSyncSnapshot};
 
 use narsil::{
     ChangesSetting, ChangesStatus, Map, SyncSetting, SyncStatus, Value, decode_msgpack,

@@ -22,6 +22,7 @@ pub use crate::backups::{
 pub use crate::data::DataNodeConfig;
 pub(crate) use config::report_failure;
 pub use config::{ClusterNodeConfig, ControllerTiming, NodeErrorHandler};
+pub use device_sync::{ClusterDocumentExport, ClusterSyncSnapshot};
 pub use handle::ClusterNode;
 pub use identity::{generate_node_id, resolve_node_id};
 pub use not_ready::not_ready_handler;

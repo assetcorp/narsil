@@ -6,9 +6,14 @@ use narsil::{
 };
 
 use super::admission::DEVICE_SYNC_READINESS;
+use super::bridge::wait_on;
 use super::feed_source::ClusterFeedSource;
+use super::snapshots::DeviceSnapshots;
 
-pub(crate) struct SharedFeedSource(pub(crate) Arc<ClusterFeedSource>);
+pub(crate) struct SharedFeedSource(
+    pub(crate) Arc<ClusterFeedSource>,
+    pub(crate) Option<Arc<DeviceSnapshots>>,
+);
 
 impl FeedSource for SharedFeedSource {
     fn index_state(&self, index: &str) -> narsil::Result<Option<SyncFeedState>> {
@@ -38,8 +43,16 @@ impl FeedSource for SharedFeedSource {
         self.0.bytes_behind_now(index, positions)
     }
 
-    fn snapshot_bytes(&self, _index: &str) -> narsil::Result<u64> {
-        Ok(0)
+    fn snapshot_bytes(&self, index: &str) -> narsil::Result<u64> {
+        let Some(snapshots) = &self.1 else {
+            return Ok(0);
+        };
+        let parts = self.0.parts()?;
+        let (snapshots, view) = (Arc::clone(snapshots), Arc::clone(&parts.reads.view));
+        let name = index.to_string();
+        wait_on(&parts.runtime, async move {
+            snapshots.snapshot_bytes(&view, &name).await
+        })
     }
 
     fn listen(&self, listener: FeedSourceListener) -> FeedSubscription {

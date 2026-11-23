@@ -17,7 +17,7 @@ use crate::http::routes::Route;
 use crate::script_values::script_truthy;
 use crate::state::ServerState;
 
-const CHANGES_EXPORT_PREPARING: &str = "CHANGES_EXPORT_PREPARING";
+pub(crate) const CHANGES_EXPORT_PREPARING: &str = "CHANGES_EXPORT_PREPARING";
 
 pub(crate) fn ok() -> HttpResponse {
     json(200, &object(vec![("ok", Value::Bool(true))]))

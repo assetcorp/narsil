@@ -160,6 +160,35 @@ pub(crate) async fn request_backup(
     summary_after(store, backup_name).await
 }
 
+pub(crate) async fn request_taken_backup(
+    deps: &BackupRequestDeps,
+    guard: ShutdownGuard<'_>,
+    index_name: &str,
+    backup_name: &str,
+    taken_by: &'static str,
+) -> ClusterResult<BackupSummary> {
+    let store = require_backup_store(deps.store.as_ref())?;
+    let mut payload = Map::with_capacity(3);
+    payload.insert(
+        "backupName",
+        Value::from(validate_backup_name(backup_name)?),
+    );
+    payload.insert(
+        "indexName",
+        Value::from(require_restorable_index_name(index_name)?),
+    );
+    payload.insert("takenBy", Value::from(taken_by));
+    let request = JobRequest {
+        kind: BackupJobKind::Backup,
+        message_type: message_types::CLUSTER_BACKUP,
+        backup_name,
+        payload,
+        details: named_details(backup_name, Some(index_name)),
+    };
+    run_job(deps, guard, request, None).await?;
+    summary_after(store, backup_name).await
+}
+
 fn constraints_payload(constraints: &RestoreConstraints) -> Value {
     let mut wire = Map::with_capacity(3);
     wire.insert("zoneAwareness", Value::Bool(constraints.zone_awareness));
