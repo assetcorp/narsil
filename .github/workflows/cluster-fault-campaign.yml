@@ -43,6 +43,17 @@ jobs:
       - name: Build the code that the cluster nodes load
         run: pnpm nx run narsil-ts:build
 
+      - name: Install the pinned protoc and check its digest
+        uses: ./.github/actions/install-protoc
+
+      - name: Install the pinned Rust toolchain
+        working-directory: packages/rust-server
+        run: rustup toolchain install
+
+      - name: Build the Rust fault node that seeds can start in any slot
+        working-directory: packages/rust-server
+        run: cargo build --locked --features cluster --example fault_node
+
       - name: Restore the seeds that earlier campaigns saw fail
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -52,6 +63,8 @@ jobs:
 
       - name: Replay saved seeds before trying new seeds
         working-directory: packages/ts
+        env:
+          NARSIL_RUST_CLUSTER_NODE: ${{ github.workspace }}/packages/rust-server/target/debug/examples/fault_node
         run: node scripts/fault-campaign.mjs --minutes 30 --deadline "$NARSIL_FAULT_DEADLINE"
 
       - name: Save the seeds that still fail
