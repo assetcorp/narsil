@@ -1,8 +1,11 @@
 mod batch;
 mod column;
 mod constants;
+mod document_values;
 mod native;
 mod values;
+
+pub use document_values::document_sort_values;
 
 pub(crate) use batch::{KeyBatch, RankedKeys};
 pub(crate) use column::SortColumn;

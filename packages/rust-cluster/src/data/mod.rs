@@ -5,6 +5,8 @@ mod local_reads;
 mod lost_copy;
 mod partition_stores;
 mod primary_copy;
+mod queries;
+mod query_copies;
 mod reconcile;
 mod role;
 mod schema_check;

@@ -170,7 +170,7 @@ pub(crate) fn reranked_query<'a>(
     first_params.document = Some(DocumentProjection::None);
     let places_pins = params.search_after.is_none() && params.pinned.is_some();
     let counts_apart = places_pins || (params.vector.is_some() && !fuses);
-    let first = shaped_query(index, &first_params, requested, limits)?;
+    let first = shaped_query(index, &first_params, requested, limits, None)?;
     let plain = match counts_apart {
         true => {
             let mut plain_params = first_params.clone();
@@ -181,7 +181,7 @@ pub(crate) fn reranked_query<'a>(
             plain_params.group = None;
             plain_params.offset = Some(start);
             plain_params.limit = Some(limit);
-            Some(shaped_query(index, &plain_params, requested, limits)?)
+            Some(shaped_query(index, &plain_params, requested, limits, None)?)
         }
         false => None,
     };

@@ -316,7 +316,7 @@ pub(crate) fn validate_suggest_result_payload(decoded: Map) -> ClusterResult<Sug
         decoded.get("terms"),
         "Invalid SuggestResultPayload: \"terms\" must be an array",
     )?;
-    if entries.len() > MAX_SUGGEST_WIRE_LIMIT {
+    if entries.len() as f64 > MAX_SUGGEST_WIRE_LIMIT {
         return Err(invalid(format!(
             "Invalid SuggestResultPayload: \"terms\" exceeds maximum length of {MAX_SUGGEST_WIRE_LIMIT}"
         )));
