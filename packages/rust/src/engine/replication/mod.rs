@@ -2,6 +2,7 @@ mod adopt;
 mod append;
 mod archive;
 mod backup;
+mod backup_archive;
 pub(crate) mod copy_state;
 mod epoch_states;
 mod logged;
@@ -27,6 +28,9 @@ pub use memory_reading::{NodeMemoryReading, read_process_memory};
 pub use backup::{
     BackupListedFile, BackupPartitionFiles, PartitionBackup, decode_backup_index_configuration,
     encode_backup_index_configuration,
+};
+pub use backup_archive::{
+    BackupArchive, BackupArchiveFile, BackupArchivePartition, BackupFileReader,
 };
 pub use restorable::require_restorable_config;
 pub use types::{
