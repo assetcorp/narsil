@@ -305,12 +305,16 @@ impl ClusterNode {
         refuse_hidden_generation(index_name)?;
         self.guard_shutdown()?;
         self.drop_marked_indexes(index_name).await?;
-        let dropped = self.drop_served_index(index_name).await?;
-        self.forget_index(index_name).await?;
-        if let Some(dropped) = dropped {
-            self.await_drop_acknowledgement(index_name, dropped.index_uuid.as_deref())
-                .await?;
-        }
+        self.transition_index(index_name, async {
+            let dropped = self.drop_served_index(index_name).await?;
+            self.forget_index(index_name).await?;
+            if let Some(dropped) = dropped {
+                self.await_drop_acknowledgement(index_name, dropped.index_uuid.as_deref())
+                    .await?;
+            }
+            Ok(())
+        })
+        .await?;
         self.forget_suggestions_of(index_name).await
     }
 }

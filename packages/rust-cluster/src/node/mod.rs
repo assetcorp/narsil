@@ -12,6 +12,7 @@ mod join;
 mod local_copies;
 mod member;
 mod not_ready;
+mod operation_tracker;
 mod readiness;
 mod rebalance;
 mod started_at;

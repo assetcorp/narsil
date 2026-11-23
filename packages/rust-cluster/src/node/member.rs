@@ -10,6 +10,7 @@ use super::join::{
     refuse_controller_on_another_major_version, wait_for_earlier_registration_to_lapse,
 };
 use super::not_ready::{answer_ping, not_ready};
+use super::operation_tracker::OperationTracker;
 use crate::controller::{
     Controller, ControllerConfig, ControllerErrorHandler, is_controller_message, lock,
 };
@@ -52,6 +53,7 @@ pub(super) struct NodeInner {
     listening: Mutex<Option<Listening>>,
     router: Mutex<Option<Arc<WriteRouter>>>,
     memory: Mutex<Option<Arc<NodeMemory>>>,
+    pub(super) operations: OperationTracker,
 }
 
 fn not_controller(node_id: &str) -> ClusterError {
@@ -124,6 +126,7 @@ impl NodeInner {
             listening: Mutex::new(None),
             router: Mutex::new(None),
             memory: Mutex::new(None),
+            operations: OperationTracker::default(),
         }
     }
 
