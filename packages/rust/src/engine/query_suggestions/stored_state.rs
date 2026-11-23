@@ -11,8 +11,10 @@ const PAYLOAD_SETTING: &str = "querySuggestions";
 const PAYLOAD_BANS: &str = "bannedQueries";
 const PAYLOAD_SOURCE: &str = "querySuggestionsSource";
 
+/// The popular query suggestion state of one index: its setting, its ban list, and the marker of the index whose
+/// suggestions it holds where it is a suggestions index.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub(crate) struct SuggestionState {
+pub struct SuggestionState {
     pub(crate) setting: Option<QuerySuggestionsSetting>,
     pub(crate) banned: Vec<String>,
     pub(crate) source: Option<QuerySuggestionsSource>,
@@ -41,8 +43,47 @@ fn stored_state_of(
 }
 
 impl SuggestionState {
-    pub(crate) fn enabled(&self) -> bool {
+    /// Reports whether the setting has the feature on.
+    pub fn enabled(&self) -> bool {
         self.setting.as_ref().is_some_and(|setting| setting.enabled)
+    }
+
+    /// Returns the setting, or `None` where the index never had one.
+    pub fn setting(&self) -> Option<&QuerySuggestionsSetting> {
+        self.setting.as_ref()
+    }
+
+    /// Returns the ban list.
+    pub fn banned(&self) -> &[String] {
+        &self.banned
+    }
+
+    /// Returns the index and the group whose suggestions the index holds, where it is a suggestions index.
+    pub fn source(&self) -> Option<&QuerySuggestionsSource> {
+        self.source.as_ref()
+    }
+
+    /// Returns the state that the `querySuggestions`, `bannedQueries`, and `querySuggestionsSource` members of the
+    /// cluster settings of an index hold.
+    ///
+    /// # Errors
+    ///
+    /// Fails with `CONFIG_INVALID` where a member breaks a rule of its type.
+    pub fn from_settings(settings: &Map) -> Result<SuggestionState> {
+        SuggestionState::from_payload(settings)
+    }
+
+    /// Writes the setting and the ban list into the cluster settings of an index, removing each one that the
+    /// state lacks, and leaves the suggestions-index marker of the settings as it is.
+    pub fn write_settings(&self, settings: &mut Map) {
+        settings.remove(PAYLOAD_SETTING);
+        settings.remove(PAYLOAD_BANS);
+        if let Some(setting) = &self.setting {
+            settings.insert(PAYLOAD_SETTING, setting_to_wire(setting, KeyCase::Camel));
+        }
+        if !self.banned.is_empty() {
+            settings.insert(PAYLOAD_BANS, ban_list_to_wire(&self.banned));
+        }
     }
 
     pub(crate) fn from_metadata(metadata: &IndexMetadata) -> Result<SuggestionState> {

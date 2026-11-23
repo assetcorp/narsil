@@ -6,9 +6,6 @@ use narsil::Value;
 use tokio::sync::Notify;
 
 use super::handle::ClusterNode;
-use crate::constants::{
-    QUERY_SUGGESTIONS_BUILD_RECORD_KEY_PREFIX, QUERY_SUGGESTIONS_BUILD_RECORD_KEY_SUFFIX,
-};
 use crate::controller::read_index_metadata_snapshot;
 use crate::coordinator::AllocationTable;
 use crate::error::ClusterResult;
@@ -17,12 +14,6 @@ use crate::rebalance::is_hidden_generation;
 const ACTIVE_STATE: &str = "ACTIVE";
 const CONTROLLER_ROLE: &str = "controller";
 const DATA_ROLE: &str = "data";
-
-fn build_record_key(index_name: &str) -> String {
-    format!(
-        "{QUERY_SUGGESTIONS_BUILD_RECORD_KEY_PREFIX}{index_name}{QUERY_SUGGESTIONS_BUILD_RECORD_KEY_SUFFIX}"
-    )
-}
 
 fn every_partition_active(table: Option<&AllocationTable>, partition_count: u32) -> bool {
     let Some(table) = table else {
@@ -70,10 +61,7 @@ impl ClusterNode {
     }
 
     pub(super) async fn forget_suggestions_of(&self, index_name: &str) -> ClusterResult<()> {
-        self.inner
-            .coordinator()
-            .delete(&build_record_key(index_name))
-            .await
+        self.inner.suggestions.forget_index(index_name).await
     }
 
     pub(super) async fn clear_leftovers_of_name(&self, index_name: &str) -> ClusterResult<()> {

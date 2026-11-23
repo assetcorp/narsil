@@ -5,8 +5,10 @@ import {
 } from '../../engine/snapshot/index-configuration-decode'
 import type { RestoredHistorySink } from '../../engine/snapshot/restore-setup'
 import { joinChunks } from '../../persistence/object-store'
+import { countsFileIndexUuid } from '../../query-suggestions/counts-file'
 import { packChecksummedEnvelope } from '../../serialization/envelope-file'
 import type { StoredQuerySuggestions } from '../../types/internal'
+import { getIndexMetadata } from '../cluster/index-metadata'
 import { assertStillDriving, type BackupDriverContext } from './driver-context'
 import { loadCheckedBytes, loadCheckedFile, saveSmallFile, storedDigests } from './files'
 import type { BackupManifest, StoredFile } from './manifest'
@@ -41,10 +43,12 @@ export async function configWithSuggestionState(
 export async function backUpQueryHistory(context: BackupDriverContext, indexName: string): Promise<StoredFile[]> {
   const { queryHistory } = context
   if (queryHistory === null) return []
+  const presentIndexUuid = (await getIndexMetadata(context.config.coordinator, indexName))?.indexUuid ?? null
   const held = await storedDigests(context.store)
   const stored: StoredFile[] = []
   await queryHistory.eachFile(indexName, async bytes => {
     assertStillDriving(context)
+    if (presentIndexUuid === null || (await countsFileIndexUuid(bytes)) !== presentIndexUuid) return
     stored.push(await saveSmallFile(context.store, bytes, held))
   })
   return stored

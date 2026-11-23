@@ -9,15 +9,15 @@ use super::day_store::cutoff_day;
 use super::history_files::{
     HistoryRead, read_history_file, restore_staging_prefix, restored_file_key,
 };
-use super::host::{wall_ms, warn};
+use super::host::{SuggestionsOwner, wall_ms, warn};
 use super::stored_state::SuggestionState;
-use super::types::QuerySuggestionsWarningReason;
+use super::types::{QuerySuggestionsSetting, QuerySuggestionsWarningReason};
 use crate::engine::EngineInner;
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::format::archive::QUERY_HISTORY_ARCHIVE_PREFIX;
 
 pub(crate) struct RestoredHistory {
-    engine: Arc<EngineInner>,
+    owner: Arc<dyn SuggestionsOwner>,
     index_name: String,
     cutoff: String,
     prefix: String,
@@ -38,17 +38,25 @@ impl RestoredHistory {
         index_name: &str,
         restored: &SuggestionState,
     ) -> Result<Option<RestoredHistory>> {
-        let Some(setting) = restored.setting.as_ref().filter(|setting| setting.enabled) else {
-            return Ok(None);
-        };
-        if engine.suggestions.scrambler().is_none() {
-            return Ok(None);
-        }
         let Some(engine) = engine.self_ref.upgrade() else {
             return Ok(None);
         };
+        RestoredHistory::open_for(engine, index_name, restored.setting.as_ref())
+    }
+
+    pub(crate) fn open_for(
+        owner: Arc<dyn SuggestionsOwner>,
+        index_name: &str,
+        setting: Option<&QuerySuggestionsSetting>,
+    ) -> Result<Option<RestoredHistory>> {
+        let Some(setting) = setting.filter(|setting| setting.enabled) else {
+            return Ok(None);
+        };
+        if owner.runtime().scrambler().is_none() {
+            return Ok(None);
+        }
         Ok(Some(RestoredHistory {
-            engine,
+            owner,
             index_name: index_name.to_string(),
             cutoff: cutoff_day(wall_ms(), setting.resolve().retention_days),
             prefix: restore_staging_prefix(&new_build_id()?),
@@ -64,7 +72,7 @@ impl RestoredHistory {
         body.take(MAX_HISTORY_FILE_BYTES + 1)
             .read_to_end(&mut bytes)
             .map_err(read_failed)?;
-        let runtime = &self.engine.suggestions;
+        let (runtime, host) = (self.owner.runtime(), self.owner.host());
         let Some(scrambler) = runtime.scrambler() else {
             return Ok(());
         };
@@ -78,7 +86,7 @@ impl RestoredHistory {
                     _ => (QuerySuggestionsWarningReason::OtherKey, None),
                 };
                 let entry = format!("{QUERY_HISTORY_ARCHIVE_PREFIX}{position}");
-                warn(&self.engine, &self.index_name, reason, Some(entry), message);
+                warn(host, &self.index_name, reason, Some(entry), message);
                 return Ok(());
             }
         };
@@ -86,8 +94,12 @@ impl RestoredHistory {
             return Ok(());
         }
         let key = format!("{}{position}.nrsl", self.prefix);
-        let rewritten = opened.without_index_uuid()?;
-        runtime.files(&self.engine).write_commit(&key, &rewritten)?;
+        let index_uuid = host
+            .clustered()
+            .then(|| host.index_uuid(&self.index_name))
+            .flatten();
+        let rewritten = opened.with_index_uuid(index_uuid.as_deref())?;
+        host.files().store().write_commit(&key, &rewritten)?;
         self.staged.push((key, opened.day));
         Ok(())
     }
@@ -96,9 +108,9 @@ impl RestoredHistory {
         if self.received == 0 {
             return Ok(());
         }
-        let runtime = &self.engine.suggestions;
-        runtime.discard_history(&self.engine, &self.index_name)?;
-        let files = runtime.files(&self.engine);
+        let (runtime, host) = (self.owner.runtime(), self.owner.host());
+        runtime.discard_history(host, &self.index_name)?;
+        let files = host.files().store();
         self.staged.sort_by(|left, right| left.1.cmp(&right.1));
         self.staged.reverse();
         let mut sequences: HashMap<String, usize> = HashMap::new();
@@ -119,7 +131,7 @@ impl RestoredHistory {
         day: &str,
         sequences: &mut HashMap<String, usize>,
     ) -> Result<()> {
-        let files = self.engine.suggestions.files(&self.engine);
+        let files = self.owner.host().files().store();
         let HistoryRead::Bytes(bytes) = read_history_file(files, key)? else {
             return Ok(());
         };
@@ -135,7 +147,7 @@ impl RestoredHistory {
 
 impl Drop for RestoredHistory {
     fn drop(&mut self) {
-        let files = self.engine.suggestions.files(&self.engine);
+        let files = self.owner.host().files().store();
         for (key, _) in self.staged.drain(..) {
             let _ = files.remove(&key);
         }

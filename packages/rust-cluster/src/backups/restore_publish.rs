@@ -4,6 +4,7 @@ use narsil::{Value, decode_msgpack};
 
 use super::constants::BACKUP_PUBLISH_RETRY_MS;
 use super::driver_context::BackupDriverContext;
+use super::query_history::write_restored_history;
 use super::store::read_backup_manifest;
 use crate::constants::{SYNONYM_SET_KEY_PREFIX, TEARDOWN_CAS_ATTEMPTS};
 use crate::controller::{index_metadata, metadata_key};
@@ -229,11 +230,11 @@ pub(crate) async fn resume_restore(context: BackupDriverContext) -> ClusterResul
     }) {
         publish_restored_name(&context, &generation, index_uuid).await?;
         let backup_name = context.job.backup_name.clone();
-        context
+        let manifest = context
             .store
-            .run(move |store| read_backup_manifest(store, &backup_name).map(|_| ()))
+            .run(move |store| read_backup_manifest(store, &backup_name))
             .await?;
-        return Ok(());
+        return write_restored_history(&context, &manifest, &index_name).await;
     }
     drop_unpublished_generation(context.coordinator(), &index_name, &generation).await?;
     Err(interrupted(&context))

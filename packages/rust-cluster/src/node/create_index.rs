@@ -1,8 +1,8 @@
 use std::time::{Duration, Instant};
 
 use narsil::{
-    AdapterSetting, IndexConfig, Map, Narsil, NarsilConfig, PartitionConfig, StopWordsSetting,
-    TokenizerSetting, Value, encode_msgpack,
+    AdapterSetting, IndexConfig, Map, Narsil, NarsilConfig, PartitionConfig,
+    QuerySuggestionsSource, StopWordsSetting, TokenizerSetting, Value, encode_msgpack,
 };
 
 use super::handle::ClusterNode;
@@ -153,7 +153,10 @@ impl ClusterNode {
         }
     }
 
-    async fn await_torn_down_copy(&self, index_name: &str) -> ClusterResult<()> {
+    pub(in crate::node) async fn await_torn_down_copy(
+        &self,
+        index_name: &str,
+    ) -> ClusterResult<()> {
         let Some(data) = &self.inner.data else {
             return Ok(());
         };
@@ -301,11 +304,12 @@ impl ClusterNode {
         Err(create_error)
     }
 
-    async fn route_create_index(
+    pub(in crate::node) async fn route_create_index(
         &self,
         index_name: &str,
         config: IndexConfig,
         options: &CreateIndexOptions,
+        marker: Option<&QuerySuggestionsSource>,
     ) -> ClusterResult<()> {
         validate_index_name(index_name)?;
         let sets_pairs = sets_field_pairs(config.bm25.as_ref());
@@ -331,6 +335,12 @@ impl ClusterNode {
         }
         if sets_pairs {
             settings.insert("bm25Revision", Value::from(1u32));
+        }
+        if let Some(source) = marker {
+            let mut wire = Map::new();
+            wire.insert("index", Value::from(source.index.as_str()));
+            wire.insert("group", Value::from(source.group.as_str()));
+            settings.insert("querySuggestionsSource", Value::Object(wire));
         }
         let index = NewIndex {
             index_name,
@@ -378,7 +388,8 @@ impl ClusterNode {
         self.track(Some(index_name), async {
             self.await_torn_down_copy(index_name).await?;
             self.clear_leftovers_of_name(index_name).await?;
-            self.route_create_index(index_name, config, &options).await
+            self.route_create_index(index_name, config, &options, None)
+                .await
         })
         .await
     }

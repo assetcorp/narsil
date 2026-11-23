@@ -16,12 +16,15 @@ pub(crate) struct MergeSettings {
     pub(crate) banned: HashSet<String>,
     pub(crate) memory_bytes: u64,
     pub(crate) fingerprint: [u8; KEY_FINGERPRINT_BYTES],
+    pub(crate) index_uuid: Option<String>,
+    pub(crate) clustered: bool,
 }
 
 pub(crate) enum FileOutcome {
     Merged { day: String, saved_at: u64 },
     Damaged,
     OtherKey,
+    OtherIndex,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -96,6 +99,11 @@ impl Merger {
             OpenedCountsFile::Damaged(_) => return Ok(FileOutcome::Damaged),
             OpenedCountsFile::OtherKey => return Ok(FileOutcome::OtherKey),
         };
+        if self.settings.clustered
+            && (opened.index_uuid.is_none() || opened.index_uuid != self.settings.index_uuid)
+        {
+            return Ok(FileOutcome::OtherIndex);
+        }
         opened.visit(&mut |visited| self.merge_phrase(visited))?;
         Ok(FileOutcome::Merged {
             day: opened.day.clone(),

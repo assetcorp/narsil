@@ -5,7 +5,7 @@ use super::constants::{
     DEFAULT_PREVIEW_LIMIT, MAX_MANUAL_SUGGESTION_COUNT, MAX_PREVIEW_LIMIT,
     MAX_SOURCE_INDEX_NAME_LENGTH,
 };
-use super::host::{IndexView, update_state, wall_ms};
+use super::host::{OpenIndexView, update_state, wall_ms};
 use super::phrase::{accepted_phrase, is_group, utf16_length};
 use super::preview::preview_build;
 use super::setting::{require_fields_in_schema, validate_setting};
@@ -25,7 +25,7 @@ use crate::engine::index::IndexState;
 use crate::error::Result;
 use crate::format::metadata_parts::config_invalid;
 
-const GROUP_FORMAT: &str = "1 to 32 letters, digits, \"_\", and \"-\"";
+pub(crate) const GROUP_FORMAT: &str = "1 to 32 letters, digits, \"_\", and \"-\"";
 
 /// The popular query suggestions of an engine, which [`Narsil::query_suggestions`] returns.
 ///
@@ -60,7 +60,7 @@ fn require_source(index: &IndexState) -> Result<()> {
 
 fn require_acceptable(
     narsil: &Narsil,
-    view: &IndexView<'_>,
+    view: &OpenIndexView<'_>,
     setting: &QuerySuggestionsSetting,
 ) -> Result<()> {
     require_source(view.index)?;
@@ -89,7 +89,7 @@ impl QuerySuggestions<'_> {
     /// `INDEX_NOT_FOUND` for a missing index, with `QUERY_SUGGESTIONS_NOT_ENABLED` where the feature is off, and with
     /// `INSTANCE_SHUT_DOWN` once the engine shuts down.
     pub fn record_query(&self, index: &str, query: &RecordedQuery) -> Result<RecordQueryResult> {
-        let engine = &self.narsil.inner;
+        let engine = &*self.narsil.inner;
         engine.guard_shutdown()?;
         engine.suggestions.record(engine, index, query)
     }
@@ -101,7 +101,7 @@ impl QuerySuggestions<'_> {
     /// field of the schema, where the index is a suggestions index or has device sync on, and where the setting
     /// turns the feature on while the engine has no key, and with `INDEX_NOT_FOUND` for a missing index.
     pub fn update_setting(&self, index: &str, setting: &QuerySuggestionsSetting) -> Result<()> {
-        let engine = &self.narsil.inner;
+        let engine = &*self.narsil.inner;
         engine.guard_shutdown()?;
         validate_setting(setting)?;
         update_state(engine, index, |view, current| {
@@ -114,14 +114,17 @@ impl QuerySuggestions<'_> {
         if !setting.enabled {
             engine.suggestions.discard_history(engine, index)?;
         }
-        engine.suggestions.timers.rearm(engine, index);
+        engine
+            .suggestions
+            .timers
+            .rearm(&engine.suggestions, engine, index);
         Ok(())
     }
 
     /// Returns the setting of `index`, its build under way or its last build, when its schedule next starts a
     /// build, and its suggestions indexes. Fails with `INDEX_NOT_FOUND` for a missing index.
     pub fn status(&self, index: &str) -> Result<QuerySuggestionsStatus> {
-        let engine = &self.narsil.inner;
+        let engine = &*self.narsil.inner;
         let state = engine.open_index(index)?.suggestion_state();
         let mut suggestion_indexes: Vec<String> = marked_suggestion_indexes(engine, index)
             .into_values()
@@ -131,7 +134,7 @@ impl QuerySuggestions<'_> {
             index_name: index.to_string(),
             setting: state.setting.clone(),
             last_build: engine.suggestions.builds.last_build(engine, index),
-            next_build_at: next_build_at(engine, index, wall_ms()),
+            next_build_at: next_build_at(&engine.suggestions, engine, index, wall_ms()),
             suggestion_indexes,
         })
     }
@@ -142,12 +145,12 @@ impl QuerySuggestions<'_> {
     /// Fails with `INDEX_NOT_FOUND` for a missing index, with `QUERY_SUGGESTIONS_NOT_ENABLED` where the feature is
     /// off, and with `CONFIG_INVALID` where the engine has no key. A build that fails records the error code.
     pub fn build(&self, index: &str) -> Result<QuerySuggestionsBuild> {
-        self.narsil.inner.guard_shutdown()?;
-        self.narsil.inner.suggestions.builds.start(
-            self.narsil,
-            index,
-            QuerySuggestionsBuildTrigger::Caller,
-        )
+        let engine = &*self.narsil.inner;
+        engine.guard_shutdown()?;
+        let runtime = &engine.suggestions;
+        runtime
+            .builds
+            .start(runtime, engine, index, QuerySuggestionsBuildTrigger::Caller)
     }
 
     /// Returns up to `limit` phrases, 100 where `None`, that a build of `index` would publish now, most searched
@@ -162,8 +165,9 @@ impl QuerySuggestions<'_> {
                 "The preview limit must be a whole number from 1 to {MAX_PREVIEW_LIMIT}"
             )));
         }
-        self.narsil.inner.guard_shutdown()?;
-        preview_build(self.narsil, index, max as usize)
+        let engine = &*self.narsil.inner;
+        engine.guard_shutdown()?;
+        preview_build(&engine.suggestions, engine, index, max as usize)
     }
 
     /// Returns the ban list of `index`. Fails with `INDEX_NOT_FOUND` for a missing index.
@@ -183,7 +187,7 @@ impl QuerySuggestions<'_> {
     /// Fails with `CONFIG_INVALID` for a list of more than 1,000 phrases, a list that encodes to more than 256 KiB,
     /// a phrase that is not a phrase, and a suggestions index, and with `INDEX_NOT_FOUND` for a missing index.
     pub fn update_bans(&self, index: &str, phrases: &[String]) -> Result<Vec<String>> {
-        let engine = &self.narsil.inner;
+        let engine = &*self.narsil.inner;
         engine.guard_shutdown()?;
         let phrases = ban_list_from_input(phrases)?;
         let _writes = engine.suggestions.write_turns.take(index)?;
@@ -198,7 +202,7 @@ impl QuerySuggestions<'_> {
     /// Fails with `CONFIG_INVALID` for a query that is not a phrase, for a ban list that already holds as many
     /// phrases as it may, and for a suggestions index, and with `INDEX_NOT_FOUND` for a missing index.
     pub fn remove_query(&self, index: &str, query: &str) -> Result<u64> {
-        let engine = &self.narsil.inner;
+        let engine = &*self.narsil.inner;
         engine.guard_shutdown()?;
         let phrase = normalise_ban(query)?;
         let _writes = engine.suggestions.write_turns.take(index)?;
@@ -219,7 +223,7 @@ impl QuerySuggestions<'_> {
         index: &str,
         suggestion: &ManualQuerySuggestion,
     ) -> Result<String> {
-        let engine = &self.narsil.inner;
+        let engine = &*self.narsil.inner;
         engine.guard_shutdown()?;
         if !is_group(&suggestion.group) {
             return Err(config_invalid(format!(
@@ -254,8 +258,7 @@ impl QuerySuggestions<'_> {
                 setting.max_groups
             )));
         }
-        let name =
-            ensure_suggestions_index(self.narsil, index, &suggestion.group, &mut Vec::new())?;
+        let name = ensure_suggestions_index(engine, index, &suggestion.group, &mut Vec::new())?;
         let document = suggestion_document(&phrase, count as f64, ORIGIN_MANUAL);
         if self.narsil.has(&name, &phrase)? {
             self.narsil.update(&name, &phrase, document)?;
@@ -302,8 +305,9 @@ impl QuerySuggestions<'_> {
         if phrases.is_empty() {
             return Ok(holders);
         }
-        for name in marked_suggestion_indexes(&self.narsil.inner, index).into_values() {
-            if remove_suggestions(self.narsil, &name, phrases)? > 0 {
+        let engine = &*self.narsil.inner;
+        for name in marked_suggestion_indexes(engine, index).into_values() {
+            if remove_suggestions(engine, &name, phrases)? > 0 {
                 holders += 1;
             }
         }

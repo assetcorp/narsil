@@ -1,6 +1,7 @@
 use std::cell::Cell;
 
 use super::history_files::{HistoryFileName, HistoryRead, history_files_of, read_history_file};
+use super::host::SuggestionsHost;
 use crate::durability::checkpoint_store::CheckpointStore;
 use crate::engine::EngineInner;
 use crate::error::Result;
@@ -13,9 +14,8 @@ pub(crate) struct HistoryEntries<'a> {
 
 impl<'a> HistoryEntries<'a> {
     pub(crate) fn of(engine: &'a EngineInner, index_name: &str) -> Result<HistoryEntries<'a>> {
-        let runtime = &engine.suggestions;
-        runtime.save_day(engine, index_name);
-        let files = runtime.files(engine);
+        engine.suggestions.save_day(engine, index_name);
+        let files = engine.files().store();
         let mut names = history_files_of(files, index_name)?;
         names.sort_by(|left, right| {
             left.day

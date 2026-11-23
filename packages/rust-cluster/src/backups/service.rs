@@ -11,6 +11,7 @@ use super::controller_messages::{
 };
 use super::driver_context::{ActiveCheck, BackupControllerDeps, BackupErrorHandler};
 use super::jobs::{BackupJob, BackupJobKind, finish_backup_job, read_backup_jobs};
+use super::query_history::ClusterQueryHistory;
 use super::requests::BackupRequestDeps;
 use super::restore_publish::resume_restore;
 use super::store::BackupStore;
@@ -26,6 +27,7 @@ pub(crate) struct BackupServiceSettings {
     pub(crate) store: Option<BackupStore>,
     pub(crate) is_controller: ActiveCheck,
     pub(crate) on_error: BackupErrorHandler,
+    pub(crate) query_history: Option<Arc<dyn ClusterQueryHistory>>,
 }
 
 pub(crate) struct BackupService {
@@ -90,6 +92,7 @@ impl BackupService {
             store,
             is_controller,
             on_error,
+            query_history,
         } = settings;
         let requests = BackupRequestDeps {
             coordinator: Arc::clone(&coordinator),
@@ -104,6 +107,7 @@ impl BackupService {
             is_active: is_controller,
             on_error,
             store,
+            query_history,
             driving: Mutex::new(HashSet::new()),
         });
         BackupService {

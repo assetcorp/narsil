@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex};
 use narsil::Value;
 
 use super::jobs::{BackupJob, update_backup_job};
+use super::query_history::ClusterQueryHistory;
 use super::store::BackupStore;
 use crate::coordinator::etcd::EtcdCoordinator;
 use crate::error::{ClusterError, ClusterResult, codes};
@@ -19,6 +20,7 @@ pub(crate) struct BackupControllerDeps {
     pub(crate) is_active: ActiveCheck,
     pub(crate) on_error: BackupErrorHandler,
     pub(crate) store: Option<BackupStore>,
+    pub(crate) query_history: Option<Arc<dyn ClusterQueryHistory>>,
     pub(crate) driving: Mutex<HashSet<String>>,
 }
 

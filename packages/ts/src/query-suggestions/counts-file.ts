@@ -195,6 +195,20 @@ function readTopLevel(payload: Uint8Array): TopLevel {
   return { day, fingerprint, savedAt, indexUuid, groupsStart, groupsEnd }
 }
 
+export async function countsFileIndexUuid(bytes: Uint8Array): Promise<string | null> {
+  if (bytes.byteLength > MAX_HISTORY_FILE_BYTES) return null
+  try {
+    const { payload } = await openChecksummedEnvelope(bytes, {
+      envelopeFormatVersion: QUERY_COUNTS_FILE_FORMAT_VERSION,
+      what: WHAT,
+      allowsCompression: false,
+    })
+    return readTopLevel(payload).indexUuid
+  } catch {
+    return null
+  }
+}
+
 export async function openCountsFile(
   bytes: Uint8Array,
   expectedDay: string | null,

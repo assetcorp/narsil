@@ -14,7 +14,7 @@ fn optional_number(value: Option<u64>) -> Value {
     value.map_or(Value::Null, |number| Value::Number(number as f64))
 }
 
-fn build_of(build: &QuerySuggestionsBuild) -> Map {
+pub(crate) fn build_of(build: &QuerySuggestionsBuild) -> Map {
     let mut out = Map::new();
     out.insert("buildId", Value::String(build.build_id.clone()));
     out.insert("trigger", Value::String(build.trigger.as_str().to_string()));
@@ -31,7 +31,7 @@ fn build_of(build: &QuerySuggestionsBuild) -> Map {
     out
 }
 
-fn failed_build(index: &str, build: &QuerySuggestionsBuild) -> TaskFailure {
+pub(crate) fn failed_build(index: &str, build: &QuerySuggestionsBuild) -> TaskFailure {
     let code = build
         .error_code
         .as_deref()
@@ -59,6 +59,14 @@ fn build_task(state: &ServerState, index: String) -> TaskOperation {
     })
 }
 
+pub(crate) fn suggestions_off(index: &str) -> ServerError {
+    ServerError::coded(
+        ErrorCode::QUERY_SUGGESTIONS_NOT_ENABLED.as_str(),
+        format!("Index \"{index}\" has popular query suggestions off"),
+    )
+    .with_detail("indexName", Value::String(index.to_string()))
+}
+
 pub(crate) async fn build_query_suggestions(
     state: Arc<ServerState>,
     context: RouteContext,
@@ -70,11 +78,7 @@ pub(crate) async fn build_query_suggestions(
     })
     .await?;
     if !status.setting.is_some_and(|setting| setting.enabled) {
-        return Err(ServerError::coded(
-            "QUERY_SUGGESTIONS_NOT_ENABLED",
-            format!("Index \"{index}\" has popular query suggestions off"),
-        )
-        .with_detail("indexName", Value::String(index)));
+        return Err(suggestions_off(&index));
     }
     let operation = build_task(&state, index.clone());
     accepted(

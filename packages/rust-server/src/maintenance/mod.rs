@@ -24,6 +24,8 @@ pub(crate) use analysis::analysis_change_of;
 pub(crate) use archives::{import_export, restore};
 pub(crate) use import_route::import_ndjson;
 pub(crate) use suggestions_build::build_query_suggestions;
+#[cfg(feature = "cluster")]
+pub(crate) use suggestions_build::{build_of, failed_build, suggestions_off};
 
 pub(crate) async fn on_blocking_pool<T, F>(work: F) -> Result<T, TaskFailure>
 where
