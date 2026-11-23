@@ -8,16 +8,16 @@ use crate::message::{TransportMessage, message_types, refusal};
 use crate::node::decode_request_payload;
 use crate::transport::Respond;
 
-const UNSUPPORTED_MESSAGE_TYPES: [&str; 5] = [
-    message_types::CLUSTER_REBALANCE,
+const UNSUPPORTED_MESSAGE_TYPES: [&str; 4] = [
     message_types::CLUSTER_BACKUP,
     message_types::CLUSTER_BACKUP_RESTORE,
     message_types::CLUSTER_BACKUP_DELETE,
     message_types::SUGGESTIONS_BUILD,
 ];
 
-const SUPPORTED_MESSAGE_TYPES: [&str; 5] = [
+const SUPPORTED_MESSAGE_TYPES: [&str; 6] = [
     message_types::CLUSTER_REPLICATION_FACTOR,
+    message_types::CLUSTER_REBALANCE,
     message_types::REPLICATION_INSYNC_ADD,
     message_types::REPLICATION_INSYNC_REMOVE,
     message_types::REPLICATION_PRIMARY_RESIGN,
@@ -111,6 +111,10 @@ pub(super) async fn handle_message(
     }
     if message.message_type == message_types::CLUSTER_REPLICATION_FACTOR {
         inner.handle_replication_factor(message, respond);
+        return;
+    }
+    if message.message_type == message_types::CLUSTER_REBALANCE {
+        inner.handle_rebalance(message, respond);
         return;
     }
     if !inner.is_active() {
