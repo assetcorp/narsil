@@ -4,6 +4,7 @@ mod cleanup;
 mod primary;
 mod replica_sync;
 mod report;
+mod snapshot_stream;
 mod state;
 mod sync_frames;
 mod table;
