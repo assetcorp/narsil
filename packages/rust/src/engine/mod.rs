@@ -12,6 +12,7 @@ mod engine_config;
 pub(crate) mod event_hold;
 pub(crate) mod events;
 mod export;
+mod held_analysis;
 mod hooked;
 mod ids;
 pub(crate) mod index;
@@ -72,6 +73,7 @@ pub use engine_config::{
 use engine_config::{EngineSettings, engine_settings};
 pub use events::{EarlierLayout, FeedChange, ListenerId, NarsilEvent, NarsilEventKind, WorkStatus};
 pub use export::{DocumentImportResult, ImportRefusal};
+pub use held_analysis::{HeldAnalysisChanges, PendingAnalysisChange};
 use index::IndexState;
 pub use index_lifecycle::IndexResidencyState;
 pub use memory::{ParseKind, ParseShortfall};
