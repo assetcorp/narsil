@@ -1,3 +1,4 @@
+mod analysis_change;
 mod config;
 mod handle;
 mod identity;

@@ -73,7 +73,7 @@ fn decode_rebalance_reply(
 }
 
 impl ClusterNode {
-    fn guard_shutdown(&self) -> ClusterResult<()> {
+    pub(super) fn guard_shutdown(&self) -> ClusterResult<()> {
         if !self.inner.is_stopping() {
             return Ok(());
         }

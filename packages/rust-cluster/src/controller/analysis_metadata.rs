@@ -146,6 +146,22 @@ impl IndexMetadataSnapshot {
             .and_then(pending_of)
     }
 
+    pub(crate) fn analysis_failure(&self) -> Option<AnalysisFailure> {
+        let Some(Value::Object(failure)) = self
+            .settings
+            .as_ref()
+            .and_then(|settings| settings.get(ANALYSIS_FAILURE_FIELD))
+        else {
+            return None;
+        };
+        Some(AnalysisFailure {
+            change_id: text_of(failure, "changeId")?,
+            code: text_of(failure, "code")?,
+            message: text_of(failure, "message")?,
+            node_id: text_of(failure, "nodeId")?,
+        })
+    }
+
     pub(crate) fn published_analysis(&self) -> PendingAnalysis {
         let settings = self.settings.clone().unwrap_or_default();
         let generation = match settings.get(ANALYSIS_GENERATION_FIELD) {
@@ -212,6 +228,23 @@ fn history_enabled(settings: &Map, key: &str) -> bool {
         settings.get(key),
         Some(Value::Object(history)) if matches!(history.get("enabled"), Some(Value::Bool(true)))
     )
+}
+
+pub(crate) fn metadata_with_pending_analysis(
+    snapshot: &IndexMetadataSnapshot,
+    pending: &PendingAnalysis,
+) -> ClusterResult<Vec<u8>> {
+    let (fields, mut settings) = snapshot.fields();
+    settings.insert(PENDING_ANALYSIS_FIELD, pending_to_value(pending));
+    encoded(fields, settings)
+}
+
+pub(crate) fn metadata_without_pending_analysis(
+    snapshot: &IndexMetadataSnapshot,
+) -> ClusterResult<Vec<u8>> {
+    let (fields, mut settings) = snapshot.fields();
+    settings.remove(PENDING_ANALYSIS_FIELD);
+    encoded(fields, settings)
 }
 
 pub(crate) fn metadata_publishing_analysis(
