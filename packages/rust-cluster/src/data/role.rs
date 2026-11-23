@@ -175,6 +175,14 @@ impl DataRole {
         respond.send(reply).await;
     }
 
+    pub(crate) async fn unserved_partition_count(&self) -> usize {
+        self.watcher
+            .lock()
+            .await
+            .as_ref()
+            .map_or(0, AllocationWatcher::unserved_partition_count)
+    }
+
     pub(crate) fn primary_writes(&self) -> ClusterResult<Arc<PrimaryWrites>> {
         lock(&self.writes)
             .clone()
