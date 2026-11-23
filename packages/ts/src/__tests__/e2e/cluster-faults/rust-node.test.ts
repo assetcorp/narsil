@@ -97,6 +97,7 @@ describe.skipIf(process.env[RUST_NODE_VARIABLE] === undefined).each(['tcp', 'grp
         fixedNodeIds: false,
         transport: carrier,
         rustSlots: [RUST_SLOT],
+        slotSettings: { [RUST_SLOT]: { roles: ['coordinator'] } },
       })
       await fleet.start(RUST_SLOT)
       await fleet.start(TYPESCRIPT_SLOT)
@@ -163,8 +164,10 @@ describe.skipIf(process.env[RUST_NODE_VARIABLE] === undefined).each(['tcp', 'grp
       }
       const record = decode(stored.value) as Record<string, unknown>
       const typescriptRecord = decode(written.value) as Record<string, unknown>
-      expect(Object.keys(record)).toEqual(REGISTRATION_FIELDS)
-      expect(Object.keys(typescriptRecord).filter(key => key !== 'memory')).toEqual(Object.keys(record))
+      const fieldsBesideMemory = (stored: Record<string, unknown>) =>
+        Object.keys(stored).filter(key => key !== 'memory')
+      expect(fieldsBesideMemory(record)).toEqual(REGISTRATION_FIELDS)
+      expect(fieldsBesideMemory(typescriptRecord)).toEqual(fieldsBesideMemory(record))
       expect(Object.keys(record.capacity as Record<string, unknown>)).toEqual(
         Object.keys(typescriptRecord.capacity as Record<string, unknown>),
       )

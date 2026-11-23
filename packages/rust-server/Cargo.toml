@@ -19,6 +19,11 @@ path = "src/lib.rs"
 name = "narsil-server"
 path = "src/bin/narsil-server/main.rs"
 
+[[example]]
+name = "fault_node"
+path = "examples/fault_node/main.rs"
+required-features = ["cluster"]
+
 [dependencies]
 bytes = "=1.12.1"
 delali-narsil = { path = "../rust", version = "0.2.2" }

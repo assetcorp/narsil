@@ -1,39 +1,30 @@
 use std::path::PathBuf;
-use std::process::ExitCode;
 use std::sync::Arc;
 
-use narsil::{DurabilityConfig, DurabilityMode, Map, NarsilConfig, Value, parse_plain_json};
+use narsil::{FilesystemPersistence, Map, Value, parse_plain_json};
 use narsil_cluster::SPEC_VERSION;
-use narsil_cluster::coordinator::etcd::{
-    EtcdAuthConfig, EtcdCoordinator, EtcdCoordinatorConfig, EtcdTlsConfig,
-};
-use narsil_cluster::coordinator::{NodeCapacity, NodeRegistration};
-use narsil_cluster::error::ClusterError;
-use narsil_cluster::node::{
-    ClusterNode, ClusterNodeConfig, ControllerTiming, DataNodeConfig, next_started_at,
-    resolve_node_id,
-};
-use narsil_cluster::transport::grpc::{GrpcTransport, GrpcTransportConfig};
-use narsil_cluster::transport::tcp::{TcpTransport, TcpTransportConfig};
-use narsil_cluster::transport::{NodeTransport, TlsConfig};
+use narsil_cluster::coordinator::etcd::{EtcdAuthConfig, EtcdCoordinatorConfig, EtcdTlsConfig};
+use narsil_cluster::node::{ClusterBackupConfig, ControllerTiming, CreateIndexOptions};
+use narsil_cluster::transport::TlsConfig;
 
 const SETTINGS_VARIABLE: &str = "NARSIL_FAULT_NODE";
-const LISTEN_HOST: &str = "127.0.0.1";
 const GRPC_TRANSPORT: &str = "grpc";
-const COORDINATOR_ROLE: &str = "coordinator";
-const DATA_ROLE: &str = "data";
+const DEFAULT_ROLES: [&str; 3] = ["data", "coordinator", "controller"];
 
-struct FaultNodeSettings {
-    etcd: EtcdCoordinatorConfig,
-    transport_port: u16,
-    advertised_port: u16,
-    directory: Option<PathBuf>,
-    node_id: Option<String>,
-    roles: Vec<String>,
-    version: String,
-    controller: ControllerTiming,
-    grpc: bool,
-    transport_tls: Option<TlsConfig>,
+pub(crate) struct FaultNodeSettings {
+    pub(crate) etcd: EtcdCoordinatorConfig,
+    pub(crate) http_port: u16,
+    pub(crate) transport_port: u16,
+    pub(crate) advertised_port: u16,
+    pub(crate) directory: Option<PathBuf>,
+    pub(crate) node_id: Option<String>,
+    pub(crate) roles: Vec<String>,
+    pub(crate) version: String,
+    pub(crate) controller: ControllerTiming,
+    pub(crate) grpc: bool,
+    pub(crate) transport_tls: Option<TlsConfig>,
+    pub(crate) create_index: CreateIndexOptions,
+    pub(crate) backups: Option<ClusterBackupConfig>,
 }
 
 fn field<'a>(settings: &'a Map, key: &str) -> Option<&'a Value> {
@@ -61,6 +52,15 @@ fn whole_number(settings: &Map, key: &str, largest: f64) -> Result<f64, String> 
             "{SETTINGS_VARIABLE}.{key} must be a whole number from 0 to {largest}"
         )),
     }
+}
+
+fn optional_count(settings: &Map, key: &str) -> Result<Option<u32>, String> {
+    if field(settings, key).is_none() {
+        return Ok(None);
+    }
+    Ok(Some(
+        whole_number(settings, key, f64::from(u32::MAX))? as u32
+    ))
 }
 
 fn port(settings: &Map, key: &str) -> Result<u16, String> {
@@ -140,7 +140,29 @@ fn controller_timing(settings: &Map) -> Result<ControllerTiming, String> {
     })
 }
 
-fn read_settings() -> Result<FaultNodeSettings, String> {
+fn create_index(settings: &Map) -> Result<CreateIndexOptions, String> {
+    Ok(CreateIndexOptions {
+        partition_count: optional_count(settings, "partitionCount")?,
+        replication_factor: optional_count(settings, "replicationFactor")?,
+        wait_for_serving_ms: match field(settings, "waitForServingMs") {
+            None => None,
+            Some(_) => Some(milliseconds(settings, "waitForServingMs", 0)?),
+        },
+    })
+}
+
+fn backups(settings: &Map) -> Result<Option<ClusterBackupConfig>, String> {
+    let Some(directory) = text(settings, "backupDirectory")? else {
+        return Ok(None);
+    };
+    let store = FilesystemPersistence::new(&directory).map_err(|error| error.to_string())?;
+    Ok(Some(ClusterBackupConfig {
+        store: Arc::new(store),
+        key_prefix: required_text(settings, "backupKeyPrefix")?,
+    }))
+}
+
+pub(crate) fn read_settings() -> Result<FaultNodeSettings, String> {
     let raw =
         std::env::var(SETTINGS_VARIABLE).map_err(|_| format!("{SETTINGS_VARIABLE} is not set"))?;
     let Value::Object(settings) = parse_plain_json(&raw).map_err(|error| error.to_string())? else {
@@ -162,138 +184,20 @@ fn read_settings() -> Result<FaultNodeSettings, String> {
     let transport = text(&settings, "transport")?;
     Ok(FaultNodeSettings {
         etcd,
+        http_port: port(&settings, "httpPort")?,
         transport_port: port(&settings, "transportPort")?,
         advertised_port: port(&settings, "advertisedPort")?,
         directory: text(&settings, "directory")?.map(PathBuf::from),
         node_id: text(&settings, "nodeId")?,
         roles: match field(&settings, "roles") {
-            None => vec![COORDINATOR_ROLE.to_string()],
+            None => DEFAULT_ROLES.iter().map(|role| role.to_string()).collect(),
             Some(_) => strings(&settings, "roles")?,
         },
         version: text(&settings, "version")?.unwrap_or_else(|| SPEC_VERSION.to_string()),
         controller: controller_timing(&settings)?,
         grpc: transport.as_deref() == Some(GRPC_TRANSPORT),
         transport_tls: transport_tls(&settings)?,
+        create_index: create_index(&settings)?,
+        backups: backups(&settings)?,
     })
-}
-
-fn create_transport(
-    node_id: &str,
-    settings: &FaultNodeSettings,
-) -> Result<Arc<dyn NodeTransport>, String> {
-    let tls = settings.transport_tls.clone();
-    if settings.grpc {
-        let config = GrpcTransportConfig {
-            host: LISTEN_HOST.to_string(),
-            port: settings.transport_port,
-            tls,
-            ..GrpcTransportConfig::default()
-        };
-        return Ok(Arc::new(
-            GrpcTransport::new(node_id, config).map_err(|error| error.to_string())?,
-        ));
-    }
-    let config = TcpTransportConfig {
-        host: LISTEN_HOST.to_string(),
-        port: settings.transport_port,
-        tls,
-        ..TcpTransportConfig::default()
-    };
-    Ok(Arc::new(
-        TcpTransport::new(node_id, config).map_err(|error| error.to_string())?,
-    ))
-}
-
-fn data_config(settings: &FaultNodeSettings) -> Result<Option<DataNodeConfig>, String> {
-    if !settings.roles.iter().any(|role| role == DATA_ROLE) {
-        return Ok(None);
-    }
-    let Some(directory) = &settings.directory else {
-        return Err("A fault node with the data role needs a directory".to_string());
-    };
-    let engine = NarsilConfig {
-        durability: Some(DurabilityConfig {
-            directory: Some(directory.clone()),
-            mode: Some(DurabilityMode::Sync),
-            ..DurabilityConfig::default()
-        }),
-        ..NarsilConfig::default()
-    };
-    Ok(Some(DataNodeConfig::new(engine)))
-}
-
-#[cfg(unix)]
-async fn stop_requested() -> Result<(), String> {
-    use tokio::signal::unix::{SignalKind, signal};
-    let mut terminate = signal(SignalKind::terminate()).map_err(|error| error.to_string())?;
-    let mut interrupt = signal(SignalKind::interrupt()).map_err(|error| error.to_string())?;
-    tokio::select! {
-        _ = terminate.recv() => Ok(()),
-        _ = interrupt.recv() => Ok(()),
-    }
-}
-
-#[cfg(not(unix))]
-async fn stop_requested() -> Result<(), String> {
-    tokio::signal::ctrl_c()
-        .await
-        .map_err(|error| error.to_string())
-}
-
-async fn serve() -> Result<(), String> {
-    let settings = read_settings()?;
-    let node_id = resolve_node_id(settings.node_id.as_deref(), settings.directory.as_deref())
-        .map_err(|error| error.to_string())?;
-    let coordinator = Arc::new(
-        EtcdCoordinator::connect(settings.etcd.clone())
-            .await
-            .map_err(|error| error.to_string())?,
-    );
-    let transport = create_transport(&node_id, &settings)?;
-    let registration = NodeRegistration {
-        node_id: node_id.clone(),
-        address: format!("{LISTEN_HOST}:{}", settings.advertised_port),
-        roles: settings.roles.clone(),
-        capacity: NodeCapacity::default(),
-        started_at: next_started_at(),
-        version: settings.version.clone(),
-        extra: Map::new(),
-    };
-    let reporting_id = node_id.clone();
-    let config = ClusterNodeConfig {
-        controller: settings.controller,
-        on_error: Some(Arc::new(move |error: &ClusterError| {
-            eprintln!("{reporting_id}: {error}");
-        })),
-        ..ClusterNodeConfig::new(
-            Arc::clone(&coordinator),
-            Arc::clone(&transport),
-            registration,
-        )
-    };
-    let config = ClusterNodeConfig {
-        data: data_config(&settings)?,
-        ..config
-    };
-    let node = ClusterNode::new(config).map_err(|error| error.to_string())?;
-    let started = node.start().await;
-    if started.is_ok() {
-        println!("READY {node_id}");
-        stop_requested().await?;
-    }
-    node.shutdown().await;
-    transport.shutdown().await;
-    coordinator.shutdown().await;
-    started.map_err(|error| error.to_string())
-}
-
-#[tokio::main]
-async fn main() -> ExitCode {
-    match serve().await {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(failure) => {
-            eprintln!("{failure}");
-            ExitCode::FAILURE
-        }
-    }
 }
