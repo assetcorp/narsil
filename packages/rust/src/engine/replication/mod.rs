@@ -1,6 +1,7 @@
 mod adopt;
 mod append;
 mod archive;
+mod backup;
 pub(crate) mod copy_state;
 mod epoch_states;
 mod logged;
@@ -22,6 +23,7 @@ pub use epoch_states::{CopyChangesState, CopyEpochStates, CopySyncState};
 pub(crate) use logged::fail_stopped_logs;
 pub use memory_reading::{NodeMemoryReading, read_process_memory};
 
+pub use backup::{BackupListedFile, BackupPartitionFiles, PartitionBackup};
 pub use types::{
     AppliedRun, CopyPosition, EntryOperation, HeldTerm, PrimaryLimits, PrimaryRefusal, PrimaryRun,
     PrimaryWrite, PrimaryWritten, PriorDocument, ReplicatedEntry, WriteRecord,

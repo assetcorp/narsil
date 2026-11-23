@@ -25,6 +25,7 @@ mod killed_primary;
 mod lost_copy_wait;
 mod memory_write_block;
 mod mixed_analysis_change;
+mod mixed_backups;
 mod mixed_catch_up;
 mod mixed_failover;
 mod mixed_index_drop;

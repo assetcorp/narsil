@@ -16,6 +16,9 @@ use super::reconcile::settle_local_indexes;
 use super::search_contexts::SearchContexts;
 use super::watcher::{AllocationWatcher, WatcherSettings};
 use super::writes::{AllocationView, PrimaryWrites, PrimaryWritesSettings};
+use crate::backups::{
+    BackupPrimary, BackupStore, PrimaryContext, answer_backup_partition, answer_restore_partition,
+};
 use crate::controller::lock;
 use crate::coordinator::etcd::{EtcdCoordinator, WatchHandle};
 use crate::error::ClusterResult;
@@ -35,6 +38,7 @@ pub(crate) struct DataRole {
     device_sync: tokio::sync::Mutex<Option<Arc<DeviceSyncView>>>,
     search_contexts: Arc<SearchContexts>,
     analysis: Mutex<Option<(Arc<AnalysisChanges>, WatchHandle)>>,
+    backups: Option<Arc<BackupPrimary>>,
 }
 
 impl DataRole {
@@ -43,6 +47,7 @@ impl DataRole {
         coordinator: Arc<EtcdCoordinator>,
         config: DataNodeConfig,
         on_error: Option<NodeErrorHandler>,
+        backups: Option<BackupStore>,
     ) -> DataRole {
         DataRole {
             node_id,
@@ -55,6 +60,7 @@ impl DataRole {
             device_sync: tokio::sync::Mutex::new(None),
             search_contexts: Arc::new(SearchContexts::default()),
             analysis: Mutex::new(None),
+            backups: backups.map(|store| Arc::new(BackupPrimary::new(store))),
         }
     }
 
@@ -196,6 +202,8 @@ impl DataRole {
                 | message_types::CLUSTER_RESHARD_FORWARD
                 | message_types::CLUSTER_RESHARD_CUTOVER
                 | message_types::CLUSTER_RESHARD_PURGE
+                | message_types::CLUSTER_BACKUP_PARTITION
+                | message_types::CLUSTER_RESTORE_PARTITION
         ) || answers_query(message_type)
     }
 
@@ -226,6 +234,24 @@ impl DataRole {
             .map(|(analysis, _)| Arc::clone(analysis))
             .ok_or_else(|| not_ready(&self.node_id))?;
         analysis.answer_rebuild(message).await
+    }
+
+    async fn answer_backup_message(
+        &self,
+        message: &TransportMessage,
+    ) -> ClusterResult<TransportMessage> {
+        let context = PrimaryContext {
+            node_id: &self.node_id,
+            coordinator: &self.coordinator,
+            writes: self.primary_writes()?,
+        };
+        let primary = self.backups.as_ref();
+        match message.message_type.as_str() {
+            message_types::CLUSTER_BACKUP_PARTITION => {
+                answer_backup_partition(primary, context, message).await
+            }
+            _ => answer_restore_partition(primary, context, message).await,
+        }
     }
 
     pub(crate) async fn answer(&self, message: TransportMessage, respond: Respond) {
@@ -278,6 +304,11 @@ impl DataRole {
                 Ok(writes) => writes.answer_reshard(&message).await,
                 Err(error) => refusal(&message, &self.node_id, &error),
             },
+            message_types::CLUSTER_BACKUP_PARTITION | message_types::CLUSTER_RESTORE_PARTITION => {
+                self.answer_backup_message(&message)
+                    .await
+                    .unwrap_or_else(|error| refusal(&message, &self.node_id, &error))
+            }
             _ => match self.answer_partition_stores(&message).await {
                 Ok(reply) => reply,
                 Err(error) => refusal(&message, &self.node_id, &error),

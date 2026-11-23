@@ -10,6 +10,7 @@ use super::join::{
     refuse_controller_on_another_major_version, wait_for_earlier_registration_to_lapse,
 };
 use super::not_ready::{answer_ping, not_ready};
+use crate::backups::BackupStore;
 use crate::controller::{
     Controller, ControllerConfig, ControllerErrorHandler, is_controller_message, lock,
 };
@@ -45,6 +46,7 @@ pub(super) struct NodeInner {
     on_error: Option<NodeErrorHandler>,
     pub(super) controller: Option<Controller>,
     pub(super) data: Option<DataRole>,
+    backups: Option<BackupStore>,
     pub(super) phase: Mutex<Phase>,
     pub(super) lifecycle: tokio::sync::Mutex<()>,
     pub(super) stopping: watch::Sender<bool>,
@@ -81,8 +83,10 @@ impl NodeInner {
             heartbeat_interval_ms,
             in_flight_write_fraction,
             query: _,
+            backups,
             on_error,
         } = config;
+        let backups = backups.and_then(|settings| BackupStore::open(&settings).ok());
         let controller = registration
             .roles
             .iter()
@@ -108,6 +112,7 @@ impl NodeInner {
                 Arc::clone(&coordinator),
                 settings,
                 on_error.clone(),
+                backups.clone(),
             )
         });
         NodeInner {
@@ -119,6 +124,7 @@ impl NodeInner {
             on_error,
             controller,
             data,
+            backups,
             phase: Mutex::new(Phase::Idle),
             lifecycle: tokio::sync::Mutex::new(()),
             stopping: watch::Sender::new(false),
@@ -134,7 +140,11 @@ impl NodeInner {
     }
 
     pub(super) fn has_backup_store(&self) -> bool {
-        false
+        self.backups.is_some()
+    }
+
+    pub(crate) fn backup_store(&self) -> Option<&BackupStore> {
+        self.backups.as_ref()
     }
 
     pub(super) fn memory(&self) -> Option<Arc<NodeMemory>> {
