@@ -154,6 +154,7 @@ pub const MAX_SUGGEST_SCATTER_LIMIT: usize = 160;
 pub const DEFAULT_QUERY_PARTITION_TIMEOUT_MS: u64 = 5_000;
 pub const DEFAULT_FACET_SIZE: usize = 10;
 pub const MAX_FACET_SIZE: usize = 1_000;
+pub const MAX_FACET_RANGES: usize = 1_000;
 pub const MAX_RESULTS_PER_PARTITION: usize = 10_000;
 pub const MAX_FACET_FIELDS: usize = 64;
 pub const MAX_FACET_VALUE_LENGTH: usize = 1_024;

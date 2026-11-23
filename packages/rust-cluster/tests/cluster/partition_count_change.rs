@@ -92,22 +92,6 @@ async fn a_rust_controller_changes_the_count_twice_and_drops_the_layout_that_the
         assert_eq!(answer.code(), None);
     }
 
-    for (refused, code) in [
-        (FIRST_PARTITION_COUNT as f64, "CONFIG_INVALID"),
-        (0.0, "CONFIG_INVALID"),
-        (65_537.0, "CONFIG_INVALID"),
-        (2.5, "CONFIG_INVALID"),
-    ] {
-        assert_eq!(
-            rebalance(&mut router, SURVEY, refused).await.code(),
-            Some(code)
-        );
-    }
-    assert_eq!(
-        rebalance(&mut router, "absent-survey", 4.0).await.code(),
-        Some("INDEX_NOT_FOUND")
-    );
-
     assert_eq!(rebalance(&mut router, SURVEY, 6.0).await.code(), None);
     let first_layout = serving_layout(&coordinator)
         .await

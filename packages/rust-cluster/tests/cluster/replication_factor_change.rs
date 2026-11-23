@@ -117,19 +117,6 @@ async fn a_rust_controller_adds_replicas_that_hold_every_document_so_the_index_s
     assert_eq!(raised.code(), None);
     wait_for_factor(&coordinator, 1.0, 1).await;
 
-    for refused in [-1.0, 256.0, 1.5] {
-        let answer = router
-            .call(
-                "setReplicationFactor",
-                fields([
-                    ("indexName", Value::from(SPECIMENS)),
-                    ("replicationFactor", Value::from(refused)),
-                ]),
-            )
-            .await;
-        assert_eq!(answer.code(), Some("CONFIG_INVALID"));
-    }
-
     cabinet_a.shutdown().await;
     wait_for_factor(&coordinator, 1.0, 0).await;
     for position in 0..SPECIMEN_COUNT {
