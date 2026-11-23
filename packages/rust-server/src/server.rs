@@ -57,10 +57,15 @@ fn register_adapters(
     let Some((node, _)) = cluster else {
         return register_on_engine(engine, options);
     };
-    if let Some(name) = options.embedding_adapters.keys().next() {
-        return Err(config_invalid_error(format!(
-            "A cluster node does not serve 'registerEmbeddingAdapter' yet, so the server takes no embedding adapter such as '{name}'"
-        )));
+    if !options.embedding_adapters.is_empty() {
+        return Err(NarsilError::new(
+            ErrorCode::CLUSTER_OPERATION_UNSUPPORTED,
+            "A cluster node does not serve 'registerEmbeddingAdapter' yet; run it against a single-node engine",
+        )
+        .with_details([(
+            "operation",
+            narsil::Value::String("registerEmbeddingAdapter".to_string()),
+        )]));
     }
     for (name, adapter) in &options.rerank_adapters {
         node.register_rerank_adapter(name, Arc::clone(adapter))
@@ -126,9 +131,9 @@ impl NarsilServer {
     ///
     /// # Errors
     ///
-    /// Fails as [`NarsilServer::new`] does, with `CONFIG_INVALID` where the options hold an embedding adapter,
-    /// because a cluster node does not serve `registerEmbeddingAdapter` yet, and with `RERANK_CONFIG_INVALID` where
-    /// the node refuses a rerank adapter.
+    /// Fails as [`NarsilServer::new`] does, with `CLUSTER_OPERATION_UNSUPPORTED` where the options hold an embedding
+    /// adapter, because a cluster node does not serve `registerEmbeddingAdapter` yet, and with
+    /// `RERANK_CONFIG_INVALID` where the node refuses a rerank adapter.
     #[cfg(feature = "cluster")]
     pub fn cluster(
         node: Arc<narsil_cluster::node::ClusterNode>,
