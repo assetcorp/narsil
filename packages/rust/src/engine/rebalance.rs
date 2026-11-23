@@ -109,6 +109,7 @@ fn rebalance_index(
     let hooks = DriveHooks {
         progress: &mut |_| {},
         interrupted: &interrupted,
+        hold_before_switch: None,
         switch: &mut switch,
     };
     rebuild_and_switch(&rebuild, hooks).map_err(|failure| failure.into_error())?;

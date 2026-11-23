@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
 
-use narsil::{Map, Value, parse_plain_json};
+use narsil::{DurabilityConfig, DurabilityMode, Map, NarsilConfig, Value, parse_plain_json};
 use narsil_cluster::SPEC_VERSION;
 use narsil_cluster::coordinator::etcd::{
     EtcdAuthConfig, EtcdCoordinator, EtcdCoordinatorConfig, EtcdTlsConfig,
@@ -10,7 +10,8 @@ use narsil_cluster::coordinator::etcd::{
 use narsil_cluster::coordinator::{NodeCapacity, NodeRegistration};
 use narsil_cluster::error::ClusterError;
 use narsil_cluster::node::{
-    ClusterNode, ClusterNodeConfig, ControllerTiming, next_started_at, resolve_node_id,
+    ClusterNode, ClusterNodeConfig, ControllerTiming, DataNodeConfig, next_started_at,
+    resolve_node_id,
 };
 use narsil_cluster::transport::grpc::{GrpcTransport, GrpcTransportConfig};
 use narsil_cluster::transport::tcp::{TcpTransport, TcpTransportConfig};
@@ -20,6 +21,9 @@ const SETTINGS_VARIABLE: &str = "NARSIL_FAULT_NODE";
 const LISTEN_HOST: &str = "127.0.0.1";
 const GRPC_TRANSPORT: &str = "grpc";
 const COORDINATOR_ROLE: &str = "coordinator";
+const DATA_ROLE: &str = "data";
+const ENGINE_DIRECTORY: &str = "engine";
+const SPOOL_DIRECTORY: &str = "spool";
 
 struct FaultNodeSettings {
     etcd: EtcdCoordinatorConfig,
@@ -202,6 +206,34 @@ fn create_transport(
     ))
 }
 
+fn data_config(settings: &FaultNodeSettings) -> Result<Option<DataNodeConfig>, String> {
+    if !settings.roles.iter().any(|role| role == DATA_ROLE) {
+        return Ok(None);
+    }
+    let Some(directory) = &settings.directory else {
+        return Err("A fault node with the data role needs a directory".to_string());
+    };
+    let (engine_directory, spool_directory) = (
+        directory.join(ENGINE_DIRECTORY),
+        directory.join(SPOOL_DIRECTORY),
+    );
+    for created in [&engine_directory, &spool_directory] {
+        std::fs::create_dir_all(created).map_err(|error| error.to_string())?;
+    }
+    let engine = NarsilConfig {
+        durability: Some(DurabilityConfig {
+            directory: Some(engine_directory),
+            mode: Some(DurabilityMode::Sync),
+            ..DurabilityConfig::default()
+        }),
+        ..NarsilConfig::default()
+    };
+    Ok(Some(DataNodeConfig {
+        snapshot_spool_directory: Some(spool_directory),
+        ..DataNodeConfig::new(engine)
+    }))
+}
+
 #[cfg(unix)]
 async fn stop_requested() -> Result<(), String> {
     use tokio::signal::unix::{SignalKind, signal};
@@ -250,6 +282,10 @@ async fn serve() -> Result<(), String> {
             Arc::clone(&transport),
             registration,
         )
+    };
+    let config = ClusterNodeConfig {
+        data: data_config(&settings)?,
+        ..config
     };
     let node = ClusterNode::new(config).map_err(|error| error.to_string())?;
     let started = node.start().await;

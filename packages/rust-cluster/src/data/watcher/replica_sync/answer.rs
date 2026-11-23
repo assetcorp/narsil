@@ -2,6 +2,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use bytes::Bytes;
+use narsil::Value;
 use narsil::replication::CopyPosition;
 
 use super::{ReplicaSync, sync_error, with_cause};
@@ -80,14 +81,20 @@ impl WatcherContext {
 
     async fn stream_answer(
         &self,
+        key: &PartitionKey,
         target: &str,
         message: TransportMessage,
         budget: Duration,
     ) -> Answer {
-        let frames = Arc::new(Mutex::new(SyncFrames::default()));
+        let spool_directory = self.writes.spool_directory().to_path_buf();
+        let opened = SyncFrames::new(&key.0, key.1, spool_directory);
+        let frames = Arc::new(Mutex::new(Some(opened)));
         let held = Arc::clone(&frames);
         let handler: ChunkHandler = Box::new(move |chunk: Bytes| {
-            if lock(&held).take(&chunk) {
+            if lock(&held)
+                .as_mut()
+                .is_some_and(|frames| frames.take(&chunk))
+            {
                 return Ok(());
             }
             Err(ClusterError::new(
@@ -99,7 +106,8 @@ impl WatcherContext {
             tokio::time::timeout(budget, self.transport.stream(target, message, handler))
                 .await
                 .ok();
-        let frames = std::mem::take(&mut *lock(&frames));
+        let taken = lock(&frames).take();
+        let frames = taken.unwrap_or_else(|| SyncFrames::stopped(&key.0, key.1));
         Answer { frames, streamed }
     }
 
@@ -119,19 +127,12 @@ impl WatcherContext {
             ));
         }
         let message = self.sync_request(sync, position, None)?;
-        let Answer { frames, streamed } = self.stream_answer(target, message, remaining).await;
+        let Answer {
+            mut frames,
+            streamed,
+        } = self.stream_answer(key, target, message, remaining).await;
         if let Some(error) = frames.error {
             return Err(error);
-        }
-        if frames.saw_snapshot {
-            return Err(sync_error(
-                codes::SNAPSHOT_SYNC_RESTORE_FAILED,
-                key,
-                format!(
-                    "the primary answered with a snapshot of partition {} of index '{}', which this node cannot restore, so its copy is left as it was",
-                    key.1, key.0
-                ),
-            ));
         }
         match streamed {
             None => {
@@ -150,6 +151,24 @@ impl WatcherContext {
                 return Err(with_cause(failure, &error));
             }
             Some(Ok(())) => {}
+        }
+        if frames.saw_snapshot {
+            let (header, archive) = frames
+                .snapshot
+                .finish()
+                .map_err(|error| error.with_detail("target", Value::from(target)))?;
+            frames.check_termination()?;
+            self.ensure_replica_copy(sync).await?;
+            let restored = CopyPosition {
+                seq_no: header.last_seq_no,
+                primary_term: header.primary_term,
+            };
+            self.restore_snapshot(sync, target, restored, archive)
+                .await?;
+            self.writes
+                .apply_sync_batches(&key.0, key.1, frames.batches, restored.seq_no + 1)
+                .await?;
+            return Ok(frames.sync_session);
         }
         frames.check_termination()?;
         if frames.batches.is_empty() {
@@ -184,7 +203,7 @@ impl WatcherContext {
             ));
         }
         let message = self.sync_request(sync, position, sync_session)?;
-        let Answer { frames, streamed } = self.stream_answer(target, message, budget).await;
+        let Answer { frames, streamed } = self.stream_answer(key, target, message, budget).await;
         if let Some(error) = frames.error {
             return Err(error);
         }

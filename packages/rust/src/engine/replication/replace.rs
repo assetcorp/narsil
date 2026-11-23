@@ -14,7 +14,7 @@ use crate::index::partition::PartitionSnapshot;
 use crate::index::segment::SegmentEntry;
 use crate::value::{MAX_SAFE_INTEGER, Map, Value};
 
-fn replace_documents(
+pub(super) fn replace_documents(
     index: &IndexState,
     partition: u32,
     documents: Vec<(String, Map)>,

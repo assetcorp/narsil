@@ -276,6 +276,10 @@ impl MemoryGuard {
         reading.latest
     }
 
+    pub(crate) fn is_full(&self) -> bool {
+        self.full.load(Ordering::Acquire)
+    }
+
     pub(crate) fn releases(&self) -> u64 {
         self.reading().releases
     }

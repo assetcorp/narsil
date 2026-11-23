@@ -3,6 +3,7 @@ mod fetch;
 mod list;
 mod payload;
 mod preflight;
+mod projection;
 mod refusal;
 mod search;
 mod sort;
@@ -14,15 +15,21 @@ mod wire_values;
 
 use std::sync::Arc;
 
+use super::analysis_change::AnalysisChanges;
 use super::copies::LocalCopies;
+use super::search_contexts::SearchContexts;
 use super::writes::AllocationView;
 use crate::error::{ClusterError, ClusterResult, codes};
+use crate::memory::NodeMemory;
 use crate::message::{TransportMessage, message_types};
 
 pub(super) struct QueryDeps<'a> {
     pub(super) node_id: &'a str,
     pub(super) copies: Arc<LocalCopies>,
     pub(super) view: Arc<AllocationView>,
+    pub(super) contexts: Arc<SearchContexts>,
+    pub(super) analysis: Arc<AnalysisChanges>,
+    pub(super) memory: Option<Arc<NodeMemory>>,
 }
 
 pub(super) fn answers_query(message_type: &str) -> bool {

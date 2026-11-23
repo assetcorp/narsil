@@ -13,6 +13,7 @@ pub(crate) struct ClientWrite {
     pub(crate) kind: ForwardKind,
     pub(crate) document: Option<Vec<u8>>,
     pub(crate) sent: Option<Map>,
+    pub(crate) estimated_bytes: u64,
 }
 
 #[derive(Clone)]

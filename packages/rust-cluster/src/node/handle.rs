@@ -14,8 +14,8 @@ use crate::error::{ClusterResult, codes};
 ///
 /// A node with the `controller` role stands for the controller lease once it joins. While it holds the lease, it
 /// places every index's partitions on the data nodes, answers the in-sync, bootstrap, and resignation messages that
-/// a primary sends, and refuses the replication factor, rebalance, backup, and query suggestion requests with
-/// `CLUSTER_OPERATION_UNSUPPORTED`. A node on another major specification version than the active controller
+/// a primary sends, applies a replication factor change and places the index again, drives a partition count change
+/// to its cutover, and refuses the backup and query suggestion requests with `CLUSTER_OPERATION_UNSUPPORTED`. A node on another major specification version than the active controller
 /// cannot join.
 pub struct ClusterNode {
     pub(super) inner: Arc<NodeInner>,
@@ -28,7 +28,7 @@ impl ClusterNode {
     ///
     /// Fails with `CONFIG_INVALID` where the registration holds no role, an unknown role, an empty address, or an
     /// invalid node id, where `data` holds settings for a node without the `data` role or none for a node with it,
-    /// or where a timing value is zero.
+    /// where a timing value is zero, or where `in_flight_write_fraction` is not above 0 and at most 1.
     pub fn new(config: ClusterNodeConfig) -> ClusterResult<ClusterNode> {
         validate_config(&config)?;
         Ok(ClusterNode {

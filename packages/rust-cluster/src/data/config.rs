@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::fmt;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use narsil::{EmbeddingAdapter, NarsilConfig, RerankAdapter, StopWords, Tokenizer};
@@ -29,12 +30,15 @@ pub struct DataNodeConfig {
     /// dropped entry cannot catch up from this log, and a primary refuses with `REPLICATION_LOG_FULL` a write whose
     /// single entry passes it. It must be at least 1.
     pub log_retention_bytes: u64,
+    /// The directory where the node writes the snapshot of a partition that it sends to a replica, and the snapshot
+    /// that it receives from a primary, while the transfer lasts. `None` uses the system's temporary directory.
+    pub snapshot_spool_directory: Option<PathBuf>,
 }
 
 impl DataNodeConfig {
     /// Returns the settings of a data node whose local engine opens with `engine`, that holds no named tokenizer,
-    /// stop word set, or adapter, and that keeps the default 268,435,456 bytes of replication log for each
-    /// partition.
+    /// stop word set, or adapter, that keeps the default 268,435,456 bytes of replication log for each partition,
+    /// and that writes snapshots in transfer to the system's temporary directory.
     ///
     /// A copy of an index whose settings give one of those by name then fails to create with the engine's
     /// `CONFIG_INVALID`, so add each name that the cluster's indexes give before the node joins.
@@ -46,6 +50,7 @@ impl DataNodeConfig {
             embedding_adapters: BTreeMap::new(),
             rerank_adapters: BTreeMap::new(),
             log_retention_bytes: DEFAULT_LOG_RETENTION_BYTES,
+            snapshot_spool_directory: None,
         }
     }
 }
@@ -66,6 +71,7 @@ impl fmt::Debug for DataNodeConfig {
                 &self.rerank_adapters.keys().collect::<Vec<_>>(),
             )
             .field("log_retention_bytes", &self.log_retention_bytes)
+            .field("snapshot_spool_directory", &self.snapshot_spool_directory)
             .finish()
     }
 }
