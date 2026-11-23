@@ -23,6 +23,7 @@ mod grpc_goaway_drain;
 mod killed_primary;
 mod lost_copy_wait;
 mod mixed_analysis_change;
+mod mixed_analysis_request;
 mod mixed_catch_up;
 mod mixed_failover;
 mod mixed_rebalance_request;
