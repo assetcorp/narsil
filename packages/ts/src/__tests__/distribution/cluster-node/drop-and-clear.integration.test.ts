@@ -6,7 +6,7 @@ import type { ClusterCoordinator } from '../../../distribution/coordinator/types
 import type { InMemoryNetwork } from '../../../distribution/transport'
 import { createInMemoryNetwork, createInMemoryTransport } from '../../../distribution/transport'
 import type { NodeTransport } from '../../../distribution/transport/types'
-import { startSingleNodeCluster, waitForSettledReplica } from './cluster-harness'
+import { startSingleNodeCluster, waitForActiveAllocation, waitForSettledReplica } from './cluster-harness'
 
 const POLL_INTERVAL_MS = 25
 const POLL_BUDGET_MS = 15_000
@@ -167,4 +167,62 @@ describe('cluster-node drop of an index the cluster never allocated', () => {
       await cluster.shutdown()
     }
   }, 30_000)
+})
+
+describe('cluster-node drop while no controller holds the lease', () => {
+  it('finishes the drop once a controller starts, because that controller tears down the stored allocation', async () => {
+    const coordinator = createInMemoryCoordinator()
+    const network = createInMemoryNetwork()
+    const transports = ['controller-a', 'data-node', 'controller-b'].map(id => createInMemoryTransport(id, network))
+    const [transportA, transportData, transportB] = transports
+    if (transportA === undefined || transportData === undefined || transportB === undefined) {
+      throw new Error('transports missing')
+    }
+    const controllerA = await createClusterNode({
+      coordinator,
+      transport: transportA,
+      address: 'controller-a:9200',
+      nodeId: 'controller-a',
+      roles: ['controller'],
+    })
+    const dataNode = await createClusterNode({
+      coordinator,
+      transport: transportData,
+      address: 'data-node:9200',
+      nodeId: 'data-node',
+      roles: ['data', 'coordinator'],
+    })
+    const controllerB = await createClusterNode({
+      coordinator,
+      transport: transportB,
+      address: 'controller-b:9200',
+      nodeId: 'controller-b',
+      roles: ['controller'],
+    })
+    try {
+      await controllerA.start()
+      await dataNode.start()
+      await dataNode.createIndex('products', { schema: { title: 'string', price: 'number' } })
+      await waitForActiveAllocation(coordinator, 'products')
+      await controllerA.shutdown()
+
+      const dropOutcome = dataNode.dropIndex('products').then(
+        () => null,
+        (error: unknown) => error,
+      )
+      expect(await pollUntil(async () => (await coordinator.getSchema('products')) === null)).toBe(true)
+      expect(await coordinator.getAllocation('products')).not.toBeNull()
+
+      await controllerB.start()
+      expect(await dropOutcome).toBeNull()
+      expect(await coordinator.getAllocation('products')).toBeNull()
+      expect(await coordinator.listAllocations()).toEqual([])
+    } finally {
+      await controllerB.shutdown()
+      await dataNode.shutdown()
+      await controllerA.shutdown()
+      for (const transport of transports) await transport.shutdown()
+      await coordinator.shutdown()
+    }
+  }, 60_000)
 })
