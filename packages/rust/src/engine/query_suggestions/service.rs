@@ -4,18 +4,21 @@ use std::sync::Arc;
 use super::counts_stream::HistoryStream;
 use super::host::{SuggestionsHost, SuggestionsOwner};
 use super::host_operations;
+use super::operations::GROUP_FORMAT;
+use super::phrase::is_group;
 use super::restored_history::RestoredHistory;
 use super::runtime::SuggestionsRuntime;
 use super::scramble::Scrambler;
+use super::suggestions_writer::{suggestions_config, suggestions_index_name};
 use super::timers::catch_up_missed_builds;
 use super::types::{
     ManualQuerySuggestion, QuerySuggestionsBuild, QuerySuggestionsBuildTrigger,
     QuerySuggestionsConfig, QuerySuggestionsPreview, QuerySuggestionsSetting,
     QuerySuggestionsStatus, RecordQueryResult, RecordedQuery,
 };
-use super::suggestions_writer::suggestions_config;
 use crate::config::IndexConfig;
 use crate::error::Result;
+use crate::format::metadata_parts::config_invalid;
 
 /// Returns the configuration of a suggestions index that analyses its phrases in `language`: the `query`, `count`,
 /// and `origin` fields, no stop words, and one partition.
@@ -233,6 +236,19 @@ impl SuggestionsService {
     ) -> Result<String> {
         let (runtime, host) = self.parts();
         host_operations::add_suggestion(runtime, host, index_name, suggestion)
+    }
+
+    /// Returns the name of the suggestions index of `group` for `index_name`, as
+    /// [`crate::QuerySuggestions::suggestions_index_name`] does.
+    ///
+    /// # Errors
+    ///
+    /// Fails with `CONFIG_INVALID` for a group outside its format.
+    pub fn suggestions_index_name(&self, index_name: &str, group: &str) -> Result<String> {
+        if !is_group(group) {
+            return Err(config_invalid(format!("A group holds {GROUP_FORMAT}")));
+        }
+        Ok(suggestions_index_name(index_name, group))
     }
 
     /// Writes the unsaved counts of `index_name` to its history files.

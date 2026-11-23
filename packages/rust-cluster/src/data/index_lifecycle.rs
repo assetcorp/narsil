@@ -1,3 +1,4 @@
+use narsil::suggestions_host::HistoryFiles;
 use narsil::{IndexConfig, Value};
 
 use super::blocking::off_executor;
@@ -13,6 +14,10 @@ impl DataRole {
     {
         let copies = self.settled_copies()?;
         off_executor(move || work(&copies)).await?
+    }
+
+    pub(crate) fn history_files(&self) -> ClusterResult<HistoryFiles> {
+        Ok(HistoryFiles::of_engine(&self.settled_copies()?.engine))
     }
 
     pub(crate) fn refuse_orphaned_name(&self, index_name: &str) -> ClusterResult<()> {

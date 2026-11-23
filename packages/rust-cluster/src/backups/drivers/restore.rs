@@ -11,6 +11,7 @@ use super::super::index_config::{
 };
 use super::super::manifest::stored_files_of;
 use super::super::partition_exchange::{PartitionTask, drive_partition_task, for_each_partition};
+use super::super::query_history::write_restored_history;
 use super::super::replication_factor::request_replication_factor;
 use super::super::restore_publish::{
     drop_unpublished_generation, name_taken, publish_restored_name,
@@ -228,6 +229,9 @@ async fn restore_and_name(
         .unwrap_or_else(|| request.manifest.constraints.clone());
     restore_into_generation(context, request, restorable, generation, &constraints).await?;
     check_restored_history(context, &request.manifest).await?;
+    if let Some(query_history) = &context.deps.query_history {
+        query_history.clear_name(&index_name).await?;
+    }
     let recorded = name_index_uuid.to_string();
     context
         .record_job_change(|job| {
@@ -277,5 +281,6 @@ pub(crate) async fn run_backup_restore(
         }
         return Err(error);
     }
-    publish_restored_name(&context, &generation, &name_index_uuid).await
+    publish_restored_name(&context, &generation, &name_index_uuid).await?;
+    write_restored_history(&context, manifest, &index_name).await
 }

@@ -15,6 +15,7 @@ use super::super::driver_context::BackupDriverContext;
 use super::super::files::first_unstored_file;
 use super::super::manifest::stored_files_of;
 use super::super::partition_exchange::{PartitionTask, drive_partition_task, for_each_partition};
+use super::super::query_history::back_up_query_history;
 use super::super::store::{backup_name_taken, claim_backup_store, cluster_uuid_of, holds_manifest};
 use crate::controller::{lock, now_ms, stored_index_metadata};
 use crate::error::{ClusterError, ClusterResult, codes};
@@ -178,6 +179,11 @@ pub(crate) async fn run_backup_creation(
         suggestion_state_of_settings(named.as_ref()),
     )
     .await?;
+    let query_history = if request.query_history {
+        Some(back_up_query_history(&context, &index_name).await?)
+    } else {
+        None
+    };
     let backup_name = context.job.backup_name.clone();
     let manifest = BackupManifest {
         name: backup_name.clone(),
@@ -195,7 +201,7 @@ pub(crate) async fn run_backup_creation(
             max_shards_per_node: metadata.constraints.max_shards_per_node,
         },
         config,
-        query_history: request.query_history.then(Vec::new),
+        query_history,
         partitions,
     };
     let checked = manifest.clone();
