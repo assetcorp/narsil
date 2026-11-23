@@ -82,6 +82,8 @@ error_codes! {
     PERSISTENCE_FSYNC_FAILED,
     /// A backup manifest is damaged.
     BACKUP_DAMAGED,
+    /// A cluster primary runs without write-ahead log durability, so it can't take a backup.
+    BACKUP_DURABILITY_REQUIRED,
     /// Device sync needs write-ahead log durability.
     SYNC_DURABILITY_REQUIRED,
     /// Device sync is off for the index.

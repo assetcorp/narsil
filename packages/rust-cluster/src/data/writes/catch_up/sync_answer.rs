@@ -236,7 +236,7 @@ impl PrimaryWrites {
         .with_detail("sourceNodeId", Value::from(source)))
     }
 
-    async fn send_sync_entries(
+    pub(super) async fn send_sync_entries(
         &self,
         message: &TransportMessage,
         respond: &Respond,
@@ -336,18 +336,8 @@ impl PrimaryWrites {
                 if from_replica {
                     lock(&partition.catch_up).record_snapshot_request(source);
                 }
-                Err(refused(
-                    codes::SNAPSHOT_SYNC_SNAPSHOT_FAILED,
-                    &request,
-                    format!(
-                        "Node '{}' no longer holds the entries that partition {} of index '{}' needs from sequence number {}, and it cannot send a snapshot of the partition",
-                        self.node_id,
-                        request.partition_id,
-                        request.index_name,
-                        request.last_seq_no + 1
-                    ),
-                )
-                .with_detail("primaryNodeId", Value::from(self.node_id.as_str())))
+                self.send_snapshot(message, respond, &partition, &request, &sync_session)
+                    .await
             }
         }
     }

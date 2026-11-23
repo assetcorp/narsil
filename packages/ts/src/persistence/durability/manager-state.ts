@@ -44,9 +44,15 @@ export async function drainIndexStateForUnload(
   try {
     if (indexState.checkpointInFlight !== null) await indexState.checkpointInFlight
     await pendingMetadataWrite
+    let closeFailure: { error: unknown } | null = null
     for (const partition of indexState.partitions.values()) {
-      await closeWalWriter(closePartitionWriter(partition))
+      try {
+        await closeWalWriter(closePartitionWriter(partition))
+      } catch (error) {
+        closeFailure ??= { error }
+      }
     }
+    if (closeFailure !== null) throw closeFailure.error
   } catch (error) {
     indexState.unloading = false
     throw error
