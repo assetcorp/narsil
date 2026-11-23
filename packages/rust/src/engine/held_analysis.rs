@@ -116,9 +116,7 @@ impl<'a> HeldAnalysisChanges<'a> {
 }
 
 fn current_generation(index: &IndexState) -> u64 {
-    index.log().map_or(0, |log| {
-        log.metadata(index).analysis_generation.unwrap_or(0)
-    })
+    index.analysis_generation()
 }
 
 fn serves(run: &HeldRun, pending: &PendingAnalysis) -> bool {
@@ -282,10 +280,13 @@ pub(crate) fn stamp_analysis_generation(
     generation: u64,
 ) -> Result<()> {
     let index = engine.open_index(name)?;
+    let _writer = index.lock_writes()?;
     let Some(log) = index.log() else {
+        if index.analysis_generation() < generation {
+            index.record_analysis_generation(generation);
+        }
         return Ok(());
     };
-    let _writer = index.lock_writes()?;
     let mut metadata = log.metadata(&index);
     if metadata.analysis_generation.unwrap_or(0) >= generation {
         return Ok(());
