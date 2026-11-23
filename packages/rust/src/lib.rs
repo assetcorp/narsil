@@ -51,11 +51,12 @@ pub mod suggestions_host {
     pub use crate::engine::query_suggestions::counts_stream::{
         HistoryStream, HistoryStreamReader, StreamedHistoryFile,
     };
+    pub use crate::engine::query_suggestions::history_storage::HistoryFiles;
     pub use crate::engine::query_suggestions::host::{
         HistoryFilesRef, IndexView, RemoteFile, SuggestionsHost,
     };
     pub use crate::engine::query_suggestions::service::{
-        RestoredHistoryWriter, SuggestionsService,
+        RestoredHistoryWriter, SuggestionsService, suggestions_index_config,
     };
     pub use crate::engine::query_suggestions::stored_state::SuggestionState;
 }
