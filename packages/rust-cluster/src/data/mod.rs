@@ -7,6 +7,7 @@ mod primary_copy;
 mod reconcile;
 mod role;
 mod schema_check;
+mod snapshot_spool;
 mod stored_index;
 mod synonym_set;
 mod watcher;
