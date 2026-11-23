@@ -15,4 +15,5 @@ pub use types::{
     Metric, PartitionConfig, Quantization, ScoringMode, StopWordsSetting, Storage, SynonymRule,
     TokenizerSetting, VectorPromotion,
 };
+pub use validate::validate_index_name;
 pub(crate) use validate::*;

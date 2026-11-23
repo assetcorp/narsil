@@ -85,7 +85,10 @@ impl ClusterNode {
         ))
     }
 
-    async fn resolve_node_targets(&self, target_node_id: &str) -> ClusterResult<Vec<String>> {
+    pub(super) async fn resolve_node_targets(
+        &self,
+        target_node_id: &str,
+    ) -> ClusterResult<Vec<String>> {
         let nodes = self.inner.coordinator().list_nodes().await?;
         let address = nodes
             .iter()

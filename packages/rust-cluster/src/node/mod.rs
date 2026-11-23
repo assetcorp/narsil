@@ -1,3 +1,4 @@
+mod allocation;
 mod analysis_change;
 mod config;
 mod device_sync;
