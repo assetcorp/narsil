@@ -1,5 +1,5 @@
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use narsil::Value;
 use tokio::sync::watch;
@@ -9,20 +9,18 @@ use super::heartbeat::Heartbeat;
 use super::join::{
     refuse_controller_on_another_major_version, wait_for_earlier_registration_to_lapse,
 };
-use super::not_ready::{answer_ping, not_ready};
-use crate::backups::BackupStore;
-use crate::controller::{
-    Controller, ControllerConfig, ControllerErrorHandler, is_controller_message, lock,
-};
+use crate::backups::{BackupService, BackupServiceSettings, BackupStore};
+use crate::controller::{Controller, ControllerConfig, ControllerErrorHandler, lock};
 use crate::coordinator::NodeRegistration;
 use crate::coordinator::etcd::EtcdCoordinator;
 use crate::data::DataRole;
 use crate::error::{ClusterError, ClusterResult, codes};
 use crate::memory::{NodeMemory, NodeMemorySettings};
-use crate::message::{TransportMessage, is_specified_message_type, message_types, refusal};
 use crate::node::NodeErrorHandler;
 use crate::routing::WriteRouter;
-use crate::transport::{BoxFuture, Listening, NodeTransport, Respond, listen_handler};
+use crate::transport::{BoxFuture, Listening, NodeTransport};
+
+type ControllerActivity = Arc<dyn Fn() -> bool + Send + Sync>;
 
 const CONTROLLER_ROLE: &str = "controller";
 
@@ -36,14 +34,14 @@ pub(super) enum Phase {
 
 pub(super) struct NodeInner {
     pub(super) coordinator: Arc<EtcdCoordinator>,
-    transport: Arc<dyn NodeTransport>,
+    pub(super) transport: Arc<dyn NodeTransport>,
     pub(super) registration: NodeRegistration,
     pub(super) heartbeat_interval_ms: u64,
     in_flight_write_fraction: f64,
     on_error: Option<NodeErrorHandler>,
     pub(super) controller: Option<Controller>,
     pub(super) data: Option<DataRole>,
-    backups: Option<BackupStore>,
+    pub(super) backups: BackupService,
     pub(super) phase: Mutex<Phase>,
     pub(super) lifecycle: tokio::sync::Mutex<()>,
     pub(super) stopping: watch::Sender<bool>,
@@ -51,17 +49,9 @@ pub(super) struct NodeInner {
     pub(super) registered: AtomicBool,
     controller_standing: AtomicBool,
     pub(super) heartbeat: Mutex<Option<Heartbeat>>,
-    listening: Mutex<Option<Listening>>,
+    pub(super) listening: Mutex<Option<Listening>>,
     router: Mutex<Option<Arc<WriteRouter>>>,
     memory: Mutex<Option<Arc<NodeMemory>>>,
-}
-
-fn not_controller(node_id: &str) -> ClusterError {
-    ClusterError::new(
-        codes::NODE_NOT_CONTROLLER,
-        format!("Node '{node_id}' holds no controller lease, so it answers no controller message"),
-    )
-    .with_detail("nodeId", Value::String(node_id.to_string()))
 }
 
 pub(super) fn node_error(code: &str, message: String, node_id: &str) -> ClusterError {
@@ -81,7 +71,22 @@ impl NodeInner {
             backups,
             on_error,
         } = config;
-        let backups = backups.and_then(|settings| BackupStore::open(&settings).ok());
+        let store = backups.and_then(|settings| BackupStore::open(&settings).ok());
+        let activity: Arc<OnceLock<ControllerActivity>> = Arc::new(OnceLock::new());
+        let reporter = on_error.clone();
+        let backups = BackupService::new(BackupServiceSettings {
+            node_id: registration.node_id.clone(),
+            coordinator: Arc::clone(&coordinator),
+            transport: Arc::clone(&transport),
+            store: store.clone(),
+            is_controller: {
+                let activity = Arc::clone(&activity);
+                Arc::new(move || activity.get().is_some_and(|is_active| is_active()))
+            },
+            on_error: Arc::new(move |error: &ClusterError| {
+                report_failure(reporter.as_ref(), error)
+            }),
+        });
         let controller = registration
             .roles
             .iter()
@@ -99,14 +104,19 @@ impl NodeInner {
                     node_left_delay_ms: timing.node_left_delay_ms,
                     on_error: index_errors.clone(),
                     on_election_error: index_errors,
+                    backup_messages: Some(backups.controller_messages()),
                 })
             });
+        if let Some(controller) = &controller {
+            let _ = activity.set(controller.activity());
+        }
         let data = data.map(|settings| {
             DataRole::new(
                 registration.node_id.clone(),
                 Arc::clone(&coordinator),
                 settings,
                 on_error.clone(),
+                store,
             )
         });
         NodeInner {
@@ -133,11 +143,7 @@ impl NodeInner {
     }
 
     pub(super) fn has_backup_store(&self) -> bool {
-        self.backups.is_some()
-    }
-
-    pub(crate) fn backup_store(&self) -> Option<&BackupStore> {
-        self.backups.as_ref()
+        self.backups.store().is_some()
     }
 
     pub(super) fn memory(&self) -> Option<Arc<NodeMemory>> {
@@ -227,41 +233,6 @@ impl NodeInner {
         *self.stopping.borrow()
     }
 
-    async fn answer(&self, message: TransportMessage, respond: Respond) {
-        let node_id = self.node_id();
-        if message.message_type == message_types::CLUSTER_PING {
-            return respond.send(answer_ping(&message, node_id)).await;
-        }
-        let joined = self.joined.load(Ordering::Acquire);
-        if is_controller_message(&message.message_type) {
-            return match &self.controller {
-                Some(controller) if controller.is_listening() => {
-                    controller.handle(message, respond).await
-                }
-                _ if !joined => {
-                    respond
-                        .send(refusal(&message, node_id, &not_ready(node_id)))
-                        .await
-                }
-                _ => {
-                    respond
-                        .send(refusal(&message, node_id, &not_controller(node_id)))
-                        .await
-                }
-            };
-        }
-        let answered = DataRole::answers(&message.message_type);
-        match &self.data {
-            Some(data) if joined && answered => data.answer(message, respond).await,
-            _ if joined && !is_specified_message_type(&message.message_type) => {}
-            _ => {
-                respond
-                    .send(refusal(&message, node_id, &not_ready(node_id)))
-                    .await
-            }
-        }
-    }
-
     async fn stand_early(&self) {
         let Some(controller) = &self.controller else {
             return;
@@ -304,31 +275,6 @@ impl NodeInner {
         }
     }
 
-    async fn listen(self: &Arc<Self>) -> ClusterResult<()> {
-        let inner: Weak<NodeInner> = Arc::downgrade(self);
-        let fallback_id = self.node_id().to_string();
-        let handler = listen_handler(move |message: TransportMessage, respond: Respond| {
-            let inner = inner.upgrade();
-            let fallback_id = fallback_id.clone();
-            async move {
-                match inner {
-                    Some(inner) => inner.answer(message, respond).await,
-                    None => {
-                        respond
-                            .send(refusal(&message, &fallback_id, &not_ready(&fallback_id)))
-                            .await
-                    }
-                }
-                Ok(())
-            }
-        });
-        let listening = self.transport.listen(handler).await?;
-        if let Some(previous) = lock(&self.listening).replace(listening) {
-            previous.stop();
-        }
-        Ok(())
-    }
-
     fn abort_if_stopping(&self) -> ClusterResult<()> {
         if !self.is_stopping() {
             return Ok(());
@@ -366,16 +312,18 @@ impl NodeInner {
         self.start_routing().await?;
         self.joined.store(true, Ordering::Release);
         self.abort_if_stopping()?;
-        if let Some(controller) = &self.controller
-            && !self.controller_standing.swap(true, Ordering::AcqRel)
-        {
-            controller.start().await?;
+        if let Some(controller) = &self.controller {
+            if !self.controller_standing.swap(true, Ordering::AcqRel) {
+                controller.start().await?;
+            }
+            self.backups.start();
         }
         Ok(())
     }
 
     pub(super) async fn leave(&self) {
         self.joined.store(false, Ordering::Release);
+        self.backups.stop();
         if let Some(router) = lock(&self.router).take() {
             router.stop();
         }

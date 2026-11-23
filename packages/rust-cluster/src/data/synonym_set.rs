@@ -15,7 +15,7 @@ const FIRST_PRINTABLE_CHARACTER: char = ' ';
 pub(crate) struct SynonymSetRef {
     pub(crate) generation: String,
     digest: String,
-    chunk_count: u64,
+    pub(crate) chunk_count: u64,
     byte_length: u64,
 }
 

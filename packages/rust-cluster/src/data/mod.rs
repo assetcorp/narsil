@@ -1,4 +1,5 @@
 mod analysis_change;
+pub(crate) mod backup_copy;
 mod blocking;
 mod config;
 mod copies;
@@ -17,7 +18,7 @@ mod snapshot_spool;
 mod stored_index;
 pub(crate) mod synonym_set;
 mod watcher;
-mod writes;
+pub(crate) mod writes;
 
 pub use config::DataNodeConfig;
 pub(crate) use device_sync::{

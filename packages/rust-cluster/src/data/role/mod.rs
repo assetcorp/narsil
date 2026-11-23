@@ -1,3 +1,5 @@
+mod answers;
+
 use std::sync::{Arc, Mutex};
 
 use narsil::Map;
@@ -12,11 +14,12 @@ use super::device_sync::{
 };
 use super::lost_copy::LostCopyWait;
 use super::partition_stores::{partition_stores_answer, requested_index};
-use super::queries::{QueryDeps, answer_query, answers_query};
+use super::queries::answers_query;
 use super::reconcile::settle_local_indexes;
 use super::search_contexts::SearchContexts;
 use super::watcher::{AllocationWatcher, WatcherSettings};
 use super::writes::{AllocationView, PrimaryWrites, PrimaryWritesSettings};
+use crate::backups::{BackupPrimary, BackupStore};
 use crate::controller::lock;
 use crate::coordinator::etcd::{EtcdCoordinator, WatchHandle};
 use crate::error::ClusterResult;
@@ -37,6 +40,7 @@ pub(crate) struct DataRole {
     search_contexts: Arc<SearchContexts>,
     analysis: Mutex<Option<(Arc<AnalysisChanges>, WatchHandle)>>,
     feed: Arc<ClusterFeedSource>,
+    backups: Option<Arc<BackupPrimary>>,
 }
 
 impl DataRole {
@@ -45,6 +49,7 @@ impl DataRole {
         coordinator: Arc<EtcdCoordinator>,
         config: DataNodeConfig,
         on_error: Option<NodeErrorHandler>,
+        backups: Option<BackupStore>,
     ) -> DataRole {
         DataRole {
             node_id,
@@ -58,6 +63,7 @@ impl DataRole {
             search_contexts: Arc::new(SearchContexts::default()),
             analysis: Mutex::new(None),
             feed: Arc::default(),
+            backups: backups.map(|store| Arc::new(BackupPrimary::new(store))),
         }
     }
 
@@ -217,36 +223,9 @@ impl DataRole {
                 | message_types::REPLICATION_SYNC_REQUEST
                 | message_types::SYNC_READ
                 | message_types::CLUSTER_REBUILD_ANALYSIS
+                | message_types::CLUSTER_BACKUP_PARTITION
+                | message_types::CLUSTER_RESTORE_PARTITION
         ) || answers_query(message_type)
-    }
-
-    async fn answer_query_message(&self, message: &TransportMessage) -> TransportMessage {
-        let deps = match (self.settled_copies(), self.primary_writes()) {
-            (Ok(copies), Ok(writes)) => QueryDeps {
-                node_id: &self.node_id,
-                copies,
-                view: writes.view(),
-                contexts: Arc::clone(&self.search_contexts),
-            },
-            (Err(error), _) | (_, Err(error)) => {
-                return refusal(message, &self.node_id, &error);
-            }
-        };
-        match answer_query(&deps, message).await {
-            Ok(reply) => reply,
-            Err(error) => refusal(message, &self.node_id, &error),
-        }
-    }
-
-    async fn answer_rebuild_analysis(
-        &self,
-        message: &TransportMessage,
-    ) -> ClusterResult<TransportMessage> {
-        let analysis = lock(&self.analysis)
-            .as_ref()
-            .map(|(analysis, _)| Arc::clone(analysis))
-            .ok_or_else(|| not_ready(&self.node_id))?;
-        analysis.answer_rebuild(message).await
     }
 
     pub(crate) async fn answer(&self, message: TransportMessage, respond: Respond) {
@@ -291,6 +270,11 @@ impl DataRole {
                     Ok(reply) => reply,
                     Err(error) => refusal(&message, &self.node_id, &error),
                 }
+            }
+            message_types::CLUSTER_BACKUP_PARTITION | message_types::CLUSTER_RESTORE_PARTITION => {
+                self.answer_backup_message(&message)
+                    .await
+                    .unwrap_or_else(|error| refusal(&message, &self.node_id, &error))
             }
             _ => match self.answer_partition_stores(&message).await {
                 Ok(reply) => reply,

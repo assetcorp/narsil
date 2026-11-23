@@ -210,7 +210,7 @@ impl DataNode {
         node_id: &str,
         directory: &Path,
         roles: &[&str],
-        configure: fn(&mut ClusterNodeConfig),
+        configure: impl FnOnce(&mut ClusterNodeConfig),
     ) -> DataNode {
         let transport = Arc::new(
             TcpTransport::new(
