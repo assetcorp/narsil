@@ -83,8 +83,12 @@ pub trait FeedSource: Send + Sync {
     /// # Errors
     ///
     /// Fails where the source cannot read the partition's log.
-    fn bounds(&self, index: &str, partition_id: u32, freshness: BoundsFreshness)
-    -> Result<SyncBounds>;
+    fn bounds(
+        &self,
+        index: &str,
+        partition_id: u32,
+        freshness: BoundsFreshness,
+    ) -> Result<SyncBounds>;
 
     /// Reads the entries of the cursor's partition above the cursor and at or below `up_to`, in sequence order,
     /// while their payloads stay within `max_bytes`, and moves the cursor past them.

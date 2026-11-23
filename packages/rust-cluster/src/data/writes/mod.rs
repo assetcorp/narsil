@@ -30,6 +30,7 @@ use self::copy_failure::CopyFailures;
 pub(crate) use self::errors::abandoned_with_term;
 pub(crate) use self::forward::{routed_partition, unassigned};
 use self::partition::Partitions;
+pub(crate) use self::sync_read::{SyncReadReply, SyncReadRequest};
 pub(crate) use self::view::AllocationView;
 use super::blocking::off_executor;
 use super::copies::LocalCopies;

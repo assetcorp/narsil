@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use narsil::{Narsil, NarsilError};
+use narsil::{ChangeSource, Narsil, NarsilError};
 
 use crate::constants::{
     DEFAULT_IMPORT_BATCH_SIZE, DEFAULT_MAX_BODY_BYTES, DEFAULT_MAX_BODY_BYTES_IN_FLIGHT_FRACTION,
@@ -76,6 +76,19 @@ impl ServerState {
     #[cfg(not(feature = "cluster"))]
     pub(crate) fn fronts_cluster(&self) -> bool {
         false
+    }
+
+    #[cfg(feature = "cluster")]
+    pub(crate) fn feed_source(&self) -> Arc<dyn ChangeSource> {
+        match &self.cluster {
+            Some(node) => node.feed_source(),
+            None => self.engine.feed_source(),
+        }
+    }
+
+    #[cfg(not(feature = "cluster"))]
+    pub(crate) fn feed_source(&self) -> Arc<dyn ChangeSource> {
+        self.engine.feed_source()
     }
 }
 

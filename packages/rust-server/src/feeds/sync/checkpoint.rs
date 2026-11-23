@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 use std::time::Duration;
 
-use narsil::Value;
+use narsil::{BoundsFreshness, Value};
 use tokio::time::Instant;
 
 use super::SyncFeed;
@@ -15,7 +15,7 @@ impl SyncFeed {
     pub(super) async fn begin_checkpoint(&mut self, core: &mut Core, id: u32) {
         let (index, count) = (core.index.clone(), self.sent.len());
         let Some(bounds) = core
-            .blocking(move |engine| bounds_of(engine, &index, count))
+            .blocking(move |source| bounds_of(source, &index, count, BoundsFreshness::Current))
             .await
         else {
             return;
@@ -38,7 +38,7 @@ impl SyncFeed {
     async fn answer_checkpoints(&mut self, core: &mut Core) {
         let (index, count) = (core.index.clone(), self.sent.len());
         let Some(bounds) = core
-            .blocking(move |engine| bounds_of(engine, &index, count))
+            .blocking(move |source| bounds_of(source, &index, count, BoundsFreshness::Current))
             .await
         else {
             return;

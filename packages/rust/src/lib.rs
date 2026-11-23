@@ -77,6 +77,10 @@ pub use engine::{
     MemoryConfig, StaleAnalysis, StaleAnalysisListener, StaleRebuild,
 };
 pub use engine::{
+    BoundsFreshness, ChangeSource, ChangesIndexState, DocumentTest, EngineFeedSource, FeedSource,
+    FeedSourceChange, FeedSourceListener, FeedSubscription,
+};
+pub use engine::{
     Change, ChangeFeed, ChangeFeedStop, ChangeGroup, ChangePosition, ChangeType, ChangesEvent,
     ChangesRequest, ChangesSetting, ChangesStatus, ChangesSubscribed, ResyncReason,
 };
@@ -87,10 +91,6 @@ pub use engine::{
     QuerySuggestionsConfig, QuerySuggestionsPreview, QuerySuggestionsSetting,
     QuerySuggestionsSource, QuerySuggestionsStatus, QuerySuggestionsWarningReason,
     RecordQueryOutcome, RecordQueryResult, RecordedQuery, SnapshotOptions,
-};
-pub use engine::{
-    BoundsFreshness, ChangeSource, ChangesIndexState, DocumentTest, EngineFeedSource, FeedSource,
-    FeedSourceChange, FeedSourceListener, FeedSubscription,
 };
 pub use engine::{SyncBounds, SyncCursor, SyncEntry, SyncFeedState, SyncRead, SyncSnapshot};
 pub use error::{ErrorCode, NarsilError, Result};

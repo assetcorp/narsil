@@ -1,3 +1,4 @@
+mod feeds;
 mod settings;
 
 use narsil::{

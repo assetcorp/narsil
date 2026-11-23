@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
-use narsil::{FeedChange, ListenerId, Narsil, NarsilEvent, NarsilEventKind, Value};
+use narsil::{ChangeSource, FeedChange, FeedSourceChange, FeedSubscription, Value};
 use tokio::sync::Semaphore;
 
 use super::FeedKind;
@@ -22,9 +22,9 @@ struct HubState {
     connections: u64,
     next_session: u64,
     sessions: HashMap<String, HashMap<u64, Arc<SessionSignals>>>,
-    listeners: Vec<ListenerId>,
+    subscription: Option<FeedSubscription>,
+    watches: HashMap<String, FeedSubscription>,
     listening: bool,
-    engine: Option<Arc<Narsil>>,
 }
 
 pub(crate) struct Hub {
@@ -113,7 +113,7 @@ impl Hub {
 
     pub(crate) fn join(
         self: &Arc<Self>,
-        engine: &Arc<Narsil>,
+        source: &Arc<dyn ChangeSource>,
         index: &str,
         signals: &Arc<SessionSignals>,
     ) -> Option<Membership> {
@@ -124,6 +124,10 @@ impl Hub {
             }
             state.next_session = state.next_session.wrapping_add(1);
             let id = state.next_session;
+            if !state.sessions.contains_key(index) {
+                let watch = source.watch_index(index);
+                state.watches.insert(index.to_string(), watch);
+            }
             state
                 .sessions
                 .entry(index.to_string())
@@ -134,7 +138,7 @@ impl Hub {
             (register, id)
         };
         if register.0 {
-            self.listen(engine);
+            self.listen(source);
         }
         Some(Membership {
             hub: Arc::clone(self),
@@ -143,28 +147,20 @@ impl Hub {
         })
     }
 
-    fn listen(self: &Arc<Self>, engine: &Arc<Narsil>) {
-        let ids: Vec<ListenerId> = [NarsilEventKind::Write, NarsilEventKind::FeedChange]
-            .into_iter()
-            .map(|kind| {
-                let hub: Weak<Hub> = Arc::downgrade(self);
-                engine.on(kind, move |event| {
-                    if let Some(hub) = hub.upgrade() {
-                        hub.on_event(event);
-                    }
-                })
-            })
-            .collect();
+    fn listen(self: &Arc<Self>, source: &Arc<dyn ChangeSource>) {
+        let hub: Weak<Hub> = Arc::downgrade(self);
+        let subscription = source.listen(Arc::new(move |index, change| {
+            if let Some(hub) = hub.upgrade() {
+                hub.on_change(index, change);
+            }
+        }));
         let mut state = self.state();
         if state.closed {
             drop(state);
-            for id in ids {
-                engine.off(id);
-            }
+            drop(subscription);
             return;
         }
-        state.listeners = ids;
-        state.engine = Some(Arc::clone(engine));
+        state.subscription = Some(subscription);
     }
 
     fn sessions_of(&self, index: &str) -> Vec<Arc<SessionSignals>> {
@@ -175,11 +171,10 @@ impl Hub {
             .unwrap_or_default()
     }
 
-    fn on_event(&self, event: &NarsilEvent) {
-        let (index, change) = match event {
-            NarsilEvent::Write { index_name } => (index_name, None),
-            NarsilEvent::FeedChange { index_name, change } => (index_name, Some(*change)),
-            _ => return,
+    fn on_change(&self, index: &str, change: FeedSourceChange) {
+        let change = match change {
+            FeedSourceChange::Advanced => None,
+            FeedSourceChange::Changed(change) => Some(change),
         };
         let sessions = self.sessions_of(index);
         for session in sessions {
@@ -202,7 +197,7 @@ impl Hub {
     }
 
     pub(crate) fn close(&self) {
-        let (sessions, listeners, engine) = {
+        let (sessions, subscription, watches) = {
             let mut state = self.state();
             state.closed = true;
             let sessions: Vec<Arc<SessionSignals>> = state
@@ -212,18 +207,15 @@ impl Hub {
                 .collect();
             (
                 sessions,
-                std::mem::take(&mut state.listeners),
-                state.engine.take(),
+                state.subscription.take(),
+                std::mem::take(&mut state.watches),
             )
         };
         for session in sessions {
             session.close(CLOSE_GOING_AWAY, SERVER_CLOSING_REASON);
         }
-        if let Some(engine) = engine {
-            for id in listeners {
-                engine.off(id);
-            }
-        }
+        drop(watches);
+        drop(subscription);
     }
 }
 
@@ -236,12 +228,19 @@ impl Drop for ConnectionSlot {
 
 impl Drop for Membership {
     fn drop(&mut self) {
-        let mut state = self.hub.state();
-        if let Some(sessions) = state.sessions.get_mut(&self.index) {
-            sessions.remove(&self.id);
-            if sessions.is_empty() {
+        let watch = {
+            let mut state = self.hub.state();
+            let emptied = state.sessions.get_mut(&self.index).is_some_and(|sessions| {
+                sessions.remove(&self.id);
+                sessions.is_empty()
+            });
+            if emptied {
                 state.sessions.remove(&self.index);
+                state.watches.remove(&self.index)
+            } else {
+                None
             }
-        }
+        };
+        drop(watch);
     }
 }

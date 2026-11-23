@@ -69,7 +69,8 @@ fn title_in(entry: &Decoded) -> String {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_rust_primary_reads_only_its_committed_entries_of_the_requested_generation_and_partition() {
+async fn a_rust_primary_reads_only_its_committed_entries_of_the_requested_generation_and_partition()
+{
     let Some(coordinator) = cluster_coordinator().await else {
         return;
     };
