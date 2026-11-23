@@ -168,6 +168,11 @@ impl LocalCopies {
             .list_partitions(index_name, params, sort, partition_ids)?)
     }
 
+    pub(super) fn vector_fields(&self, index_name: &str) -> ClusterResult<Vec<String>> {
+        self.refuse_orphaned(index_name)?;
+        Ok(self.engine.vector_fields(index_name)?)
+    }
+
     pub(super) fn fetch_documents(
         &self,
         index_name: &str,
