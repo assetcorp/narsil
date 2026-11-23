@@ -75,7 +75,15 @@ async function insertOnce(
     )
   }
 
-  return forwardInsertToRemote(indexName, document, resolvedDocId, primaryNodeId, deps, resolution.table.indexUuid)
+  return forwardInsertToRemote(
+    indexName,
+    document,
+    resolvedDocId,
+    primaryNodeId,
+    deps,
+    deadline,
+    resolution.table.indexUuid,
+  )
 }
 
 export function routeRemove(indexName: string, docId: string, deps: WriteRoutingDeps): Promise<void> {
@@ -108,7 +116,7 @@ async function removeOnce(
     return applyPrimaryRemove(indexName, docId, resolution.partitionId, resolution.assignment, deps, condition)
   }
 
-  return forwardRemoveToRemote(indexName, docId, primaryNodeId, deps, resolution.table.indexUuid, condition)
+  return forwardRemoveToRemote(indexName, docId, primaryNodeId, deps, deadline, resolution.table.indexUuid, condition)
 }
 
 export function routeUpdate(
@@ -162,5 +170,14 @@ async function routeAdmittedUpdate(
     )
   }
 
-  return forwardUpdateToRemote(indexName, document, docId, primaryNodeId, deps, resolution.table.indexUuid, condition)
+  return forwardUpdateToRemote(
+    indexName,
+    document,
+    docId,
+    primaryNodeId,
+    deps,
+    deadline,
+    resolution.table.indexUuid,
+    condition,
+  )
 }
