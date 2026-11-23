@@ -12,8 +12,8 @@ pub use hybrid::{
     page_hybrid_by_position, require_hybrid_page_within, resolve_hybrid_fusion,
 };
 pub use rerank::{
-    CheckedRerank, check_rerank, page_hits_by_position, place_pinned_hits, reorder_hits_by_rerank,
-    rerank_first_stage_depth, rerank_text, score_with_rerank_adapter,
+    CheckedRerank, RerankHost, check_rerank, page_hits_by_position, place_pinned_hits,
+    reorder_hits_by_rerank, rerank_first_stage_depth, rerank_text,
 };
 
 use crate::config::{Bm25Params, validate_bm25_params};

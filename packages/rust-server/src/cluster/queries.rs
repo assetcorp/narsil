@@ -58,7 +58,7 @@ async fn search(
         params.remove("rerank");
     }
     let index = context.param(0);
-    let converted = query_params(&params, state.engine.max_rerank_window());
+    let converted = query_params(&params, node.max_rerank_window());
     let query = checked_after_lookup(node, index, converted).await?;
     let Some(unknown) = unknown_key_of(&params, &query) else {
         return run_query(node, index, &query, preflight).await;

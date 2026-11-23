@@ -38,6 +38,50 @@ type ClusterHandle = (
 #[cfg(not(feature = "cluster"))]
 enum ClusterHandle {}
 
+fn register_on_engine(engine: &Narsil, options: &ServerOptions) -> Result<(), NarsilError> {
+    for (name, adapter) in &options.embedding_adapters {
+        engine.register_embedding_adapter(name, Arc::clone(adapter))?;
+    }
+    for (name, adapter) in &options.rerank_adapters {
+        engine.register_rerank_adapter(name, Arc::clone(adapter))?;
+    }
+    Ok(())
+}
+
+#[cfg(feature = "cluster")]
+fn register_adapters(
+    engine: &Narsil,
+    cluster: Option<&ClusterHandle>,
+    options: &ServerOptions,
+) -> Result<(), NarsilError> {
+    let Some((node, _)) = cluster else {
+        return register_on_engine(engine, options);
+    };
+    if let Some(name) = options.embedding_adapters.keys().next() {
+        return Err(config_invalid_error(format!(
+            "A cluster node does not serve 'registerEmbeddingAdapter' yet, so the server takes no embedding adapter such as '{name}'"
+        )));
+    }
+    for (name, adapter) in &options.rerank_adapters {
+        node.register_rerank_adapter(name, Arc::clone(adapter))
+            .map_err(|error| {
+                let code =
+                    ErrorCode::from_name(error.code()).unwrap_or(ErrorCode::RERANK_CONFIG_INVALID);
+                NarsilError::new(code, error.message())
+            })?;
+    }
+    Ok(())
+}
+
+#[cfg(not(feature = "cluster"))]
+fn register_adapters(
+    engine: &Narsil,
+    _cluster: Option<&ClusterHandle>,
+    options: &ServerOptions,
+) -> Result<(), NarsilError> {
+    register_on_engine(engine, options)
+}
+
 struct Running {
     address: SocketAddr,
     stop: watch::Sender<bool>,
@@ -66,7 +110,8 @@ impl NarsilServer {
     /// Returns `CONFIG_INVALID` where a limit or a feed setting holds a value outside its range, the engine's error
     /// where it refuses an adapter, and `INTERNAL_ERROR` where the system refuses the threads that answer searches.
     pub fn new(engine: Arc<Narsil>, options: ServerOptions) -> Result<NarsilServer, NarsilError> {
-        NarsilServer::fronting(engine, options, None)
+        let rerank_window = engine.max_rerank_window();
+        NarsilServer::fronting(engine, options, rerank_window, None)
     }
 
     /// Returns a server that answers for the cluster that `node` belongs to, so each write that it takes goes to the
@@ -75,22 +120,26 @@ impl NarsilServer {
     /// Start the node before the server listens. The server answers every route that the cluster does not serve
     /// with `CLUSTER_OPERATION_UNSUPPORTED` and status 501, the way a TypeScript server that fronts a cluster node
     /// does, and [`NarsilServer::shutdown`] also shuts the node down, while the coordinator and the transport stay
-    /// open for the caller to close. The limits that depend on an engine come from an in-memory engine that holds
-    /// no index, and `cluster_options` sets the partition count, the replication factor, and the serving wait of
-    /// every index that the server creates.
+    /// open for the caller to close. The server registers the options' rerank adapters on the node and caps every
+    /// rerank window at the node's, and `cluster_options` sets the partition count, the replication factor, and the
+    /// serving wait of every index that the server creates.
     ///
     /// # Errors
     ///
-    /// Fails as [`NarsilServer::new`] does.
+    /// Fails as [`NarsilServer::new`] does, with `CONFIG_INVALID` where the options hold an embedding adapter,
+    /// because a cluster node does not serve `registerEmbeddingAdapter` yet, and with `RERANK_CONFIG_INVALID` where
+    /// the node refuses a rerank adapter.
     #[cfg(feature = "cluster")]
     pub fn cluster(
         node: Arc<narsil_cluster::node::ClusterNode>,
         cluster_options: crate::cluster::ClusterOptions,
         options: ServerOptions,
     ) -> Result<NarsilServer, NarsilError> {
+        let rerank_window = node.max_rerank_window();
         NarsilServer::fronting(
             Arc::new(Narsil::new()),
             options,
+            rerank_window,
             Some((node, cluster_options)),
         )
     }
@@ -98,17 +147,13 @@ impl NarsilServer {
     fn fronting(
         engine: Arc<Narsil>,
         options: ServerOptions,
+        rerank_window: usize,
         cluster: Option<ClusterHandle>,
     ) -> Result<NarsilServer, NarsilError> {
-        check_limits(&options.limits, engine.max_rerank_window() as u64)?;
+        check_limits(&options.limits, rerank_window as u64)?;
         let feeds = Feeds::of(&options)?;
-        for (name, adapter) in &options.embedding_adapters {
-            engine.register_embedding_adapter(name, Arc::clone(adapter))?;
-        }
-        for (name, adapter) in &options.rerank_adapters {
-            engine.register_rerank_adapter(name, Arc::clone(adapter))?;
-        }
-        let limits = resolve_limits(&engine, &options.limits);
+        register_adapters(&engine, cluster.as_ref(), &options)?;
+        let limits = resolve_limits(&engine, &options.limits, rerank_window as u64);
         let instance_id = match &options.instance_id {
             Some(id) => id.clone(),
             None => random_uuid().ok_or_else(|| {

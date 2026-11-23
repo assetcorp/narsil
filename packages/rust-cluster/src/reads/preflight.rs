@@ -96,6 +96,7 @@ pub(crate) async fn preflight_cluster(
                             &message,
                             &index,
                             validate_preflight_result_payload,
+                            false,
                         )
                         .await
                     }

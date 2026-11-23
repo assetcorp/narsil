@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use super::config::{ClusterNodeConfig, validate_config};
+use super::config::{ClusterNodeConfig, rerank_host_of, validate_config};
 use super::member::{NodeInner, Phase, node_error};
 use crate::controller::{Controller, lock};
 use crate::error::{ClusterResult, codes};
@@ -29,11 +29,14 @@ impl ClusterNode {
     ///
     /// Fails with `CONFIG_INVALID` where the registration holds no role, an unknown role, an empty address, or an
     /// invalid node id, where `data` holds settings for a node without the `data` role or none for a node with it,
-    /// where a timing value is zero, or where `in_flight_write_fraction` is not above 0 and at most 1.
+    /// where a timing value is zero, where `in_flight_write_fraction` is not above 0 and at most 1, or where the rerank
+    /// timeout or window falls outside its range. Fails with `RERANK_CONFIG_INVALID` where a rerank adapter's name is
+    /// empty.
     pub fn new(config: ClusterNodeConfig) -> ClusterResult<ClusterNode> {
         validate_config(&config)?;
+        let rerank = rerank_host_of(&config)?;
         Ok(ClusterNode {
-            inner: Arc::new(NodeInner::new(config)),
+            inner: Arc::new(NodeInner::new(config, rerank)),
         })
     }
 

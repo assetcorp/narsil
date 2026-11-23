@@ -125,8 +125,11 @@ fn body_bytes_in_flight(engine: &Narsil, fraction: f64) -> u64 {
     }
 }
 
-pub(crate) fn resolve_limits(engine: &Narsil, limits: &ServerLimits) -> ResolvedLimits {
-    let engine_rerank_window = engine.max_rerank_window() as u64;
+pub(crate) fn resolve_limits(
+    engine: &Narsil,
+    limits: &ServerLimits,
+    engine_rerank_window: u64,
+) -> ResolvedLimits {
     ResolvedLimits {
         max_body_bytes_in_flight: body_bytes_in_flight(
             engine,

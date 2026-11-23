@@ -9,7 +9,7 @@ use narsil::{
 };
 use narsil_cluster::coordinator::etcd::{EtcdCoordinator, EtcdCoordinatorConfig};
 use narsil_cluster::error::codes;
-use narsil_cluster::node::{ClusterNode, ClusterNodeConfig};
+use narsil_cluster::node::ClusterNode;
 
 use crate::data_node::{
     DataNode, Scratch, coordinator_at, etcd_endpoint, eventually, unique_key_prefix,
@@ -95,15 +95,6 @@ impl RerankAdapter for TrailingNumber {
                     .unwrap_or(-1.0)
             })
             .collect())
-    }
-}
-
-fn with_trailing_number_reranker(config: &mut ClusterNodeConfig) {
-    if let Some(data) = config.data.as_mut() {
-        data.rerank_adapters.insert(
-            TRAILING_NUMBER_RERANKER.to_string(),
-            Arc::new(TrailingNumber),
-        );
     }
 }
 
@@ -401,14 +392,17 @@ async fn a_rust_coordinator_reads_every_partition_from_typescript_data_nodes_and
         TypescriptNode::start(&endpoint, &key_prefix, HOLDER_IDS[0], "data").await;
     let second_holder = TypescriptNode::start(&endpoint, &key_prefix, HOLDER_IDS[1], "data").await;
     let router_scratch = Scratch::new();
-    let router = DataNode::start_configured(
+    let router = DataNode::start_with_roles(
         &coordinator,
         ROUTER_ID,
         router_scratch.path(),
         &["coordinator", "data"],
-        with_trailing_number_reranker,
     )
     .await;
+    router
+        .node
+        .register_rerank_adapter(TRAILING_NUMBER_RERANKER, Arc::new(TrailingNumber))
+        .expect("the router registers the rerank adapter");
 
     let schema = Value::Object(fields([
         ("title", Value::from("string")),

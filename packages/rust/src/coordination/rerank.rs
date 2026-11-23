@@ -1,12 +1,17 @@
 use std::collections::HashSet;
 use std::ops::Range;
+use std::sync::Arc;
 
+use crate::adapters::RerankAdapter;
+use crate::engine::adapter_registry::AdapterRegistry;
 use crate::engine::query::pagination::{PositionWindow, page_by_position};
 use crate::engine::query::rerank::{
     first_stage_depth, placed_hits, reorder_by_rerank, rerank_query_text, rerank_text_of,
-    resolve_rerank,
+    resolve_rerank, score_documents,
 };
-use crate::engine::{Hit, Narsil, Pin, QueryParams};
+use crate::engine::registration::register_rerank_in;
+use crate::engine::rerank_settings::RerankSettings;
+use crate::engine::{Hit, Pin, QueryParams};
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::schema::CompiledSchema;
 use crate::value::{Map, Value};
@@ -88,19 +93,50 @@ pub fn rerank_text(document: &Map, fields: &[String]) -> String {
     rerank_text_of(document, fields)
 }
 
-/// Scores `documents` against `query` through the rerank adapter that `engine` holds under `adapter`.
-///
-/// # Errors
-///
-/// Fails with `RERANK_CONFIG_INVALID` where `engine` holds no such adapter and with `RERANK_FAILED` where the adapter
-/// fails or times out.
-pub fn score_with_rerank_adapter(
-    engine: &Narsil,
-    adapter: &str,
-    query: &str,
-    documents: Vec<String>,
-) -> Result<Vec<f64>> {
-    engine.rerank_scores(adapter, query, documents)
+/// The rerank adapters that a cluster coordinator scores hits with, and the timeout and window that its calls
+/// follow, as one engine holds them without an engine around them.
+pub struct RerankHost {
+    registry: AdapterRegistry,
+}
+
+impl RerankHost {
+    /// Returns a host that holds no adapter, whose calls wait `timeout_ms` and rerank at most `max_window` hits,
+    /// each taking the engine's default where it is `None`.
+    ///
+    /// # Errors
+    ///
+    /// Fails with `CONFIG_INVALID` where `timeout_ms` or `max_window` falls outside the range that an engine accepts.
+    pub fn new(timeout_ms: Option<u64>, max_window: Option<usize>) -> Result<RerankHost> {
+        let settings = RerankSettings::checked(timeout_ms, max_window)?;
+        Ok(RerankHost {
+            registry: AdapterRegistry::with_rerank(settings),
+        })
+    }
+
+    /// Registers `adapter` under `name`, replacing any adapter registered under it before.
+    ///
+    /// # Errors
+    ///
+    /// Fails with `RERANK_CONFIG_INVALID` where `name` is empty once trimmed.
+    pub fn register(&self, name: &str, adapter: Arc<dyn RerankAdapter>) -> Result<()> {
+        register_rerank_in(&self.registry, name, adapter)
+    }
+
+    /// Returns the most hits that one query may rerank.
+    pub fn max_window(&self) -> usize {
+        self.registry.rerank_settings().max_window
+    }
+
+    /// Scores `documents` against `query` through the adapter registered under `adapter`, blocking the calling
+    /// thread until it answers or its timeout passes.
+    ///
+    /// # Errors
+    ///
+    /// Fails with `RERANK_CONFIG_INVALID` where no adapter is registered under `adapter` and with `RERANK_FAILED`
+    /// where the adapter fails, panics, returns unusable scores, or times out.
+    pub fn score(&self, adapter: &str, query: &str, documents: Vec<String>) -> Result<Vec<f64>> {
+        score_documents(&self.registry, adapter, query, documents)
+    }
 }
 
 /// Reorders the first `window_size` hits of `ranked` by `scores`, as one engine reorders them, and rescales the
