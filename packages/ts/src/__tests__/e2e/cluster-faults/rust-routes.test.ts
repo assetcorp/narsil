@@ -5,6 +5,7 @@ import { type EtcdMembers, startEtcdMembers } from './etcd-members'
 import { type Fleet, RUST_NODE_VARIABLE, startFleet } from './fleet'
 import { insertEntries } from './mixed-cluster'
 import {
+  type Answer,
   answer,
   countOf,
   errorCode,
@@ -25,6 +26,7 @@ const MISSING_INDEX = 'harbour-missing'
 const HIDDEN_INDEX = 'narsil-generation-harbour'
 const RESHARDED_INDEX = 'harbour-resharded'
 const RESHARD_DOCUMENTS = 3_000
+const RESHARD_ATTEMPTS = 3
 const ENTRY_COUNT = 12
 const PARTITION_COUNT = 2
 const REPLICATION_FACTOR = 2
@@ -372,21 +374,38 @@ describe.skipIf(process.env[RUST_NODE_VARIABLE] === undefined)(
       })
       expect(created.status, JSON.stringify(created.body)).toBe(201)
       await insertBatch(baseOf(RUST_SLOT), RESHARDED_INDEX, idsOf('reshard', RESHARD_DOCUMENTS))
-      const started = await answer(baseOf(TYPESCRIPT_SLOT), 'POST', `/indexes/${RESHARDED_INDEX}/_rebalance`, {
-        targetPartitionCount: PARTITION_COUNT * 2,
-      })
-      expect(started.status, JSON.stringify(started.body)).toBe(202)
       const path = `/indexes/${RESHARDED_INDEX}/synonyms`
-      const refusals = await settled(
-        'Neither node refused malformed rules for the change in partition count',
-        SETTLE_MS,
-        async () => Promise.all(bases().map(base => answer(base, 'POST', path, { synonyms: 'loose' }))),
-        replies => replies.some(reply => errorCode(reply) === 'PARTITION_REBALANCING_BACKPRESSURE'),
-      )
-      expect(refusals[1]).toEqual(refusals[0])
-      const record = (await finishedTask(baseOf(TYPESCRIPT_SLOT), started, SETTLE_MS)) as { status: string }
-      expect(record.status).toBe('succeeded')
-      expect(await expectSameRefusal('POST', path, { synonyms: 'loose' })).toBe('CONFIG_INVALID')
+      const backpressured = (reply: Answer) => errorCode(reply) === 'PARTITION_REBALANCING_BACKPRESSURE'
+      const refusals = () => Promise.all(bases().map(base => answer(base, 'POST', path, { synonyms: 'loose' })))
+      const refusalsOnceSettled = () =>
+        settled('A node kept reporting a change in partition count', SETTLE_MS, refusals, replies =>
+          replies.every(reply => errorCode(reply) === 'CONFIG_INVALID'),
+        )
+      let refusalsDuringChange: Answer[] = []
+      for (let attempt = 1; refusalsDuringChange.length === 0; attempt++) {
+        await refusalsOnceSettled()
+        const started = await answer(baseOf(TYPESCRIPT_SLOT), 'POST', `/indexes/${RESHARDED_INDEX}/_rebalance`, {
+          targetPartitionCount: PARTITION_COUNT * 2 ** attempt,
+        })
+        expect(started.status, JSON.stringify(started.body)).toBe(202)
+        const taskPath = `/tasks/${String((started.body as { id?: unknown }).id)}`
+        const reading = await settled(
+          'The change in partition count neither finished nor showed on both nodes',
+          SETTLE_MS,
+          async () => ({
+            replies: await refusals(),
+            task: (await answer(baseOf(TYPESCRIPT_SLOT), 'GET', taskPath)).body as { status?: string },
+          }),
+          ({ replies, task }) => replies.every(backpressured) || task.status !== 'running',
+        )
+        const record = await finishedTask(baseOf(TYPESCRIPT_SLOT), started, SETTLE_MS)
+        expect((record as { status?: string }).status, JSON.stringify(record)).toBe('succeeded')
+        if (reading.replies.every(backpressured)) refusalsDuringChange = reading.replies
+        else expect(attempt, JSON.stringify(reading)).toBeLessThan(RESHARD_ATTEMPTS)
+      }
+      expect(refusalsDuringChange[1]).toEqual(refusalsDuringChange[0])
+      const afterChange = await refusalsOnceSettled()
+      expect(afterChange[1]).toEqual(afterChange[0])
     })
 
     it('stores a BM25 setting from the Rust node that both nodes then score with, and refuses bad settings alike', async () => {
