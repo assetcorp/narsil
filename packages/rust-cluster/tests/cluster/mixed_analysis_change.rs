@@ -1,5 +1,6 @@
 use narsil::{Map, Narsil, QueryParams, Value, decode_msgpack, encode_msgpack};
 use narsil_cluster::coordinator::etcd::EtcdCoordinator;
+use narsil_cluster::node::ClusterNodeConfig;
 
 use crate::data_node::{
     DataNode, Scratch, coordinator_at, etcd_endpoint, eventually, metadata_key, unique_key_prefix,
@@ -14,6 +15,7 @@ const CONTROLLER: &str = "aviary-controller";
 const KEEPER: &str = "aviary-keeper";
 const PERCH_A: &str = "aviary-perch-a";
 const PERCH_B: &str = "aviary-perch-b";
+const MEMORY_PERCH: &str = "aviary-memory-perch";
 const STOP_WORD_LIST: &str = "fleet-words";
 const STOPPED_WORD: &str = "zebra";
 const KEPT_WORD: &str = "lantern";
@@ -322,6 +324,13 @@ async fn a_rust_controller_records_a_refused_pending_language_and_the_index_keep
     aviary.stop().await;
 }
 
+fn in_memory_with_named_analysis(settings: &mut ClusterNodeConfig) {
+    with_named_analysis(settings);
+    if let Some(data) = settings.data.as_mut() {
+        data.engine.durability = None;
+    }
+}
+
 fn copy_hits(engine: &Narsil, word: &str) -> Vec<String> {
     let query = QueryParams {
         term: Some(word.into()),
@@ -365,9 +374,30 @@ async fn a_rust_data_node_builds_a_pending_change_that_the_controller_waits_for_
         with_named_analysis,
     )
     .await;
+    let memory_perch_scratch = Scratch::new();
+    let memory_perch = DataNode::start_configured(
+        &coordinator,
+        MEMORY_PERCH,
+        memory_perch_scratch.path(),
+        &["data"],
+        in_memory_with_named_analysis,
+    )
+    .await;
     let mut keeper = TypescriptNode::start(&endpoint, &key_prefix, KEEPER, "coordinator").await;
     let typescript_perch = TypescriptNode::start(&endpoint, &key_prefix, PERCH_A, "data").await;
     keeper.create_index(AVIARY, PARTITION_COUNT, 0).await;
+    let table = coordinator
+        .allocation(AVIARY)
+        .await
+        .expect("etcd answers for the table")
+        .expect("the index has an allocation table");
+    assert!(
+        table.assignments.iter().any(|(_, assignment)| assignment
+            .get("primary")
+            .and_then(Value::as_str)
+            == Some(MEMORY_PERCH)),
+        "the Rust data node without durability leads a partition"
+    );
     for position in 0..SIGHTING_COUNT {
         let answer = keeper
             .insert(
@@ -400,6 +430,7 @@ async fn a_rust_data_node_builds_a_pending_change_that_the_controller_waits_for_
 
     keeper.shutdown().await;
     typescript_perch.shutdown().await;
+    memory_perch.stop().await;
     rust_perch.stop().await;
     controller.stop().await;
     coordinator.shutdown().await;
