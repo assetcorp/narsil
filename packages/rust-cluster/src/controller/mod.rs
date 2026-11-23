@@ -46,6 +46,7 @@ pub(crate) use self::metadata::{
 pub(crate) use self::rebalance::generation::clear_every_progress;
 pub(crate) use self::settings::{previous_documents_recorded, stored_settings_readable};
 pub(crate) use self::table::{belongs_to_another_index, stored_table};
+
 pub(crate) type ControllerErrorHandler = Arc<dyn Fn(&str, &ClusterError) + Send + Sync>;
 pub(crate) type ControllerMessageHandler =
     Arc<dyn Fn(TransportMessage, Respond) -> BoxFuture<'static, ()> + Send + Sync>;

@@ -4,6 +4,7 @@ use std::sync::Arc;
 use narsil::{Map, Value, decode_msgpack, encode_msgpack};
 
 use super::ReadDeps;
+use super::decode_room::refuse_decode_without_room;
 use super::routable_allocation::live_allocation_once;
 use crate::allocator::Table;
 use crate::constants::FETCH_GROUP_DOCUMENT_IDS;
@@ -274,6 +275,7 @@ pub(crate) async fn fetch_documents(
         },
     )
     .await?;
+    refuse_decode_without_room(deps, &answer.payload)?;
     let decoded = decoded_answer(&answer)?;
     if answer_is_refusal(&answer, &decoded) {
         return Err(read_rejection_of(&decoded, target_node_id, index_name));

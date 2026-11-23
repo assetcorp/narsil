@@ -84,6 +84,9 @@ pub mod codes {
     /// A node refuses an insert or an update because a node that holds a copy of the index reports full memory,
     /// because the writes in flight on the node would pass its bound, or because the write would not fit in memory.
     pub const CLUSTER_WRITE_BLOCKED: &str = "CLUSTER_WRITE_BLOCKED";
+    /// A node refuses to build an answer, or to hold the documents that a search ranked, because the bytes would
+    /// take the process past its memory limit.
+    pub const TOO_MANY_REQUESTS: &str = "TOO_MANY_REQUESTS";
     /// Device sync would go on, or a feed would read a log, through a node that keeps no write-ahead log.
     pub const SYNC_DURABILITY_REQUIRED: &str = "SYNC_DURABILITY_REQUIRED";
     /// Device sync would go on through a node that has no backup store.
@@ -126,8 +129,6 @@ pub mod codes {
     pub const VECTOR_DIMENSION_MISMATCH: &str = "VECTOR_DIMENSION_MISMATCH";
     /// A copy holds no analysis generation that a request names.
     pub const ANALYSIS_GENERATION_MISSING: &str = "ANALYSIS_GENERATION_MISSING";
-    /// A node has no room in memory to answer.
-    pub const TOO_MANY_REQUESTS: &str = "TOO_MANY_REQUESTS";
     /// An index's rerank settings name no registered adapter, or a node holds none.
     pub const RERANK_CONFIG_INVALID: &str = "RERANK_CONFIG_INVALID";
     /// A document or a document id breaks the rules that every Narsil engine stores documents under.

@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use narsil::coordination::score_with_rerank_adapter;
 use narsil::{DocumentProjection, IndexInfo, Map};
 
 use super::analysis_change::AnalysisChanges;
@@ -50,6 +49,10 @@ impl LocalReads {
         self.copies.engine.list_indexes()
     }
 
+    pub(crate) fn reserved_memory_bytes(&self) -> u64 {
+        self.copies.reserved_memory_bytes()
+    }
+
     pub(crate) fn answers(message_type: &str) -> bool {
         answers_query(message_type)
     }
@@ -67,25 +70,6 @@ impl LocalReads {
             Ok(reply) => reply,
             Err(error) => refusal(message, &self.node_id, &error),
         }
-    }
-
-    pub(crate) fn max_rerank_window(&self) -> usize {
-        self.copies.engine.max_rerank_window()
-    }
-
-    pub(crate) async fn rerank_scores(
-        &self,
-        adapter: &str,
-        query: &str,
-        documents: Vec<String>,
-    ) -> ClusterResult<Vec<f64>> {
-        let copies = Arc::clone(&self.copies);
-        let (adapter, query) = (adapter.to_string(), query.to_string());
-        let scores = off_executor(move || {
-            score_with_rerank_adapter(&copies.engine, &adapter, &query, documents)
-        })
-        .await??;
-        Ok(scores)
     }
 
     pub(crate) async fn get_multiple(

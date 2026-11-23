@@ -2,6 +2,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use narsil::Value;
+use narsil::coordination::RerankHost;
 use tokio::sync::watch;
 
 use super::config::{ClusterNodeConfig, ClusterQueryConfig, report_failure};
@@ -43,6 +44,7 @@ pub(super) struct NodeInner {
     pub(super) heartbeat_interval_ms: u64,
     in_flight_write_fraction: f64,
     query: ClusterQueryConfig,
+    pub(super) rerank: Arc<RerankHost>,
     on_error: Option<NodeErrorHandler>,
     pub(super) controller: Option<Controller>,
     pub(super) data: Option<DataRole>,
@@ -66,7 +68,7 @@ pub(super) fn node_error(code: &str, message: String, node_id: &str) -> ClusterE
 }
 
 impl NodeInner {
-    pub(super) fn new(config: ClusterNodeConfig) -> NodeInner {
+    pub(super) fn new(config: ClusterNodeConfig, rerank: Arc<RerankHost>) -> NodeInner {
         let ClusterNodeConfig {
             coordinator,
             transport,
@@ -77,6 +79,7 @@ impl NodeInner {
             in_flight_write_fraction,
             query,
             backups,
+            rerank: _,
             on_error,
         } = config;
         let store = backups.and_then(|settings| BackupStore::open(&settings).ok());
@@ -134,6 +137,7 @@ impl NodeInner {
             heartbeat_interval_ms,
             in_flight_write_fraction,
             query,
+            rerank,
             on_error,
             controller,
             data,
@@ -147,8 +151,8 @@ impl NodeInner {
             heartbeat: Mutex::new(None),
             listening: Mutex::new(None),
             router: Mutex::new(None),
-            memory: Mutex::new(None),
             reads: Mutex::new(None),
+            memory: Mutex::new(None),
             operations: OperationTracker::default(),
         }
     }
