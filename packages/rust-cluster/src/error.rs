@@ -73,6 +73,11 @@ pub mod codes {
     pub const INSUFFICIENT_REPLICAS: &str = "INSUFFICIENT_REPLICAS";
     /// The node holds no copy of the index that a request gives.
     pub const INDEX_NOT_FOUND: &str = "INDEX_NOT_FOUND";
+    /// The cluster holds an index under that name, or a create of that name is pending.
+    pub const INDEX_ALREADY_EXISTS: &str = "INDEX_ALREADY_EXISTS";
+    /// A registered node runs a specification version below 1.1, so it cannot use the BM25 parameters that an index
+    /// sets.
+    pub const BM25_NOT_READY: &str = "BM25_NOT_READY";
     /// A node reports an orphaned copy, or a caller sends that node a read, a write, or a create for the copy's index
     /// name.
     pub const INDEX_ORPHANED: &str = "INDEX_ORPHANED";
