@@ -20,7 +20,7 @@ pub(crate) async fn routable_allocation(deps: &ReadDeps, index_name: &str) -> Cl
     {
         return Err(ClusterError::new(
             codes::INDEX_NOT_FOUND,
-            format!("The cluster holds no index named '{index_name}'"),
+            format!("Index \"{index_name}\" does not exist"),
         )
         .with_detail("indexName", Value::from(index_name)));
     }
