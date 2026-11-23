@@ -141,6 +141,21 @@ impl ClusterNode {
             .await
     }
 
+    pub(super) async fn route_removals(
+        &self,
+        index_name: &str,
+        document_ids: Vec<String>,
+    ) -> ClusterResult<WriteBatchResult> {
+        let prepared = document_ids
+            .into_iter()
+            .map(|document_id| {
+                let write = remove_write(document_id.clone());
+                (document_id, write)
+            })
+            .collect();
+        self.route_all(index_name, prepared).await
+    }
+
     async fn route_all(
         &self,
         index_name: &str,

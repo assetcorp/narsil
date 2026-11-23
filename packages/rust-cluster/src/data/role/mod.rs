@@ -1,5 +1,6 @@
 mod answers;
 mod device_sync;
+mod local_engine;
 
 use std::sync::{Arc, Mutex};
 
@@ -174,6 +175,7 @@ impl DataRole {
                 | message_types::CLUSTER_RESHARD_PURGE
                 | message_types::CLUSTER_BACKUP_PARTITION
                 | message_types::CLUSTER_RESTORE_PARTITION
+                | message_types::CLUSTER_INDEX_SETTINGS
         ) || answers_query(message_type)
     }
 
@@ -227,6 +229,10 @@ impl DataRole {
                 Ok(writes) => writes.answer_reshard(&message).await,
                 Err(error) => refusal(&message, &self.node_id, &error),
             },
+            message_types::CLUSTER_INDEX_SETTINGS => self
+                .answer_index_settings(&message)
+                .await
+                .unwrap_or_else(|error| refusal(&message, &self.node_id, &error)),
             message_types::CLUSTER_BACKUP_PARTITION | message_types::CLUSTER_RESTORE_PARTITION => {
                 self.answer_backup_message(&message)
                     .await
