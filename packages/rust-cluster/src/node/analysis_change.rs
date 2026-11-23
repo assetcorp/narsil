@@ -200,7 +200,7 @@ impl ClusterNode {
         Ok(())
     }
 
-    async fn serving_name(&self, index_name: &str) -> ClusterResult<String> {
+    pub(super) async fn serving_name(&self, index_name: &str) -> ClusterResult<String> {
         Ok(self
             .inner
             .coordinator()

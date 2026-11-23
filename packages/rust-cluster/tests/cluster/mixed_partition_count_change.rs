@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -8,7 +8,9 @@ use narsil_cluster::coordinator::etcd::EtcdCoordinator;
 use narsil_cluster::message::{TransportMessage, message_types};
 use narsil_cluster::transport::NodeTransport;
 
-use crate::data_node::{DataNode, Scratch, coordinator_at, etcd_endpoint, unique_key_prefix};
+use crate::data_node::{
+    DataNode, Scratch, coordinator_at, etcd_endpoint, eventually, unique_key_prefix,
+};
 use crate::ledger::forwarder;
 use crate::typescript_node::{TypescriptNode, fields, title_document};
 
@@ -30,6 +32,9 @@ const REFUSED_BEFORE_THE_WRITE: [&str; 2] = [
 const REFUSAL_PAUSE: Duration = Duration::from_millis(5);
 const LEDGER: &str = "ledger";
 const LEDGER_STATION: &str = "ledger-station";
+const TYPESCRIPT_LEDGER_STATION: &str = "ledger-typescript-station";
+const LEDGER_PARTITIONS: u64 = 4;
+const LEDGER_ENTRIES: usize = 40;
 
 fn plot_title(sequence: usize) -> String {
     format!("meadow plot {sequence} with sedge")
@@ -270,6 +275,121 @@ fn forward_without_job() -> Vec<u8> {
     encode_msgpack(&payload).expect("the forward encodes")
 }
 
+fn assert_refused_with_allocation_failed(reply: &TransportMessage) {
+    let Ok(Value::Object(body)) = decode_msgpack(&reply.payload) else {
+        panic!("the primary answers with a MessagePack map");
+    };
+    let expected: Map = fields([
+        ("error", Value::Bool(true)),
+        ("code", Value::from("ALLOCATION_FAILED")),
+    ]);
+    for (key, value) in expected.iter() {
+        assert_eq!(body.get(key), Some(value), "{body:?}");
+    }
+}
+
+fn purge_of_a_public_index() -> Vec<u8> {
+    let payload = Value::Object(fields([
+        ("targetGeneration", Value::from(LEDGER)),
+        ("jobId", Value::from("job-that-never-ran")),
+        ("sourcePartitionCount", Value::from(1u64)),
+        ("sourcePartitionId", Value::from(0u64)),
+    ]));
+    encode_msgpack(&payload).expect("the purge encodes")
+}
+
+async fn ledger_primaries(coordinator: &EtcdCoordinator) -> BTreeSet<String> {
+    coordinator
+        .allocation(LEDGER)
+        .await
+        .expect("etcd answers for the table")
+        .map(|table| {
+            table
+                .assignments
+                .iter()
+                .filter_map(|(_, assignment)| {
+                    assignment
+                        .get("primary")
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_rust_and_a_typescript_primary_keep_every_document_when_a_purge_names_a_public_index() {
+    let Some(endpoint) = etcd_endpoint() else {
+        return;
+    };
+    let key_prefix = unique_key_prefix();
+    let coordinator =
+        coordinator_at(endpoint.clone(), key_prefix.clone(), HEARTBEAT_TTL_SECONDS).await;
+    let mut router =
+        TypescriptNode::start(&endpoint, &key_prefix, ROUTER, "controller,coordinator").await;
+    let scratch = Scratch::new();
+    let station = DataNode::start(&coordinator, LEDGER_STATION, scratch.path()).await;
+    let typescript_station =
+        TypescriptNode::start(&endpoint, &key_prefix, TYPESCRIPT_LEDGER_STATION, "data").await;
+    router.create_index(LEDGER, LEDGER_PARTITIONS, 0).await;
+    let both: BTreeSet<String> = [LEDGER_STATION, TYPESCRIPT_LEDGER_STATION]
+        .map(str::to_string)
+        .into();
+    eventually("both stations lead a partition of the ledger", || async {
+        ledger_primaries(&coordinator).await == both
+    })
+    .await;
+    let entries: Vec<String> = (0..LEDGER_ENTRIES)
+        .map(|sequence| format!("entry-{sequence}"))
+        .collect();
+    for id in &entries {
+        assert_eq!(
+            router
+                .insert(LEDGER, id, &format!("balance {id}"))
+                .await
+                .code(),
+            None
+        );
+    }
+
+    let peer = forwarder();
+    for address in [&station.address, &typescript_station.address] {
+        let reply = peer
+            .send(
+                address,
+                TransportMessage::new(
+                    message_types::CLUSTER_RESHARD_PURGE,
+                    "ledger-forwarder",
+                    "purge-of-a-public-index",
+                    purge_of_a_public_index(),
+                ),
+            )
+            .await
+            .expect("the primary answers the purge");
+        assert_refused_with_allocation_failed(&reply);
+    }
+    for id in &entries {
+        assert_eq!(
+            router.title(LEDGER, id).await,
+            Some(format!("balance {id}")),
+            "the copy of {id}"
+        );
+    }
+    let counts = router.partition_counts(LEDGER).await;
+    assert_eq!(
+        counts.iter().map(|(_, count)| *count).sum::<u64>(),
+        LEDGER_ENTRIES as u64,
+        "{counts:?}"
+    );
+
+    peer.shutdown().await;
+    typescript_station.shutdown().await;
+    station.stop().await;
+    router.shutdown().await;
+    coordinator.shutdown().await;
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_rust_primary_refuses_a_reshard_forward_that_no_partition_count_change_sends() {
     let Some(endpoint) = etcd_endpoint() else {
@@ -304,16 +424,7 @@ async fn a_rust_primary_refuses_a_reshard_forward_that_no_partition_count_change
         )
         .await
         .expect("the station answers the forward");
-    let Ok(Value::Object(body)) = decode_msgpack(&reply.payload) else {
-        panic!("the station answers with a MessagePack map");
-    };
-    let expected: Map = fields([
-        ("error", Value::Bool(true)),
-        ("code", Value::from("ALLOCATION_FAILED")),
-    ]);
-    for (key, value) in expected.iter() {
-        assert_eq!(body.get(key), Some(value), "{body:?}");
-    }
+    assert_refused_with_allocation_failed(&reply);
     assert_eq!(
         router.title(LEDGER, "entry-1").await.as_deref(),
         Some("opening balance")

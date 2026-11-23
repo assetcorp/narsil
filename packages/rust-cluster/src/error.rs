@@ -76,7 +76,7 @@ pub mod codes {
     /// The cluster holds an index under that name, or a create of that name is pending.
     pub const INDEX_ALREADY_EXISTS: &str = "INDEX_ALREADY_EXISTS";
     /// A registered node runs a specification version below 1.1, so it cannot use the BM25 parameters that an index
-    /// sets.
+    /// sets, or a copy has yet to build the statistics that a search's BM25 setting needs.
     pub const BM25_NOT_READY: &str = "BM25_NOT_READY";
     /// A node reports an orphaned copy, or a caller sends that node a read, a write, or a create for the copy's index
     /// name.
@@ -102,14 +102,34 @@ pub mod codes {
     pub const QUERY_NO_ACTIVE_REPLICA: &str = "QUERY_NO_ACTIVE_REPLICA";
     /// The node that holds the copy did not answer within the transport's deadline.
     pub const QUERY_NODE_TIMEOUT: &str = "QUERY_NODE_TIMEOUT";
-    /// The data node holds another analysis generation of the index than the query asked for.
-    pub const ANALYSIS_GENERATION_MISSING: &str = "ANALYSIS_GENERATION_MISSING";
-    /// The data node holds no search context under the id that a fetch names.
-    pub const SEARCH_CONTEXT_MISSING: &str = "SEARCH_CONTEXT_MISSING";
-    /// A query names a field that the request cannot search, sort, or return.
+    /// A read left out a partition that no copy answered, where the read answers whole or not at all.
+    pub const QUERY_PARTIAL_FAILURE: &str = "QUERY_PARTIAL_FAILURE";
+    /// A search names a field that the index cannot search, sort, facet, or group on.
     pub const SEARCH_INVALID_FIELD: &str = "SEARCH_INVALID_FIELD";
-    /// A query asks for a sort direction, sort mode, scoring mode, or search mode that no engine knows.
+    /// A search or a listing carries a filter that breaks a filter rule.
+    pub const SEARCH_INVALID_FILTER: &str = "SEARCH_INVALID_FILTER";
+    /// A search asks for a mode, a sort direction, or a combination of options that the engine refuses.
     pub const SEARCH_INVALID_MODE: &str = "SEARCH_INVALID_MODE";
+    /// A cursor is malformed, or another request produced it.
+    pub const SEARCH_INVALID_CURSOR: &str = "SEARCH_INVALID_CURSOR";
+    /// A request reaches past the first 10,000 results.
+    pub const SEARCH_RESULT_WINDOW_EXCEEDED: &str = "SEARCH_RESULT_WINDOW_EXCEEDED";
+    /// A search's pattern tests passed the engine's work cap.
+    pub const SEARCH_WORK_CAP_EXCEEDED: &str = "SEARCH_WORK_CAP_EXCEEDED";
+    /// A quoted phrase breaks a phrase rule.
+    pub const SEARCH_INVALID_PHRASE: &str = "SEARCH_INVALID_PHRASE";
+    /// A copy has yet to build the positions that a phrase search reads.
+    pub const SEARCH_PHRASE_NOT_READY: &str = "SEARCH_PHRASE_NOT_READY";
+    /// A node no longer holds the search context that a coordinator reads the ranked documents from.
+    pub const SEARCH_CONTEXT_MISSING: &str = "SEARCH_CONTEXT_MISSING";
+    /// A query vector's length differs from the field's dimension.
+    pub const VECTOR_DIMENSION_MISMATCH: &str = "VECTOR_DIMENSION_MISMATCH";
+    /// A copy holds no analysis generation that a request names.
+    pub const ANALYSIS_GENERATION_MISSING: &str = "ANALYSIS_GENERATION_MISSING";
+    /// A node has no room in memory to answer.
+    pub const TOO_MANY_REQUESTS: &str = "TOO_MANY_REQUESTS";
+    /// An index's rerank settings name no registered adapter, or a node holds none.
+    pub const RERANK_CONFIG_INVALID: &str = "RERANK_CONFIG_INVALID";
     /// A document or a document id breaks the rules that every Narsil engine stores documents under.
     pub const DOC_VALIDATION_FAILED: &str = "DOC_VALIDATION_FAILED";
     /// An insert names a document id that the index holds.
@@ -180,6 +200,24 @@ pub mod codes {
     /// The cluster has a node below the specification version that changes analysis, so the index keeps its
     /// settings until that node is upgraded.
     pub const ANALYSIS_CHANGE_NOT_READY: &str = "ANALYSIS_CHANGE_NOT_READY";
+    /// The backup store holds no manifest under the backup name.
+    pub const BACKUP_NOT_FOUND: &str = "BACKUP_NOT_FOUND";
+    /// A manifest or a running job already holds the backup name.
+    pub const BACKUP_ALREADY_EXISTS: &str = "BACKUP_ALREADY_EXISTS";
+    /// A backup manifest fails to decode, or a file that it lists is missing or has another length or SHA-256.
+    pub const BACKUP_DAMAGED: &str = "BACKUP_DAMAGED";
+    /// A primary runs without write-ahead log durability, so it can't take a backup.
+    pub const BACKUP_DURABILITY_REQUIRED: &str = "BACKUP_DURABILITY_REQUIRED";
+    /// Another backup job conflicts with the one that a request asks for.
+    pub const BACKUP_IN_PROGRESS: &str = "BACKUP_IN_PROGRESS";
+    /// Another cluster's UUID is stored under the backup store's key prefix.
+    pub const BACKUP_STORE_CLAIMED: &str = "BACKUP_STORE_CLAIMED";
+    /// A registered node follows a specification version below the one that backups need.
+    pub const BACKUP_NOT_READY: &str = "BACKUP_NOT_READY";
+    /// The node that receives a backup, restore, deletion, or listing request has no backup store.
+    pub const BACKUP_STORE_NOT_CONFIGURED: &str = "BACKUP_STORE_NOT_CONFIGURED";
+    /// A read of a backup store or a stored file failed.
+    pub const PERSISTENCE_LOAD_FAILED: &str = "PERSISTENCE_LOAD_FAILED";
 }
 
 /// A failure of a cluster node, a transport, or a coordinator, with the code that a peer or a caller branches on.

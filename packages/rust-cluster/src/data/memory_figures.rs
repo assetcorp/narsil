@@ -24,6 +24,10 @@ impl LocalCopies {
         PartitionCopies::new(&self.engine).measure_memory()
     }
 
+    pub(super) fn reserved_memory_bytes(&self) -> u64 {
+        PartitionCopies::new(&self.engine).reserved_memory_bytes()
+    }
+
     fn held_sizes_of(&self, index_name: &str) -> Option<Vec<PartitionSize>> {
         let held = self.held_partition_ids(index_name).ok()?;
         if held.is_empty() {
