@@ -104,14 +104,16 @@ impl ClusterNode {
         }
     }
 
-    /// Leaves the cluster for good: the node gives up the controller lease where it holds it, stops renewing its
-    /// registration, deregisters, stops listening, and closes the engine of its `data` role.
+    /// Leaves the cluster for good: the node refuses new operations, waits for every operation that runs on it to
+    /// return, gives up the controller lease where it holds it, stops renewing its registration, deregisters, stops
+    /// listening, and closes the engine of its `data` role.
     ///
     /// A shutdown during a start ends the wait for an earlier registration, and the start then fails with
     /// `NODE_NOT_JOINED`. The coordinator and the transport stay open, because the caller owns them. A second
     /// call does nothing.
     pub async fn shutdown(&self) {
         self.inner.stopping.send_replace(true);
+        self.inner.operations.drain().await;
         let _turn = self.inner.lifecycle.lock().await;
         let earlier = std::mem::replace(&mut *lock(&self.inner.phase), Phase::Shutdown);
         if earlier != Phase::Shutdown {

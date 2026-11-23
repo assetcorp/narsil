@@ -9,6 +9,7 @@ use super::heartbeat::Heartbeat;
 use super::join::{
     refuse_controller_on_another_major_version, wait_for_earlier_registration_to_lapse,
 };
+use super::operation_tracker::OperationTracker;
 use crate::backups::{BackupService, BackupServiceSettings, BackupStore};
 use crate::controller::{Controller, ControllerConfig, ControllerErrorHandler, lock};
 use crate::coordinator::NodeRegistration;
@@ -57,6 +58,7 @@ pub(super) struct NodeInner {
     router: Mutex<Option<Arc<WriteRouter>>>,
     memory: Mutex<Option<Arc<NodeMemory>>>,
     reads: Mutex<Option<Arc<ReadDeps>>>,
+    pub(super) operations: OperationTracker,
 }
 
 pub(super) fn node_error(code: &str, message: String, node_id: &str) -> ClusterError {
@@ -147,6 +149,7 @@ impl NodeInner {
             router: Mutex::new(None),
             memory: Mutex::new(None),
             reads: Mutex::new(None),
+            operations: OperationTracker::default(),
         }
     }
 

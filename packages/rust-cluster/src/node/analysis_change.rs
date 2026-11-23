@@ -237,7 +237,18 @@ impl ClusterNode {
         change: &AnalysisChange,
     ) -> ClusterResult<()> {
         refuse_hidden_generation(index_name)?;
-        self.guard_shutdown()?;
+        self.track(
+            Some(index_name),
+            self.change_cluster_analysis(index_name, change),
+        )
+        .await
+    }
+
+    async fn change_cluster_analysis(
+        &self,
+        index_name: &str,
+        change: &AnalysisChange,
+    ) -> ClusterResult<()> {
         let coordinator = self.inner.coordinator();
         let serving = self.serving_name(index_name).await?;
         validate_index_name(&serving)?;

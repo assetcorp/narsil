@@ -76,16 +76,19 @@ impl ClusterNode {
         projection: Option<&DocumentProjection>,
     ) -> ClusterResult<BTreeMap<String, Map>> {
         let reads = self.inner.reads()?;
-        read_following_the_name(
-            &reads,
-            index_name,
-            |serving| {
-                let reads = &reads;
-                async move {
-                    read_cluster_documents(reads, &serving, document_ids, projection).await
-                }
-            },
-            None,
+        self.track(
+            Some(index_name),
+            read_following_the_name(
+                &reads,
+                index_name,
+                |serving| {
+                    let reads = &reads;
+                    async move {
+                        read_cluster_documents(reads, &serving, document_ids, projection).await
+                    }
+                },
+                None,
+            ),
         )
         .await
     }
@@ -110,14 +113,17 @@ impl ClusterNode {
     /// partition, because a count with a partition missing is a wrong count.
     pub async fn count_documents(&self, index_name: &str) -> ClusterResult<u64> {
         let reads = self.inner.reads()?;
-        read_following_the_name(
-            &reads,
-            index_name,
-            |serving| {
-                let reads = &reads;
-                async move { count_cluster(reads, &serving).await }
-            },
-            None,
+        self.track(
+            Some(index_name),
+            read_following_the_name(
+                &reads,
+                index_name,
+                |serving| {
+                    let reads = &reads;
+                    async move { count_cluster(reads, &serving).await }
+                },
+                None,
+            ),
         )
         .await
     }
@@ -130,14 +136,17 @@ impl ClusterNode {
     /// Fails as [`ClusterNode::count_documents`] does.
     pub async fn get_stats(&self, index_name: &str) -> ClusterResult<ClusterIndexStats> {
         let reads = self.inner.reads()?;
-        read_following_the_name(
-            &reads,
-            index_name,
-            |serving| {
-                let reads = &reads;
-                async move { stats_cluster(reads, &serving).await }
-            },
-            None,
+        self.track(
+            Some(index_name),
+            read_following_the_name(
+                &reads,
+                index_name,
+                |serving| {
+                    let reads = &reads;
+                    async move { stats_cluster(reads, &serving).await }
+                },
+                None,
+            ),
         )
         .await
     }
@@ -152,14 +161,17 @@ impl ClusterNode {
         index_name: &str,
     ) -> ClusterResult<Vec<ClusterPartitionStats>> {
         let reads = self.inner.reads()?;
-        read_following_the_name(
-            &reads,
-            index_name,
-            |serving| {
-                let reads = &reads;
-                async move { partition_stats_cluster(reads, &serving).await }
-            },
-            None,
+        self.track(
+            Some(index_name),
+            read_following_the_name(
+                &reads,
+                index_name,
+                |serving| {
+                    let reads = &reads;
+                    async move { partition_stats_cluster(reads, &serving).await }
+                },
+                None,
+            ),
         )
         .await
     }
@@ -172,7 +184,8 @@ impl ClusterNode {
     /// Fails with `NODE_NOT_JOINED` before the node joins, and with the first failure of an index's stats other
     /// than `INDEX_NOT_FOUND`, which leaves that index out.
     pub async fn list_indexes(&self) -> ClusterResult<Vec<IndexInfo>> {
-        list_indexes_cluster(&self.inner.reads()?).await
+        let reads = self.inner.reads()?;
+        self.track(None, list_indexes_cluster(&reads)).await
     }
 
     /// Returns one page of a cluster index's stored documents in id order, merged from one copy of each
@@ -203,14 +216,17 @@ impl ClusterNode {
         sort: &[SortField],
     ) -> ClusterResult<ListResult> {
         let reads = self.inner.reads()?;
-        read_following_the_name(
-            &reads,
-            index_name,
-            |serving| {
-                let reads = &reads;
-                async move { list_cluster(reads, &serving, params, sort).await }
-            },
-            None,
+        self.track(
+            Some(index_name),
+            read_following_the_name(
+                &reads,
+                index_name,
+                |serving| {
+                    let reads = &reads;
+                    async move { list_cluster(reads, &serving, params, sort).await }
+                },
+                None,
+            ),
         )
         .await
     }
@@ -227,14 +243,17 @@ impl ClusterNode {
         params: &SuggestParams,
     ) -> ClusterResult<SuggestResult> {
         let reads = self.inner.reads()?;
-        read_following_the_name(
-            &reads,
-            index_name,
-            |serving| {
-                let reads = &reads;
-                async move { suggest_cluster(reads, &serving, params).await }
-            },
-            None,
+        self.track(
+            Some(index_name),
+            read_following_the_name(
+                &reads,
+                index_name,
+                |serving| {
+                    let reads = &reads;
+                    async move { suggest_cluster(reads, &serving, params).await }
+                },
+                None,
+            ),
         )
         .await
     }
