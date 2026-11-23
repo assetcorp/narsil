@@ -174,6 +174,8 @@ error_codes! {
     PARTITION_NOT_PRIMARY,
     /// A cluster node gave an answer that a read cannot use.
     QUERY_ROUTING_FAILED,
+    /// A cluster node does not serve the operation, so the caller runs it against a single-node engine.
+    CLUSTER_OPERATION_UNSUPPORTED,
 }
 
 impl fmt::Display for ErrorCode {
