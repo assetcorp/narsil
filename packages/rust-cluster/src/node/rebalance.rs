@@ -8,6 +8,7 @@ use crate::constants::{
     CONTROLLER_LEASE_KEY, HIDDEN_GENERATION_PREFIX, MAX_PARTITION_COUNT,
     RESHARD_CONTROLLER_POLL_INTERVAL_MS,
 };
+use crate::coordinator::etcd::EtcdCoordinator;
 use crate::error::{ClusterError, ClusterResult, codes};
 use crate::message::message_types;
 use crate::rebalance::{
@@ -17,6 +18,23 @@ use crate::rebalance::{
 struct RebalanceJob {
     job_id: String,
     target_generation: String,
+}
+
+pub(super) async fn resolve_node_targets(
+    coordinator: &EtcdCoordinator,
+    target_node_id: &str,
+) -> ClusterResult<Vec<String>> {
+    let nodes = coordinator.list_nodes().await?;
+    let address = nodes
+        .iter()
+        .find(|node| node.node_id == target_node_id)
+        .map(|node| node.address.as_str());
+    Ok(match address {
+        Some(address) if !address.is_empty() && address != target_node_id => {
+            vec![address.to_string(), target_node_id.to_string()]
+        }
+        _ => vec![target_node_id.to_string()],
+    })
 }
 
 pub(super) fn refuse_hidden_generation(index_name: &str) -> ClusterResult<()> {
@@ -43,23 +61,6 @@ impl ClusterNode {
             format!("Cluster node '{node_id}' has been shut down"),
             node_id,
         ))
-    }
-
-    pub(super) async fn resolve_node_targets(
-        &self,
-        target_node_id: &str,
-    ) -> ClusterResult<Vec<String>> {
-        let nodes = self.inner.coordinator().list_nodes().await?;
-        let address = nodes
-            .iter()
-            .find(|node| node.node_id == target_node_id)
-            .map(|node| node.address.as_str());
-        Ok(match address {
-            Some(address) if !address.is_empty() && address != target_node_id => {
-                vec![address.to_string(), target_node_id.to_string()]
-            }
-            _ => vec![target_node_id.to_string()],
-        })
     }
 
     async fn request_rebalance(
@@ -107,7 +108,7 @@ impl ClusterNode {
         let reply = exchange_rebalance_message(RebalanceExchange {
             transport: self.inner.transport(),
             sender_id: self.node_id(),
-            targets: self.resolve_node_targets(&controller_node_id).await?,
+            targets: resolve_node_targets(self.inner.coordinator(), &controller_node_id).await?,
             message_type: message_types::CLUSTER_REBALANCE,
             payload: Value::Object(payload),
             failure_message: format!(
