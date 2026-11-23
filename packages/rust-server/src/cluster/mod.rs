@@ -1,7 +1,9 @@
 mod allocation;
 mod feed_settings;
+mod indexes;
 mod jobs;
 mod operations;
+mod options;
 mod queries;
 mod reads;
 mod writes;
@@ -14,6 +16,7 @@ use narsil_cluster::node::{ClusterNode, NodeReadiness};
 
 use self::operations::operation_of;
 pub(crate) use self::operations::unsupported;
+pub use self::options::ClusterOptions;
 use crate::errors::{Outcome, ServerError};
 use crate::handlers::{info, task_routes};
 use crate::http::pipeline::RouteContext;
@@ -83,7 +86,10 @@ pub(crate) async fn dispatch(
         | Route::Count
         | Route::IndexStats
         | Route::IndexPartitions => reads::handle(&state, &node, route, &context).await,
-        Route::Preflight | Route::Suggest | Route::List => {
+        Route::CreateIndex | Route::DropIndex => {
+            indexes::handle(&state, &node, route, &context).await
+        }
+        Route::Search | Route::Preflight | Route::Suggest | Route::List => {
             queries::handle(&state, &node, route, &context).await
         }
         _ => Err(unsupported(operation_of(route))),

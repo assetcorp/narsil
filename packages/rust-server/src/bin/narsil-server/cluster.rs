@@ -9,12 +9,13 @@ use narsil_cluster::coordinator::etcd::{
 use narsil_cluster::coordinator::{NodeCapacity, NodeRegistration};
 use narsil_cluster::error::ClusterError;
 use narsil_cluster::node::{
-    ClusterNode, ClusterNodeConfig, ControllerTiming, DataNodeConfig, next_started_at,
-    resolve_node_id,
+    ClusterNode, ClusterNodeConfig, ControllerTiming, CreateIndexOptions, DataNodeConfig,
+    next_started_at, resolve_node_id,
 };
 use narsil_cluster::transport::grpc::{GrpcTransport, GrpcTransportConfig};
 use narsil_cluster::transport::tcp::{TcpTransport, TcpTransportConfig};
 use narsil_cluster::transport::{NodeTransport, TlsConfig};
+use narsil_server::ClusterOptions;
 
 use super::{number_from_env, text_from_env};
 
@@ -36,6 +37,7 @@ pub(crate) struct ClusterLaunch {
     transport_tls: Option<TlsConfig>,
     controller: ControllerTiming,
     durability_directory: Option<PathBuf>,
+    pub(crate) cluster_options: ClusterOptions,
 }
 
 pub(crate) struct StartedNode {
@@ -138,6 +140,23 @@ fn port_from_env(name: &str) -> Result<Option<u16>, String> {
         .transpose()
 }
 
+fn count_from_env(name: &str) -> Result<Option<u32>, String> {
+    number_from_env(name)?
+        .map(|count| {
+            u32::try_from(count)
+                .map_err(|_| format!("{name} must be at most {}, got {count}", u32::MAX))
+        })
+        .transpose()
+}
+
+fn create_index_options() -> Result<CreateIndexOptions, String> {
+    Ok(CreateIndexOptions {
+        partition_count: count_from_env("NARSIL_CLUSTER_PARTITION_COUNT")?,
+        replication_factor: count_from_env("NARSIL_CLUSTER_REPLICATION_FACTOR")?,
+        wait_for_serving_ms: number_from_env("NARSIL_CLUSTER_WAIT_FOR_SERVING_MS")?,
+    })
+}
+
 fn failed(what: &str) -> impl Fn(ClusterError) -> String + '_ {
     move |failure| format!("{what}: {failure}")
 }
@@ -172,6 +191,9 @@ impl ClusterLaunch {
             transport_tls: transport_tls()?,
             controller: controller_timing()?,
             durability_directory: text_from_env("NARSIL_DURABILITY_DIR").map(PathBuf::from),
+            cluster_options: ClusterOptions {
+                create_index: create_index_options()?,
+            },
         }))
     }
 

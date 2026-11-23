@@ -61,6 +61,8 @@ pub(crate) struct ServerState {
     pub(crate) feeds: Feeds,
     #[cfg(feature = "cluster")]
     pub(crate) cluster: Option<Arc<narsil_cluster::node::ClusterNode>>,
+    #[cfg(feature = "cluster")]
+    pub(crate) cluster_options: crate::cluster::ClusterOptions,
 }
 
 impl ServerState {
