@@ -1,5 +1,12 @@
+mod allocation;
+mod backups;
 mod feed_settings;
+mod indexes;
+mod jobs;
 mod operations;
+mod options;
+mod queries;
+mod reads;
 mod writes;
 
 use std::sync::Arc;
@@ -10,6 +17,7 @@ use narsil_cluster::node::{ClusterNode, NodeReadiness};
 
 use self::operations::operation_of;
 pub(crate) use self::operations::unsupported;
+pub use self::options::ClusterOptions;
 use crate::errors::{Outcome, ServerError};
 use crate::handlers::{info, task_routes};
 use crate::http::pipeline::RouteContext;
@@ -64,6 +72,29 @@ pub(crate) async fn dispatch(
         }
         Route::GetSync | Route::UpdateSync | Route::GetChanges | Route::UpdateChanges => {
             feed_settings::handle(&node, route, &context).await
+        }
+        Route::ClusterAllocation | Route::ClusterReplicationFactor => {
+            allocation::handle(&node, route, &context).await
+        }
+        Route::ChangeAnalysis | Route::Rebalance => {
+            jobs::handle(&state, node, route, &context).await
+        }
+        Route::Get
+        | Route::Exists
+        | Route::MultiGet
+        | Route::Put
+        | Route::ListIndexes
+        | Route::Count
+        | Route::IndexStats
+        | Route::IndexPartitions => reads::handle(&state, &node, route, &context).await,
+        Route::CreateBackup | Route::ListBackups | Route::RestoreBackup | Route::DeleteBackup => {
+            backups::handle(&state, node, route, &context).await
+        }
+        Route::CreateIndex | Route::DropIndex => {
+            indexes::handle(&state, &node, route, &context).await
+        }
+        Route::Search | Route::Preflight | Route::Suggest | Route::List => {
+            queries::handle(&state, &node, route, &context).await
         }
         _ => Err(unsupported(operation_of(route))),
     }

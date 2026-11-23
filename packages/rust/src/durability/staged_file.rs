@@ -77,17 +77,35 @@ impl StagedFile {
             .map_err(|error| write_failed(&key, &error))
     }
 
-    pub(crate) fn commit(mut self) -> Result<PathBuf> {
+    fn flush_and_sync(&mut self) -> Result<()> {
         let key = self.key.clone();
-        let synced = self
-            .handle()?
+        self.handle()?
             .flush()
             .map_err(|error| write_failed(&key, &error))
             .and_then(|_| {
                 self.handle()
                     .and_then(|file| sync_file(file).map_err(|error| fsync_failed(&key, &error)))
-            });
-        synced?;
+            })
+    }
+
+    pub(crate) fn commit_if_absent(mut self) -> Result<(bool, PathBuf)> {
+        let key = self.key.clone();
+        self.flush_and_sync()?;
+        self.file = None;
+        let linked = std::fs::hard_link(&self.temporary, &self.target);
+        let _ = remove_file(&self.temporary);
+        match linked {
+            Ok(()) => Ok((true, self.parent.clone())),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                Ok((false, self.parent.clone()))
+            }
+            Err(error) => Err(write_failed(&key, &error)),
+        }
+    }
+
+    pub(crate) fn commit(mut self) -> Result<PathBuf> {
+        let key = self.key.clone();
+        self.flush_and_sync()?;
         self.file = None;
         if let Err(error) = rename_replacing(&self.temporary, &self.target) {
             let _ = remove_file(&self.temporary);

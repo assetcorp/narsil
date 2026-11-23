@@ -134,10 +134,15 @@ impl ArchiveCheckpoint {
 pub(crate) fn current_metadata(index: &IndexState) -> IndexMetadata {
     match index.log() {
         Some(log) => log.metadata(index),
-        None => metadata_of(
-            index,
-            &created_metadata(&index.name, index.analyser().language()),
-        ),
+        None => {
+            let mut metadata = metadata_of(
+                index,
+                &created_metadata(&index.name, index.analyser().language()),
+            );
+            let generation = index.analysis_generation();
+            metadata.analysis_generation = (generation > 0).then_some(generation);
+            metadata
+        }
     }
 }
 

@@ -2,8 +2,17 @@ import { join } from 'node:path'
 import { createInterface } from 'node:readline'
 import { pathToFileURL } from 'node:url'
 
-const [repositoryRoot, endpoint, keyPrefix, nodeId, roleList, heartbeatTtlSeconds, durabilityDirectory] =
-  process.argv.slice(2)
+const [
+  repositoryRoot,
+  endpoint,
+  keyPrefix,
+  nodeId,
+  roleList,
+  heartbeatTtlSeconds,
+  durabilityDirectory,
+  backupDirectory = '',
+  backupKeyPrefix = '',
+] = process.argv.slice(2)
 const dist = join(repositoryRoot, 'packages/ts/dist')
 const load = path => import(pathToFileURL(join(dist, path)).href)
 const { createClusterNode } = await load('distribution.mjs')
@@ -14,6 +23,11 @@ const { registerLanguage, registerStopWords, registerTokenizer } = await load('i
 const { encode, decode } = await import(
   pathToFileURL(join(repositoryRoot, 'packages/ts/node_modules/@msgpack/msgpack/dist.esm/index.mjs')).href
 )
+const { createFilesystemPersistence } = await load('adapters/filesystem.mjs')
+const backups =
+  backupDirectory === ''
+    ? {}
+    : { backups: { store: createFilesystemPersistence({ directory: backupDirectory }), keyPrefix: backupKeyPrefix } }
 
 function letterShape(text) {
   const letters = [...text.toLowerCase()]
@@ -52,6 +66,7 @@ const node = await createClusterNode({
   nodeId,
   address,
   roles: roleList.split(','),
+  ...backups,
   engine: {
     workers: { enabled: false },
     embeddingAdapters,
@@ -137,6 +152,12 @@ const operations = {
     })
     return { type: reply.type, payload: decode(reply.payload) }
   },
+  createBackup: async ({ indexName, backupName }) => node.cluster.createBackup(indexName, backupName),
+  restoreBackup: async ({ backupName, indexName, replicationFactor }) =>
+    node.cluster.restoreBackup(backupName, { indexName, replicationFactor }),
+  deleteBackup: async ({ backupName }) => node.cluster.deleteBackup(backupName),
+  listBackups: async () => (await node.cluster.listBackups()).map(backup => backup.name),
+  getMultiple: async ({ indexName, documentIds }) => Object.fromEntries(await node.getMultiple(indexName, documentIds)),
 }
 
 let rawMessagesSent = 0

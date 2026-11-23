@@ -8,13 +8,17 @@ use super::blocking::off_executor;
 use super::config::DataNodeConfig;
 use super::copies::LocalCopies;
 use super::device_sync::DeviceSyncView;
+use super::local_reads::{LocalReadHandles, LocalReads};
 use super::lost_copy::LostCopyWait;
 use super::partition_stores::{partition_stores_answer, requested_index};
-use super::queries::{QueryDeps, answer_query, answers_query};
+use super::queries::answers_query;
 use super::reconcile::settle_local_indexes;
 use super::search_contexts::SearchContexts;
 use super::watcher::{AllocationWatcher, WatcherSettings};
 use super::writes::{AllocationView, PrimaryWrites, PrimaryWritesSettings};
+use crate::backups::{
+    BackupPrimary, BackupStore, PrimaryContext, answer_backup_partition, answer_restore_partition,
+};
 use crate::controller::lock;
 use crate::coordinator::etcd::{EtcdCoordinator, WatchHandle};
 use crate::error::ClusterResult;
@@ -31,9 +35,10 @@ pub(crate) struct DataRole {
     settled: Mutex<Option<Arc<LocalCopies>>>,
     watcher: tokio::sync::Mutex<Option<AllocationWatcher>>,
     writes: Mutex<Option<Arc<PrimaryWrites>>>,
-    device_sync: tokio::sync::Mutex<Option<Arc<DeviceSyncView>>>,
     search_contexts: Arc<SearchContexts>,
+    device_sync: tokio::sync::Mutex<Option<Arc<DeviceSyncView>>>,
     analysis: Mutex<Option<(Arc<AnalysisChanges>, WatchHandle)>>,
+    backups: Option<Arc<BackupPrimary>>,
 }
 
 impl DataRole {
@@ -42,6 +47,7 @@ impl DataRole {
         coordinator: Arc<EtcdCoordinator>,
         config: DataNodeConfig,
         on_error: Option<NodeErrorHandler>,
+        backups: Option<BackupStore>,
     ) -> DataRole {
         DataRole {
             node_id,
@@ -51,9 +57,10 @@ impl DataRole {
             settled: Mutex::new(None),
             watcher: tokio::sync::Mutex::new(None),
             writes: Mutex::new(None),
-            device_sync: tokio::sync::Mutex::new(None),
             search_contexts: Arc::new(SearchContexts::default()),
+            device_sync: tokio::sync::Mutex::new(None),
             analysis: Mutex::new(None),
+            backups: backups.map(|store| Arc::new(BackupPrimary::new(store))),
         }
     }
 
@@ -121,11 +128,7 @@ impl DataRole {
             view: Arc::clone(&view),
             on_error: self.on_error.clone(),
             log_retention_bytes: self.config.log_retention_bytes,
-            spool_directory: self
-                .config
-                .snapshot_spool_directory
-                .clone()
-                .unwrap_or_else(std::env::temp_dir),
+            spool_directory: copies.spool.path().to_path_buf(),
             memory,
         }));
         let started = AllocationWatcher::start(WatcherSettings {
@@ -199,36 +202,48 @@ impl DataRole {
                 | message_types::CLUSTER_RESHARD_FORWARD
                 | message_types::CLUSTER_RESHARD_CUTOVER
                 | message_types::CLUSTER_RESHARD_PURGE
+                | message_types::CLUSTER_BACKUP_PARTITION
+                | message_types::CLUSTER_RESTORE_PARTITION
         ) || answers_query(message_type)
     }
 
     async fn answer_query_message(&self, message: &TransportMessage) -> TransportMessage {
-        let deps = match (self.settled_copies(), self.primary_writes()) {
-            (Ok(copies), Ok(writes)) => QueryDeps {
-                node_id: &self.node_id,
-                copies,
-                view: writes.view(),
-                contexts: Arc::clone(&self.search_contexts),
-            },
-            (Err(error), _) | (_, Err(error)) => {
-                return refusal(message, &self.node_id, &error);
-            }
-        };
-        match answer_query(&deps, message).await {
-            Ok(reply) => reply,
+        match self.local_reads() {
+            Ok(reads) => reads.answer(message).await,
             Err(error) => refusal(message, &self.node_id, &error),
         }
+    }
+
+    fn analysis_changes(&self) -> ClusterResult<Arc<AnalysisChanges>> {
+        lock(&self.analysis)
+            .as_ref()
+            .map(|(analysis, _)| Arc::clone(analysis))
+            .ok_or_else(|| not_ready(&self.node_id))
     }
 
     async fn answer_rebuild_analysis(
         &self,
         message: &TransportMessage,
     ) -> ClusterResult<TransportMessage> {
-        let analysis = lock(&self.analysis)
-            .as_ref()
-            .map(|(analysis, _)| Arc::clone(analysis))
-            .ok_or_else(|| not_ready(&self.node_id))?;
-        analysis.answer_rebuild(message).await
+        self.analysis_changes()?.answer_rebuild(message).await
+    }
+
+    async fn answer_backup_message(
+        &self,
+        message: &TransportMessage,
+    ) -> ClusterResult<TransportMessage> {
+        let context = PrimaryContext {
+            node_id: &self.node_id,
+            coordinator: &self.coordinator,
+            writes: self.primary_writes()?,
+        };
+        let primary = self.backups.as_ref();
+        match message.message_type.as_str() {
+            message_types::CLUSTER_BACKUP_PARTITION => {
+                answer_backup_partition(primary, context, message).await
+            }
+            _ => answer_restore_partition(primary, context, message).await,
+        }
     }
 
     pub(crate) async fn answer(&self, message: TransportMessage, respond: Respond) {
@@ -281,6 +296,11 @@ impl DataRole {
                 Ok(writes) => writes.answer_reshard(&message).await,
                 Err(error) => refusal(&message, &self.node_id, &error),
             },
+            message_types::CLUSTER_BACKUP_PARTITION | message_types::CLUSTER_RESTORE_PARTITION => {
+                self.answer_backup_message(&message)
+                    .await
+                    .unwrap_or_else(|error| refusal(&message, &self.node_id, &error))
+            }
             _ => match self.answer_partition_stores(&message).await {
                 Ok(reply) => reply,
                 Err(error) => refusal(&message, &self.node_id, &error),
@@ -295,6 +315,16 @@ impl DataRole {
             .await
             .as_ref()
             .map_or(0, AllocationWatcher::unserved_partition_count)
+    }
+
+    pub(crate) fn local_reads(&self) -> ClusterResult<Arc<LocalReads>> {
+        Ok(Arc::new(LocalReads::new(LocalReadHandles {
+            node_id: self.node_id.clone(),
+            copies: self.settled_copies()?,
+            writes: self.primary_writes()?,
+            contexts: Arc::clone(&self.search_contexts),
+            analysis: self.analysis_changes()?,
+        })))
     }
 
     pub(crate) fn primary_writes(&self) -> ClusterResult<Arc<PrimaryWrites>> {
@@ -320,14 +350,14 @@ impl DataRole {
     }
 
     pub(crate) async fn close(&self) {
-        if let Some((_, analysis_watch)) = lock(&self.analysis).take() {
-            analysis_watch.stop();
-        }
+        self.search_contexts.stop();
         let device_sync = self.device_sync.lock().await.take();
         if let Some(device_sync) = device_sync {
             device_sync.stop().await;
         }
-        self.search_contexts.stop();
+        if let Some((_, analysis_watch)) = lock(&self.analysis).take() {
+            analysis_watch.stop();
+        }
         if let Some(writes) = lock(&self.writes).take() {
             writes.stop();
         }

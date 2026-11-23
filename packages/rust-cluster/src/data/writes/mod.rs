@@ -1,3 +1,4 @@
+mod backup_restore;
 mod catch_up;
 mod commit;
 mod condition;
@@ -26,10 +27,11 @@ use std::time::Duration;
 
 use tokio::sync::{Semaphore, watch};
 
+pub(crate) use self::backup_restore::StoredPartitionFiles;
 use self::catch_up::{SnapshotSlots, catch_up_budget};
 use self::copy_failure::CopyFailures;
 pub(crate) use self::errors::abandoned_with_term;
-pub(crate) use self::forward::{routed_partition, unassigned};
+pub(crate) use self::forward::{fnv1a, fnv1a_uint32s, routed_partition, unassigned};
 use self::partition::Partitions;
 use self::reshard::ReshardState;
 pub(crate) use self::view::AllocationView;
@@ -91,6 +93,10 @@ impl PrimaryWrites {
             snapshot_slots: Mutex::default(),
             memory: settings.memory,
         }
+    }
+
+    pub(crate) fn memory(&self) -> Option<Arc<NodeMemory>> {
+        self.memory.clone()
     }
 
     pub(crate) fn spool_directory(&self) -> &Path {

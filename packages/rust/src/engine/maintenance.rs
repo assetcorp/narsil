@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use super::query::rerank::score_documents;
 use super::sync::notify::announce_sync_settings;
 use super::{Narsil, VectorMaintenanceStatus, durable, registration, synonyms};
 use crate::adapters::{EmbeddingAdapter, RerankAdapter};
@@ -39,6 +40,15 @@ impl Narsil {
         adapter: Arc<dyn RerankAdapter>,
     ) -> Result<()> {
         registration::register_rerank_adapter(&self.inner, name, adapter)
+    }
+
+    pub(crate) fn rerank_scores(
+        &self,
+        name: &str,
+        query: &str,
+        documents: Vec<String>,
+    ) -> Result<Vec<f64>> {
+        score_documents(&self.inner.adapters, name, query, documents)
     }
 
     /// Returns the most hits that one query may rerank, as the engine's `maxRerankWindow` setting gives it.

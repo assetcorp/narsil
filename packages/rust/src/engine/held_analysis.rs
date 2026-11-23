@@ -104,6 +104,14 @@ impl<'a> HeldAnalysisChanges<'a> {
             .is_some_and(|run| run.pending.generation == generation && run.is_built())
     }
 
+    /// Returns the analysis generation that the open index called `index` answers searches under, or `None` where
+    /// the engine holds no open index of that name. An index without a write-ahead log answers under generation 0.
+    pub fn analysis_generation(&self, index: &str) -> Option<u64> {
+        self.engine
+            .open_index_named(index)
+            .map(|state| current_generation(&state))
+    }
+
     /// Lets the held change with `generation` switch to its new terms, and returns once they answer every search.
     /// Returns at once where no held change has that generation.
     ///
@@ -126,9 +134,7 @@ impl<'a> HeldAnalysisChanges<'a> {
 }
 
 fn current_generation(index: &IndexState) -> u64 {
-    index.log().map_or(0, |log| {
-        log.metadata(index).analysis_generation.unwrap_or(0)
-    })
+    index.analysis_generation()
 }
 
 fn serves(run: &HeldRun, pending: &PendingAnalysis) -> bool {
@@ -314,10 +320,13 @@ pub(crate) fn stamp_analysis_generation(
     generation: u64,
 ) -> Result<()> {
     let index = engine.open_index(name)?;
+    let _writer = index.lock_writes()?;
     let Some(log) = index.log() else {
+        if index.analysis_generation() < generation {
+            index.record_analysis_generation(generation);
+        }
         return Ok(());
     };
-    let _writer = index.lock_writes()?;
     let mut metadata = log.metadata(&index);
     if metadata.analysis_generation.unwrap_or(0) >= generation {
         return Ok(());

@@ -22,8 +22,6 @@ const LISTEN_HOST: &str = "127.0.0.1";
 const GRPC_TRANSPORT: &str = "grpc";
 const COORDINATOR_ROLE: &str = "coordinator";
 const DATA_ROLE: &str = "data";
-const ENGINE_DIRECTORY: &str = "engine";
-const SPOOL_DIRECTORY: &str = "spool";
 
 struct FaultNodeSettings {
     etcd: EtcdCoordinatorConfig,
@@ -213,25 +211,15 @@ fn data_config(settings: &FaultNodeSettings) -> Result<Option<DataNodeConfig>, S
     let Some(directory) = &settings.directory else {
         return Err("A fault node with the data role needs a directory".to_string());
     };
-    let (engine_directory, spool_directory) = (
-        directory.join(ENGINE_DIRECTORY),
-        directory.join(SPOOL_DIRECTORY),
-    );
-    for created in [&engine_directory, &spool_directory] {
-        std::fs::create_dir_all(created).map_err(|error| error.to_string())?;
-    }
     let engine = NarsilConfig {
         durability: Some(DurabilityConfig {
-            directory: Some(engine_directory),
+            directory: Some(directory.clone()),
             mode: Some(DurabilityMode::Sync),
             ..DurabilityConfig::default()
         }),
         ..NarsilConfig::default()
     };
-    Ok(Some(DataNodeConfig {
-        snapshot_spool_directory: Some(spool_directory),
-        ..DataNodeConfig::new(engine)
-    }))
+    Ok(Some(DataNodeConfig::new(engine)))
 }
 
 #[cfg(unix)]

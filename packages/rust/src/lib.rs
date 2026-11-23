@@ -5,6 +5,8 @@ mod analysis;
 mod config;
 #[doc(hidden)]
 pub mod conformance;
+#[doc(hidden)]
+pub mod coordination;
 mod durability;
 mod engine;
 mod error;
@@ -25,11 +27,17 @@ pub mod held_analysis {
 #[doc(hidden)]
 pub mod replication {
     pub use crate::engine::replication::{
-        AppliedRun, CopyChangesState, CopyEpochStates, CopyPosition, CopySyncState, EntryOperation,
-        HeldTerm, NodeMemoryReading, PartitionCopies, PrimaryLimits, PrimaryRefusal, PrimaryRun,
-        PrimaryWrite, PrimaryWritten, PriorDocument, ReplicatedEntry, WriteRecord,
-        read_process_memory,
+        AppliedRun, BackupListedFile, BackupPartitionFiles, CopyChangesState, CopyEpochStates,
+        CopyPosition, CopySyncState, EntryOperation, HeldTerm, NodeMemoryReading, PartitionBackup,
+        PartitionCopies, PrimaryLimits, PrimaryRefusal, PrimaryRun, PrimaryWrite, PrimaryWritten,
+        PriorDocument, ReplicatedEntry, WriteRecord, decode_backup_index_configuration,
+        encode_backup_index_configuration, read_process_memory, require_restorable_config,
     };
+    pub use crate::format::backup_manifest::{
+        BackupConstraints, BackupManifest, BackupPartition, ListedFile, StoredFile,
+        backup_partition, decode_backup_manifest, encode_backup_manifest, stored_file,
+    };
+    pub use crate::format::backup_manifest_write::{backup_partition_wire, stored_file_wire};
 }
 #[doc(hidden)]
 pub mod partitions {
@@ -50,7 +58,7 @@ pub use analysis::{Language, StopWordFunction, StopWords, Token, TokenSource, To
 pub use config::{
     AdapterSetting, Bm25FieldParams, Bm25Params, EmbeddingConfig, HnswSettings, IndexConfig,
     Metric, PartitionConfig, Quantization, ScoringMode, StopWordsSetting, Storage, SynonymRule,
-    TokenizerSetting, VectorPromotion, index_config_from_stored_settings,
+    TokenizerSetting, VectorPromotion, index_config_from_stored_settings, validate_index_name,
 };
 pub use durability::persistence::{FilesystemPersistence, MemoryPersistence, PersistenceAdapter};
 #[doc(hidden)]

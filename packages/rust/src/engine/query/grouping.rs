@@ -14,7 +14,7 @@ use crate::native::status::query_accepted;
 use crate::native::workspace::with_workspace;
 use crate::search::rankings::id_ranks;
 use crate::util::unwind::panic_text;
-use crate::value::Value;
+use crate::value::{Map, Value};
 
 type GroupValues = Vec<(String, Option<Value>)>;
 
@@ -48,7 +48,7 @@ fn layout_exceeded() -> NarsilError {
     )
 }
 
-fn hits_kept_per_group(max_per_group: Option<usize>) -> usize {
+pub(crate) fn hits_kept_per_group(max_per_group: Option<usize>) -> usize {
     max_per_group
         .filter(|kept| *kept >= 1)
         .unwrap_or(DEFAULT_MAX_PER_GROUP)
@@ -199,6 +199,30 @@ fn fold_reducer<'h>(
     Ok((Some(accumulator), None))
 }
 
+pub(crate) fn fold_documents<'d>(
+    reduce: &GroupReducer,
+    rows: impl Iterator<Item = (Option<&'d Map>, f64)>,
+) -> (Option<Value>, Option<String>) {
+    let mut accumulator = match catch_unwind(AssertUnwindSafe(|| (reduce.initial_value)())) {
+        Ok(initial) => initial,
+        Err(payload) => return (None, Some(reducer_panic_text(payload, "initialValue"))),
+    };
+    for (document, score) in rows {
+        let Some(document) = document else {
+            continue;
+        };
+        let folded = catch_unwind(AssertUnwindSafe(|| {
+            (reduce.reducer)(accumulator, document, score)
+        }));
+        match folded {
+            Ok(Ok(next)) => accumulator = next,
+            Ok(Err(message)) => return (None, Some(message)),
+            Err(payload) => return (None, Some(reducer_panic_text(payload, "reducer"))),
+        }
+    }
+    (Some(accumulator), None)
+}
+
 fn limits_of(config: &GroupConfig, count: u32) -> GroupLimits {
     let kept = u32::try_from(hits_kept_per_group(config.max_per_group)).unwrap_or(u32::MAX);
     match config.reduce {
@@ -213,6 +237,55 @@ fn limits_of(config: &GroupConfig, count: u32) -> GroupLimits {
                 .map(|limit| u32::try_from(limit).unwrap_or(u32::MAX).min(count)),
         },
     }
+}
+
+pub(crate) struct ValueGroups {
+    pub(crate) keys: Vec<u32>,
+    pub(crate) heads: Vec<usize>,
+}
+
+pub(crate) fn group_values(columns: &[Vec<Value>], count: usize) -> Result<ValueGroups> {
+    if count == 0 {
+        return Ok(ValueGroups {
+            keys: Vec::new(),
+            heads: Vec::new(),
+        });
+    }
+    let entries = u32::try_from(count).map_err(|_| layout_exceeded())?;
+    let mut fields = Vec::with_capacity(columns.len());
+    for column in columns {
+        let mut stored = CoreStoredValues::default();
+        for at in 0..count {
+            stored.push(Some(column.get(at).unwrap_or(&Value::Null)))?;
+        }
+        fields.push(Arc::new(stored));
+    }
+    let ordinals: Vec<u32> = (0..entries).collect();
+    let grouped = GroupedFields {
+        fields,
+        ordinals: ordinals.clone(),
+    };
+    let groups = group_in_core(
+        &grouped,
+        &vec![0.0; count],
+        &ordinals,
+        GroupLimits {
+            max_per_group: entries,
+            limit: None,
+        },
+    )?;
+    let mut keys = vec![0u32; count];
+    for group in 0..groups.heads.len() {
+        let members =
+            &groups.positions[groups.offsets[group] as usize..groups.offsets[group + 1] as usize];
+        for &position in members {
+            keys[position as usize] = group as u32;
+        }
+    }
+    Ok(ValueGroups {
+        keys,
+        heads: groups.heads.iter().map(|&head| head as usize).collect(),
+    })
 }
 
 pub(crate) fn group_hits(

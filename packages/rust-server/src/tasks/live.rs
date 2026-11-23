@@ -256,6 +256,11 @@ impl TaskContext {
         self.task.report(|record| record.progress = Some(progress));
     }
 
+    #[cfg(feature = "cluster")]
+    pub(crate) fn report_steps(&self, steps: Map) {
+        self.task.report(|record| record.steps = Some(steps));
+    }
+
     pub(crate) fn report_result(&self, result: Map) {
         self.task.keep(|record| record.result = Some(result));
     }

@@ -1,6 +1,6 @@
 use narsil::{Map, Value};
 
-use crate::constants::{HELD_ANALYSIS_GENERATION, MAX_INDEX_NAME_LENGTH, MAX_PARTITION_COUNT};
+use crate::constants::{MAX_INDEX_NAME_LENGTH, MAX_PARTITION_COUNT};
 use crate::error::{ClusterError, ClusterResult, codes};
 use crate::message::TransportMessage;
 use crate::node::decode_request_payload;
@@ -222,21 +222,6 @@ pub(super) fn analysis_generation(fields: &Map, payload_name: &str) -> ClusterRe
             ),
         )),
     }
-}
-
-pub(super) fn require_held_generation(index_name: &str, requested: u64) -> ClusterResult<()> {
-    if requested == HELD_ANALYSIS_GENERATION {
-        return Ok(());
-    }
-    Err(invalid(
-        codes::ANALYSIS_GENERATION_MISSING,
-        format!(
-            "This node holds analysis generation {HELD_ANALYSIS_GENERATION} of index '{index_name}', so it cannot answer for generation {requested}"
-        ),
-    )
-    .with_detail("indexName", Value::String(index_name.to_string()))
-    .with_detail("requestedGeneration", Value::from(requested))
-    .with_detail("heldGeneration", Value::from(HELD_ANALYSIS_GENERATION)))
 }
 
 pub(super) fn answer(
