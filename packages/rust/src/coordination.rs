@@ -4,9 +4,12 @@ use crate::engine::query::cursor::{
     PageCursor, decode_matching_cursor, encode_page_cursor, list_binding, query_binding_of,
     sort_signature_of,
 };
-use crate::engine::{QueryParams, SortDirection, SortField};
+use crate::engine::query::facets::merge_bucket_lists;
+use crate::engine::query::pinned::{Placed, deduped_pins, place_pins_within};
+use crate::engine::{Pin, QueryParams, SortDirection, SortField};
 use crate::error::Result;
 use crate::ordering::{KeyBatch, OwnedSortValue};
+use crate::search::rankings::{RankedEntry, merge_rankings};
 use crate::value::Value;
 
 /// The paging cursor of a search or a listing, in the form that every Narsil engine encodes, so that a cluster
@@ -120,4 +123,135 @@ impl SortKeyOrder {
     pub fn compare(&self, left: usize, right: usize, directions: &[SortDirection]) -> Ordering {
         self.ranks.compare(left, right, directions)
     }
+}
+
+struct RankedReference {
+    score: f64,
+    id: String,
+    list: usize,
+    index: usize,
+}
+
+impl RankedEntry for RankedReference {
+    fn ranking_score(&self) -> f64 {
+        self.score
+    }
+
+    fn ranking_id(&self) -> &str {
+        &self.id
+    }
+}
+
+/// Merges rankings that each already follow the score order, and returns the list and the index within it of each
+/// entry of the merged ranking, at most `limit` of them. An absent score ranks as negative infinity.
+///
+/// # Errors
+///
+/// Fails with `CONFIG_INVALID` where the rankings exceed the native merge layout.
+pub fn merge_scored(lists: &[Vec<(Option<f64>, &str)>], limit: usize) -> Result<Vec<(usize, usize)>> {
+    let references: Vec<Vec<RankedReference>> = lists
+        .iter()
+        .enumerate()
+        .map(|(list, entries)| {
+            entries
+                .iter()
+                .enumerate()
+                .map(|(index, (score, id))| RankedReference {
+                    score: score.unwrap_or(f64::NEG_INFINITY),
+                    id: (*id).to_string(),
+                    list,
+                    index,
+                })
+                .collect()
+        })
+        .collect();
+    Ok(merge_rankings(references, Some(limit))?
+        .into_iter()
+        .map(|entry| (entry.list, entry.index))
+        .collect())
+}
+
+/// The counts that merging the facet buckets of many nodes kept, and how far below its true count any merged count
+/// can be.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MergedFacetBuckets {
+    /// The kept buckets, each value with its summed count, in the facet's order.
+    pub buckets: Vec<(String, u32)>,
+    /// The largest count that any value can lack.
+    pub error_bound: u32,
+}
+
+/// Merges the facet buckets of one field that many nodes counted, where `bounds` holds the largest count that each
+/// node left out, keeping at most `limit` buckets.
+///
+/// # Errors
+///
+/// Fails with `CONFIG_INVALID` where the counts exceed the native merge layout.
+pub fn merge_facet_buckets(
+    lists: &[Vec<(String, u32)>],
+    bounds: &[u32],
+    ascending: bool,
+    limit: Option<usize>,
+) -> Result<MergedFacetBuckets> {
+    let merged = merge_bucket_lists(lists, bounds, ascending, limit)?;
+    Ok(MergedFacetBuckets {
+        buckets: merged.buckets,
+        error_bound: merged.error_bound,
+    })
+}
+
+/// One entry of a ranking after pin placement.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PinnedPlace {
+    /// The entry at this place of the ranking.
+    Ranked(usize),
+    /// The pin at this place of the deduplicated pins.
+    Pin(usize),
+}
+
+/// The ranking after pin placement, the pins that placement used once each in the order that the query lists them,
+/// and the place in the ranking of each pin's document where the ranking holds it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PinnedPlacement {
+    /// The placed ranking.
+    pub order: Vec<PinnedPlace>,
+    /// Each pin that placement used, the first listing of a document alone.
+    pub pins: Vec<Pin>,
+    /// For each pin, the place of its document in the ranking, or `None` where the ranking lacks it.
+    pub ranked: Vec<Option<usize>>,
+}
+
+/// Places `pins` into a ranking of document ids, as one engine places them, leaving out each pin at or past `depth`
+/// where `depth` is set.
+///
+/// # Errors
+///
+/// Fails with `CONFIG_INVALID` where the ranking or the pins exceed the native layout.
+pub fn place_pins(
+    ranked_ids: &[String],
+    pins: &[Pin],
+    depth: Option<usize>,
+) -> Result<PinnedPlacement> {
+    let deduped = deduped_pins(pins);
+    let (placed, _) = place_pins_within(
+        ranked_ids.iter().map(String::as_str),
+        ranked_ids.len(),
+        &deduped,
+        depth,
+    )?;
+    let ranked = deduped
+        .iter()
+        .map(|pin| ranked_ids.iter().position(|id| *id == pin.doc_id))
+        .collect();
+    Ok(PinnedPlacement {
+        order: placed
+            .into_iter()
+            .map(|place| match place {
+                Placed::Ranked(at) => PinnedPlace::Ranked(at),
+                Placed::Pin(at) => PinnedPlace::Pin(at),
+            })
+            .collect(),
+        pins: deduped.into_iter().cloned().collect(),
+        ranked,
+    })
 }
