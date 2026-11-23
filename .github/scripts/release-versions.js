@@ -8,6 +8,7 @@ const RELEASED_PROJECTS = {
   'narsil-certutil': { manifest: 'packages/certutil/package.json' },
   'narsil-rust': { manifest: 'packages/rust/Cargo.toml', table: 'package' },
   'narsil-rust-server': { manifest: 'packages/rust-server/Cargo.toml', table: 'package' },
+  'narsil-rust-cluster': { manifest: 'packages/rust-cluster/Cargo.toml', table: 'package' },
   'narsil-python': { manifest: 'packages/python/pyproject.toml', table: 'project' },
   'narsil-python-engine': { manifest: 'packages/python-engine/Cargo.toml', table: 'package' },
 }

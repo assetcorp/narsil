@@ -17,6 +17,7 @@
       "narsil-certutil",
       "narsil-rust",
       "narsil-rust-server",
+      "narsil-rust-cluster",
       "narsil-python",
       "narsil-python-engine"
     ],

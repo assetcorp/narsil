@@ -2,6 +2,12 @@ name: Rust cluster
 
 on:
   workflow_call:
+    inputs:
+      proven-on-main:
+        description: 'Main has passed the push checks of the cluster crate on the same inputs, so a release tests only the platform that main never tests'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -9,6 +15,7 @@ permissions:
 jobs:
   lint:
     name: Format and Clippy
+    if: ${{ !inputs.proven-on-main }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -43,6 +50,8 @@ jobs:
           {"label": "linux-x64", "runner": "ubuntu-latest", "parts": 1, "shard": 1},
           {"label": "win32-x64", "runner": "windows-latest", "parts": 2, "shard": 1},
           {"label": "win32-x64", "runner": "windows-latest", "parts": 2, "shard": 2}
+          ]' || inputs.proven-on-main && '[
+          {"label": "darwin-arm64", "runner": "macos-15", "parts": 1, "shard": 1}
           ]' || '[
           {"label": "linux-x64", "runner": "ubuntu-latest", "parts": 1, "shard": 1},
           {"label": "darwin-arm64", "runner": "macos-15", "parts": 1, "shard": 1},
@@ -142,6 +151,7 @@ jobs:
 
   mixed-cluster:
     name: A Rust node beside a TypeScript node
+    if: ${{ !inputs.proven-on-main }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
