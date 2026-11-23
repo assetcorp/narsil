@@ -27,6 +27,7 @@ mod mixed_failover;
 mod mixed_queries;
 mod mixed_settings;
 mod mixed_writes;
+mod partition_count_change;
 mod primary_writes;
 mod replica_catch_up;
 mod replica_entries;
