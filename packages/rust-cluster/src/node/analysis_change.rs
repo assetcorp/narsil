@@ -5,16 +5,17 @@ use narsil::{AnalysisChange, AnalysisSetting, StopWords, StopWordsSetting, Value
 use super::handle::ClusterNode;
 use super::identity::generate_node_id;
 use super::rebalance::refuse_hidden_generation;
-use crate::constants::{ANALYSIS_CHANGE_POLL_INTERVAL_MS, MAX_SETTINGS_REPLACEMENT_ATTEMPTS};
+use crate::constants::{
+    ANALYSIS_CHANGE_POLL_INTERVAL_MS, BM25_TUNING_SPEC_VERSION, MAX_SETTINGS_REPLACEMENT_ATTEMPTS,
+};
 use crate::controller::{
     IndexMetadataSnapshot, PendingAnalysis, metadata_key, metadata_with_pending_analysis,
-    metadata_without_pending_analysis, read_index_metadata_snapshot,
+    metadata_without_pending_analysis, read_index_metadata_snapshot, validate_index_name,
 };
 use crate::error::{ClusterError, ClusterResult, codes};
 use crate::rebalance::read_rebalance_record;
 use crate::version::reaches_version;
 
-const ANALYSIS_CHANGE_SPEC_VERSION: &str = "1.1";
 const SETTINGS_CONTENTION_REASON: &str = "settings_contention";
 
 struct NamedSettings {
@@ -223,6 +224,7 @@ impl ClusterNode {
         self.guard_shutdown()?;
         let coordinator = self.inner.coordinator();
         let serving = self.serving_name(index_name).await?;
+        validate_index_name(&serving)?;
         let snapshot = read_index_metadata_snapshot(coordinator, &serving).await?;
         let (Some(_), Some(snapshot)) = (coordinator.schema(&serving).await?, snapshot) else {
             return Err(index_not_found(index_name));
@@ -232,7 +234,7 @@ impl ClusterNode {
             .list_nodes()
             .await?
             .into_iter()
-            .filter(|node| !reaches_version(&node.version, ANALYSIS_CHANGE_SPEC_VERSION))
+            .filter(|node| !reaches_version(&node.version, BM25_TUNING_SPEC_VERSION))
             .map(|node| Value::String(node.node_id))
             .collect();
         if !older.is_empty() {
