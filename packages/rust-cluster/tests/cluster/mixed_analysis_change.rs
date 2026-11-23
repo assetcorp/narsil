@@ -393,6 +393,10 @@ async fn a_rust_data_node_builds_a_pending_change_that_the_controller_waits_for_
         .await;
     assert_eq!(changed.code(), None);
     assert_eq!(published_generation(&coordinator).await, 1.0);
+    assert_eq!(
+        matching_ids(&mut keeper, KEPT_WORD).await,
+        expected_ids(KEPT_WORD)
+    );
 
     keeper.shutdown().await;
     typescript_perch.shutdown().await;

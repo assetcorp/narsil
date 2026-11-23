@@ -6,7 +6,7 @@ use narsil::{Map, Value};
 use super::QueryDeps;
 use super::payload::{
     absent, analysis_generation, answer, bounded_integer, index_name, invalid, partition_ids,
-    request_fields, require_held_generation, string_list,
+    request_fields, string_list,
 };
 use super::refusal::{ServedRead, refuse_unserved_read};
 use crate::constants::{
@@ -124,22 +124,27 @@ pub(super) async fn answer_stats(
         ServedRead::Query,
     )
     .await?;
-    require_held_generation(&index_name, generation)?;
     let copies = Arc::clone(&deps.copies);
     let confinement = PartitionQuery {
         partition_ids,
         ..PartitionQuery::default()
     };
-    let collected = off_executor(move || {
-        copies.stats_partitions(
-            &index_name,
-            &confinement,
-            &terms,
-            expansion.as_ref(),
-            &tokens,
-        )
-    })
-    .await??;
+    let read_index = index_name.clone();
+    let collected = deps
+        .analysis
+        .answer_at(&index_name, generation, || async move {
+            off_executor(move || {
+                copies.stats_partitions(
+                    &read_index,
+                    &confinement,
+                    &terms,
+                    expansion.as_ref(),
+                    &tokens,
+                )
+            })
+            .await?
+        })
+        .await?;
     let mut payload = Map::with_capacity(4);
     payload.insert("totalDocuments", Value::from(collected.total_documents));
     let mut frequencies = Map::with_capacity(collected.doc_frequencies.len());

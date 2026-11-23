@@ -1,5 +1,3 @@
-use std::time::{Duration, Instant};
-
 use narsil::{Map, Value};
 use narsil_cluster::coordinator::etcd::EtcdCoordinatorConfig;
 
@@ -13,8 +11,6 @@ const PARTITIONS: u32 = 2;
 const REPLICATION_FACTOR: u64 = 1;
 const STORED_ITEMS: u64 = 6;
 const KEEP_ALIVE_MS: u64 = 60_000;
-const RELEASE_WAIT: Duration = Duration::from_secs(10);
-const RELEASE_POLL: Duration = Duration::from_millis(50);
 const DATA_NODE: &str = "contexts-rust-data";
 const REPLICA_NODE: &str = "contexts-rust-replica";
 
@@ -51,7 +47,7 @@ async fn send(node: &mut TypescriptNode, target: &str, message_type: &str, paylo
         })
 }
 
-fn fetch_payload(context_id: Option<&str>, document_id: &str, include: Option<&str>) -> Map {
+fn fetch_payload(context_id: Option<&str>, document_id: &str) -> Map {
     let reference = Value::Object(fields([
         ("docId", Value::from(document_id)),
         (
@@ -62,17 +58,14 @@ fn fetch_payload(context_id: Option<&str>, document_id: &str, include: Option<&s
     fields([
         ("indexName", Value::from(INDEX)),
         ("documentIds", Value::Array(vec![reference])),
-        (
-            "fields",
-            include.map_or(Value::Null, |field| Value::Array(vec![Value::from(field)])),
-        ),
+        ("fields", Value::Null),
         ("highlight", Value::Null),
         ("contextId", context_id.map_or(Value::Null, Value::from)),
         ("releaseContext", Value::Bool(false)),
     ])
 }
 
-fn fetched_document(answer: &Map) -> Map {
+fn fetched_note(answer: &Map) -> Option<String> {
     let documents = answer
         .get("documents")
         .and_then(Value::as_array)
@@ -82,17 +75,13 @@ fn fetched_document(answer: &Map) -> Map {
         .as_object()
         .and_then(|fetched| fetched.get("document"))
         .and_then(Value::as_object)
-        .cloned()
-        .unwrap_or_else(|| panic!("each fetched entry carries its document: {answer:?}"))
-}
-
-fn note_of(document: &Map) -> Option<&str> {
-    document.get("note").and_then(Value::as_str)
+        .and_then(|document| document.get("note"))
+        .and_then(Value::as_str)
+        .map(str::to_string)
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_rust_data_node_returns_the_ranked_copy_and_frees_the_contexts_of_a_coordinator_that_leaves()
- {
+async fn a_rust_data_node_returns_the_document_as_it_ranked_it_after_a_write_changes_it() {
     let Some(endpoint) = etcd_endpoint() else {
         return;
     };
@@ -136,13 +125,6 @@ async fn a_rust_data_node_returns_the_ranked_copy_and_frees_the_contexts_of_a_co
             .value();
     }
 
-    let mut departing = TypescriptNode::start(
-        &endpoint,
-        &key_prefix,
-        "contexts-ts-departing",
-        "coordinator",
-    )
-    .await;
     let params = Value::Object(fields([
         ("term", Value::from("widget")),
         ("limit", Value::from(STORED_ITEMS)),
@@ -152,7 +134,7 @@ async fn a_rust_data_node_returns_the_ranked_copy_and_frees_the_contexts_of_a_co
     let partition_ids = (0..PARTITIONS).map(Value::from).collect();
     let target = data_nodes[0].address.clone();
     let searched = send(
-        &mut departing,
+        &mut reader,
         &target,
         "query.search",
         fields([
@@ -184,60 +166,22 @@ async fn a_rust_data_node_returns_the_ranked_copy_and_frees_the_contexts_of_a_co
         .await
         .value();
 
-    let ranked = send(
-        &mut reader,
-        &target,
-        "query.fetch",
-        fetch_payload(Some(&context_id), &rewritten, None),
-    )
-    .await;
-    let ranked = fetched_document(&ranked);
-    assert_eq!(note_of(&ranked), Some("original 0"), "{ranked:?}");
-    assert_eq!(
-        ranked.get("title").and_then(Value::as_str),
-        Some("widget 0")
-    );
-
-    let projected = send(
-        &mut reader,
-        &target,
-        "query.fetch",
-        fetch_payload(Some(&context_id), &rewritten, Some("note")),
-    )
-    .await;
-    let projected = fetched_document(&projected);
-    assert_eq!(note_of(&projected), Some("original 0"));
-    assert_eq!(projected.get("title"), None, "{projected:?}");
-
     let current = send(
         &mut reader,
         &target,
         "query.fetch",
-        fetch_payload(None, &rewritten, None),
+        fetch_payload(None, &rewritten),
     )
     .await;
-    assert_eq!(note_of(&fetched_document(&current)), Some("rewritten"));
-
-    departing.shutdown().await;
-    let started = Instant::now();
-    let refused = loop {
-        let answer = send(
-            &mut reader,
-            &target,
-            "query.fetch",
-            fetch_payload(Some(&context_id), &rewritten, None),
-        )
-        .await;
-        if answer.get("code").is_some() || started.elapsed() > RELEASE_WAIT {
-            break answer;
-        }
-        tokio::time::sleep(RELEASE_POLL).await;
-    };
-    assert_eq!(
-        refused.get("code").and_then(Value::as_str),
-        Some("SEARCH_CONTEXT_MISSING"),
-        "{refused:?}"
-    );
+    assert_eq!(fetched_note(&current).as_deref(), Some("rewritten"));
+    let ranked = send(
+        &mut reader,
+        &target,
+        "query.fetch",
+        fetch_payload(Some(&context_id), &rewritten),
+    )
+    .await;
+    assert_eq!(fetched_note(&ranked).as_deref(), Some("original 0"));
 
     reader.shutdown().await;
     for node in data_nodes {

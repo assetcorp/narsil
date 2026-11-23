@@ -110,6 +110,18 @@ fn replaced(index_name: &str, generation: u64) -> ClusterError {
     .with_detail("indexName", Value::String(index_name.to_string()))
 }
 
+fn generation_missing(index_name: &str, requested: u64, held: u64) -> ClusterError {
+    ClusterError::new(
+        codes::ANALYSIS_GENERATION_MISSING,
+        format!(
+            "This node holds analysis generation {held} of index '{index_name}', so it cannot answer for generation {requested}"
+        ),
+    )
+    .with_detail("indexName", Value::String(index_name.to_string()))
+    .with_detail("requestedGeneration", Value::from(requested))
+    .with_detail("heldGeneration", Value::from(held))
+}
+
 pub(super) struct AnalysisChanges {
     node_id: String,
     coordinator: Arc<EtcdCoordinator>,
@@ -270,6 +282,59 @@ impl AnalysisChanges {
             held.release_held_analysis(&name, change.generation)
         })
         .await
+    }
+
+    async fn generation_of(&self, index_name: &str) -> ClusterResult<Option<u64>> {
+        let name = index_name.to_string();
+        self.on_engine(move |held| Ok(held.analysis_generation(&name)))
+            .await
+    }
+
+    async fn reach(self: &Arc<Self>, index_name: &str, requested: u64) {
+        let name = index_name.to_string();
+        let released = self
+            .on_engine(move |held| {
+                if !held.held_analysis_is_built(&name, requested) {
+                    return Ok(false);
+                }
+                held.release_held_analysis(&name, requested).map(|()| true)
+            })
+            .await;
+        match released {
+            Ok(true) => {}
+            Ok(false) => self.settle_in_background(index_name),
+            Err(error) => report_failure(self.on_error.as_ref(), &error),
+        }
+    }
+
+    pub(super) async fn answer_at<T, F, Fut>(
+        self: &Arc<Self>,
+        index_name: &str,
+        requested: u64,
+        read: F,
+    ) -> ClusterResult<T>
+    where
+        F: FnOnce() -> Fut,
+        Fut: Future<Output = ClusterResult<T>>,
+    {
+        let Some(generation) = self.generation_of(index_name).await? else {
+            return read().await;
+        };
+        if generation != requested {
+            if generation < requested {
+                self.reach(index_name, requested).await;
+            }
+            let reached = self.generation_of(index_name).await?.unwrap_or(generation);
+            if reached != requested {
+                return Err(generation_missing(index_name, requested, reached));
+            }
+        }
+        let answer = read().await?;
+        let after = self.generation_of(index_name).await?.unwrap_or(requested);
+        if after != requested {
+            return Err(generation_missing(index_name, requested, after));
+        }
+        Ok(answer)
     }
 
     fn settle_in_background(self: &Arc<Self>, index_name: &str) {

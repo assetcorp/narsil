@@ -7,16 +7,18 @@ use narsil::{
 };
 
 use super::QueryDeps;
-use super::payload::{
-    absent, index_name, invalid, partition_ids, request_fields, require_held_generation,
-};
+use super::payload::{absent, index_name, invalid, partition_ids, request_fields};
 use super::refusal::{ServedRead, refuse_unserved_read};
 use super::sort::wire_sort_values;
 use super::wire_params::{WireParams, wire_params};
-use crate::constants::{GROUP_OVERSAMPLE_FACTOR, GROUP_OVERSAMPLE_PADDING, MAX_FACET_SHARD_SIZE};
+use crate::constants::{
+    GROUP_OVERSAMPLE_FACTOR, GROUP_OVERSAMPLE_PADDING, MAX_FACET_SHARD_SIZE,
+    SEARCH_CONTEXT_ENTRY_BYTES,
+};
 use crate::data::blocking::off_executor;
 use crate::data::search_contexts::{RankedDocuments, keep_alive_of};
-use crate::error::{ClusterResult, codes};
+use crate::error::{ClusterError, ClusterResult, codes};
+use crate::memory::{answer_refusal_of, estimate_document_bytes};
 use crate::message::{TransportMessage, message_types};
 
 const SEARCH_PAYLOAD: &str = "SearchPayload";
@@ -194,6 +196,17 @@ fn open_context(
     if documents.is_empty() {
         return Ok(None);
     }
+    if let Some(memory) = &deps.memory {
+        let held_bytes = documents.values().fold(0u64, |bytes, document| {
+            bytes
+                .saturating_add(SEARCH_CONTEXT_ENTRY_BYTES)
+                .saturating_add(estimate_document_bytes(document))
+        });
+        let reserved_bytes = deps.copies.reserved_memory_bytes();
+        if let Some(refusal) = answer_refusal_of(memory, held_bytes, reserved_bytes) {
+            return Err(refusal);
+        }
+    }
     let ranked = RankedDocuments {
         documents,
         vector_paths,
@@ -241,7 +254,6 @@ pub(super) async fn answer_search(
     } else if params.sort.is_none() {
         params.document = Some(DocumentProjection::None);
     }
-    require_held_generation(&index_name, analysis_generation)?;
     let confinement = PartitionQuery {
         partition_ids: partition_ids.clone(),
         global_stats: global,
@@ -250,23 +262,28 @@ pub(super) async fn answer_search(
     };
     let copies = Arc::clone(&deps.copies);
     let holds_context = keep_alive_ms.is_some();
-    let (result, params, vector_paths) = off_executor(move || {
-        let result = copies.query_partitions(&index_name, &params, &confinement);
-        let vector_paths = match holds_context {
-            true => copies.vector_fields(&index_name),
-            false => Ok(Vec::new()),
-        };
-        (result, params, vector_paths)
-    })
-    .await?;
-    let result = result?;
+    let read_index = index_name.clone();
+    let (result, params, vector_paths) = deps
+        .analysis
+        .answer_at(&index_name, analysis_generation, || async move {
+            off_executor(move || {
+                let result = copies.query_partitions(&read_index, &params, &confinement)?;
+                let vector_paths = match holds_context {
+                    true => copies.vector_fields(&read_index)?,
+                    false => Vec::new(),
+                };
+                Ok::<_, ClusterError>((result, params, vector_paths))
+            })
+            .await?
+        })
+        .await?;
     let context_id = match keep_alive_ms {
         None => None,
         Some(ms) => Some(open_context(
             deps,
             &message.source_id,
             &result,
-            vector_paths?,
+            vector_paths,
             ms,
         )?),
     };

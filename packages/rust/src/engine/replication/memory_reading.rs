@@ -33,4 +33,10 @@ impl PartitionCopies<'_> {
             full: self.engine.memory.is_full(),
         })
     }
+
+    /// Returns the bytes that work in progress, such as a partition reload, holds in reserve against the engine's
+    /// memory limit before it allocates them.
+    pub fn reserved_memory_bytes(&self) -> u64 {
+        self.engine.memory.reserved_bytes()
+    }
 }
