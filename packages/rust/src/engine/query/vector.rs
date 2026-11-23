@@ -245,7 +245,7 @@ pub(crate) fn vector_leg(index: &IndexState, request: &VectorLegRequest<'_>) -> 
 /// Returns the query's snapshot of every partition where the search carries a filter, which a filtered vector
 /// search reads its matches from, and no snapshot otherwise.
 fn filter_snapshots(snapshots: &QuerySnapshots, scope: &QueryScope) -> Vec<Arc<PartitionSnapshot>> {
-    if !scope.filters() {
+    if !scope.lists_matches() {
         return Vec::new();
     }
     snapshots.partitions.clone()
@@ -311,7 +311,9 @@ pub(crate) fn vector_hits(run: &QueryRun<'_>, cursor_depth: usize) -> Result<Ran
                 clause,
                 query,
                 k: vector_fetch_depth(run.limit, run.offset, cursor_depth)?,
-                rescore_window: None,
+                rescore_window: run
+                    .confinement
+                    .and_then(|confinement| confinement.rescore_window),
                 matching: matching.as_deref(),
                 snapshots: &run.snapshots,
                 stop: scope.stop(),
