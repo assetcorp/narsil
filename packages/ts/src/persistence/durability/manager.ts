@@ -110,7 +110,7 @@ export function createDurabilityManager(
     try {
       await closePromise
     } catch (err) {
-      markFatal(toError(err))
+      if (!partitionFailures.isolates()) markFatal(toError(err))
     }
   }
 

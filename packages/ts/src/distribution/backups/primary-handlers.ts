@@ -1,6 +1,7 @@
 import { encode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { getClusterIndexConfig, getIndexMetadata } from '../cluster/index-metadata'
+import { refuseUnservedRead } from '../cluster-node/message-handler/read-refusal'
 import type { DataNodeHandlerDeps } from '../cluster-node/message-handler/types'
 import { MAX_PARTITION_COUNT } from '../constants'
 import type { PartitionAssignment } from '../coordinator/types'
@@ -89,6 +90,7 @@ async function reply(deps: DataNodeHandlerDeps, message: TransportMessage, respo
 export async function handleBackupPartition(message: TransportMessage, respond: RespondFn, deps: DataNodeHandlerDeps) {
   const payload = readPayload(message)
   const primary = requirePrimary(deps)
+  await refuseUnservedRead(deps, payload.indexName, [payload.partitionId], 'partition-read')
   await localAssignment(deps, payload)
   const state = primary.backups.poll(payload, () =>
     backUpPartition(

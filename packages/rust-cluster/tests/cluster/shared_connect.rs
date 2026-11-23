@@ -3,8 +3,12 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use bytes::Bytes;
+use narsil::{Map, Value};
+use narsil_cluster::SPEC_VERSION;
+use narsil_cluster::coordinator::{AllocationTable, NodeCapacity, NodeRegistration};
 use narsil_cluster::error::{ClusterResult, codes};
 use narsil_cluster::message::TransportMessage;
+use narsil_cluster::node::{ClusterNode, ClusterNodeConfig, next_started_at};
 use narsil_cluster::transport::grpc::{GrpcTransport, GrpcTransportConfig};
 use narsil_cluster::transport::tcp::{TcpTransport, TcpTransportConfig};
 use narsil_cluster::transport::{
@@ -14,6 +18,9 @@ use rcgen::{BasicConstraints, CertificateParams, IsCa, Issuer, KeyPair};
 use tokio::io::AsyncReadExt;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::task::JoinHandle;
+
+use crate::data_node::{cluster_coordinator, create_cluster_index};
+use crate::spread::titled;
 
 const LOOPBACK: &str = "127.0.0.1";
 const WAITERS_PER_METHOD: usize = 5;
@@ -355,4 +362,132 @@ async fn shutdown_after_the_hand_over_reports_an_unknown_outcome() {
         );
         receiver.node.shutdown().await;
     }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_expired_write_never_reaches_the_fallback_after_a_slow_tls_connect_fails() {
+    let Some(coordinator) = cluster_coordinator().await else {
+        return;
+    };
+    let tls = mutual_tls();
+    let receiver = transport(Carrier::Tcp, LONG_CONNECT_TIMEOUT, Some(&tls));
+    let received = Arc::new(AtomicUsize::new(0));
+    let counted = Arc::clone(&received);
+    receiver
+        .node
+        .listen(listen_handler(
+            move |message: TransportMessage, respond: Respond| {
+                counted.fetch_add(1, Ordering::AcqRel);
+                async move {
+                    respond.send(message).await;
+                    Ok(())
+                }
+            },
+        ))
+        .await
+        .expect("the fallback listens");
+    let primary = format!("{LOOPBACK}:{}", (receiver.port)());
+    let (silent, seen) = receiving_side(None).await;
+    let registration = |node_id: String, address: String, role: &str| NodeRegistration {
+        node_id,
+        address,
+        roles: vec![role.to_string()],
+        capacity: NodeCapacity::default(),
+        started_at: next_started_at(),
+        version: SPEC_VERSION.to_string(),
+        extra: Map::new(),
+    };
+    coordinator
+        .register_node(&registration(primary.clone(), silent, "data"))
+        .await
+        .expect("the primary advertises the silent TLS endpoint");
+    let index = "expired-fallback";
+    let uuid = "expired-fallback-uuid";
+    create_cluster_index(&coordinator, index, uuid, 1, 0).await;
+    let mut assignment = Map::new();
+    assignment.insert("primary", Value::from(primary));
+    assignment.insert("replicas", Value::Array(Vec::new()));
+    assignment.insert("inSyncSet", Value::Array(Vec::new()));
+    assignment.insert("commitPoint", Value::from(0.0));
+    assignment.insert("state", Value::from("ACTIVE"));
+    assignment.insert("primaryTerm", Value::from(1.0));
+    coordinator
+        .put_allocation(
+            index,
+            &AllocationTable {
+                index_name: index.to_string(),
+                version: 1.0,
+                replication_factor: 0.0,
+                assignments: vec![(0.0, assignment)],
+                generation: None,
+                index_uuid: Some(uuid.to_string()),
+            },
+        )
+        .await
+        .expect("the primary owns the partition");
+    let sender = transport(Carrier::Tcp, Duration::from_secs(31), Some(&tls));
+    sender
+        .node
+        .listen(echo_handler())
+        .await
+        .expect("the router binds")
+        .stop();
+    let node = ClusterNode::new(ClusterNodeConfig::new(
+        Arc::clone(&coordinator),
+        Arc::clone(&sender.node),
+        registration(
+            "expired-router".to_string(),
+            format!("{LOOPBACK}:{}", (sender.port)()),
+            "coordinator",
+        ),
+    ))
+    .expect("valid router settings");
+    node.start().await.expect("the router joins");
+    let documents = ["batch-first", "batch-second"].map(|id| {
+        let mut document = titled("expired transfer");
+        document.insert("id", Value::from(id));
+        document
+    });
+    let (single, batch) = tokio::join!(
+        node.insert(index, titled("expired transfer"), Some("single")),
+        node.insert_batch(index, documents.to_vec()),
+    );
+    let batch = batch.expect("the batch answers");
+    assert!(batch.succeeded.is_empty());
+    assert_eq!(batch.failed.len(), 2);
+    let mut failures = vec![(
+        "single".to_string(),
+        single.expect_err("the single write expires"),
+    )];
+    failures.extend(
+        batch
+            .failed
+            .into_iter()
+            .map(|failure| (failure.document_id, failure.error)),
+    );
+    for (document_id, error) in failures {
+        assert_eq!(error.code(), "REPLICATION_OUTCOME_UNKNOWN");
+        assert_eq!(
+            error.details().get("reason").and_then(Value::as_str),
+            Some("forward_window_ended")
+        );
+        assert_eq!(
+            error.details().get("docId").and_then(Value::as_str),
+            Some(document_id.as_str())
+        );
+    }
+    eventually("the expired connection to close", || {
+        seen.ended.load(Ordering::Acquire) > 0
+    })
+    .await;
+    tokio::time::sleep(DELIVERED_WITHIN).await;
+    let late = received.load(Ordering::Acquire);
+    node.shutdown().await;
+    sender.node.shutdown().await;
+    receiver.node.shutdown().await;
+    coordinator.shutdown().await;
+    assert_eq!(
+        late, 0,
+        "a fallback receives writes after the client deadline"
+    );
 }

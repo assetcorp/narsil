@@ -203,9 +203,11 @@ async function runAllocatorForAllIndexes(
  * Runs the allocator over every index the controller has recorded, once the cluster has been quiet for the debounce
  * window.
  *
- * A burst of node events collapses into one allocation run, because each call replaces the timer the previous one
- * set. An index whose write loses every compare-and-set attempt reaches `onError`, and a run that failed for any
- * index schedules a further run, so that a lost race resolves without waiting for an unrelated cluster event.
+ * The events that arrive while a run waits join that run, which reads the newest topology when it starts, and the
+ * wait starts at the first of them, so a steady stream of node events can delay a run by one window at most. A call
+ * whose window would end before the pending one's moves the run earlier. An index whose write loses every
+ * compare-and-set attempt reaches `onError`, and a run that failed for any index schedules a further run, so that a
+ * lost race resolves without waiting for an unrelated cluster event.
  *
  * @param state - The event loop state that holds the debounce timer and the known index names.
  * @param coordinator - The cluster coordinator this controller reads the topology from and writes allocations to.
@@ -220,12 +222,16 @@ export function scheduleDebouncedAllocation(
   onError?: (indexName: string, error: unknown) => void,
   debounceMs = 500,
 ): void {
+  const dueAt = performance.now() + debounceMs
   if (state.debounceTimer !== null) {
+    if (state.debounceDueAt !== null && state.debounceDueAt <= dueAt) return
     clearTimeout(state.debounceTimer)
   }
 
+  state.debounceDueAt = dueAt
   state.debounceTimer = setTimeout(() => {
     state.debounceTimer = null
+    state.debounceDueAt = null
     runAllocatorForAllIndexes(state, coordinator, isActive, onError).catch(() => {
       if (isActive()) {
         scheduleDebouncedAllocation(state, coordinator, isActive, onError, ALLOCATION_RETRY_DELAY_MS)

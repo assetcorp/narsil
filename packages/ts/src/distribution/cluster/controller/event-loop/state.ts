@@ -9,6 +9,7 @@ export interface EventLoopState {
   unwatchTransport: (() => void) | null
   knownIndexes: Set<string>
   debounceTimer: ReturnType<typeof setTimeout> | null
+  debounceDueAt: number | null
   teardownTimers: Map<string, ReturnType<typeof setTimeout>>
   schemaQueues: Map<string, Promise<void>>
   insyncQueue: Promise<void>
@@ -48,6 +49,7 @@ export function createEventLoopState(
     unwatchTransport: null,
     knownIndexes: new Set(initialIndexNames),
     debounceTimer: null,
+    debounceDueAt: null,
     teardownTimers: new Map(),
     schemaQueues: new Map(),
     insyncQueue: Promise.resolve(),
@@ -90,6 +92,7 @@ export function clearEventLoopWatchers(state: EventLoopState): void {
     clearTimeout(state.debounceTimer)
     state.debounceTimer = null
   }
+  state.debounceDueAt = null
   for (const timer of state.teardownTimers.values()) {
     clearTimeout(timer)
   }

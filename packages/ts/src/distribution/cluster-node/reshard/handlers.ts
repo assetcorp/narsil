@@ -15,6 +15,7 @@ import type {
   ReshardStartResultPayload,
 } from '../../transport/reshard-payloads'
 import type { RespondFn, TransportMessage } from '../../transport/types'
+import { refuseUnservedRead } from '../message-handler/read-refusal'
 import type { DataNodeHandlerDeps } from '../message-handler/types'
 import { applyReshardCutover, startReshardCopy } from './source'
 import { applyReshardForward, purgeReshardSource } from './target'
@@ -111,6 +112,7 @@ function reply(deps: DataNodeHandlerDeps, message: TransportMessage, payload: un
 
 export async function handleReshardStart(message: TransportMessage, respond: RespondFn, deps: DataNodeHandlerDeps) {
   const payload = readStart(message)
+  await refuseUnservedRead(deps, payload.sourceGeneration, [payload.partitionId], 'partition-read')
   const snapshotSeqNo = await startReshardCopy(sourceDeps(deps), payload)
   const result: ReshardStartResultPayload = { jobId: payload.jobId, partitionId: payload.partitionId, snapshotSeqNo }
   await respond(reply(deps, message, result))

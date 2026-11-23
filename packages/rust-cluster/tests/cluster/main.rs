@@ -13,6 +13,7 @@ mod admission_under_writes;
 mod chained_resend;
 mod client_writes;
 mod controller_lost_copy;
+mod controller_node_churn;
 mod copy_failure;
 mod data_node_adopted_settings;
 mod data_node_allocation;

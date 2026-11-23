@@ -1,4 +1,5 @@
 import type { ErrorCode } from '../../errors'
+import type { ChunkBudget } from '../chunking'
 
 export type ReplicationOperation = 'INDEX' | 'DELETE'
 
@@ -36,6 +37,12 @@ export interface ReplicationLog {
   assertFits(entry: Pick<ReplicationLogEntry, 'indexName' | 'documentId' | 'document'>): void
   appendCommitted(entry: ReplicationLogEntry): ReplicationLogEntry
   getEntriesFrom(fromSeqNo: number): ReplicationLogEntry[]
+  getEntryBatch(
+    fromSeqNo: number,
+    throughSeqNo: number,
+    budget: ChunkBudget<ReplicationLogEntry>,
+  ): ReplicationLogEntry[]
+  getEntryBatchBytes(fromSeqNo: number, throughSeqNo: number, budget: ChunkBudget<ReplicationLogEntry>): number
   getEntry(seqNo: number): ReplicationLogEntry | undefined
   termAt(seqNo: number): number | undefined
   verifyChecksum(entry: ReplicationLogEntry): boolean

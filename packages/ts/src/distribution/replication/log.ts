@@ -1,4 +1,5 @@
 import { ErrorCodes, NarsilError } from '../../errors'
+import { type ChunkBudget, chunkByBudget } from '../chunking'
 import { DEFAULT_LOG_RETENTION_BYTES } from './constants'
 import { buildEntry, computeEntryChecksum, entryByteEstimate } from './entry-checksum'
 import type { ReplicationConfig, ReplicationLog, ReplicationLogEntry } from './types'
@@ -106,6 +107,20 @@ export function createReplicationLog(
     return undefined
   }
 
+  function firstBatch(
+    fromSeqNo: number,
+    throughSeqNo: number,
+    budget: ChunkBudget<ReplicationLogEntry>,
+  ): ReplicationLogEntry[] {
+    if (liveCount() === 0 || fromSeqNo > throughSeqNo) return []
+    const window: ReplicationLogEntry[] = []
+    for (let at = findIndexBySeqNo(fromSeqNo); at < entries.length && window.length < budget.maxCount; at++) {
+      if (entries[at].seqNo > throughSeqNo) break
+      window.push(entries[at])
+    }
+    return chunkByBudget(window, budget)[0] ?? []
+  }
+
   function verifyEntryChecksum(entry: ReplicationLogEntry): boolean {
     return computeEntryChecksum(entry) === entry.checksum
   }
@@ -189,6 +204,16 @@ export function createReplicationLog(
       const idx = findIndexBySeqNo(fromSeqNo)
       if (idx >= entries.length) return []
       return entries.slice(idx).map(e => ({ ...e }))
+    },
+
+    getEntryBatch(fromSeqNo, throughSeqNo, budget) {
+      return firstBatch(fromSeqNo, throughSeqNo, budget).map(e => ({ ...e }))
+    },
+
+    getEntryBatchBytes(fromSeqNo, throughSeqNo, budget) {
+      let total = 0
+      for (const entry of firstBatch(fromSeqNo, throughSeqNo, budget)) total += budget.payloadBytesOf(entry)
+      return total
     },
 
     getEntry(seqNo: number): ReplicationLogEntry | undefined {

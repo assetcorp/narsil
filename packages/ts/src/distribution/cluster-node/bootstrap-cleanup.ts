@@ -2,6 +2,7 @@ import { ErrorCodes, NarsilError } from '../../errors'
 import { getIndexMetadata } from '../cluster/index-metadata'
 import { holdsLastCopy } from '../cluster/last-holders'
 import type { ClusterCoordinator } from '../coordinator/types'
+import type { CopyDiskWork } from './copy-disk-work'
 import type { ClusterLocalEngine } from './local-engine'
 import { localIndexIsGone } from './local-index-gone'
 
@@ -10,7 +11,14 @@ export interface BootstrapCleanupDeps {
   coordinator: ClusterCoordinator
   nodeId: string
   removedIndexUuid: string | null | undefined
+  diskWork: Pick<CopyDiskWork, 'guard'>
   onError?: (error: unknown) => void
+}
+
+async function dropRemovedCopy(indexName: string, deps: BootstrapCleanupDeps): Promise<void> {
+  await deps.diskWork.guard(async () => {
+    if (holdsRemovedCopy(indexName, deps)) await deps.engine.dropIndex(indexName)
+  })
 }
 
 /**
@@ -41,11 +49,7 @@ export async function cleanupRemovedPartition(
     if (!replaced && (await nodeHasOtherPartitions(indexName, partitionId, deps))) {
       return
     }
-    if (!holdsRemovedCopy(indexName, deps)) {
-      return
-    }
-
-    await deps.engine.dropIndex(indexName)
+    await dropRemovedCopy(indexName, deps)
   } catch (err) {
     if (deps.onError === undefined) {
       return
@@ -86,8 +90,7 @@ export async function releaseTornDownIndex(indexName: string, deps: BootstrapCle
     if (!holdsRemovedCopy(indexName, deps)) return
     const allocation = await deps.coordinator.getAllocation(indexName)
     if (allocation !== null && allocation.assignments.size > 0) return
-    if (!holdsRemovedCopy(indexName, deps)) return
-    await deps.engine.dropIndex(indexName)
+    await dropRemovedCopy(indexName, deps)
   } catch (err) {
     if (deps.onError === undefined || localIndexIsGone(err)) return
     const cause = err instanceof Error ? err.message : String(err)

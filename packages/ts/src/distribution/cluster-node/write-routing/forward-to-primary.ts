@@ -8,6 +8,7 @@ import type { ForwardBatchOperation, ForwardBatchPayload } from '../../transport
 import { forwardInterrupted, forwardUnsent, unsentAfter } from '../transport-failure'
 import { abandonedWriteFrom, conditionFields, withAbandonedWrite } from './abandoned-write'
 import type { BatchOutcome, BatchWrite, WriteFailure } from './batch-write'
+import { unsentAfterWindow, windowClosed, windowEndedOutcome } from './forward-window'
 import {
   assertForwardResponse,
   forwardInsertToRemote,
@@ -53,10 +54,11 @@ async function forwardSingleWrite(
   primaryNodeId: string,
   deps: WriteRoutingDeps,
   indexUuid: string | undefined,
+  deadline: number,
 ): Promise<void> {
   const { docId, value, condition } = write
   if (operation === 'remove') {
-    await forwardRemoveToRemote(indexName, docId, primaryNodeId, deps, indexUuid, condition)
+    await forwardRemoveToRemote(indexName, docId, primaryNodeId, deps, deadline, indexUuid, condition)
     return
   }
   if (value === null) {
@@ -65,19 +67,24 @@ async function forwardSingleWrite(
     })
   }
   if (operation === 'insert') {
-    await forwardInsertToRemote(indexName, value, docId, primaryNodeId, deps, indexUuid)
+    await forwardInsertToRemote(indexName, value, docId, primaryNodeId, deps, deadline, indexUuid)
   } else {
-    await forwardUpdateToRemote(indexName, value, docId, primaryNodeId, deps, indexUuid, condition)
+    await forwardUpdateToRemote(indexName, value, docId, primaryNodeId, deps, deadline, indexUuid, condition)
   }
+}
+
+export interface ForwardTarget {
+  primaryNodeId: string
+  indexUuid: string | undefined
+  deadline: number
 }
 
 export async function forwardBatchToRemote<V extends AnyDocument | null>(
   indexName: string,
   operation: ForwardedOperation,
   writes: BatchWrite<V>[],
-  primaryNodeId: string,
+  { primaryNodeId, indexUuid, deadline }: ForwardTarget,
   deps: WriteRoutingDeps,
-  indexUuid?: string,
 ): Promise<BatchOutcome<V>> {
   const succeeded: BatchWrite<V>[] = []
   const failed: WriteFailure<V>[] = []
@@ -87,9 +94,13 @@ export async function forwardBatchToRemote<V extends AnyDocument | null>(
     return { succeeded, failed }
   }
 
+  if (windowClosed(deadline)) {
+    return { succeeded, failed: unsentAfterWindow(indexName, writes) }
+  }
+
   if (writes.length === 1) {
     try {
-      await forwardSingleWrite(indexName, operation, only, primaryNodeId, deps, indexUuid)
+      await forwardSingleWrite(indexName, operation, only, primaryNodeId, deps, indexUuid, deadline)
       succeeded.push(only)
     } catch (err) {
       failed.push({ write: only, error: toForwardError(err, only.docId) })
@@ -102,8 +113,20 @@ export async function forwardBatchToRemote<V extends AnyDocument | null>(
     failed.push({ write, error })
     if (retriable(error, operation === 'insert')) awaitingRetry.set(write.docId, error)
   }
+  const outgoing: OutgoingWrite<V>[] = []
+  for (const write of writes) {
+    try {
+      outgoing.push(toOutgoing(operation, write))
+    } catch (err) {
+      failed.push({ write, error: toForwardError(err, write.docId) })
+    }
+  }
   let undelivered: unknown
-  for (const planned of chunkOutgoing(writes.map(write => toOutgoing(operation, write)))) {
+  for (const planned of chunkOutgoing(outgoing)) {
+    if (windowClosed(deadline)) {
+      for (const { write } of planned) failed.push({ write, error: windowEndedOutcome(indexName, write.docId) })
+      continue
+    }
     if (undelivered !== undefined) {
       for (const { write } of planned) failed.push({ write, error: toForwardError(undelivered, write.docId) })
       continue
@@ -118,12 +141,17 @@ export async function forwardBatchToRemote<V extends AnyDocument | null>(
       }
       if (chunk.length === 0) continue
     }
+    let windowEndedAtSend: NarsilError | null = null
     try {
       const operations = chunk.map(({ wire }) => wire)
       const payload: ForwardBatchPayload =
         indexUuid === undefined ? { indexName, operations } : { indexName, operations, indexUuid }
       const message = createForwardBatchMessage(payload, deps.nodeId)
-      const response = await sendToNode(primaryNodeId, message, deps)
+      const response = await sendToNode(primaryNodeId, message, deps, () => {
+        if (!windowClosed(deadline)) return
+        windowEndedAtSend = windowEndedOutcome(indexName, only.docId)
+        throw windowEndedAtSend
+      })
       const decoded = assertForwardResponse(response, indexName, primaryNodeId)
       const result = validateForwardBatchResultPayload(decoded)
       if (result.results.length !== chunk.length) {
@@ -160,6 +188,10 @@ export async function forwardBatchToRemote<V extends AnyDocument | null>(
         refuse(write, abandonedWrite === undefined ? refusal : withAbandonedWrite(refusal, abandonedWrite))
       }
     } catch (err) {
+      if (err !== null && err === windowEndedAtSend) {
+        for (const { write } of chunk) failed.push({ write, error: windowEndedOutcome(indexName, write.docId) })
+        continue
+      }
       if (err instanceof NarsilError && (forwardUnsent(err) || forwardInterrupted(err))) undelivered = unsentAfter(err)
       for (const { write } of chunk) refuse(write, toForwardError(err, write.docId))
     }

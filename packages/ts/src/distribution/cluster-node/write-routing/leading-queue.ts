@@ -1,13 +1,13 @@
 import { ErrorCodes, NarsilError } from '../../../errors'
 import type { AllocationTable, PartitionAssignment, RegistrationLease } from '../../coordinator/types'
-import { partitionKey } from '../catch-up/state'
+import { type CatchUpState, partitionKey } from '../catch-up/state'
 import { REGISTRATION_LEASE_CONFIRM_TIMEOUT_MS, REGISTRATION_LEASE_DRIFT_SHARE } from '../constants'
 import { noteLedTerm } from '../led-term'
 import { assertReshardOpen } from '../reshard/block'
 import { initialisingHere, liveWritablePartition } from './initialising-partition'
 import type { PrimaryWriteScope } from './numbered-write'
 import { enqueuePartitionWrite } from './partition-queue'
-import { isOutcomeUnknown, outcomeUnknown } from './rollback'
+import { failedCopyOutcome, isOutcomeUnknown, outcomeUnknown } from './rollback'
 import { startTermInQueue } from './term-start'
 import type { WriteRoutingDeps } from './types'
 
@@ -126,6 +126,7 @@ export async function inLeadingPartitionQueue<T>(
 ): Promise<T> {
   let current = scope
   let logEndBefore: number | undefined
+  let appendedInTask = false
   let result: T
   try {
     result = await enqueuePartitionWrite(
@@ -135,13 +136,19 @@ export async function inLeadingPartitionQueue<T>(
       async hold => {
         current = { ...(await currentScope(scope)), holdQueue: hold }
         if (await startTermInQueue(current)) current = { ...(await currentScope(scope)), holdQueue: hold }
-        logEndBefore = logEndOf(current)
-        return task(current)
+        const taskStart = logEndOf(current)
+        logEndBefore = taskStart
+        try {
+          return await task(current)
+        } catch (error) {
+          appendedInTask = logEndOf(current) !== taskStart
+          throw error
+        }
       },
     )
   } catch (error) {
     if (isOutcomeUnknown(error)) throw error
-    if (copyFailedIn(current)) throw notPrimary(current)
+    if (copyFailedIn(current)) throw appendedInTask ? failedCopyOutcome(current, error) : notPrimary(current)
     if (refusedFromLocalCopy(error) && (await leadershipUnconfirmed(current))) throw notPrimary(current)
     throw error
   }
@@ -160,12 +167,31 @@ export async function inLeadingPartitionQueue<T>(
   return result
 }
 
+const termStartsFromTable = new WeakMap<CatchUpState, Map<string, number>>()
+
+function queuedTermStartsOf(deps: WriteRoutingDeps): Map<string, number> {
+  let queued = termStartsFromTable.get(deps.catchUp)
+  if (queued === undefined) {
+    queued = new Map()
+    termStartsFromTable.set(deps.catchUp, queued)
+  }
+  return queued
+}
+
 export function startLeadingTerm(
   deps: WriteRoutingDeps,
   indexName: string,
   partitionId: number,
   assignment: PartitionAssignment,
 ): void {
-  if ((deps.catchUp.startedTerms.get(partitionKey(indexName, partitionId)) ?? 0) >= assignment.primaryTerm) return
-  inLeadingPartitionQueue({ indexName, partitionId, assignment, deps }, async () => undefined).catch(() => undefined)
+  const key = partitionKey(indexName, partitionId)
+  if ((deps.catchUp.startedTerms.get(key) ?? 0) >= assignment.primaryTerm) return
+  const queued = queuedTermStartsOf(deps)
+  if ((queued.get(key) ?? 0) >= assignment.primaryTerm) return
+  queued.set(key, assignment.primaryTerm)
+  inLeadingPartitionQueue({ indexName, partitionId, assignment, deps }, async () => undefined)
+    .catch(() => undefined)
+    .finally(() => {
+      if (queued.get(key) === assignment.primaryTerm) queued.delete(key)
+    })
 }

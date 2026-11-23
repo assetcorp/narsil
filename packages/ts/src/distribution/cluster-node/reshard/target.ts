@@ -1,5 +1,7 @@
 import { describeError, ErrorCodes, NarsilError } from '../../../errors'
 import { RESHARD_FORWARD_BATCH_DOCUMENTS } from '../../cluster/constants'
+import { isHiddenGeneration, type RebalanceRecord, readRebalanceRecord } from '../../cluster/rebalance/records'
+import type { AllocationTable } from '../../coordinator/types'
 import { buildEntry } from '../../replication/entry-checksum'
 import type { ReplicationLogEntry } from '../../replication/types'
 import type {
@@ -138,11 +140,54 @@ async function applyOperations(
   return results
 }
 
-export function applyReshardForward(
+function writesTo(record: RebalanceRecord | null, payload: ReshardForwardPayload): boolean {
+  return record?.jobId === payload.jobId && record.targetGeneration === payload.targetGeneration
+}
+
+function noRunningJob(payload: ReshardForwardPayload): NarsilError {
+  return new NarsilError(
+    ErrorCodes.ALLOCATION_FAILED,
+    `No partition count change '${payload.jobId}' copies documents into '${payload.targetGeneration}'`,
+    { jobId: payload.jobId, targetGeneration: payload.targetGeneration },
+  )
+}
+
+function leadsAnyPartition(table: AllocationTable | null, nodeId: string): boolean {
+  return table !== null && [...table.assignments.values()].some(assignment => assignment.primary === nodeId)
+}
+
+async function leadsTargetGeneration(deps: WriteRoutingDeps, targetGeneration: string): Promise<boolean> {
+  if (leadsAnyPartition(await deps.coordinator.getAllocation(targetGeneration), deps.nodeId)) return true
+  if (deps.refreshAllocation === undefined) return false
+  return leadsAnyPartition(await deps.refreshAllocation(targetGeneration), deps.nodeId)
+}
+
+async function assertRunningJob(deps: WriteRoutingDeps, payload: ReshardForwardPayload): Promise<void> {
+  const { coordinator } = deps
+  const { targetGeneration } = payload
+  if (!isHiddenGeneration(targetGeneration)) throw noRunningJob(payload)
+  if (!(await leadsTargetGeneration(deps, targetGeneration))) throw noRunningJob(payload)
+  const known = deps.reshard?.publicNames.get(targetGeneration)
+  if (known !== undefined) {
+    if (writesTo(await readRebalanceRecord(coordinator, known), payload)) return
+    throw noRunningJob(payload)
+  }
+  for (const name of await coordinator.listSchemas()) {
+    if (isHiddenGeneration(name)) continue
+    if (writesTo(await readRebalanceRecord(coordinator, name), payload)) {
+      deps.reshard?.publicNames.set(targetGeneration, name)
+      return
+    }
+  }
+  throw noRunningJob(payload)
+}
+
+export async function applyReshardForward(
   deps: WriteRoutingDeps,
   engine: ReshardTargetEngine,
   payload: ReshardForwardPayload,
 ): Promise<ForwardBatchOperationResult[]> {
+  await assertRunningJob(deps, payload)
   const state = deps.reshard
   if (state !== undefined) {
     const key = jobKey(payload.jobId, payload.sourcePartitionId)

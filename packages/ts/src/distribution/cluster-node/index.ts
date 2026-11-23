@@ -144,6 +144,8 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
     partitionWriteQueues: writeDeps.partitionWriteQueues,
     canListCopy: localCopies.canList,
     failMissingCopy: localCopies.failures.recordMissing,
+    copyFailed: localCopies.failures.isFailed,
+    failCopy: localCopies.failures.record,
     onError: forwardOnError,
     snapshotSpoolDirectory: snapshotSpool.path,
   })
@@ -357,6 +359,7 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
       }
 
       await heldPartitionWrites.settled()
+      await localCopies.failures.settled()
 
       await engine.shutdown()
       await snapshotSpool.dispose()
