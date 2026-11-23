@@ -18,6 +18,7 @@ mod copy_failure;
 mod data_node_adopted_settings;
 mod data_node_allocation;
 mod data_node_local_copies;
+mod device_sync_read;
 mod grpc_goaway_drain;
 mod killed_primary;
 mod lost_copy_wait;

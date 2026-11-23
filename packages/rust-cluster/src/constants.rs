@@ -121,6 +121,10 @@ pub const WRITE_MEMORY_SAMPLE_MAX_AGE_MS: u64 = 100;
 pub const DOCUMENT_NUMBER_BYTES: u64 = 8;
 pub const DOCUMENT_SCALAR_BYTES: u64 = 4;
 pub const DOCUMENT_ENTRY_OVERHEAD_BYTES: u64 = 2;
+pub const DEVICE_SYNC_RECONCILE_INTERVAL_MS: u64 = 10_000;
+pub const DEVICE_SYNC_SPEC_VERSION: &str = "1.3";
+pub const MAX_SETTINGS_REPLACEMENT_ATTEMPTS: u32 = 5;
+pub const SYNC_EPOCH_BYTES: usize = 16;
 
 pub const CHANGE_CAPTURE_SPEC_VERSION: &str = "1.5";
 pub const HIDDEN_GENERATION_PREFIX: &str = "narsil-generation-";

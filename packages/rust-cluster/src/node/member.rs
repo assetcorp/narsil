@@ -127,6 +127,10 @@ impl NodeInner {
         }
     }
 
+    pub(super) fn has_backup_store(&self) -> bool {
+        false
+    }
+
     pub(super) fn memory(&self) -> Option<Arc<NodeMemory>> {
         lock(&self.memory).clone()
     }
