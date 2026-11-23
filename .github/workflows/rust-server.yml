@@ -35,6 +35,13 @@ jobs:
         working-directory: packages/rust-server
         run: cargo clippy --all-targets --locked -- -D warnings
 
+      - name: Install the pinned protoc and check its digest
+        uses: ./.github/actions/install-protoc
+
+      - name: Run Clippy on the cluster feature with every warning as an error
+        working-directory: packages/rust-server
+        run: cargo clippy --all-targets --locked --features cluster -- -D warnings
+
   test:
     name: Test on ${{ matrix.label }}
     runs-on: ${{ matrix.runner }}

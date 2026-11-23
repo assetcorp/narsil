@@ -25,9 +25,10 @@ pub mod held_analysis {
 #[doc(hidden)]
 pub mod replication {
     pub use crate::engine::replication::{
-        AppliedRun, CopyPosition, EntryOperation, HeldTerm, PartitionCopies, PrimaryLimits,
-        PrimaryRefusal, PrimaryRun, PrimaryWrite, PrimaryWritten, PriorDocument, ReplicatedEntry,
-        WriteRecord,
+        AppliedRun, CopyChangesState, CopyEpochStates, CopyPosition, CopySyncState, EntryOperation,
+        HeldTerm, NodeMemoryReading, PartitionCopies, PrimaryLimits, PrimaryRefusal, PrimaryRun,
+        PrimaryWrite, PrimaryWritten, PriorDocument, ReplicatedEntry, WriteRecord,
+        read_process_memory,
     };
 }
 #[doc(hidden)]

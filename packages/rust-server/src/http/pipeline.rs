@@ -325,7 +325,7 @@ async fn route(
         hook_context,
     };
     let in_flight = state.requests.enter();
-    if options.on_query_threads {
+    if options.on_query_threads && !state.fronts_cluster() {
         return answer_on_query_threads(state, route, context, (pass, hold, in_flight)).await;
     }
     let handled = AssertUnwindSafe(dispatch(Arc::clone(state), route, context)).catch_unwind();

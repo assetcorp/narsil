@@ -382,12 +382,19 @@ A replica must use these codes for the failures that it finds during a sync, and
 | `SNAPSHOT_SYNC_DECODE_FAILED` | A payload of the answer is not valid MessagePack |
 | `SNAPSHOT_SYNC_FRAME_INVALID` | A payload breaks the shape or the order of the answer, the answer carries two sync sessions, or `isLast` is missing from the last batch or set on an earlier one |
 | `SNAPSHOT_SYNC_CHUNK_MISSING` | The answer ended with no sync payload, or with fewer snapshot bytes than `totalBytes` |
+| `SNAPSHOT_SYNC_HEADER_INVALID` | The first snapshot payload is not a `replication.snapshot_start`, or its header, its `totalBytes`, or its `syncSession` breaks the type that the message gives |
+| `SNAPSHOT_SYNC_HEADER_MISMATCH` | The snapshot header, a chunk, or the end names an index or a partition other than the one that the request names, a chunk's `partitionId` is not a non-negative integer, or the end's `totalBytes` differs from the start's |
+| `SNAPSHOT_SYNC_CHUNK_OUT_OF_ORDER` | A chunk's `offset` is not a non-negative integer, or it differs from the offset where the chunk before it ended |
+| `SNAPSHOT_SYNC_CHUNK_SIZE_EXCEEDED` | A chunk carries more than 65,536 bytes, or more than the bytes of `totalBytes` that remain |
+| `SNAPSHOT_SYNC_CHUNK_OVERFLOW` | The bytes received would pass `totalBytes` after a chunk that the size check let through |
+| `SNAPSHOT_SYNC_END_MISSING` | The answer ended after a `replication.snapshot_start` with no `replication.snapshot_end` |
+| `SNAPSHOT_SYNC_CHECKSUM_MISMATCH` | The end's `checksum` differs from the header's, or the CRC32 of the received archive differs from the header's `checksum` |
 | `SNAPSHOT_SYNC_PRIMARY_ERROR` | The primary sent an error reply, whose `code` and `message` the replica copies into the details as `primaryCode` and `primaryMessage` |
 | `SNAPSHOT_SYNC_RESTORE_FAILED` | The replica could not create, check, write, or restore its local copy |
 
 An error from a schema check, a metadata read, or an entry check must keep the code that it has. A node must also report `SNAPSHOT_SYNC_RESTORE_FAILED` directly to its error handler where a primary's copy fails the schema check during its bootstrap or where the node cannot drop a copy that it removes.
 
-A replica may send the request to the primary's next address within the same sync after `SNAPSHOT_SYNC_TRANSPORT_FAILED`, `SNAPSHOT_SYNC_TIMEOUT`, `SNAPSHOT_SYNC_DECODE_FAILED`, `SNAPSHOT_SYNC_FRAME_INVALID`, or `SNAPSHOT_SYNC_CHUNK_MISSING`, or where `primaryCode` is `SNAPSHOT_SYNC_ALLOCATION_UNAVAILABLE`, `SNAPSHOT_SYNC_CAPACITY_EXHAUSTED`, `SNAPSHOT_SYNC_SNAPSHOT_FAILED`, or `REPLICATION_SYNC_FAILED`. It must end the sync on every other code in these two tables, although it may start a new sync after the backoff of its bootstrap, whatever the code.
+A replica may send the request to the primary's next address within the same sync after `SNAPSHOT_SYNC_TRANSPORT_FAILED`, `SNAPSHOT_SYNC_TIMEOUT`, `SNAPSHOT_SYNC_DECODE_FAILED`, `SNAPSHOT_SYNC_FRAME_INVALID`, `SNAPSHOT_SYNC_CHUNK_MISSING`, `SNAPSHOT_SYNC_CHUNK_OUT_OF_ORDER`, `SNAPSHOT_SYNC_CHUNK_OVERFLOW`, `SNAPSHOT_SYNC_END_MISSING`, or `SNAPSHOT_SYNC_CHECKSUM_MISMATCH`, or where `primaryCode` is `SNAPSHOT_SYNC_ALLOCATION_UNAVAILABLE`, `SNAPSHOT_SYNC_CAPACITY_EXHAUSTED`, `SNAPSHOT_SYNC_SNAPSHOT_FAILED`, or `REPLICATION_SYNC_FAILED`. It must end the sync on every other code in these two tables, although it may start a new sync after the backoff of its bootstrap, whatever the code.
 
 ### replication.sync_entries
 
@@ -703,7 +710,7 @@ A primary of the current generation sends this to every primary of the new gener
 }
 ```
 
-Each receiving primary removes every document that it holds whose ID routes to `sourcePartitionId` under `sourcePartitionCount`, and it answers:
+The receiving primary must refuse the request with `ALLOCATION_FAILED` where no rebalance record gives `jobId` as its job and `targetGeneration` as its new generation, or where `targetGeneration` is not a hidden generation whose partitions it leads, because the purge removes documents without a client's request. Otherwise each receiving primary removes every document that it holds in `targetGeneration` whose ID routes to `sourcePartitionId` under `sourcePartitionCount`, and it answers:
 
 ```text
 {
