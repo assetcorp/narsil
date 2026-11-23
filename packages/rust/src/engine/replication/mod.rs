@@ -2,6 +2,7 @@ mod adopt;
 mod append;
 pub(crate) mod copy_state;
 mod logged;
+mod memory_reading;
 mod primary;
 mod primary_apply;
 mod primary_room;
@@ -16,6 +17,7 @@ use crate::value::Value;
 use copy_state::ReplicatedCopy;
 
 pub(crate) use logged::fail_stopped_logs;
+pub use memory_reading::{NodeMemoryReading, read_process_memory};
 
 pub use types::{
     AppliedRun, CopyPosition, EntryOperation, HeldTerm, PrimaryLimits, PrimaryRefusal, PrimaryRun,

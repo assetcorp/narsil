@@ -6,17 +6,12 @@ use tokio::task::JoinSet;
 
 use super::PrimaryWrites;
 use super::condition::Resends;
+use super::forward_memory::BlockCheck;
 use super::run::Planned;
 use super::scope::Outcome;
 use crate::allocator::{Assignment, Table};
 use crate::error::{ClusterError, ClusterResult, codes};
-use crate::message::{ERROR_TYPE_SUFFIX, TransportMessage, message_types};
-use crate::payload::decodable;
-use crate::payload::forward::{
-    ForwardKind, ForwardOperation, ForwardRequest, WriteFailure, decode_forward,
-    decode_forward_batch, encode_forward_answer, encode_forward_batch_answer,
-    encode_forward_refusal,
-};
+use crate::payload::forward::{ForwardKind, ForwardOperation, ForwardRequest, WriteFailure};
 
 const FNV_OFFSET_BASIS: u32 = 2_166_136_261;
 const FNV_PRIME: u32 = 16_777_619;
@@ -130,7 +125,7 @@ impl PrimaryWrites {
         }
     }
 
-    async fn refused_by_local_copy(
+    pub(super) async fn refused_by_local_copy(
         &self,
         request: &ForwardRequest,
     ) -> ClusterResult<Option<ClusterError>> {
@@ -179,6 +174,7 @@ impl PrimaryWrites {
         assignment: Option<Assignment>,
         runs: Vec<Run>,
         batch: bool,
+        block: Option<ClusterError>,
     ) -> Vec<(usize, Outcome)> {
         let mut outcomes = Vec::new();
         let mut resends = Resends::new();
@@ -188,6 +184,14 @@ impl PrimaryWrites {
                 .iter()
                 .map(|planned| planned.position)
                 .collect();
+            if let Some(block) = block.as_ref().filter(|_| run.kind != ForwardKind::Remove) {
+                outcomes.extend(
+                    positions
+                        .iter()
+                        .map(|position| (*position, Err(WriteFailure::from(block.clone())))),
+                );
+                continue;
+            }
             if let Err(error) =
                 self.checked_assignment(&index_name, partition_id, assignment.as_ref(), batch)
             {
@@ -218,10 +222,11 @@ impl PrimaryWrites {
         outcomes
     }
 
-    async fn apply_request(
+    pub(super) async fn apply_request(
         self: &Arc<Self>,
         request: ForwardRequest,
         batch: bool,
+        check: BlockCheck,
     ) -> ClusterResult<Vec<Outcome>> {
         let count = request.operations.len();
         let what = if batch {
@@ -232,6 +237,7 @@ impl PrimaryWrites {
         let Some(table) = self.routing_table(&request, batch).await? else {
             return Err(no_table(&request.index_name, what));
         };
+        let block = self.forwarded_block(&table, &request, check);
         let mut partitions = JoinSet::new();
         for (partition_id, runs) in grouped(request.operations, table.assignments.len()) {
             let assignment = table.assignments.get(f64::from(partition_id)).cloned();
@@ -242,6 +248,7 @@ impl PrimaryWrites {
                 assignment,
                 runs,
                 batch,
+                block.clone(),
             ));
         }
         let mut answered: Vec<Option<Outcome>> = (0..count).map(|_| None).collect();
@@ -276,7 +283,10 @@ impl PrimaryWrites {
     ) -> Vec<Result<(), WriteFailure>> {
         let count = request.operations.len();
         let refused = match self.refused_by_local_copy(&request).await {
-            Ok(None) => match self.apply_request(request, false).await {
+            Ok(None) => match self
+                .apply_request(request, false, BlockCheck::ClientWrite)
+                .await
+            {
                 Ok(outcomes) => return outcomes,
                 Err(error) => error,
             },
@@ -285,92 +295,5 @@ impl PrimaryWrites {
         (0..count)
             .map(|_| Err(WriteFailure::from(refused.clone())))
             .collect()
-    }
-
-    fn reply(
-        &self,
-        request: &TransportMessage,
-        message_type: String,
-        payload: Vec<u8>,
-    ) -> TransportMessage {
-        TransportMessage::new(
-            message_type,
-            self.node_id.as_str(),
-            request.request_id.as_str(),
-            payload,
-        )
-    }
-
-    fn refuse(&self, request: &TransportMessage, failure: &WriteFailure) -> TransportMessage {
-        let message_type = format!("{}{ERROR_TYPE_SUFFIX}", request.message_type);
-        self.reply(request, message_type, encode_forward_refusal(failure))
-    }
-
-    pub(crate) async fn answer_forward(
-        self: &Arc<Self>,
-        message: &TransportMessage,
-    ) -> TransportMessage {
-        let decoded = decodable(&message.payload, &message.message_type)
-            .and_then(|()| decode_forward(&message.payload));
-        let request = match decoded {
-            Ok(request) => request,
-            Err(error) => return self.refuse(message, &WriteFailure::from(error)),
-        };
-        match self.refused_by_local_copy(&request).await {
-            Ok(None) => {}
-            Ok(Some(error)) | Err(error) => {
-                return self.refuse(message, &WriteFailure::from(error));
-            }
-        }
-        let document_id = request.operations[0].document_id.clone();
-        let outcome = match self.apply_request(request, false).await {
-            Ok(mut outcomes) => outcomes.pop().unwrap_or(Ok(())),
-            Err(error) => Err(WriteFailure::from(error)),
-        };
-        match outcome {
-            Ok(()) => self.reply(
-                message,
-                message_types::REPLICATION_FORWARD.to_string(),
-                encode_forward_answer(&document_id),
-            ),
-            Err(failure) => self.refuse(message, &failure),
-        }
-    }
-
-    pub(crate) async fn answer_forward_batch(
-        self: &Arc<Self>,
-        message: &TransportMessage,
-    ) -> TransportMessage {
-        let decoded = decodable(&message.payload, &message.message_type)
-            .and_then(|()| decode_forward_batch(&message.payload));
-        let request = match decoded {
-            Ok(request) => request,
-            Err(error) => return self.refuse(message, &WriteFailure::from(error)),
-        };
-        let document_ids: Vec<String> = request
-            .operations
-            .iter()
-            .map(|operation| operation.document_id.clone())
-            .collect();
-        let outcomes = match self.refused_by_local_copy(&request).await {
-            Ok(None) => match self.apply_request(request, true).await {
-                Ok(outcomes) => outcomes,
-                Err(error) => document_ids
-                    .iter()
-                    .map(|_| Err(WriteFailure::from(error.clone())))
-                    .collect(),
-            },
-            Ok(Some(error)) => document_ids
-                .iter()
-                .map(|_| Err(WriteFailure::from(error.clone())))
-                .collect(),
-            Err(error) => return self.refuse(message, &WriteFailure::from(error)),
-        };
-        let results: Vec<(String, Outcome)> = document_ids.into_iter().zip(outcomes).collect();
-        self.reply(
-            message,
-            message_types::REPLICATION_FORWARD_BATCH.to_string(),
-            encode_forward_batch_answer(&results),
-        )
     }
 }

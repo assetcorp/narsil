@@ -9,7 +9,7 @@ use super::remote::unsent_after_window;
 use super::write::{Attempted, PendingWrite, Refused};
 use crate::data::{routed_partition, unassigned};
 use crate::error::{ClusterError, ClusterResult, codes};
-use crate::payload::forward::ForwardRequest;
+use crate::payload::forward::{ForwardKind, ForwardRequest};
 
 fn lost_metadata_during_batch(serving_name: &str, error: ClusterError) -> ClusterError {
     if error.code() != codes::INDEX_NOT_FOUND {
@@ -64,6 +64,13 @@ impl WriteRouter {
                 error
             }
         })?;
+        if !batch
+            && writes
+                .iter()
+                .any(|write| write.write.kind != ForwardKind::Remove)
+        {
+            self.require_writable(&table)?;
+        }
         let partition_count = table.assignments.len();
         let mut outcomes = Vec::with_capacity(writes.len());
         let mut here = Vec::new();

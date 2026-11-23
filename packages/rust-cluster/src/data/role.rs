@@ -14,6 +14,7 @@ use super::writes::{AllocationView, PrimaryWrites, PrimaryWritesSettings};
 use crate::controller::lock;
 use crate::coordinator::etcd::EtcdCoordinator;
 use crate::error::ClusterResult;
+use crate::memory::NodeMemory;
 use crate::message::{TransportMessage, message_types, refusal};
 use crate::node::{NodeErrorHandler, not_ready, report_failure};
 use crate::transport::{BoxFuture, NodeTransport, Respond};
@@ -80,6 +81,7 @@ impl DataRole {
     pub(crate) async fn follow_allocations(
         &self,
         transport: Arc<dyn NodeTransport>,
+        memory: Option<Arc<NodeMemory>>,
     ) -> ClusterResult<()> {
         let copies = self.settled_copies()?;
         let view = Arc::new(AllocationView::new(Arc::clone(&self.coordinator)));
@@ -95,6 +97,7 @@ impl DataRole {
             view: Arc::clone(&view),
             on_error: self.on_error.clone(),
             log_retention_bytes: self.config.log_retention_bytes,
+            memory,
         }));
         let started = AllocationWatcher::start(WatcherSettings {
             node_id: self.node_id.clone(),
@@ -212,7 +215,7 @@ impl DataRole {
         }
     }
 
-    fn settled_copies(&self) -> ClusterResult<Arc<LocalCopies>> {
+    pub(super) fn settled_copies(&self) -> ClusterResult<Arc<LocalCopies>> {
         lock(&self.settled)
             .clone()
             .ok_or_else(|| not_ready(&self.node_id))
