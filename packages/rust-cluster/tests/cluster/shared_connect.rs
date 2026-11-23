@@ -455,13 +455,25 @@ async fn an_expired_write_never_reaches_the_fallback_after_a_slow_tls_connect_fa
     let batch = batch.expect("the batch answers");
     assert!(batch.succeeded.is_empty());
     assert_eq!(batch.failed.len(), 2);
-    let mut failures = vec![single.expect_err("the single write expires")];
-    failures.extend(batch.failed.into_iter().map(|failure| failure.error));
-    for error in failures {
+    let mut failures = vec![(
+        "single".to_string(),
+        single.expect_err("the single write expires"),
+    )];
+    failures.extend(
+        batch
+            .failed
+            .into_iter()
+            .map(|failure| (failure.document_id, failure.error)),
+    );
+    for (document_id, error) in failures {
         assert_eq!(error.code(), "REPLICATION_OUTCOME_UNKNOWN");
         assert_eq!(
             error.details().get("reason").and_then(Value::as_str),
             Some("forward_window_ended")
+        );
+        assert_eq!(
+            error.details().get("docId").and_then(Value::as_str),
+            Some(document_id.as_str())
         );
     }
     eventually("the expired connection to close", || {

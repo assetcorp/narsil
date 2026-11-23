@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use narsil::Value;
 use tokio::time::Instant;
@@ -138,14 +139,28 @@ impl WriteRouter {
         };
         let operations: Vec<_> = chunk.iter().map(PendingWrite::outgoing).collect();
         let payload = encode_forward_batch_request(serving_name, index_uuid, &operations);
-        let answer = self
+        let window_ended_at_send = AtomicBool::new(false);
+        let sent = self
             .send_to_primary(
                 primary,
                 message_types::REPLICATION_FORWARD_BATCH,
                 payload,
-                || require_open_window(serving_name, first.document_id(), deadline),
+                || {
+                    let open = require_open_window(serving_name, first.document_id(), deadline);
+                    if open.is_err() {
+                        window_ended_at_send.store(true, Ordering::Release);
+                    }
+                    open
+                },
             )
-            .await?;
+            .await;
+        if sent.is_err() && window_ended_at_send.load(Ordering::Acquire) {
+            return Ok(unsent_after_window(serving_name, chunk)
+                .into_iter()
+                .map(|(_, attempted)| attempted)
+                .collect());
+        }
+        let answer = sent?;
         let decoded = decode_answer(&answer, serving_name)
             .map_err(|failure| self.refusal_from(failure, serving_name, primary).error)?;
         let results = forwarded_batch_results(&decoded)?;
