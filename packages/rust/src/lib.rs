@@ -30,7 +30,8 @@ pub mod replication {
         AppliedRun, BackupListedFile, BackupPartitionFiles, CopyChangesState, CopyEpochStates,
         CopyPosition, CopySyncState, EntryOperation, HeldTerm, NodeMemoryReading, PartitionBackup,
         PartitionCopies, PrimaryLimits, PrimaryRefusal, PrimaryRun, PrimaryWrite, PrimaryWritten,
-        PriorDocument, ReplicatedEntry, WriteRecord, read_process_memory,
+        PriorDocument, ReplicatedEntry, WriteRecord, decode_backup_index_configuration,
+        encode_backup_index_configuration, read_process_memory, require_restorable_config,
     };
     pub use crate::format::backup_manifest::{
         BackupConstraints, BackupManifest, BackupPartition, ListedFile, StoredFile,
