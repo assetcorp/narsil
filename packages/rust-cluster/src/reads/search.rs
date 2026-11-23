@@ -16,19 +16,20 @@ use super::query_conversion::{
     DistributedPage, distributed_count_is_exact, distributed_result_to_local,
 };
 use super::ranked_documents::{RankedDocumentReader, RankedRead};
+use super::rerank::rerank_cluster_query;
 use super::routable_allocation::routable_allocation;
 use super::{ReadDeps, rerun_on_newer_generation};
 use crate::allocator::Table;
 use crate::constants::DEFAULT_FACET_SIZE;
-use crate::error::{ClusterError, ClusterResult, codes};
+use crate::error::{ClusterResult, codes};
 use crate::query::fan_out::DistributedQueryConfig;
 use crate::query::routing::{QueryRouting, distributed_query};
 
-struct ClusterSearch<'a> {
-    index_name: &'a str,
-    setting_name: &'a str,
-    table: &'a Table,
-    settings: &'a VectorReadSettings,
+pub(super) struct ClusterSearch<'a> {
+    pub(super) index_name: &'a str,
+    pub(super) setting_name: &'a str,
+    pub(super) table: &'a Table,
+    pub(super) settings: &'a VectorReadSettings,
 }
 
 async fn rerun_on_lost_context<T, F, Fut>(mut run: F) -> ClusterResult<T>
@@ -58,14 +59,11 @@ pub(crate) async fn query_cluster(
                 table: &table,
                 settings: &settings,
             };
-            if params.rerank.is_some() {
-                return Err(ClusterError::new(
-                    codes::RERANK_CONFIG_INVALID,
-                    "This cluster node holds no rerank adapters",
-                ));
-            }
             let mut reader = RankedDocumentReader::new(deps, index_name, &table);
-            let answered = search_cluster(deps, &search, params, &mut reader, false).await;
+            let answered = match params.rerank {
+                Some(_) => rerank_cluster_query(deps, &search, params, &mut reader).await,
+                None => search_cluster(deps, &search, params, &mut reader, false).await,
+            };
             reader.release();
             answered
         })
@@ -73,7 +71,7 @@ pub(crate) async fn query_cluster(
     .await
 }
 
-async fn search_cluster(
+pub(super) async fn search_cluster(
     deps: &Arc<ReadDeps>,
     search: &ClusterSearch<'_>,
     params: &QueryParams,

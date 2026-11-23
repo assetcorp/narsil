@@ -13,6 +13,7 @@ pub(crate) mod preflight;
 mod projection;
 pub(crate) mod query_conversion;
 mod ranked_documents;
+mod rerank;
 mod routable_allocation;
 mod scatter;
 mod search;

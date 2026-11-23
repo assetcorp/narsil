@@ -19,14 +19,14 @@ use crate::engine::vectors::paths::value_at;
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::index::partition::Partition;
 use crate::pattern::SearchLimits;
-use crate::value::Value;
-use call::score_documents;
+use crate::value::{Map, Value};
 use finish::{StagedPage, finish_page};
-use order::{placed_hits, unordered};
-use plan::resolve_rerank;
+use order::unordered;
 
+pub(crate) use call::score_documents;
 pub(crate) use finish::AwaitingScores;
-pub(crate) use plan::rerank_query_text;
+pub(crate) use order::{placed_hits, reorder_by_rerank};
+pub(crate) use plan::{rerank_query_text, resolve_rerank};
 
 pub(crate) struct RerankRequest<'a> {
     pub(crate) embedded: EmbeddedQuery<'a>,
@@ -47,7 +47,7 @@ fn fuses_rankings(params: &QueryParams) -> bool {
     params.vector.is_some() && (params.mode == Some(SearchMode::Hybrid) || has_term(params))
 }
 
-fn first_stage_depth(
+pub(crate) fn first_stage_depth(
     hybrid_depth: Option<usize>,
     window: usize,
     cursor_depth: usize,
@@ -73,6 +73,21 @@ fn first_stage_depth(
     Ok(depth)
 }
 
+pub(crate) fn rerank_text_of(document: &Map, fields: &[String]) -> String {
+    let mut lines: Vec<&str> = Vec::new();
+    for field in fields {
+        match value_at(document, field) {
+            Some(Value::String(text)) => lines.push(text),
+            Some(Value::Array(items)) => lines.extend(items.iter().filter_map(|item| match item {
+                Value::String(text) => Some(text.as_str()),
+                _ => None,
+            })),
+            _ => {}
+        }
+    }
+    lines.join("\n")
+}
+
 fn rerank_text(
     index: &IndexState,
     partitions: &[Arc<Partition>],
@@ -88,18 +103,7 @@ fn rerank_text(
     let Some(document) = partition.snapshot().document(id)? else {
         return Ok(String::new());
     };
-    let mut lines: Vec<&str> = Vec::new();
-    for field in fields {
-        match value_at(&document, field) {
-            Some(Value::String(text)) => lines.push(text),
-            Some(Value::Array(items)) => lines.extend(items.iter().filter_map(|item| match item {
-                Value::String(text) => Some(text.as_str()),
-                _ => None,
-            })),
-            _ => {}
-        }
-    }
-    Ok(lines.join("\n"))
+    Ok(rerank_text_of(&document, fields))
 }
 
 fn cursor_depth(params: &QueryParams, binding: &str) -> Result<usize> {
