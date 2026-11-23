@@ -1,3 +1,4 @@
+mod analysis_change;
 mod config;
 mod device_sync;
 mod handle;
@@ -8,6 +9,7 @@ mod local_copies;
 mod member;
 mod not_ready;
 mod readiness;
+mod rebalance;
 mod started_at;
 mod writes;
 
