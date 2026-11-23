@@ -140,11 +140,13 @@ async function applyOperations(
   return results
 }
 
-function writesTo(record: RebalanceRecord | null, payload: ReshardForwardPayload): boolean {
+type JobTarget = Pick<ReshardForwardPayload, 'jobId' | 'targetGeneration'>
+
+function writesTo(record: RebalanceRecord | null, payload: JobTarget): boolean {
   return record?.jobId === payload.jobId && record.targetGeneration === payload.targetGeneration
 }
 
-function noRunningJob(payload: ReshardForwardPayload): NarsilError {
+function noRunningJob(payload: JobTarget): NarsilError {
   return new NarsilError(
     ErrorCodes.ALLOCATION_FAILED,
     `No partition count change '${payload.jobId}' copies documents into '${payload.targetGeneration}'`,
@@ -162,7 +164,7 @@ async function leadsTargetGeneration(deps: WriteRoutingDeps, targetGeneration: s
   return leadsAnyPartition(await deps.refreshAllocation(targetGeneration), deps.nodeId)
 }
 
-async function assertRunningJob(deps: WriteRoutingDeps, payload: ReshardForwardPayload): Promise<void> {
+async function assertRunningJob(deps: WriteRoutingDeps, payload: JobTarget): Promise<void> {
   const { coordinator } = deps
   const { targetGeneration } = payload
   if (!isHiddenGeneration(targetGeneration)) throw noRunningJob(payload)
@@ -209,6 +211,7 @@ export async function purgeReshardSource(
   engine: ReshardTargetEngine,
   payload: ReshardPurgePayload,
 ): Promise<number> {
+  await assertRunningJob(deps, payload)
   const table = await deps.coordinator.getAllocation(payload.targetGeneration)
   let removed = 0
   for (const [partitionId, assignment] of table?.assignments ?? []) {

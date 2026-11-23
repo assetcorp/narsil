@@ -5,6 +5,7 @@ mod copies;
 mod device_sync;
 mod lost_copy;
 mod memory_figures;
+mod partition_pages;
 mod partition_stores;
 mod primary_copy;
 mod queries;
