@@ -11,6 +11,9 @@ const { createEtcdCoordinator } = await load('distribution/coordinator/etcd.mjs'
 const { createTcpTransport } = await load('distribution/transport/tcp.mjs')
 
 const { registerLanguage, registerStopWords, registerTokenizer } = await load('index.mjs')
+const { encode, decode } = await import(
+  pathToFileURL(join(repositoryRoot, 'packages/ts/node_modules/@msgpack/msgpack/dist.esm/index.mjs')).href
+)
 
 function letterShape(text) {
   const letters = [...text.toLowerCase()]
@@ -121,7 +124,19 @@ const operations = {
     const result = await node.listDocuments(indexName, params)
     return { ids: result.documents.map(listed => listed.id), total: result.total, cursor: result.cursor }
   },
+  send: async ({ target, messageType, payload }) => {
+    rawMessagesSent += 1
+    const reply = await transport.send(target, {
+      type: messageType,
+      sourceId: nodeId,
+      requestId: `${nodeId}-raw-${rawMessagesSent}`,
+      payload: encode(payload),
+    })
+    return { type: reply.type, payload: decode(reply.payload) }
+  },
 }
+
+let rawMessagesSent = 0
 
 function answer(id, outcome) {
   process.stdout.write(`${JSON.stringify({ id, ...outcome })}\n`)
