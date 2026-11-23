@@ -11,6 +11,7 @@ const campaignDirectory = process.env.NARSIL_FAULT_CAMPAIGN_DIRECTORY ?? join(pa
 const REPOSITORY_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/
 const SERVER_PATTERN = /^https:\/\/[A-Za-z0-9.-]+$/
 const RUN_ID_PATTERN = /^\d+$/
+const RUST_SLOTS = /^(\d(,\d)*)?$/
 const ARTIFACT_URL_PATTERN =
   /^https:\/\/[A-Za-z0-9.-]+\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/actions\/runs\/\d+\/artifacts\/\d+$/
 const TRIAGE_LABEL = 'needs-triage'
@@ -121,6 +122,7 @@ function validOutcome(outcome) {
   if (outcome.result !== 'failed') return false
   if (outcome.carrier !== null && outcome.carrier !== 'tcp' && outcome.carrier !== 'grpc') return false
   if (outcome.tls !== null && typeof outcome.tls !== 'boolean') return false
+  if (outcome.rustSlots !== undefined && outcome.rustSlots !== null && !RUST_SLOTS.test(outcome.rustSlots)) return false
   return Array.isArray(outcome.checks) && outcome.checks.every(check => CHECK_NAMES.has(check))
 }
 
@@ -128,6 +130,19 @@ function carrierOf(outcome) {
   if (outcome.carrier === null) return 'not recorded in the log'
   const carrier = outcome.carrier === 'grpc' ? 'gRPC' : 'TCP'
   return outcome.tls === null ? carrier : `${carrier} ${outcome.tls ? 'over TLS' : 'over plain links'}`
+}
+
+function rustSlotsOf(outcome) {
+  if (outcome.rustSlots === undefined || outcome.rustSlots === null) return 'not recorded in the log'
+  return outcome.rustSlots === '' ? 'none' : outcome.rustSlots
+}
+
+function replayCommand(outcome) {
+  const rust =
+    typeof outcome.rustSlots === 'string' && outcome.rustSlots !== ''
+      ? `NARSIL_FAULT_RUST_SLOTS=${outcome.rustSlots} NARSIL_RUST_CLUSTER_NODE=../rust-server/target/debug/examples/fault_node `
+      : ''
+  return `${rust}NARSIL_FAULT_CAMPAIGN=1 NARSIL_FAULT_SEED=${outcome.seed} pnpm exec vitest run src/__tests__/e2e/cluster-faults/seeded-faults.test.ts --silent=false --reporter=verbose`
 }
 
 function checksOf(outcome) {
@@ -147,14 +162,15 @@ function newIssueBody(outcome) {
     '',
     `- Seed: ${outcome.seed}`,
     `- Carrier: ${carrierOf(outcome)}`,
+    `- Slots that ran Rust nodes: ${rustSlotsOf(outcome)}`,
     `- Failed check: ${checksOf(outcome)}`,
     `- Run: ${runUrl}`,
     `- Logs: ${logsLine()}`,
     '',
-    'Replay it from `packages/ts` after `pnpm nx run narsil-ts:build`:',
+    'Replay it from `packages/ts` after `pnpm nx run narsil-ts:build`, and after `cargo build --features cluster --example fault_node` in `packages/rust-server` when the seed ran Rust nodes:',
     '',
     '```sh',
-    `NARSIL_FAULT_CAMPAIGN=1 NARSIL_FAULT_SEED=${outcome.seed} pnpm exec vitest run src/__tests__/e2e/cluster-faults/seeded-faults.test.ts --silent=false --reporter=verbose`,
+    replayCommand(outcome),
     '```',
     '',
   ].join('\n')
