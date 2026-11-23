@@ -87,6 +87,7 @@ async fn gather_partition_counts(
                     &message,
                     &index,
                     validate_count_result_payload,
+                    false,
                 )
                 .await?;
                 Ok::<_, Failure>((group.node_id, answer))

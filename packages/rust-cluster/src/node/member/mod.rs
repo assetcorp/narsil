@@ -2,6 +2,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 
 use narsil::Value;
+use narsil::coordination::RerankHost;
 use tokio::sync::watch;
 
 use super::config::{ClusterNodeConfig, ClusterQueryConfig, report_failure};
@@ -43,6 +44,7 @@ pub(super) struct NodeInner {
     pub(super) heartbeat_interval_ms: u64,
     query: ClusterQueryConfig,
     in_flight_write_fraction: f64,
+    pub(super) rerank: Arc<RerankHost>,
     on_error: Option<NodeErrorHandler>,
     pub(super) controller: Option<Controller>,
     pub(super) data: Option<DataRole>,
@@ -72,7 +74,7 @@ pub(super) fn node_error(code: &str, message: String, node_id: &str) -> ClusterE
 }
 
 impl NodeInner {
-    pub(super) fn new(config: ClusterNodeConfig) -> NodeInner {
+    pub(super) fn new(config: ClusterNodeConfig, rerank: Arc<RerankHost>) -> NodeInner {
         let ClusterNodeConfig {
             coordinator,
             transport,
@@ -82,6 +84,7 @@ impl NodeInner {
             heartbeat_interval_ms,
             query,
             in_flight_write_fraction,
+            rerank: _,
             on_error,
         } = config;
         let controller = registration
@@ -118,6 +121,7 @@ impl NodeInner {
             heartbeat_interval_ms,
             query,
             in_flight_write_fraction,
+            rerank,
             on_error,
             controller,
             data,

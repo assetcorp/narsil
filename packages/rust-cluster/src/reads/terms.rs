@@ -101,6 +101,7 @@ pub(crate) async fn suggest_cluster(
                             &message,
                             &index,
                             validate_suggest_result_payload,
+                            false,
                         )
                         .await
                     }

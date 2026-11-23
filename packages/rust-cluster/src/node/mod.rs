@@ -12,6 +12,7 @@ mod not_ready;
 mod readiness;
 mod reads;
 mod rebalance;
+mod rerank;
 mod search;
 mod started_at;
 mod writes;
@@ -19,7 +20,9 @@ mod writes;
 pub use crate::data::DataNodeConfig;
 pub use crate::reads::{ClusterIndexStats, ClusterPartitionStats};
 pub(crate) use config::report_failure;
-pub use config::{ClusterNodeConfig, ClusterQueryConfig, ControllerTiming, NodeErrorHandler};
+pub use config::{
+    ClusterNodeConfig, ClusterQueryConfig, ClusterRerankConfig, ControllerTiming, NodeErrorHandler,
+};
 pub use handle::ClusterNode;
 pub use identity::{generate_node_id, resolve_node_id};
 pub use not_ready::not_ready_handler;

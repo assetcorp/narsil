@@ -2,6 +2,7 @@ mod analysis_view;
 mod bm25;
 mod bm25_view;
 mod counts;
+mod decode_room;
 mod every_copy;
 mod generation_routing;
 mod groups;
@@ -24,6 +25,7 @@ use std::collections::BTreeMap;
 use std::future::Future;
 use std::sync::Arc;
 
+use narsil::coordination::RerankHost;
 use narsil::{DocumentProjection, Map};
 
 pub(crate) use self::analysis_view::AnalysisView;
@@ -45,6 +47,7 @@ pub(crate) use self::vector_reads::VectorReadView;
 use crate::coordinator::etcd::EtcdCoordinator;
 use crate::data::{AllocationView, LocalReads};
 use crate::error::ClusterResult;
+use crate::memory::NodeMemory;
 use crate::node::{ClusterQueryConfig, NodeErrorHandler};
 use crate::transport::NodeTransport;
 
@@ -54,6 +57,8 @@ pub(crate) struct ReadDeps {
     pub(crate) transport: Arc<dyn NodeTransport>,
     pub(crate) view: Arc<AllocationView>,
     pub(crate) local: Option<Arc<LocalReads>>,
+    pub(crate) memory: Option<Arc<NodeMemory>>,
+    pub(crate) rerank: Arc<RerankHost>,
     pub(crate) query: ClusterQueryConfig,
     pub(crate) analysis_view: AnalysisView,
     pub(crate) bm25_view: Bm25View,
@@ -66,6 +71,8 @@ pub(crate) struct ReadSettings {
     pub(crate) transport: Arc<dyn NodeTransport>,
     pub(crate) view: Arc<AllocationView>,
     pub(crate) local: Option<Arc<LocalReads>>,
+    pub(crate) memory: Option<Arc<NodeMemory>>,
+    pub(crate) rerank: Arc<RerankHost>,
     pub(crate) query: ClusterQueryConfig,
     pub(crate) on_error: Option<NodeErrorHandler>,
 }
@@ -84,6 +91,8 @@ impl ReadDeps {
             transport: settings.transport,
             view: settings.view,
             local: settings.local,
+            memory: settings.memory,
+            rerank: settings.rerank,
             query: settings.query,
         });
         let started = async {

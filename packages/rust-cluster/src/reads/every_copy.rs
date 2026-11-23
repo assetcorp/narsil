@@ -70,6 +70,7 @@ async fn answer_of(
         &message,
         index_name,
         validate_count_result_payload,
+        false,
     )
     .await
 }
