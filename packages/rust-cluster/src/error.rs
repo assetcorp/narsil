@@ -125,6 +125,21 @@ pub mod codes {
     /// A node started without its copy of a partition that the allocation table gives it as primary or as an
     /// in-sync replica, so it waits to register until the controller fails that copy over.
     pub const NODE_COPY_MISSING: &str = "NODE_COPY_MISSING";
+    /// A second copy of an index's terms would pass the node's memory limit, so the node cannot build the analysis
+    /// that a change asks for.
+    pub const ANALYSIS_REBUILD_MEMORY_EXCEEDED: &str = "ANALYSIS_REBUILD_MEMORY_EXCEEDED";
+    /// An analysis change names a language that the node has not registered.
+    pub const LANGUAGE_NOT_SUPPORTED: &str = "LANGUAGE_NOT_SUPPORTED";
+    /// A later analysis change, or a restore, replaced the analysis change that a request asks about.
+    pub const ANALYSIS_CHANGE_REPLACED: &str = "ANALYSIS_CHANGE_REPLACED";
+    /// The cluster has a node below the specification version that changes analysis, so the index keeps its
+    /// settings until that node is upgraded.
+    pub const ANALYSIS_CHANGE_NOT_READY: &str = "ANALYSIS_CHANGE_NOT_READY";
+    /// The index is changing its partition count, so a caller tries its analysis change again once that ends.
+    pub const PARTITION_REBALANCING_BACKPRESSURE: &str = "PARTITION_REBALANCING_BACKPRESSURE";
+    /// The index kept changing while a request recorded its settings, so the request stored nothing and the caller
+    /// tries it again.
+    pub const CLUSTER_WRITE_BLOCKED: &str = "CLUSTER_WRITE_BLOCKED";
 }
 
 /// A failure of a cluster node, a transport, or a coordinator, with the code that a peer or a caller branches on.

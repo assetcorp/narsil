@@ -1,4 +1,6 @@
 mod allocation;
+mod analysis_change;
+mod analysis_metadata;
 mod bootstrap;
 mod departures;
 mod election;
