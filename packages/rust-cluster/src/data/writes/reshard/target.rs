@@ -11,43 +11,13 @@ use super::super::partition::QueueTurn;
 use super::super::run::Planned;
 use super::super::scope::{Outcome, Scope};
 use super::payloads::{ReshardForward, ReshardOperation, ReshardPurge};
+use super::running_job::JobTarget;
 use crate::allocator::Table;
 use crate::constants::RESHARD_FORWARD_BATCH_DOCUMENTS;
 use crate::error::{ClusterError, ClusterResult, codes};
 use crate::payload::forward::{ForwardKind, ForwardOperation, WriteFailure};
-use crate::rebalance::{RebalanceRecord, is_hidden_generation, read_rebalance_record};
 
 type Queued = VecDeque<(usize, ReshardOperation)>;
-
-fn writes_to(record: Option<&RebalanceRecord>, payload: &ReshardForward) -> bool {
-    record.is_some_and(|record| {
-        record.job_id == payload.job_id && record.target_generation == payload.target_generation
-    })
-}
-
-fn no_running_job(payload: &ReshardForward) -> ClusterError {
-    ClusterError::new(
-        codes::ALLOCATION_FAILED,
-        format!(
-            "No partition count change '{}' copies documents into '{}'",
-            payload.job_id, payload.target_generation
-        ),
-    )
-    .with_detail("jobId", Value::from(payload.job_id.as_str()))
-    .with_detail(
-        "targetGeneration",
-        Value::from(payload.target_generation.as_str()),
-    )
-}
-
-fn leads_any_partition(table: Option<&Table>, node_id: &str) -> bool {
-    table.is_some_and(|table| {
-        table
-            .assignments
-            .iter()
-            .any(|(_, assignment)| assignment.is_primary(node_id))
-    })
-}
 
 fn no_allocation_table(index_name: &str) -> ClusterError {
     ClusterError::new(
@@ -224,58 +194,11 @@ impl PrimaryWrites {
             .collect())
     }
 
-    async fn leads_target_generation(&self, target_generation: &str) -> ClusterResult<bool> {
-        if leads_any_partition(
-            self.view.read(target_generation).await?.as_ref(),
-            &self.node_id,
-        ) {
-            return Ok(true);
-        }
-        Ok(leads_any_partition(
-            self.view.refresh(target_generation).await?.as_ref(),
-            &self.node_id,
-        ))
-    }
-
-    async fn assert_running_job(&self, payload: &ReshardForward) -> ClusterResult<()> {
-        let target_generation = payload.target_generation.as_str();
-        if !is_hidden_generation(target_generation) {
-            return Err(no_running_job(payload));
-        }
-        if !self.leads_target_generation(target_generation).await? {
-            return Err(no_running_job(payload));
-        }
-        let known = self
-            .reshard
-            .with(|held| held.public_names.get(target_generation).cloned());
-        if let Some(known) = known {
-            let record = read_rebalance_record(&self.coordinator, &known).await?;
-            if writes_to(record.as_ref(), payload) {
-                return Ok(());
-            }
-            return Err(no_running_job(payload));
-        }
-        for name in self.coordinator.list_schemas().await? {
-            if is_hidden_generation(&name) {
-                continue;
-            }
-            let record = read_rebalance_record(&self.coordinator, &name).await?;
-            if writes_to(record.as_ref(), payload) {
-                self.reshard.with(|held| {
-                    held.public_names
-                        .insert(target_generation.to_string(), name)
-                });
-                return Ok(());
-            }
-        }
-        Err(no_running_job(payload))
-    }
-
     pub(super) async fn apply_reshard_forward(
         self: &Arc<Self>,
         payload: ReshardForward,
     ) -> ClusterResult<Vec<(String, Outcome)>> {
-        self.assert_running_job(&payload).await?;
+        self.assert_running_job(JobTarget::from(&payload)).await?;
         let key = (payload.job_id.clone(), payload.source_partition_id);
         let below = self.reshard.with(|held| {
             let accepted = held.accepted_terms.get(&key).copied().unwrap_or(0);
@@ -316,6 +239,7 @@ impl PrimaryWrites {
         self: &Arc<Self>,
         payload: ReshardPurge,
     ) -> ClusterResult<u64> {
+        self.assert_running_job(JobTarget::from(&payload)).await?;
         let table = self.view.read(&payload.target_generation).await?;
         let led: Vec<u32> = table
             .iter()
