@@ -185,8 +185,6 @@ pub mod codes {
     pub const PERSISTENCE_LOAD_FAILED: &str = "PERSISTENCE_LOAD_FAILED";
     /// An index's settings changed while its partitions were backed up.
     pub const ANALYSIS_CHANGE_NOT_READY: &str = "ANALYSIS_CHANGE_NOT_READY";
-    /// A partition count change of the index runs, so the request waits until it ends.
-    pub const PARTITION_REBALANCING_BACKPRESSURE: &str = "PARTITION_REBALANCING_BACKPRESSURE";
     /// The cluster already holds an index under the name that a restore asks for.
     pub const INDEX_ALREADY_EXISTS: &str = "INDEX_ALREADY_EXISTS";
 }
