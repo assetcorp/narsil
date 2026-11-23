@@ -4,7 +4,7 @@ use super::changes::analysis::{
     AnalysisChange, AnalysisTarget, config_under, holds_target, pending_of, pending_target,
     resolve_target,
 };
-use super::changes::drive::{DriveHooks, rebuild_and_switch};
+use super::changes::drive::{DriveHooks, HoldBeforeSwitch, rebuild_and_switch};
 use super::changes::rebuild::Rebuild;
 use super::changes::switch::{LayoutSwitch, switch_layout};
 use super::changes::{ChangeKind, ChangeTicket};
@@ -32,7 +32,7 @@ fn recorded_pending(index: &IndexState) -> Option<PendingAnalysis> {
 
 /// Records `pending` as the analysis change that the index's metadata file holds, under the index's write lock so
 /// that no other metadata write of the index runs in between.
-fn record_pending(index: &IndexState, pending: Option<PendingAnalysis>) -> Result<()> {
+pub(super) fn record_pending(index: &IndexState, pending: Option<PendingAnalysis>) -> Result<()> {
     let Some(log) = index.log() else {
         return Ok(());
     };
@@ -60,7 +60,7 @@ fn next_generation(index: &IndexState) -> u64 {
         .saturating_add(1)
 }
 
-fn rebuild_event(
+pub(super) fn rebuild_event(
     index: &IndexState,
     status: WorkStatus,
     partitions_rebuilt: usize,
@@ -77,9 +77,13 @@ fn rebuild_event(
 
 /// The result of one rebuild, with the event that reports how it ended, which the caller raises once it frees the
 /// index's change slot, so that a listener of that event can start another change.
-type Finished<T> = (T, Option<NarsilEvent>);
+pub(super) type Finished<T> = (T, Option<NarsilEvent>);
 
-fn announce<T>(engine: &EngineInner, ticket: ChangeTicket<'_>, (result, event): Finished<T>) -> T {
+pub(super) fn announce<T>(
+    engine: &EngineInner,
+    ticket: ChangeTicket<'_>,
+    (result, event): Finished<T>,
+) -> T {
     drop(ticket);
     if let Some(event) = event {
         engine.events.emit(event);
@@ -108,13 +112,14 @@ fn refused_during_rebalance(index_name: &str) -> NarsilError {
 
 /// Rebuilds the terms of `index` under `target` while the index keeps answering searches from its old terms, and
 /// switches to the new terms once they hold every write. A change of settings records `generation` as the
-/// analysis that the new terms come from.
-fn rebuild_under(
+/// analysis that the new terms come from, and `hold_before_switch` keeps the new terms aside until it returns.
+pub(super) fn rebuild_under(
     engine: &EngineInner,
     index: &IndexState,
     ticket: &ChangeTicket<'_>,
     target: &AnalysisTarget,
     generation: Option<u64>,
+    hold_before_switch: Option<&HoldBeforeSwitch<'_>>,
 ) -> Finished<Result<(), SwitchFailure>> {
     let partition_count = index.partitions().len();
     engine
@@ -166,6 +171,7 @@ fn rebuild_under(
     let hooks = DriveHooks {
         progress: &mut progress,
         interrupted: &interrupted,
+        hold_before_switch,
         switch: &mut switch,
     };
     let outcome = rebuild_and_switch(&rebuild, hooks);
@@ -200,7 +206,14 @@ fn resume(
             return (Err(error), Some(event));
         }
     };
-    let (outcome, event) = rebuild_under(engine, index, ticket, &target, Some(pending.generation));
+    let (outcome, event) = rebuild_under(
+        engine,
+        index,
+        ticket,
+        &target,
+        Some(pending.generation),
+        None,
+    );
     (outcome.map_err(SwitchFailure::into_error), event)
 }
 
@@ -238,7 +251,7 @@ fn change_index_analysis(
     }
     let generation = next_generation(index);
     record_pending(index, Some(pending_of(&target, generation)))?;
-    let (outcome, event) = rebuild_under(engine, index, &ticket, &target, Some(generation));
+    let (outcome, event) = rebuild_under(engine, index, &ticket, &target, Some(generation), None);
     let result = match outcome {
         Ok(()) => Ok(()),
         Err(failure) => {
@@ -273,7 +286,7 @@ fn rebuild_index_analysis(engine: &EngineInner, index: &IndexState) -> Result<()
         stop_words: config.stop_words.clone(),
         analyser: index.analyser(),
     };
-    let (outcome, event) = rebuild_under(engine, index, &ticket, &target, None);
+    let (outcome, event) = rebuild_under(engine, index, &ticket, &target, None, None);
     announce(
         engine,
         ticket,

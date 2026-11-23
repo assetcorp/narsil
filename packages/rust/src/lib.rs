@@ -19,6 +19,10 @@ mod ordering;
 mod pattern;
 mod pins;
 #[doc(hidden)]
+pub mod held_analysis {
+    pub use crate::engine::{HeldAnalysisChanges, PendingAnalysisChange};
+}
+#[doc(hidden)]
 pub mod replication {
     pub use crate::engine::replication::{
         AppliedRun, BackupListedFile, BackupPartitionFiles, CopyChangesState, CopyEpochStates,
