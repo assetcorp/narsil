@@ -107,6 +107,7 @@ impl NodeInner {
                 Arc::clone(&coordinator),
                 settings,
                 on_error.clone(),
+                backups.clone(),
             )
         });
         NodeInner {

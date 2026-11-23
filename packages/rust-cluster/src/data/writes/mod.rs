@@ -1,3 +1,4 @@
+mod backup_restore;
 mod catch_up;
 mod commit;
 mod condition;
@@ -25,6 +26,7 @@ use std::time::Duration;
 
 use tokio::sync::{Semaphore, watch};
 
+pub(crate) use self::backup_restore::StoredPartitionFiles;
 use self::catch_up::{SnapshotSlots, catch_up_budget};
 use self::copy_failure::CopyFailures;
 pub(crate) use self::errors::abandoned_with_term;
