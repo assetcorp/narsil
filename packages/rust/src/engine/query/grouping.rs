@@ -48,7 +48,7 @@ fn layout_exceeded() -> NarsilError {
     )
 }
 
-fn hits_kept_per_group(max_per_group: Option<usize>) -> usize {
+pub(crate) fn hits_kept_per_group(max_per_group: Option<usize>) -> usize {
     max_per_group
         .filter(|kept| *kept >= 1)
         .unwrap_or(DEFAULT_MAX_PER_GROUP)

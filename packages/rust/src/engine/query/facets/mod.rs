@@ -169,3 +169,51 @@ pub(crate) fn count_facets(
     }
     Ok(results)
 }
+
+pub(crate) struct MergedBuckets {
+    pub(crate) buckets: Vec<(String, u32)>,
+    pub(crate) error_bound: u32,
+}
+
+pub(crate) fn merge_bucket_lists(
+    lists: &[Vec<(String, u32)>],
+    bounds: &[u32],
+    ascending: bool,
+    limit: Option<usize>,
+) -> Result<MergedBuckets> {
+    let mut buckets = BucketLists::default();
+    for list in lists {
+        buckets.add(list.iter().cloned());
+    }
+    if buckets.offsets.is_empty() {
+        buckets.offsets.push(0);
+    }
+    let mut ordered: Vec<u32> = (0..buckets.labels.len() as u32).collect();
+    ordered.sort_by(|left, right| {
+        buckets.labels[*left as usize].cmp(&buckets.labels[*right as usize])
+    });
+    let mut ranks = vec![0u32; buckets.labels.len()];
+    for (rank, key) in ordered.into_iter().enumerate() {
+        ranks[key as usize] = rank as u32;
+    }
+    let merged = merge_facet_lists(
+        &FacetLists {
+            offsets: buckets.offsets,
+            keys: buckets.keys,
+            counts: buckets.counts,
+            bounds: bounds.to_vec(),
+            ranks,
+        },
+        ascending,
+        limit,
+    )?;
+    Ok(MergedBuckets {
+        buckets: merged
+            .keys
+            .iter()
+            .zip(&merged.counts)
+            .map(|(key, count)| (buckets.labels[*key as usize].clone(), *count))
+            .collect(),
+        error_bound: merged.error_bound,
+    })
+}

@@ -50,14 +50,26 @@ pub(crate) struct WireBatch {
 
 impl WireBatch {
     fn with_refusals(refused: Vec<WireFailure>, result: BatchResult) -> WireBatch {
-        let mut failed = refused;
-        failed.extend(result.failed.into_iter().map(|failure| WireFailure {
-            doc_id: Value::String(failure.doc_id),
-            error: ServerError::from(failure.error),
+        let failed = result
+            .failed
+            .into_iter()
+            .map(|failure| (failure.doc_id, ServerError::from(failure.error)));
+        WireBatch::of(refused, result.succeeded, failed)
+    }
+
+    pub(crate) fn of(
+        refused: Vec<WireFailure>,
+        succeeded: Vec<String>,
+        failed: impl IntoIterator<Item = (String, ServerError)>,
+    ) -> WireBatch {
+        let mut all_failed = refused;
+        all_failed.extend(failed.into_iter().map(|(doc_id, error)| WireFailure {
+            doc_id: Value::String(doc_id),
+            error,
         }));
         WireBatch {
-            succeeded: result.succeeded,
-            failed,
+            succeeded,
+            failed: all_failed,
         }
     }
 
@@ -101,24 +113,37 @@ fn document_refusal(entry: &Value) -> ServerError {
     .with_details(details)
 }
 
-fn insert_all(engine: &Narsil, index: &str, entries: Vec<Value>) -> narsil::Result<WireBatch> {
-    let mut documents = Vec::with_capacity(entries.len());
+pub(crate) struct SplitEntries<T> {
+    pub(crate) accepted: Vec<T>,
+    pub(crate) refused: Vec<WireFailure>,
+}
+
+pub(crate) fn split_documents(
+    engine: &Narsil,
+    entries: Vec<Value>,
+) -> narsil::Result<SplitEntries<Map>> {
+    let mut accepted = Vec::with_capacity(entries.len());
     let mut refused = Vec::new();
     for entry in entries {
         match entry {
-            Value::Object(document) => documents.push(document),
+            Value::Object(document) => accepted.push(document),
             other => refused.push(WireFailure {
                 doc_id: Value::String(engine.new_document_id()?),
                 error: document_refusal(&other),
             }),
         }
     }
-    let result = engine.insert_batch(index, documents)?;
+    Ok(SplitEntries { accepted, refused })
+}
+
+fn insert_all(engine: &Narsil, index: &str, entries: Vec<Value>) -> narsil::Result<WireBatch> {
+    let SplitEntries { accepted, refused } = split_documents(engine, entries)?;
+    let result = engine.insert_batch(index, accepted)?;
     Ok(WireBatch::with_refusals(refused, result))
 }
 
-fn update_all(engine: &Narsil, index: &str, entries: Vec<Value>) -> narsil::Result<WireBatch> {
-    let mut updates = Vec::with_capacity(entries.len());
+pub(crate) fn split_updates(entries: Vec<Value>) -> SplitEntries<(String, Map)> {
+    let mut accepted = Vec::with_capacity(entries.len());
     let mut refused = Vec::new();
     for mut entry in entries {
         let doc_id = match take_field(&mut entry, "docId") {
@@ -130,7 +155,7 @@ fn update_all(engine: &Narsil, index: &str, entries: Vec<Value>) -> narsil::Resu
             _ => None,
         };
         match (doc_id, document) {
-            (Some(doc_id), Some(document)) => updates.push((doc_id, document)),
+            (Some(doc_id), Some(document)) => accepted.push((doc_id, document)),
             (doc_id, _) => refused.push(WireFailure {
                 doc_id: Value::String(doc_id.unwrap_or_default()),
                 error: ServerError::coded(
@@ -140,23 +165,33 @@ fn update_all(engine: &Narsil, index: &str, entries: Vec<Value>) -> narsil::Resu
             }),
         }
     }
-    let result = engine.update_batch(index, updates)?;
+    SplitEntries { accepted, refused }
+}
+
+fn update_all(engine: &Narsil, index: &str, entries: Vec<Value>) -> narsil::Result<WireBatch> {
+    let SplitEntries { accepted, refused } = split_updates(entries);
+    let result = engine.update_batch(index, accepted)?;
     Ok(WireBatch::with_refusals(refused, result))
 }
 
-fn remove_all(engine: &Narsil, index: &str, entries: Vec<Value>) -> narsil::Result<WireBatch> {
-    let mut doc_ids = Vec::with_capacity(entries.len());
+pub(crate) fn split_removals(entries: Vec<Value>) -> SplitEntries<String> {
+    let mut accepted = Vec::with_capacity(entries.len());
     let mut refused = Vec::new();
     for entry in entries {
         match entry {
-            Value::String(doc_id) => doc_ids.push(doc_id),
+            Value::String(doc_id) => accepted.push(doc_id),
             other => refused.push(WireFailure {
                 error: id_refusal(&other),
                 doc_id: other,
             }),
         }
     }
-    let result = engine.remove_batch(index, doc_ids)?;
+    SplitEntries { accepted, refused }
+}
+
+fn remove_all(engine: &Narsil, index: &str, entries: Vec<Value>) -> narsil::Result<WireBatch> {
+    let SplitEntries { accepted, refused } = split_removals(entries);
+    let result = engine.remove_batch(index, accepted)?;
     Ok(WireBatch::with_refusals(refused, result))
 }
 

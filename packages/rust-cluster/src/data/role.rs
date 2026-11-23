@@ -8,9 +8,10 @@ use super::blocking::off_executor;
 use super::config::DataNodeConfig;
 use super::copies::LocalCopies;
 use super::device_sync::DeviceSyncView;
+use super::local_reads::{LocalReadHandles, LocalReads};
 use super::lost_copy::LostCopyWait;
 use super::partition_stores::{partition_stores_answer, requested_index};
-use super::queries::{QueryDeps, answer_query, answers_query};
+use super::queries::answers_query;
 use super::reconcile::settle_local_indexes;
 use super::search_contexts::SearchContexts;
 use super::watcher::{AllocationWatcher, WatcherSettings};
@@ -195,29 +196,16 @@ impl DataRole {
                 | message_types::REPLICATION_SYNC_REQUEST
                 | message_types::SYNC_READ
                 | message_types::CLUSTER_REBUILD_ANALYSIS
+                | message_types::CLUSTER_RESHARD_START
+                | message_types::CLUSTER_RESHARD_FORWARD
+                | message_types::CLUSTER_RESHARD_CUTOVER
+                | message_types::CLUSTER_RESHARD_PURGE
         ) || answers_query(message_type)
     }
 
     async fn answer_query_message(&self, message: &TransportMessage) -> TransportMessage {
-        let deps = match (
-            self.settled_copies(),
-            self.primary_writes(),
-            self.analysis_changes(),
-        ) {
-            (Ok(copies), Ok(writes), Ok(analysis)) => QueryDeps {
-                node_id: &self.node_id,
-                copies,
-                view: writes.view(),
-                contexts: Arc::clone(&self.search_contexts),
-                analysis,
-                memory: writes.memory(),
-            },
-            (Err(error), _, _) | (_, Err(error), _) | (_, _, Err(error)) => {
-                return refusal(message, &self.node_id, &error);
-            }
-        };
-        match answer_query(&deps, message).await {
-            Ok(reply) => reply,
+        match self.local_reads() {
+            Ok(reads) => reads.answer(message).await,
             Err(error) => refusal(message, &self.node_id, &error),
         }
     }
@@ -279,6 +267,13 @@ impl DataRole {
                     Err(error) => refusal(&message, &self.node_id, &error),
                 }
             }
+            message_types::CLUSTER_RESHARD_START
+            | message_types::CLUSTER_RESHARD_FORWARD
+            | message_types::CLUSTER_RESHARD_CUTOVER
+            | message_types::CLUSTER_RESHARD_PURGE => match self.primary_writes() {
+                Ok(writes) => writes.answer_reshard(&message).await,
+                Err(error) => refusal(&message, &self.node_id, &error),
+            },
             _ => match self.answer_partition_stores(&message).await {
                 Ok(reply) => reply,
                 Err(error) => refusal(&message, &self.node_id, &error),
@@ -293,6 +288,16 @@ impl DataRole {
             .await
             .as_ref()
             .map_or(0, AllocationWatcher::unserved_partition_count)
+    }
+
+    pub(crate) fn local_reads(&self) -> ClusterResult<Arc<LocalReads>> {
+        Ok(Arc::new(LocalReads::new(LocalReadHandles {
+            node_id: self.node_id.clone(),
+            copies: self.settled_copies()?,
+            writes: self.primary_writes()?,
+            contexts: Arc::clone(&self.search_contexts),
+            analysis: self.analysis_changes()?,
+        })))
     }
 
     pub(crate) fn primary_writes(&self) -> ClusterResult<Arc<PrimaryWrites>> {
