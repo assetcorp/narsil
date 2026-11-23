@@ -95,7 +95,7 @@ async fn multi_get(state: &Arc<ServerState>, context: &RouteContext) -> Outcome<
     Ok(documents_answer(documents))
 }
 
-fn not_found(doc_id: &str) -> ServerError {
+pub(crate) fn not_found(doc_id: &str) -> ServerError {
     let mut details = Map::new();
     details.insert("docId", text(doc_id));
     ServerError::coded(
