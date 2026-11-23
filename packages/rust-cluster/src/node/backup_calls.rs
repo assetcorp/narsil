@@ -1,27 +1,11 @@
-use narsil::Value;
-
 use super::handle::ClusterNode;
-use super::member::Phase;
 use crate::backups::{
     BackupListing, BackupProgressHandler, BackupSummary, CreateBackupOptions, RestoreBackupOptions,
     list_backups, request_backup, request_backup_deletion, request_restore, require_backup_store,
 };
-use crate::controller::lock;
-use crate::error::{ClusterError, ClusterResult, codes};
+use crate::error::ClusterResult;
 
 impl ClusterNode {
-    fn refuse_after_shutdown(&self) -> ClusterResult<()> {
-        if *lock(&self.inner.phase) != Phase::Shutdown {
-            return Ok(());
-        }
-        let node_id = self.node_id();
-        Err(ClusterError::new(
-            codes::NODE_NOT_JOINED,
-            format!("Cluster node '{node_id}' has been shut down"),
-        )
-        .with_detail("nodeId", Value::from(node_id)))
-    }
-
     /// Backs up every partition of `index_name` under `backup_name` in the cluster's backup store, and returns the
     /// summary of the stored backup once the controller has written its manifest.
     ///
@@ -40,13 +24,16 @@ impl ClusterNode {
         backup_name: &str,
         options: &CreateBackupOptions,
     ) -> ClusterResult<BackupSummary> {
-        let guard = || self.refuse_after_shutdown();
-        request_backup(
-            &self.inner.backups.requests,
-            &guard,
-            index_name,
-            backup_name,
-            options,
+        let guard = || self.guard_shutdown();
+        self.track(
+            None,
+            request_backup(
+                &self.inner.backups.requests,
+                &guard,
+                index_name,
+                backup_name,
+                options,
+            ),
         )
         .await
     }
@@ -68,8 +55,12 @@ impl ClusterNode {
         backup_name: &str,
         options: &RestoreBackupOptions,
     ) -> ClusterResult<BackupSummary> {
-        let guard = || self.refuse_after_shutdown();
-        request_restore(&self.inner.backups.requests, &guard, backup_name, options).await
+        let guard = || self.guard_shutdown();
+        self.track(
+            None,
+            request_restore(&self.inner.backups.requests, &guard, backup_name, options),
+        )
+        .await
     }
 
     /// Deletes the backup stored under `backup_name`, along with every stored file that no other backup lists.
@@ -85,12 +76,15 @@ impl ClusterNode {
         backup_name: &str,
         on_progress: Option<&BackupProgressHandler>,
     ) -> ClusterResult<()> {
-        let guard = || self.refuse_after_shutdown();
-        request_backup_deletion(
-            &self.inner.backups.requests,
-            &guard,
-            backup_name,
-            on_progress,
+        let guard = || self.guard_shutdown();
+        self.track(
+            None,
+            request_backup_deletion(
+                &self.inner.backups.requests,
+                &guard,
+                backup_name,
+                on_progress,
+            ),
         )
         .await
     }
@@ -103,7 +97,10 @@ impl ClusterNode {
     /// Fails with `BACKUP_STORE_NOT_CONFIGURED` where the node has no backup store, and with the store's error
     /// where a read fails.
     pub async fn list_backups(&self) -> ClusterResult<Vec<BackupListing>> {
-        let store = require_backup_store(self.inner.backups.store())?.clone();
-        store.run(list_backups).await
+        self.track(None, async {
+            let store = require_backup_store(self.inner.backups.store())?.clone();
+            store.run(list_backups).await
+        })
+        .await
     }
 }
