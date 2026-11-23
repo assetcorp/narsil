@@ -114,7 +114,7 @@ impl AllocationView {
         table.clone()
     }
 
-    pub(super) async fn read_live(&self, index_name: &str) -> ClusterResult<Option<Table>> {
+    pub(crate) async fn read_live(&self, index_name: &str) -> ClusterResult<Option<Table>> {
         let Some(stored) = self.coordinator.allocation(index_name).await? else {
             lock(&self.tables).remove(index_name);
             return Ok(None);

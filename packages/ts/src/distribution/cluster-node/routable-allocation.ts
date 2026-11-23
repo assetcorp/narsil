@@ -35,3 +35,18 @@ export async function routableAllocation(
     { indexName },
   )
 }
+
+export type LiveAllocationReader = (indexName: string) => Promise<AllocationTable | null>
+
+export async function liveAllocationOnce(
+  readLive: LiveAllocationReader | undefined,
+  indexName: string,
+): Promise<AllocationTable | null> {
+  if (readLive === undefined) return null
+  try {
+    const live = await readLive(indexName)
+    return live !== null && live.assignments.size > 0 ? live : null
+  } catch (_) {
+    return null
+  }
+}
