@@ -7,6 +7,7 @@ const VECTOR_TYPE_END: &str = "]";
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct VectorReadSettings {
+    pub(crate) schema: Value,
     pub(crate) vector_fields: Vec<Vec<String>>,
     pub(crate) return_vectors: bool,
 }

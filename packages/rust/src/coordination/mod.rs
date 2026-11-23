@@ -1,5 +1,6 @@
 mod groups;
 mod hybrid;
+mod rerank;
 
 use std::cmp::Ordering;
 
@@ -9,6 +10,10 @@ pub use groups::{
 pub use hybrid::{
     HYBRID_VECTOR_RESCORE_WINDOW, HybridFusion, PositionedPage, fuse_hybrid_rankings, hybrid_depth,
     page_hybrid_by_position, require_hybrid_page_within, resolve_hybrid_fusion,
+};
+pub use rerank::{
+    CheckedRerank, check_rerank, page_hits_by_position, place_pinned_hits, reorder_hits_by_rerank,
+    rerank_first_stage_depth, rerank_text, score_with_rerank_adapter,
 };
 
 use crate::config::{Bm25Params, validate_bm25_params};
