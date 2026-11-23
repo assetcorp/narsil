@@ -128,6 +128,9 @@ fn drive_held(engine: &EngineInner, index: &IndexState, run: &HeldRun) -> Result
     let ticket = index
         .changes
         .claim(ChangeKind::Analysis, &index.name, true)?;
+    if run.is_stopped() {
+        return announce(engine, ticket, (Err(replaced(&index.name)), None));
+    }
     let finished = {
         let target = pending_target(engine, index, &run.pending);
         let checked = target.and_then(|target| {
@@ -176,8 +179,12 @@ fn start_held_run(
     let synonyms = index.synonym_set();
     prepare_synonyms(Some(synonyms.rules.as_slice()), &target.analyser, true, "")?;
     require_analysis_rebuild_memory(&index.name, text_bytes(index))?;
-    let run = Arc::new(HeldRun::new(pending));
-    if let Some(previous) = index.changes.hold_run(Arc::clone(&run)) {
+    let started = Arc::new(HeldRun::new(pending));
+    let (run, replaced) = index.changes.hold_run(Arc::clone(&started));
+    if !Arc::ptr_eq(&run, &started) {
+        return Ok(Some(run));
+    }
+    if let Some(previous) = replaced {
         previous.stop();
     }
     let thread_engine = Arc::clone(engine);
@@ -241,20 +248,23 @@ pub(crate) fn drop_held_analysis(engine: &EngineInner, name: &str) -> Result<()>
     let Some(index) = engine.open_index_named(name) else {
         return Ok(());
     };
-    if let Some(run) = index.changes.held_run() {
+    let held = index.changes.held_run();
+    if let Some(run) = &held {
         run.stop();
-        let _ = run.wait_finished();
     }
     let ticket = match index.changes.claim(ChangeKind::Analysis, &index.name, true) {
         Ok(ticket) => Some(ticket),
         Err(error) if error.code() == ErrorCode::PARTITION_REBALANCING_BACKPRESSURE => None,
         Err(error) => return Err(error),
     };
-    if index.is_retired() {
-        return Ok(());
-    }
-    let cleared = record_pending(&index, None);
+    let cleared = match index.is_retired() {
+        true => Ok(()),
+        false => record_pending(&index, None),
+    };
     drop(ticket);
+    if let Some(run) = held {
+        let _ = run.wait_finished();
+    }
     cleared
 }
 
