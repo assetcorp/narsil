@@ -18,6 +18,8 @@ mod settings;
 mod state;
 mod tasks;
 
+#[cfg(feature = "cluster")]
+pub use cluster::ClusterOptions;
 pub use errors::{http_status_for_code, server_codes};
 pub use options::{
     BoxError, BoxFuture, BuildInfo, CorsOptions, FeedOptions, QueryIdentify, QueryIdentity,

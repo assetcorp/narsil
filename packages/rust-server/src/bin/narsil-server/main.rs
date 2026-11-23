@@ -160,8 +160,9 @@ async fn run_cluster(
     options: ServerOptions,
     host: &str,
 ) -> Result<(), String> {
+    let cluster_options = launch.cluster_options.clone();
     let started = launch.start().await?;
-    let served = match NarsilServer::cluster(Arc::clone(&started.node), options) {
+    let served = match NarsilServer::cluster(Arc::clone(&started.node), cluster_options, options) {
         Ok(server) => serve(server, host).await,
         Err(failure) => {
             started.node.shutdown().await;

@@ -30,7 +30,10 @@ use crate::state::{
 use crate::tasks::{InMemoryTaskStore, TaskRegistry};
 
 #[cfg(feature = "cluster")]
-type ClusterHandle = Arc<narsil_cluster::node::ClusterNode>;
+type ClusterHandle = (
+    Arc<narsil_cluster::node::ClusterNode>,
+    crate::cluster::ClusterOptions,
+);
 
 #[cfg(not(feature = "cluster"))]
 enum ClusterHandle {}
@@ -73,7 +76,8 @@ impl NarsilServer {
     /// with `CLUSTER_OPERATION_UNSUPPORTED` and status 501, the way a TypeScript server that fronts a cluster node
     /// does, and [`NarsilServer::shutdown`] also shuts the node down, while the coordinator and the transport stay
     /// open for the caller to close. The limits that depend on an engine come from an in-memory engine that holds
-    /// no index.
+    /// no index, and `cluster_options` sets the partition count, the replication factor, and the serving wait of
+    /// every index that the server creates.
     ///
     /// # Errors
     ///
@@ -81,9 +85,14 @@ impl NarsilServer {
     #[cfg(feature = "cluster")]
     pub fn cluster(
         node: Arc<narsil_cluster::node::ClusterNode>,
+        cluster_options: crate::cluster::ClusterOptions,
         options: ServerOptions,
     ) -> Result<NarsilServer, NarsilError> {
-        NarsilServer::fronting(Arc::new(Narsil::new()), options, Some(node))
+        NarsilServer::fronting(
+            Arc::new(Narsil::new()),
+            options,
+            Some((node, cluster_options)),
+        )
     }
 
     fn fronting(
@@ -116,6 +125,11 @@ impl NarsilServer {
             limits.max_concurrent_tasks,
         ));
         let max_requests = usize::try_from(limits.max_concurrent_requests).unwrap_or(usize::MAX);
+        #[cfg(feature = "cluster")]
+        let (cluster, cluster_options) = match cluster {
+            Some((node, cluster_options)) => (Some(node), cluster_options),
+            None => (None, crate::cluster::ClusterOptions::default()),
+        };
         let state = ServerState {
             engine,
             tasks,
@@ -141,6 +155,8 @@ impl NarsilServer {
             limits,
             #[cfg(feature = "cluster")]
             cluster,
+            #[cfg(feature = "cluster")]
+            cluster_options,
         };
         #[cfg(not(feature = "cluster"))]
         let None = cluster;
