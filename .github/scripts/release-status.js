@@ -26,6 +26,7 @@ const PUBLISHED_PACKAGES = [
   { name: 'narsil-client', tagPrefix: 'narsil-python@v', paths: ['packages/python'] },
   { name: 'delali-narsil on crates.io', tagPrefix: 'narsil-rust@v', paths: ['packages/rust', ...NATIVE_CORE_SOURCES] },
   { name: 'delali-narsil-server on crates.io', tagPrefix: 'narsil-rust-server@v', paths: ['packages/rust-server'] },
+  { name: 'delali-narsil-cluster on crates.io', tagPrefix: 'narsil-rust-cluster@v', paths: ['packages/rust-cluster'] },
   {
     name: 'delali-narsil on PyPI',
     tagPrefix: 'narsil-python-engine@v',
@@ -68,12 +69,12 @@ function newestStableTag(tagPrefix) {
 
 function statusOf(published) {
   const tag = newestStableTag(published.tagPrefix)
-  if (tag === null) {
+  if (tag === null && git(['tag', '--list']).trim() === '') {
     throw new Error(
-      `No ${published.tagPrefix}X.Y.Z tag is in this clone, so fetch every tag before you list the release status of ${published.name}`,
+      `No release tag is in this clone, so fetch every tag before you list the release status of ${published.name}`,
     )
   }
-  const range = `${tag}..HEAD`
+  const range = tag === null ? 'HEAD' : `${tag}..HEAD`
   const pathspec = ['--', ...published.paths, CHANGELOGS]
   const count = Number(git(['rev-list', '--count', range, ...pathspec]).trim())
   const commits = git(['log', `--max-count=${LISTED_COMMITS_PER_PACKAGE}`, '--format=%h %s', range, ...pathspec])
@@ -90,9 +91,14 @@ function markdown(statuses) {
     return `${lines.join('\n')}\n`
   }
   lines.push('| Package | Last release tag | Commits since |', '|---|---|---|')
-  for (const status of unreleased) lines.push(`| \`${status.name}\` | \`${status.tag}\` | ${status.count} |`)
   for (const status of unreleased) {
-    lines.push('', `### \`${status.name}\` since \`${status.tag}\``, '')
+    lines.push(
+      `| \`${status.name}\` | ${status.tag === null ? 'never released' : `\`${status.tag}\``} | ${status.count} |`,
+    )
+  }
+  for (const status of unreleased) {
+    const heading = status.tag === null ? 'with no release yet' : `since \`${status.tag}\``
+    lines.push('', `### \`${status.name}\` ${heading}`, '')
     for (const commit of status.commits) lines.push(`- ${commit.replaceAll('|', '\\|')}`)
     if (status.count > status.commits.length)
       lines.push(`- and ${status.count - status.commits.length} earlier commits`)
