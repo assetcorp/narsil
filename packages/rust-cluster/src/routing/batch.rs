@@ -28,8 +28,13 @@ impl WriteRouter {
         writes: Vec<ClientWrite>,
         batch: bool,
     ) -> ClusterResult<Vec<Result<(), ClusterError>>> {
+        let _admitted = self.admit(index_name, &writes)?;
         let serving_name: Arc<str> = Arc::from(self.serving_name(index_name).await?);
         let table = self.routable_table(&serving_name).await?;
+        let writes_documents = writes.iter().any(|write| write.kind != ForwardKind::Remove);
+        if writes_documents {
+            self.require_writable(&table)?;
+        }
         let count = writes.len();
         let settles_as_equal = writes
             .first()

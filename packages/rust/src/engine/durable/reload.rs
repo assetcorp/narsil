@@ -112,7 +112,7 @@ pub(crate) fn segment_bytes_held(
     }
 }
 
-fn reserve_segment_memory(
+pub(super) fn reserve_segment_memory(
     store: &dyn CheckpointSource,
     memory: &MemoryGuard,
     index: &IndexState,
@@ -126,7 +126,7 @@ fn reserve_segment_memory(
     reserve_reload_memory(memory, index, entry.partition_id, decoded_bytes)
 }
 
-fn attach_checkpoint_vectors(
+pub(super) fn attach_checkpoint_vectors(
     store: &dyn CheckpointSource,
     memory: &MemoryGuard,
     index: &IndexState,

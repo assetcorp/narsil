@@ -126,7 +126,7 @@ async fn a_panicking_error_callback_does_not_abandon_controller_election() {
                 )
                 .await
                 .expect("the controller listener answers");
-            if support::decode(&answer.payload).text("code") == "CLUSTER_OPERATION_UNSUPPORTED" {
+            if support::decode(&answer.payload).text("code") == "CONFIG_INVALID" {
                 break;
             }
             tokio::time::sleep(Duration::from_millis(STANDBY_RETRY_MS)).await;

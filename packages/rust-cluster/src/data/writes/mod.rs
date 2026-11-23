@@ -4,6 +4,8 @@ mod condition;
 mod copy_failure;
 mod errors;
 mod forward;
+mod forward_answer;
+mod forward_memory;
 mod log;
 mod log_order;
 mod partition;
@@ -13,15 +15,17 @@ mod rollback;
 mod run;
 mod scope;
 mod sync_apply;
+mod sync_read;
 mod term_start;
 mod view;
 
-use std::sync::Arc;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use tokio::sync::{Semaphore, watch};
 
-use self::catch_up::catch_up_budget;
+use self::catch_up::{SnapshotSlots, catch_up_budget};
 use self::copy_failure::CopyFailures;
 pub(crate) use self::errors::abandoned_with_term;
 pub(crate) use self::forward::{routed_partition, unassigned};
@@ -31,6 +35,7 @@ use super::blocking::off_executor;
 use super::copies::LocalCopies;
 use crate::coordinator::etcd::EtcdCoordinator;
 use crate::error::ClusterResult;
+use crate::memory::NodeMemory;
 use crate::message::TransportMessage;
 use crate::node::{NodeErrorHandler, generate_node_id, report_failure};
 use crate::transport::NodeTransport;
@@ -47,6 +52,9 @@ pub(crate) struct PrimaryWrites {
     stopping: watch::Sender<bool>,
     on_error: Option<NodeErrorHandler>,
     log_retention_bytes: u64,
+    spool_directory: PathBuf,
+    snapshot_slots: Mutex<SnapshotSlots>,
+    memory: Option<Arc<NodeMemory>>,
 }
 
 pub(crate) struct PrimaryWritesSettings {
@@ -57,6 +65,8 @@ pub(crate) struct PrimaryWritesSettings {
     pub(crate) view: Arc<AllocationView>,
     pub(crate) on_error: Option<NodeErrorHandler>,
     pub(crate) log_retention_bytes: u64,
+    pub(crate) spool_directory: PathBuf,
+    pub(crate) memory: Option<Arc<NodeMemory>>,
 }
 
 impl PrimaryWrites {
@@ -73,7 +83,14 @@ impl PrimaryWrites {
             stopping: watch::Sender::new(false),
             on_error: settings.on_error,
             log_retention_bytes: settings.log_retention_bytes,
+            spool_directory: settings.spool_directory,
+            snapshot_slots: Mutex::default(),
+            memory: settings.memory,
         }
+    }
+
+    pub(crate) fn spool_directory(&self) -> &Path {
+        &self.spool_directory
     }
 
     pub(super) fn start(self: &Arc<Self>) {

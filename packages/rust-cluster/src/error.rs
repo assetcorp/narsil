@@ -45,6 +45,8 @@ pub mod codes {
     pub const ALLOCATION_NO_DATA_NODES: &str = "ALLOCATION_NO_DATA_NODES";
     /// The controller could not place a partition or write an allocation table.
     pub const ALLOCATION_FAILED: &str = "ALLOCATION_FAILED";
+    /// An index is changing its partition count, so a second change or an analysis change must wait for it.
+    pub const PARTITION_REBALANCING_BACKPRESSURE: &str = "PARTITION_REBALANCING_BACKPRESSURE";
     /// An entry exceeds what the replication log can hold.
     pub const REPLICATION_LOG_FULL: &str = "REPLICATION_LOG_FULL";
     /// A replication log entry failed its checksum.
@@ -74,6 +76,21 @@ pub mod codes {
     /// A node reports an orphaned copy, or a caller sends that node a read, a write, or a create for the copy's index
     /// name.
     pub const INDEX_ORPHANED: &str = "INDEX_ORPHANED";
+    /// A node refuses an insert or an update because a node that holds a copy of the index reports full memory,
+    /// because the writes in flight on the node would pass its bound, or because the write would not fit in memory.
+    pub const CLUSTER_WRITE_BLOCKED: &str = "CLUSTER_WRITE_BLOCKED";
+    /// Device sync would go on, or a feed would read a log, through a node that keeps no write-ahead log.
+    pub const SYNC_DURABILITY_REQUIRED: &str = "SYNC_DURABILITY_REQUIRED";
+    /// Device sync would go on through a node that has no backup store.
+    pub const SYNC_BACKUP_STORE_REQUIRED: &str = "SYNC_BACKUP_STORE_REQUIRED";
+    /// Device sync would go on while a registered node follows a specification version below 1.3.
+    pub const SYNC_NOT_READY: &str = "SYNC_NOT_READY";
+    /// Change capture would go on through a node that keeps no write-ahead log.
+    pub const CHANGES_DURABILITY_REQUIRED: &str = "CHANGES_DURABILITY_REQUIRED";
+    /// Change capture would go on through a node that has no backup store.
+    pub const CHANGES_BACKUP_STORE_REQUIRED: &str = "CHANGES_BACKUP_STORE_REQUIRED";
+    /// Change capture would go on while a registered node follows a specification version below 1.5.
+    pub const CHANGES_NOT_READY: &str = "CHANGES_NOT_READY";
     /// The cluster owns the index and has yet to allocate it.
     pub const QUERY_ROUTING_FAILED: &str = "QUERY_ROUTING_FAILED";
     /// No node that holds the copy could take the request, because the transport could not reach it.
@@ -119,8 +136,23 @@ pub mod codes {
     pub const SNAPSHOT_SYNC_DECODE_FAILED: &str = "SNAPSHOT_SYNC_DECODE_FAILED";
     /// A payload of the primary's answer to a sync request breaks the answer's shape or order.
     pub const SNAPSHOT_SYNC_FRAME_INVALID: &str = "SNAPSHOT_SYNC_FRAME_INVALID";
-    /// The primary's answer to a sync request ended with no sync payload.
+    /// The primary's answer to a sync request ended with no sync payload, or with fewer snapshot bytes than the
+    /// snapshot's `totalBytes`.
     pub const SNAPSHOT_SYNC_CHUNK_MISSING: &str = "SNAPSHOT_SYNC_CHUNK_MISSING";
+    /// The first snapshot payload of a sync answer is not a valid `replication.snapshot_start`.
+    pub const SNAPSHOT_SYNC_HEADER_INVALID: &str = "SNAPSHOT_SYNC_HEADER_INVALID";
+    /// A snapshot payload names another index or partition than the sync asked for, or another total than its start.
+    pub const SNAPSHOT_SYNC_HEADER_MISMATCH: &str = "SNAPSHOT_SYNC_HEADER_MISMATCH";
+    /// A snapshot chunk does not start where the chunk before it ended.
+    pub const SNAPSHOT_SYNC_CHUNK_OUT_OF_ORDER: &str = "SNAPSHOT_SYNC_CHUNK_OUT_OF_ORDER";
+    /// A snapshot chunk would carry the archive past the snapshot's `totalBytes`.
+    pub const SNAPSHOT_SYNC_CHUNK_OVERFLOW: &str = "SNAPSHOT_SYNC_CHUNK_OVERFLOW";
+    /// A snapshot chunk holds more than 65,536 bytes.
+    pub const SNAPSHOT_SYNC_CHUNK_SIZE_EXCEEDED: &str = "SNAPSHOT_SYNC_CHUNK_SIZE_EXCEEDED";
+    /// A sync answer that started a snapshot ended without its `replication.snapshot_end`.
+    pub const SNAPSHOT_SYNC_END_MISSING: &str = "SNAPSHOT_SYNC_END_MISSING";
+    /// The snapshot's bytes, or its end payload, carry another checksum than its header.
+    pub const SNAPSHOT_SYNC_CHECKSUM_MISMATCH: &str = "SNAPSHOT_SYNC_CHECKSUM_MISMATCH";
     /// The primary answered a sync request with an error reply, whose code and message the details carry as
     /// `primaryCode` and `primaryMessage`.
     pub const SNAPSHOT_SYNC_PRIMARY_ERROR: &str = "SNAPSHOT_SYNC_PRIMARY_ERROR";
