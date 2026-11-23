@@ -80,7 +80,7 @@ fn whole_number(value: Option<&Value>) -> Option<f64> {
     }
 }
 
-fn validate_record(decoded: &Value, index_name: &str) -> ClusterResult<IndexMetadata> {
+pub(super) fn validate_record(decoded: &Value, index_name: &str) -> ClusterResult<IndexMetadata> {
     let Value::Object(record) = decoded else {
         return Err(metadata_invalid(
             index_name,

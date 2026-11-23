@@ -1,8 +1,7 @@
 use narsil::Value;
-use narsil_cluster::transport::NodeTransport;
 
-use crate::controller_lost_copy::start_controller;
-use crate::data_node::{coordinator_at, etcd_endpoint, eventually, unique_key_prefix};
+use crate::data_node::{Scratch, coordinator_at, etcd_endpoint, eventually, unique_key_prefix};
+use crate::ledger::start_controller;
 use crate::typescript_node::{TypescriptNode, fields};
 
 const PRODUCTS: &str = "products";
@@ -18,7 +17,8 @@ async fn a_rust_controller_that_starts_after_a_drop_tears_down_the_allocation_so
     let key_prefix = unique_key_prefix();
     let coordinator =
         coordinator_at(endpoint.clone(), key_prefix.clone(), HEARTBEAT_TTL_SECONDS).await;
-    let first_controller = start_controller(&coordinator).await;
+    let first_scratch = Scratch::new();
+    let first_controller = start_controller(&coordinator, &first_scratch).await;
     let mut data = TypescriptNode::start(
         &endpoint,
         &key_prefix,
@@ -27,9 +27,9 @@ async fn a_rust_controller_that_starts_after_a_drop_tears_down_the_allocation_so
     )
     .await;
     data.create_index(PRODUCTS, 1, 0).await;
-    first_controller.node.shutdown().await;
-    first_controller.transport.shutdown().await;
+    first_controller.stop().await;
 
+    let second_scratch = Scratch::new();
     let drop_request = fields([("indexName", Value::from(PRODUCTS))]);
     let (dropped, second_controller) = tokio::join!(data.call("dropIndex", drop_request), async {
         eventually("the drop removes the schema", || async {
@@ -48,7 +48,7 @@ async fn a_rust_controller_that_starts_after_a_drop_tears_down_the_allocation_so
                 .is_some(),
             "no controller ran, so the dropped index keeps its allocation table"
         );
-        start_controller(&coordinator).await
+        start_controller(&coordinator, &second_scratch).await
     });
     assert_eq!(
         dropped.code(),
@@ -64,7 +64,6 @@ async fn a_rust_controller_that_starts_after_a_drop_tears_down_the_allocation_so
     );
 
     data.shutdown().await;
-    second_controller.node.shutdown().await;
-    second_controller.transport.shutdown().await;
+    second_controller.stop().await;
     coordinator.shutdown().await;
 }

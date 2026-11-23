@@ -10,6 +10,7 @@ mod metadata;
 mod placement;
 mod queue;
 mod recovery;
+mod replication_factor;
 mod resign;
 mod settings;
 mod state;
