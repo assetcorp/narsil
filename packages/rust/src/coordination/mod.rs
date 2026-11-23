@@ -1,4 +1,15 @@
+mod groups;
+mod hybrid;
+
 use std::cmp::Ordering;
+
+pub use groups::{
+    GroupMergeRequest, MergedGroup, ValueGroups, fold_group_reducer, group_identities, merge_groups,
+};
+pub use hybrid::{
+    HYBRID_VECTOR_RESCORE_WINDOW, HybridFusion, PositionedPage, fuse_hybrid_rankings, hybrid_depth,
+    page_hybrid_by_position, require_hybrid_page_within, resolve_hybrid_fusion,
+};
 
 use crate::config::{Bm25Params, validate_bm25_params};
 use crate::engine::query::cursor::{
