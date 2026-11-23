@@ -59,6 +59,19 @@ impl Inner {
             })
             .await?;
         self.keep_watch(schemas);
+        let metadata_owner: Weak<Inner> = Arc::downgrade(self);
+        let metadata = self
+            .coordinator()
+            .watch_index_metadata(move |event| {
+                if let Some(inner) = metadata_owner.upgrade()
+                    && event.metadata.is_some()
+                    && inner.is_active()
+                {
+                    inner.start_analysis_driver(&event.index_name);
+                }
+            })
+            .await?;
+        self.keep_watch(metadata);
         Ok(())
     }
 
@@ -86,6 +99,12 @@ impl Inner {
         let inner = Arc::clone(self);
         tokio::spawn(async move {
             if let Err(error) = inner.tear_down_dropped_allocations().await {
+                inner.report("", &error);
+            }
+        });
+        let inner = Arc::clone(self);
+        tokio::spawn(async move {
+            if let Err(error) = inner.resume_analysis_drivers().await {
                 inner.report("", &error);
             }
         });
