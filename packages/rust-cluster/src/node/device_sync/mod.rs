@@ -7,17 +7,16 @@ use narsil::{
 };
 
 use self::settings::{
-    SYNC_FIELDS, changes_status_of, next_changes_settings, next_sync_settings, not_ready,
-    require_limit, sync_status_of,
+    SYNC_FIELDS, changes_status_of, next_changes_settings, next_sync_settings, require_limit,
+    sync_status_of,
 };
 use super::handle::ClusterNode;
-use crate::constants::{
-    CHANGE_CAPTURE_SPEC_VERSION, DEVICE_SYNC_SPEC_VERSION, HIDDEN_GENERATION_PREFIX,
-    MAX_SETTINGS_REPLACEMENT_ATTEMPTS,
-};
+use crate::constants::{HIDDEN_GENERATION_PREFIX, MAX_SETTINGS_REPLACEMENT_ATTEMPTS};
 use crate::controller::{metadata_key, validate_index_name};
+use crate::data::{
+    CHANGE_CAPTURE_READINESS, DEVICE_SYNC_READINESS, Readiness, nodes_below, not_ready,
+};
 use crate::error::{ClusterError, ClusterResult, codes};
-use crate::version::reaches_version;
 
 const SETTINGS_CONTENTION_REASON: &str = "settings_contention";
 const DEFAULT_LANGUAGE: &str = "english";
@@ -78,18 +77,12 @@ impl ClusterNode {
         })
     }
 
-    async fn nodes_below(&self, minimum: &str) -> ClusterResult<Vec<String>> {
-        let mut older: Vec<String> = self
-            .inner
-            .coordinator
-            .list_nodes()
-            .await?
-            .into_iter()
-            .filter(|node| !reaches_version(&node.version, minimum))
-            .map(|node| node.node_id)
-            .collect();
-        older.sort();
-        Ok(older)
+    async fn require_ready(&self, readiness: &Readiness, index_name: &str) -> ClusterResult<()> {
+        let older = nodes_below(&self.inner.coordinator, readiness.minimum).await?;
+        if older.is_empty() {
+            return Ok(());
+        }
+        Err(not_ready(readiness, older, index_name))
     }
 
     async fn replace_sync_fields(
@@ -185,16 +178,8 @@ impl ClusterNode {
                 )
                 .with_detail("indexName", Value::from(index_name)));
             }
-            let older = self.nodes_below(DEVICE_SYNC_SPEC_VERSION).await?;
-            if !older.is_empty() {
-                return Err(not_ready(
-                    codes::SYNC_NOT_READY,
-                    "can't read the log for a device feed",
-                    DEVICE_SYNC_SPEC_VERSION,
-                    older,
-                    index_name,
-                ));
-            }
+            self.require_ready(&DEVICE_SYNC_READINESS, index_name)
+                .await?;
         }
         let enabling = setting.enabled;
         self.replace_sync_fields(
@@ -260,16 +245,8 @@ impl ClusterNode {
                 )
                 .with_detail("indexName", Value::from(index_name)));
             }
-            let older = self.nodes_below(CHANGE_CAPTURE_SPEC_VERSION).await?;
-            if !older.is_empty() {
-                return Err(not_ready(
-                    codes::CHANGES_NOT_READY,
-                    "keep no history for change capture",
-                    CHANGE_CAPTURE_SPEC_VERSION,
-                    older,
-                    index_name,
-                ));
-            }
+            self.require_ready(&CHANGE_CAPTURE_READINESS, index_name)
+                .await?;
         }
         self.replace_sync_fields(
             index_name,

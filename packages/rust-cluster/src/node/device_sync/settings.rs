@@ -181,22 +181,3 @@ pub(super) fn changes_status_of(settings: &Map) -> ChangesStatus {
         epoch: epoch_of(settings),
     }
 }
-
-pub(super) fn not_ready(
-    code: &str,
-    what: &str,
-    minimum: &str,
-    older: Vec<String>,
-    index_name: &str,
-) -> ClusterError {
-    ClusterError::new(
-        code,
-        format!(
-            "The cluster has {} node(s) below specification version {minimum}, which {what}. Try again once every node registers that version",
-            older.len()
-        ),
-    )
-    .with_detail("indexName", Value::from(index_name))
-    .with_detail("nodeIds", Value::Array(older.into_iter().map(Value::String).collect()))
-    .with_detail("minimumVersion", Value::from(minimum))
-}

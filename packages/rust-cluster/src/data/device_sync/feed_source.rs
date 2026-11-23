@@ -10,6 +10,7 @@ use narsil::{
 use tokio::runtime::Handle;
 use tokio::task::JoinHandle;
 
+use super::admission::DEVICE_SYNC_READINESS;
 use super::bridge::wait_on;
 use super::held::HeldSyncIndex;
 use super::primary_read::PrimaryReads;
@@ -421,5 +422,9 @@ impl FeedSource for SharedFeedSource {
 
     fn watch_index(&self, index: &str) -> FeedSubscription {
         self.0.watch_shared(index)
+    }
+
+    fn admit_feed(&self, index: &str) -> narsil::Result<()> {
+        self.admit(index, &DEVICE_SYNC_READINESS)
     }
 }

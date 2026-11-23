@@ -5,6 +5,7 @@ use narsil::{
     NarsilError, Value,
 };
 
+use super::admission::CHANGE_CAPTURE_READINESS;
 use super::bridge::wait_on;
 use super::feed_source::{FeedParts, SharedFeedSource};
 use crate::data::stored_index::stored_index;
@@ -86,5 +87,9 @@ impl ChangeSource for SharedFeedSource {
     fn vector_fields(&self, index: &str) -> narsil::Result<Vec<String>> {
         self.with_schema(index, |engine, name| engine.vector_fields(name))
             .map(|(_, fields)| fields)
+    }
+
+    fn admit_changes(&self, index: &str) -> narsil::Result<()> {
+        self.admit(index, &CHANGE_CAPTURE_READINESS)
     }
 }
