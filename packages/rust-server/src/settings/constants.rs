@@ -1,6 +1,7 @@
 pub(crate) const STREAM_CHUNKS_IN_FLIGHT: usize = 4;
 pub(crate) const STALLED_DOWNLOAD_DEADLINE_MS: u64 = 10_000;
 pub(crate) const PREPARING_RETRY_AFTER_SECONDS: u64 = 1;
+pub(crate) const MILLISECONDS_PER_SECOND: f64 = 1_000.0;
 pub(crate) const MAX_BM25_K1: f64 = 1_000.0;
 pub(crate) const MAX_BM25_B: f64 = 1.0;
 pub(crate) const MAX_SYNONYM_RULES: usize = 100_000;

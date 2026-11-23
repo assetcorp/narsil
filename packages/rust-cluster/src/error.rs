@@ -95,6 +95,10 @@ pub mod codes {
     pub const SYNC_NOT_ENABLED: &str = "SYNC_NOT_ENABLED";
     /// Change capture is off for the index that a change feed reads.
     pub const CHANGES_NOT_ENABLED: &str = "CHANGES_NOT_ENABLED";
+    /// The cluster is taking the backup that a device's snapshot needs, so the device asks again later.
+    pub const SYNC_SNAPSHOT_PREPARING: &str = "SYNC_SNAPSHOT_PREPARING";
+    /// The cluster is taking the backup that a document export needs, so the caller asks again later.
+    pub const CHANGES_EXPORT_PREPARING: &str = "CHANGES_EXPORT_PREPARING";
     /// The cluster owns the index and has yet to allocate it.
     pub const QUERY_ROUTING_FAILED: &str = "QUERY_ROUTING_FAILED";
     /// No node that holds the copy could take the request, because the transport could not reach it.

@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
-use narsil::{Narsil, NarsilError};
+use narsil::{Narsil, NarsilError, Value};
 
-use super::constants::PREPARING_RETRY_AFTER_SECONDS;
+use super::constants::{MILLISECONDS_PER_SECOND, PREPARING_RETRY_AFTER_SECONDS};
 use crate::errors::{Outcome, ServerError};
 use crate::state::ServerState;
 
@@ -21,7 +21,16 @@ pub(crate) fn preparing(failure: ServerError, preparing_code: &str) -> ServerErr
     if failure.code != preparing_code {
         return failure;
     }
-    failure.with_header("retry-after", PREPARING_RETRY_AFTER_SECONDS.to_string())
+    let retry_after_ms = failure
+        .details
+        .as_ref()
+        .and_then(|details| details.get("retryAfterMs"))
+        .and_then(Value::as_f64)
+        .filter(|milliseconds| milliseconds.is_finite() && *milliseconds > 0.0);
+    let seconds = retry_after_ms.map_or(PREPARING_RETRY_AFTER_SECONDS, |milliseconds| {
+        (milliseconds / MILLISECONDS_PER_SECOND).ceil() as u64
+    });
+    failure.with_header("retry-after", seconds.to_string())
 }
 
 pub(crate) fn after_engine_checks<T>(

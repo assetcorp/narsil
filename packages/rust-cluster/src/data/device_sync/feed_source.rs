@@ -303,6 +303,23 @@ impl ClusterFeedSource {
         })
     }
 
+    pub(crate) async fn bounds(
+        self: &Arc<Self>,
+        index_name: &str,
+        partition_id: u32,
+        freshness: BoundsFreshness,
+    ) -> ClusterResult<SyncBounds> {
+        let parts = self.parts()?;
+        Arc::clone(self)
+            .read_bounds(
+                Arc::clone(&parts.reads),
+                index_name.to_string(),
+                partition_id,
+                freshness,
+            )
+            .await
+    }
+
     pub(crate) fn bounds_now(
         self: &Arc<Self>,
         index_name: &str,

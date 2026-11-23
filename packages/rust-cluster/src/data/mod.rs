@@ -22,8 +22,8 @@ pub(crate) mod writes;
 
 pub use config::DataNodeConfig;
 pub(crate) use device_sync::{
-    CHANGE_CAPTURE_READINESS, DEVICE_SYNC_READINESS, Readiness, SharedFeedSource, nodes_below,
-    not_ready,
+    CHANGE_CAPTURE_READINESS, DEVICE_SYNC_READINESS, Readiness, SharedFeedSource, SpooledArchive,
+    nodes_below, not_ready,
 };
 pub(crate) use role::DataRole;
 pub(crate) use writes::{
