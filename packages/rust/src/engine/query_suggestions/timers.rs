@@ -9,12 +9,12 @@ use super::build_runner::ended_as_planned;
 use super::constants::{DAY_MS, HISTORY_SWEEP_INTERVAL_MS, MAX_TIMER_WAIT_MS, SCHEDULE_OFF};
 use super::day_store::{cutoff_day, day_of};
 use super::history_files::{history_files_of, remove_history_folder};
-use super::host::{locked, read_build_record, suggestion_state_of, suggestion_states, wall_ms};
+use super::host::{SuggestionsHost, SuggestionsOwner, locked, wall_ms};
+use super::runtime::SuggestionsRuntime;
 use super::schedule::{
     Schedule, latest_match_at_or_before, next_match_after, parse_schedule, time_zone_named,
 };
 use super::types::QuerySuggestionsBuildTrigger;
-use crate::engine::{EngineInner, Narsil};
 
 #[derive(Default)]
 struct TimerState {
@@ -33,8 +33,8 @@ fn next_midnight(now: i64) -> i64 {
     (now.div_euclid(DAY_MS) + 1).saturating_mul(DAY_MS)
 }
 
-fn schedule_of(engine: &EngineInner, index_name: &str) -> Option<(Schedule, TimeZone)> {
-    let state = suggestion_state_of(engine, index_name)?;
+fn schedule_of(host: &dyn SuggestionsHost, index_name: &str) -> Option<(Schedule, TimeZone)> {
+    let state = host.state(index_name)?;
     let resolved = state
         .setting
         .as_ref()
@@ -49,45 +49,69 @@ fn schedule_of(engine: &EngineInner, index_name: &str) -> Option<(Schedule, Time
     ))
 }
 
-pub(crate) fn next_build_at(engine: &EngineInner, index_name: &str, after_ms: i64) -> Option<i64> {
-    engine.suggestions.scrambler()?;
-    let (schedule, zone) = schedule_of(engine, index_name)?;
+pub(crate) fn next_build_at(
+    runtime: &SuggestionsRuntime,
+    host: &dyn SuggestionsHost,
+    index_name: &str,
+    after_ms: i64,
+) -> Option<i64> {
+    runtime.scrambler()?;
+    let (schedule, zone) = schedule_of(host, index_name)?;
     next_match_after(&schedule, &zone, after_ms)
 }
 
-fn spawn_build(engine: &Arc<EngineInner>, index_name: &str, trigger: QuerySuggestionsBuildTrigger) {
-    let narsil = Narsil {
-        inner: Arc::clone(engine),
-    };
+fn spawn_build(
+    owner: &Arc<dyn SuggestionsOwner>,
+    index_name: &str,
+    trigger: QuerySuggestionsBuildTrigger,
+) {
+    if !owner.host().may_build() {
+        return;
+    }
+    let owner = Arc::clone(owner);
     let index_name = index_name.to_string();
     let _ = std::thread::Builder::new()
         .name("narsil-query-suggestions-build".to_string())
         .spawn(move || {
-            let builds = &narsil.inner.suggestions.builds;
-            let _ = builds.start(&narsil, &index_name, trigger);
+            let runtime = owner.runtime();
+            let _ = runtime
+                .builds
+                .start(runtime, owner.host(), &index_name, trigger);
         });
 }
 
-fn start_missed_build(engine: &Arc<EngineInner>, index_name: &str) {
-    let Some((schedule, zone)) = schedule_of(engine, index_name) else {
+fn start_missed_build(owner: &Arc<dyn SuggestionsOwner>, index_name: &str) {
+    let host = owner.host();
+    let Some((schedule, zone)) = schedule_of(host, index_name) else {
         return;
     };
     let Some(latest) = latest_match_at_or_before(&schedule, &zone, wall_ms()) else {
         return;
     };
-    let completed_since = read_build_record(engine, index_name).is_some_and(|record| {
+    let completed_since = host.read_build_record(index_name).is_some_and(|record| {
         ended_as_planned(&record.build)
             && i64::try_from(record.build.started_at).is_ok_and(|started| started >= latest)
     });
     if !completed_since {
-        spawn_build(engine, index_name, QuerySuggestionsBuildTrigger::Missed);
+        spawn_build(owner, index_name, QuerySuggestionsBuildTrigger::Missed);
     }
 }
 
-pub(crate) fn sweep_now(engine: &EngineInner) {
-    let files = engine.suggestions.files(engine);
+pub(crate) fn catch_up_missed_builds(owner: &Arc<dyn SuggestionsOwner>) {
+    for (name, state) in owner.host().states() {
+        if owner.runtime().timers.is_stopped() {
+            return;
+        }
+        if state.enabled() {
+            start_missed_build(owner, &name);
+        }
+    }
+}
+
+pub(crate) fn sweep_now(host: &dyn SuggestionsHost) {
+    let files = host.files().store();
     let now = wall_ms();
-    for (name, state) in suggestion_states(engine) {
+    for (name, state) in host.states() {
         let Some(setting) = state.setting.as_ref().filter(|setting| setting.enabled) else {
             if state.source.is_none() {
                 let _ = remove_history_folder(files, &name);
@@ -105,28 +129,28 @@ pub(crate) fn sweep_now(engine: &EngineInner) {
 }
 
 fn run_due(
-    engine: &Arc<EngineInner>,
+    owner: &Arc<dyn SuggestionsOwner>,
     due_saves: Vec<(String, Duration)>,
     due_builds: Vec<String>,
     day_ended: bool,
 ) {
-    let runtime = &engine.suggestions;
+    let (runtime, host) = (owner.runtime(), owner.host());
     for (index_name, interval) in due_saves {
-        runtime.save_day(engine, &index_name);
+        runtime.save_day(host, &index_name);
         if runtime.days.has_unsaved(&index_name) {
             runtime.timers.save_soon(&index_name, interval);
         }
     }
     for index_name in due_builds {
-        spawn_build(engine, &index_name, QuerySuggestionsBuildTrigger::Schedule);
-        runtime.timers.rearm(engine, &index_name);
+        spawn_build(owner, &index_name, QuerySuggestionsBuildTrigger::Schedule);
+        runtime.timers.rearm(runtime, host, &index_name);
     }
     if day_ended {
-        runtime.retire_days(engine, &day_of(wall_ms()));
+        runtime.retire_days(host, &day_of(wall_ms()));
     }
 }
 
-fn run_timers(engine: Weak<EngineInner>, signal: Arc<(Mutex<TimerState>, Condvar)>) {
+fn run_timers(owner: Weak<dyn SuggestionsOwner>, signal: Arc<(Mutex<TimerState>, Condvar)>) {
     let sweep_every = Duration::from_millis(HISTORY_SWEEP_INTERVAL_MS);
     let mut next_sweep = Instant::now() + sweep_every;
     let mut midnight = next_midnight(wall_ms());
@@ -180,25 +204,26 @@ fn run_timers(engine: Weak<EngineInner>, signal: Arc<(Mutex<TimerState>, Condvar
         if swept {
             next_sweep = Instant::now() + sweep_every;
         }
-        let Some(engine) = engine.upgrade() else {
+        let Some(owner) = owner.upgrade() else {
             return;
         };
-        run_due(&engine, due_saves, due_builds, day_ended);
+        run_due(&owner, due_saves, due_builds, day_ended);
         if swept {
-            sweep_now(&engine);
+            sweep_now(owner.host());
         }
     }
 }
 
 impl Timers {
-    pub(crate) fn start(&self, engine: &Arc<EngineInner>) {
-        for (name, state) in suggestion_states(engine) {
+    pub(crate) fn start(&self, owner: &Arc<dyn SuggestionsOwner>) {
+        let (runtime, host) = (owner.runtime(), owner.host());
+        for (name, state) in host.states() {
             if state.enabled() {
-                start_missed_build(engine, &name);
-                self.rearm(engine, &name);
+                start_missed_build(owner, &name);
+                self.rearm(runtime, host, &name);
             }
         }
-        let weak = Arc::downgrade(engine);
+        let weak = Arc::downgrade(owner);
         let signal = Arc::clone(&self.signal);
         let spawned = std::thread::Builder::new()
             .name("narsil-query-suggestions".to_string())
@@ -216,6 +241,10 @@ impl Timers {
         }
         apply(&mut state);
         wake.notify_all();
+    }
+
+    pub(crate) fn is_stopped(&self) -> bool {
+        locked(&self.signal.0).stopped
     }
 
     pub(crate) fn save_soon(&self, index_name: &str, interval: Duration) {
@@ -240,8 +269,13 @@ impl Timers {
         });
     }
 
-    pub(crate) fn rearm(&self, engine: &EngineInner, index_name: &str) {
-        let next = next_build_at(engine, index_name, wall_ms());
+    pub(crate) fn rearm(
+        &self,
+        runtime: &SuggestionsRuntime,
+        host: &dyn SuggestionsHost,
+        index_name: &str,
+    ) {
+        let next = next_build_at(runtime, host, index_name, wall_ms());
         self.change(|state| match next {
             Some(at) => {
                 state.schedules.insert(index_name.to_string(), at);

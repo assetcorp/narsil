@@ -181,6 +181,7 @@ pub struct NarsilError {
     code: ErrorCode,
     message: String,
     details: Option<Box<Map>>,
+    spec_code: Option<Box<str>>,
 }
 
 impl NarsilError {
@@ -190,7 +191,29 @@ impl NarsilError {
             code,
             message: message.into(),
             details: None,
+            spec_code: None,
         }
+    }
+
+    /// Builds an error with the specification code `spec_code`, which a cluster node raises and which
+    /// [`ErrorCode`] may lack; such an error reports `INTERNAL_ERROR` as its [`code`](NarsilError::code) and keeps
+    /// `spec_code` for [`spec_code`](NarsilError::spec_code).
+    #[doc(hidden)]
+    pub fn with_spec_code(spec_code: &str, message: impl Into<String>) -> NarsilError {
+        match ErrorCode::from_name(spec_code) {
+            Some(code) => NarsilError::new(code, message),
+            None => NarsilError {
+                spec_code: Some(spec_code.into()),
+                ..NarsilError::new(ErrorCode::INTERNAL_ERROR, message)
+            },
+        }
+    }
+
+    /// Returns the specification code of the error: the one that [`NarsilError::with_spec_code`] kept, or the
+    /// spelling of [`code`](NarsilError::code).
+    #[doc(hidden)]
+    pub fn spec_code(&self) -> &str {
+        self.spec_code.as_deref().unwrap_or(self.code.as_str())
     }
 
     /// Returns this error with `details` in place of any that it held, where an empty set of details leaves the
@@ -222,7 +245,7 @@ impl NarsilError {
 
 impl fmt::Display for NarsilError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "{}: {}", self.code, self.message)
+        write!(formatter, "{}: {}", self.spec_code(), self.message)
     }
 }
 

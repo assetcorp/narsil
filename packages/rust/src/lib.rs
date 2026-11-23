@@ -34,6 +34,20 @@ pub mod partitions {
     };
     pub use crate::ordering::document_sort_values;
 }
+#[doc(hidden)]
+pub mod suggestions_host {
+    pub use crate::engine::query_suggestions::build_record::BuildRecord;
+    pub use crate::engine::query_suggestions::counts_stream::{
+        HistoryStream, HistoryStreamReader, StreamedHistoryFile,
+    };
+    pub use crate::engine::query_suggestions::host::{
+        HistoryFilesRef, IndexView, RemoteFile, SuggestionsHost,
+    };
+    pub use crate::engine::query_suggestions::service::{
+        RestoredHistoryWriter, SuggestionsService,
+    };
+    pub use crate::engine::query_suggestions::stored_state::SuggestionState;
+}
 mod schema;
 mod search;
 mod synonyms;

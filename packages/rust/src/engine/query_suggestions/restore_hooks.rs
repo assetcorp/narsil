@@ -8,10 +8,10 @@ use super::restored_history::RestoredHistory;
 use super::stored_state::SuggestionState;
 use super::suggestions_writer::remove_suggestions;
 use super::types::QuerySuggestionsWarningReason;
+use crate::engine::EngineInner;
 use crate::engine::index::IndexState;
 use crate::engine::sync::sync_is_on;
 use crate::engine::writes::remove_batch;
-use crate::engine::{EngineInner, Narsil};
 use crate::error::{ErrorCode, Result};
 use crate::format::metadata_parts::config_invalid;
 
@@ -56,8 +56,7 @@ pub(crate) fn before_install(engine: &EngineInner, index: &IndexState) -> Result
     Ok(())
 }
 
-fn apply_bans(narsil: &Narsil, index_name: &str) -> Result<()> {
-    let engine = &*narsil.inner;
+fn apply_bans(engine: &EngineInner, index_name: &str) -> Result<()> {
     let state = engine.index(index_name)?.suggestion_state();
     if !state.banned.is_empty() {
         for (other, other_state) in suggestion_states(engine) {
@@ -66,7 +65,7 @@ fn apply_bans(narsil: &Narsil, index_name: &str) -> Result<()> {
                 .as_ref()
                 .is_some_and(|source| source.index == index_name);
             if other != index_name && marked {
-                remove_suggestions(narsil, &other, &state.banned)?;
+                remove_suggestions(engine, &other, &state.banned)?;
             }
         }
     }
@@ -116,10 +115,7 @@ pub(crate) fn publish_without_source_bans(
 }
 
 pub(crate) fn after_activate(engine: &EngineInner, index_name: &str) {
-    let Some(inner) = engine.self_ref.upgrade() else {
-        return;
-    };
-    if let Err(error) = apply_bans(&Narsil { inner }, index_name) {
+    if let Err(error) = apply_bans(engine, index_name) {
         let reason = QuerySuggestionsWarningReason::BanRemovalFailed;
         warn_of_failure(engine, index_name, reason, &error);
     }
@@ -148,5 +144,5 @@ pub(crate) fn after_install(
         let reason = QuerySuggestionsWarningReason::SaveFailed;
         warn_of_failure(engine, index_name, reason, &error);
     }
-    runtime.timers.rearm(engine, index_name);
+    runtime.timers.rearm(runtime, engine, index_name);
 }
