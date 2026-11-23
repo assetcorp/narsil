@@ -5,6 +5,8 @@ use std::time::{Duration, Instant};
 use etcd_client::{Client, ConnectOptions, Error as EtcdError, KvClient, LeaseClient, WatchClient};
 use tonic::Code;
 
+use super::timing::CoordinatorTiming;
+
 use crate::constants::{
     ETCD_CALL_RETRIES, ETCD_CALL_TIMEOUT_MS, ETCD_ENDPOINT_FAILURE_THRESHOLD,
     ETCD_ENDPOINT_SKIP_MS, ETCD_MAX_RESPONSE_BYTES,
@@ -161,6 +163,7 @@ pub(crate) struct EndpointPool {
     endpoints: Vec<Endpoint>,
     options: ConnectOptions,
     watch_options: ConnectOptions,
+    pub(crate) timing: CoordinatorTiming,
 }
 
 impl EndpointPool {
@@ -177,6 +180,7 @@ impl EndpointPool {
             endpoints,
             watch_options: options.clone().with_require_leader(true),
             options,
+            timing: CoordinatorTiming::default(),
         }
     }
 

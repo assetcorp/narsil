@@ -1,5 +1,5 @@
 use std::future::Future;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use etcd_client::{Certificate, ConnectOptions, Error as EtcdError, Identity, TlsOptions};
 use narsil::Value;
@@ -141,9 +141,10 @@ where
     F: Fn(EndpointClients) -> Fut,
     Fut: Future<Output = Result<T, EtcdError>>,
 {
-    pool.run(attempt)
-        .await
-        .map_err(|failure| unreachable(operation, &failure))
+    let started = Instant::now();
+    let outcome = pool.run(attempt).await;
+    pool.timing.record(operation, started.elapsed());
+    outcome.map_err(|failure| unreachable(operation, &failure))
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -207,7 +208,10 @@ impl WriteGuard {
         Fut: Future<Output = Result<T, EtcdError>>,
     {
         let bytes = self.require_fits(write)?;
-        match pool.run(attempt).await {
+        let started = Instant::now();
+        let outcome = pool.run(attempt).await;
+        pool.timing.record(operation, started.elapsed());
+        match outcome {
             Ok(value) => Ok(value),
             Err(failure) if refused_for_size(&failure) => Err(ClusterError::new(
                 codes::CONFIG_INVALID,

@@ -6,6 +6,7 @@ mod keys;
 mod leases;
 mod registration;
 mod requests;
+mod timing;
 mod values;
 mod watch;
 
@@ -14,6 +15,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 pub use config::{EtcdAuthConfig, EtcdCoordinatorConfig, EtcdTlsConfig, WatchErrorHandler};
+pub use timing::CoordinatorRequestFigure;
 use etcd_client::{Compare, CompareOp, PutOptions, Txn, TxnOp};
 pub use watch::WatchHandle;
 
