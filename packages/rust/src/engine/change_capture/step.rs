@@ -1,20 +1,18 @@
-use std::sync::Arc;
-
-use crate::durability::change_reader::{LogCursor, LogRead, LogRecord};
-use crate::engine::EngineInner;
-use crate::engine::index::IndexState;
-use crate::error::{Result, index_not_found};
-use crate::format::wal::LogEntry;
+use crate::engine::sync::feed::{SyncCursor, SyncEntry, SyncRead};
+use crate::engine::sync::source::{
+    BoundsFreshness, ChangeSource, ChangesIndexState, DocumentTest,
+};
+use crate::error::Result;
+use crate::format::wal::decode_entry;
 
 use super::derive::{change_of, filtered_change};
-use super::filter::ChangeFilter;
-use super::open::{log_store_for_changes, not_enabled, previous_document_required};
+use super::open::{not_enabled, previous_document_required};
 use super::types::{ChangeGroup, ResyncReason};
 
 pub(super) struct Following {
     epoch: String,
-    filter: Option<ChangeFilter>,
-    cursors: Vec<LogCursor>,
+    test: Option<DocumentTest>,
+    cursors: Vec<SyncCursor>,
     heads: Vec<u64>,
     turn: usize,
 }
@@ -28,16 +26,17 @@ pub(super) enum Step {
 impl Following {
     pub(super) fn new(
         epoch: String,
-        filter: Option<ChangeFilter>,
+        test: Option<DocumentTest>,
         starts: &[u64],
         heads: Vec<u64>,
     ) -> Following {
         Following {
             epoch,
-            filter,
+            test,
             cursors: starts
                 .iter()
-                .map(|start| LogCursor::after(*start))
+                .enumerate()
+                .map(|(partition_id, start)| SyncCursor::after(partition_id as u32, *start))
                 .collect(),
             heads,
             turn: 0,
@@ -50,7 +49,7 @@ impl Following {
         if let Some(cursor) = self.cursors.get_mut(partition)
             && seq_no < cursor.position()
         {
-            *cursor = LogCursor::after(seq_no);
+            *cursor = SyncCursor::after(partition as u32, seq_no);
         }
     }
 
@@ -61,18 +60,19 @@ impl Following {
             .all(|(cursor, head)| cursor.position() >= *head)
     }
 
-    fn verdict(&self, index: &IndexState) -> Result<Option<ResyncReason>> {
-        let Some(log) = index.log() else {
-            return Err(not_enabled(&index.name));
+    fn verdict(
+        &self,
+        index_name: &str,
+        state: Option<ChangesIndexState>,
+    ) -> Result<Option<ResyncReason>> {
+        let Some(state) = state else {
+            return Err(not_enabled(index_name));
         };
-        let (Some(epoch), records_previous) = log.recorded_capture() else {
-            return Err(not_enabled(&index.name));
-        };
-        if epoch != self.epoch || index.partitions().len() != self.cursors.len() {
+        if state.epoch != self.epoch || state.partition_count as usize != self.cursors.len() {
             return Ok(Some(ResyncReason::Epoch));
         }
-        if self.filter.is_some() && !records_previous {
-            return Err(previous_document_required(&index.name));
+        if self.test.is_some() && !state.previous_document {
+            return Err(previous_document_required(index_name));
         }
         Ok(None)
     }
@@ -86,28 +86,22 @@ impl Following {
         Some(found)
     }
 
-    fn group(
-        &self,
-        engine: &EngineInner,
-        index: &IndexState,
-        partition: usize,
-        entries: Vec<(LogEntry, u64)>,
-    ) -> Result<Option<ChangeGroup>> {
-        let Some(scanned_seq_no) = entries.last().map(|(entry, _)| entry.seq_no as u64) else {
+    fn group(&self, partition: usize, entries: Vec<SyncEntry>) -> Result<Option<ChangeGroup>> {
+        let Some(scanned_seq_no) = entries.last().map(|entry| entry.seq_no) else {
             return Ok(None);
         };
-        let scanned_bytes = entries.iter().map(|(_, bytes)| *bytes).sum();
+        let scanned_bytes = entries
+            .iter()
+            .map(|entry| entry.payload.len() as u64)
+            .sum();
         let mut changes = Vec::with_capacity(entries.len());
-        for (entry, _) in entries {
+        for entry in entries {
+            let entry = decode_entry(&entry.payload)?;
             let holds_previous = entry.previous_document.is_some();
             let change = change_of(entry)?;
-            match &self.filter {
+            match &self.test {
                 None => changes.push(change),
-                Some(filter) => {
-                    let matches =
-                        |document: &_| filter.matches(index, &engine.search_limits, document);
-                    changes.extend(filtered_change(change, holds_previous, &matches)?);
-                }
+                Some(test) => changes.extend(filtered_change(change, holds_previous, test)?),
             }
         }
         Ok(Some(ChangeGroup {
@@ -119,73 +113,47 @@ impl Following {
     }
 }
 
-fn reach(
-    engine: &EngineInner,
-    index_name: &str,
-    caught_up: bool,
-) -> Result<Option<Arc<IndexState>>> {
-    if let Some(index) = engine.open_index_named(index_name) {
-        return Ok(Some(index));
-    }
-    if !engine.holds_index(index_name) {
-        return Err(index_not_found(index_name));
-    }
-    if caught_up {
-        return Ok(None);
-    }
-    engine.open_index(index_name).map(Some)
-}
-
 pub(super) fn step(
-    engine: &EngineInner,
+    source: &dyn ChangeSource,
     index_name: &str,
     following: &mut Following,
     budget_bytes: usize,
 ) -> Result<Step> {
-    engine.guard_shutdown()?;
-    let Some(index) = reach(engine, index_name, following.caught_up())? else {
+    if source.index_resting(index_name)? && following.caught_up() {
         return Ok(Step::Idle);
-    };
-    if let Some(reason) = following.verdict(&index)? {
+    }
+    if let Some(reason) = following.verdict(index_name, source.changes_state(index_name)?)? {
         return Ok(Step::Resync(reason));
     }
-    let store = log_store_for_changes(&index)?;
     for (partition_id, head) in following.heads.iter_mut().enumerate() {
-        *head = store.log_head(index_name, partition_id as u32)?;
+        *head = source
+            .bounds(index_name, partition_id as u32, BoundsFreshness::Recent)?
+            .head;
     }
-    drop(index);
     let Some(partition) = following.next_partition() else {
         return Ok(Step::Idle);
     };
     let before = following.cursors[partition].position();
     let up_to = following.heads[partition];
-    let keep = |record: LogRecord| {
-        let bytes = record.payload.len();
-        ((record.entry, bytes as u64), bytes)
-    };
-    let read = store.read_log_entries(
+    let read = source.read(
         index_name,
-        partition as u32,
         &mut following.cursors[partition],
         up_to,
         budget_bytes,
-        &keep,
     )?;
-    let Some(current) = engine.open_index_named(index_name) else {
-        following.cursors[partition] = LogCursor::after(before);
+    if source.index_resting(index_name)? {
+        following.cursors[partition] = SyncCursor::after(partition as u32, before);
         return Ok(Step::Idle);
-    };
-    if let Some(reason) = following.verdict(&current)? {
+    }
+    if let Some(reason) = following.verdict(index_name, source.changes_state(index_name)?)? {
         return Ok(Step::Resync(reason));
     }
     let entries = match read {
-        LogRead::HistoryGone => return Ok(Step::Resync(ResyncReason::History)),
-        LogRead::Entries(entries) => entries,
+        SyncRead::HistoryGone => return Ok(Step::Resync(ResyncReason::History)),
+        SyncRead::Entries(entries) => entries,
     };
-    Ok(
-        match following.group(engine, &current, partition, entries)? {
-            Some(group) => Step::Group(group),
-            None => Step::Idle,
-        },
-    )
+    Ok(match following.group(partition, entries)? {
+        Some(group) => Step::Group(group),
+        None => Step::Idle,
+    })
 }

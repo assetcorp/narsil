@@ -84,6 +84,10 @@ pub use engine::{
     QuerySuggestionsSource, QuerySuggestionsStatus, QuerySuggestionsWarningReason,
     RecordQueryOutcome, RecordQueryResult, RecordedQuery, SnapshotOptions,
 };
+pub use engine::{
+    BoundsFreshness, ChangeSource, ChangesIndexState, DocumentTest, EngineFeedSource, FeedSource,
+    FeedSourceChange, FeedSourceListener, FeedSubscription,
+};
 pub use engine::{SyncBounds, SyncCursor, SyncEntry, SyncFeedState, SyncRead, SyncSnapshot};
 pub use error::{ErrorCode, NarsilError, Result};
 pub use filters::{DistanceUnit, FieldTests, Filter, GeoPolygon, GeoRadius, Scalar, Tolerance};

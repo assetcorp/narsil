@@ -1,13 +1,13 @@
 use std::collections::VecDeque;
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, Weak};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
-use crate::engine::events::{ListenerId, NarsilEvent, NarsilEventKind};
-use crate::engine::{EngineInner, Narsil};
-use crate::error::{Result, instance_shut_down};
+use crate::engine::Narsil;
+use crate::engine::sync::source::{ChangeSource, FeedSubscription};
+use crate::error::Result;
 
 use super::constants::{CHANGE_FOLLOW_INTERVAL_MS, CHANGE_READ_CHUNK_BYTES};
-use super::open::{Opened, bytes_behind, log_store_for_changes, open_locked};
+use super::open::{Opened, open_from_source};
 use super::step::{Following, Step, step};
 use super::types::{ChangePosition, ChangesEvent, ChangesRequest};
 
@@ -77,15 +77,60 @@ impl ChangeFeedStop {
 /// limit, and [`ChangeFeed::stopper`] to stop the feed from another thread. The feed reads the log from its files in
 /// ranges of at most 1 MiB of documents, so it holds one range in memory at a time.
 pub struct ChangeFeed {
-    engine: Weak<EngineInner>,
+    source: Arc<dyn ChangeSource>,
     index_name: String,
     signal: Arc<FeedSignal>,
-    listeners: Vec<ListenerId>,
+    subscriptions: Vec<FeedSubscription>,
     pending: VecDeque<Result<ChangesEvent>>,
     following: Option<Box<Following>>,
 }
 
 impl ChangeFeed {
+    /// Returns the changes of an index of `source` above the request's positions, as [`Narsil::changes`] does for
+    /// the engine's own log, so that a cluster node follows an index whose partitions other nodes lead.
+    ///
+    /// # Errors
+    ///
+    /// Fails as [`Narsil::changes`] does.
+    pub fn follow(
+        source: Arc<dyn ChangeSource>,
+        index: &str,
+        request: &ChangesRequest,
+    ) -> Result<ChangeFeed> {
+        let opened = open_from_source(source.as_ref(), index, request)?;
+        ChangeFeed::start(source, index, opened)
+    }
+
+    fn start(source: Arc<dyn ChangeSource>, index: &str, opened: Opened) -> Result<ChangeFeed> {
+        let signal = Arc::new(FeedSignal::default());
+        let mut feed = ChangeFeed {
+            source,
+            index_name: index.to_string(),
+            signal: Arc::clone(&signal),
+            subscriptions: Vec::new(),
+            pending: VecDeque::new(),
+            following: None,
+        };
+        match opened {
+            Opened::Resync(reason) => feed.pending.push_back(Ok(ChangesEvent::Resync(reason))),
+            Opened::Following(following, mut subscribed) => {
+                subscribed.bytes_behind = feed.source.bytes_behind(index, &subscribed.positions)?;
+                let name = index.to_string();
+                let woken = Arc::clone(&signal);
+                feed.subscriptions.push(feed.source.listen(Arc::new(move |changed, _| {
+                    if changed == name {
+                        woken.wake();
+                    }
+                })));
+                feed.subscriptions.push(feed.source.watch_index(index));
+                feed.pending
+                    .push_back(Ok(ChangesEvent::Subscribed(subscribed)));
+                feed.following = Some(following);
+            }
+        }
+        Ok(feed)
+    }
+
     /// Returns a handle that stops this feed from any thread.
     pub fn stopper(&self) -> ChangeFeedStop {
         ChangeFeedStop {
@@ -133,12 +178,7 @@ impl ChangeFeed {
 
     fn finish(&mut self) {
         self.following = None;
-        let listeners = std::mem::take(&mut self.listeners);
-        if let Some(engine) = self.engine.upgrade() {
-            for id in listeners {
-                engine.events.remove_listener(id);
-            }
-        }
+        self.subscriptions.clear();
     }
 
     fn end_with(&mut self, event: Result<ChangesEvent>) -> Option<Result<ChangesEvent>> {
@@ -160,17 +200,18 @@ impl ChangeFeed {
                 return None;
             }
             let following = self.following.as_mut()?;
-            let Some(engine) = self.engine.upgrade() else {
-                return self.end_with(Err(instance_shut_down()));
-            };
             self.signal.take_wake();
-            match step(&engine, &self.index_name, following, budget_bytes) {
+            match step(
+                self.source.as_ref(),
+                &self.index_name,
+                following,
+                budget_bytes,
+            ) {
                 Err(error) => return self.end_with(Err(error)),
                 Ok(Step::Resync(reason)) => return self.end_with(Ok(ChangesEvent::Resync(reason))),
                 Ok(Step::Group(group)) => return Some(Ok(ChangesEvent::Changes(group))),
                 Ok(Step::Idle) => {}
             }
-            drop(engine);
             let interval = Duration::from_millis(CHANGE_FOLLOW_INTERVAL_MS);
             let wait = match deadline {
                 None => interval,
@@ -201,32 +242,6 @@ impl Drop for ChangeFeed {
     }
 }
 
-fn listen_for_writes(
-    engine: &EngineInner,
-    index_name: &str,
-    signal: &Arc<FeedSignal>,
-) -> Vec<ListenerId> {
-    [NarsilEventKind::Write, NarsilEventKind::FeedChange]
-        .into_iter()
-        .map(|kind| {
-            let name = index_name.to_string();
-            let signal = Arc::clone(signal);
-            engine.events.add_listener(
-                kind,
-                Arc::new(move |event: &NarsilEvent| match event {
-                    NarsilEvent::Write { index_name }
-                    | NarsilEvent::FeedChange { index_name, .. }
-                        if *index_name == name =>
-                    {
-                        signal.wake();
-                    }
-                    _ => {}
-                }),
-            )
-        })
-        .collect()
-}
-
 impl Narsil {
     /// Returns the changes of an index above a list of positions, and then each later change as the log makes it
     /// durable, until the caller stops the feed.
@@ -247,32 +262,12 @@ impl Narsil {
     /// filter breaks the shape or the limits of a query's filters, and with `SEARCH_INVALID_FIELD` where the filter
     /// tests a field which the schema leaves out.
     pub fn changes(&self, index: &str, request: &ChangesRequest) -> Result<ChangeFeed> {
-        let (store, opened) = {
+        let source: Arc<dyn ChangeSource> = self.feed_source();
+        let opened = {
             let (_name, state) = self.inner.open_index_in_turn(index)?;
-            let store = log_store_for_changes(&state)?;
             let _writer = state.lock_writes()?;
-            let opened = open_locked(&state, &store, request)?;
-            (store, opened)
+            open_from_source(source.as_ref(), index, request)?
         };
-        let signal = Arc::new(FeedSignal::default());
-        let mut feed = ChangeFeed {
-            engine: Arc::downgrade(&self.inner),
-            index_name: index.to_string(),
-            signal: Arc::clone(&signal),
-            listeners: Vec::new(),
-            pending: VecDeque::new(),
-            following: None,
-        };
-        match opened {
-            Opened::Resync(reason) => feed.pending.push_back(Ok(ChangesEvent::Resync(reason))),
-            Opened::Following(following, mut subscribed) => {
-                subscribed.bytes_behind = bytes_behind(&store, index, &subscribed.positions)?;
-                feed.listeners = listen_for_writes(&self.inner, index, &signal);
-                feed.pending
-                    .push_back(Ok(ChangesEvent::Subscribed(subscribed)));
-                feed.following = Some(following);
-            }
-        }
-        Ok(feed)
+        ChangeFeed::start(source, index, opened)
     }
 }
