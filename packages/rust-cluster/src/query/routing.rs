@@ -25,10 +25,10 @@ use super::selection::{PartitionRouting, QueryKeyedSelector, select_replicas_for
 use super::wire_query::WireQuery;
 use crate::constants::{GROUP_OVERSAMPLE_FACTOR, GROUP_OVERSAMPLE_PADDING, MAX_FACET_SIZE};
 use crate::error::{ClusterError, ClusterResult, codes};
-use crate::reads::ReadDeps;
 use crate::reads::list::require_within_result_window;
 use crate::reads::preflight::routed_for_versions;
 use crate::reads::query_conversion::DistributedFacets;
+use crate::reads::{ReadDeps, live_allocation_once};
 
 pub(crate) struct QueryRouting {
     pub(crate) deps: Arc<ReadDeps>,
@@ -89,7 +89,7 @@ pub(crate) async fn distributed_query(
         shard_size: has_facets.then(|| oversampled_shard_size(facet_size)),
         size: facet_size,
     };
-    let Some(table) = deps.view.read_live(index_name).await? else {
+    let Some(table) = deps.view.read(index_name).await? else {
         return Err(ClusterError::new(
             codes::QUERY_ROUTING_FAILED,
             format!("No allocation table found for index '{index_name}'"),
@@ -99,16 +99,19 @@ pub(crate) async fn distributed_query(
     if table.assignments.is_empty() {
         return Ok(DistributedResult::default());
     }
-    let routed = routed_for_versions(
-        deps,
-        index_name,
-        &table,
-        routing_deps.carries_bm25,
-        params.term.as_deref(),
-    )
-    .await?;
-    let routing = select_replicas_for_query(&routed, &QueryKeyedSelector::new(&binding));
-    let total_partitions = table.assignments.len();
+    let selector = QueryKeyedSelector::new(&binding);
+    let carries_bm25 = routing_deps.carries_bm25;
+    let term = params.term.as_deref();
+    let routed = routed_for_versions(deps, index_name, &table, carries_bm25, term).await?;
+    let mut routing = select_replicas_for_query(&routed, &selector);
+    let mut total_partitions = table.assignments.len();
+    if !routing.unavailable_partitions.is_empty()
+        && let Some(live) = live_allocation_once(deps, index_name).await
+    {
+        let routed = routed_for_versions(deps, index_name, &live, carries_bm25, term).await?;
+        routing = select_replicas_for_query(&routed, &selector);
+        total_partitions = live.assignments.len();
+    }
     if !routing.unavailable_partitions.is_empty() && !config.allow_partial_results {
         let mut unavailable = routing.unavailable_partitions.clone();
         unavailable.sort_unstable();

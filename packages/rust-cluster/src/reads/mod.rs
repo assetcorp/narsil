@@ -40,6 +40,7 @@ pub(crate) use self::preflight::preflight_cluster;
 use self::projection::{
     apply_projection, fetch_fields_for, keeps_any_vector_field, resolve_projection,
 };
+pub(crate) use self::routable_allocation::live_allocation_once;
 use self::routable_allocation::routable_allocation;
 pub(crate) use self::search::query_cluster;
 pub(crate) use self::terms::suggest_cluster;
