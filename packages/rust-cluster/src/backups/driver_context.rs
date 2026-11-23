@@ -92,9 +92,14 @@ impl BackupDriverContext {
     }
 
     pub(crate) async fn report_job_progress(&self, done: u64, total: u64) -> ClusterResult<()> {
+        let (done, total) = (done as f64, total as f64);
         self.record_job_change(|job| BackupJob {
-            partitions_done: done as f64,
-            partitions_total: total as f64,
+            partitions_done: if job.partitions_total == total {
+                job.partitions_done.max(done)
+            } else {
+                done
+            },
+            partitions_total: total,
             ..job.clone()
         })
         .await
