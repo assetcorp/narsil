@@ -94,3 +94,20 @@ export async function tearDownAllocation(
     { indexName, attempts: TEARDOWN_CAS_ATTEMPTS * TEARDOWN_RETRY_ROUNDS },
   )
 }
+
+export async function tearDownDroppedAllocations(
+  coordinator: ClusterCoordinator,
+  state: EventLoopState,
+  isActive: () => boolean,
+  onError?: (indexName: string, error: unknown) => void,
+): Promise<void> {
+  const allocated = await coordinator.listAllocations()
+  if (allocated.length === 0) return
+  const published = new Set(await coordinator.listSchemas())
+  for (const indexName of allocated) {
+    if (published.has(indexName) || !isActive()) continue
+    inSchemaQueue(state, indexName, () =>
+      tearDownAllocation(indexName, coordinator, state, isActive, 0, onError),
+    ).catch(error => onError?.(indexName, error))
+  }
+}

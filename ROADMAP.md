@@ -36,7 +36,9 @@ Every TypeScript feature in the list below is in the stable release on npm, and 
 
 ## Planned
 
-Every item that this roadmap planned is now in the list above. Open an issue to propose the next one.
+- **Rust cluster mode.** A Rust process will be able to join a Narsil cluster beside TypeScript nodes through the crate in [`packages/rust-cluster`](packages/rust-cluster), which reads and writes the same etcd records and sends the same node messages as the TypeScript package. The Rust server will start such a node from its settings, so that a cluster can run on Rust nodes, on TypeScript nodes, or on both.
+
+Open an issue to propose the next item.
 
 ## How to get involved
 

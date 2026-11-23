@@ -55,6 +55,7 @@ interface DurableCheckpointInput {
   recordSavedBytes(saved: StoredBytes): void
   queueMetadataWrite(indexName: string, write: () => Promise<void>): Promise<void>
   markFatal(error: Error): void
+  closeFailsAlone(error: Error): boolean
   failPartition: PartitionFailure
 }
 
@@ -268,7 +269,7 @@ async function finishBoundedCheckpoint(
     input.indexName,
     capture.partitionCount,
     input.indexState.partitions,
-    input.markFatal,
+    input.closeFailsAlone,
   )
   await input.directory.remove(transitionKey(input.indexName))
   const beyondTheCheckpoint = recordsBeyond(input.indexState, targets)
