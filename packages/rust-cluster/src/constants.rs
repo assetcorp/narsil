@@ -66,6 +66,7 @@ pub const BOOTSTRAP_CAS_ATTEMPTS: usize = 5;
 pub const INSYNC_CAS_ATTEMPTS: usize = 5;
 pub const RECOVERY_CAS_ATTEMPTS: usize = 5;
 pub const TEARDOWN_CAS_ATTEMPTS: usize = 5;
+pub const REPLICATION_FACTOR_CAS_ATTEMPTS: usize = 5;
 pub const TEARDOWN_RETRY_DELAY_MS: u64 = 500;
 pub const TEARDOWN_RETRY_ROUNDS: usize = 3;
 pub const PARTITION_STORES_TIMEOUT_MS: u64 = 5_000;

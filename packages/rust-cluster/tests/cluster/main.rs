@@ -29,6 +29,7 @@ mod mixed_writes;
 mod primary_writes;
 mod replica_catch_up;
 mod replica_entries;
+mod replication_factor_change;
 mod rollback;
 mod shared_connect;
 mod term_start;
