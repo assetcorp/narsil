@@ -2,10 +2,8 @@ use std::sync::Arc;
 
 use narsil::{ChangeFeed, ChangeSource, ChangesRequest};
 
-use super::settings::not_ready;
 use super::{ClusterNode, refuse_hidden_generation};
-use crate::constants::CHANGE_CAPTURE_SPEC_VERSION;
-use crate::data::SharedFeedSource;
+use crate::data::{CHANGE_CAPTURE_READINESS, SharedFeedSource};
 use crate::error::{ClusterError, ClusterResult, codes};
 
 impl ClusterNode {
@@ -31,16 +29,8 @@ impl ClusterNode {
         request: &ChangesRequest,
     ) -> ClusterResult<ChangeFeed> {
         refuse_hidden_generation(index_name)?;
-        let older = self.nodes_below(CHANGE_CAPTURE_SPEC_VERSION).await?;
-        if !older.is_empty() {
-            return Err(not_ready(
-                codes::CHANGES_NOT_READY,
-                "keep no history for change capture",
-                CHANGE_CAPTURE_SPEC_VERSION,
-                older,
-                index_name,
-            ));
-        }
+        self.require_ready(&CHANGE_CAPTURE_READINESS, index_name)
+            .await?;
         let (source, name, request) = (self.feed_source(), index_name.to_string(), request.clone());
         tokio::task::spawn_blocking(move || ChangeFeed::follow(source, &name, &request))
             .await

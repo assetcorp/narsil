@@ -128,6 +128,15 @@ pub trait FeedSource: Send + Sync {
     fn watch_index(&self, _index: &str) -> FeedSubscription {
         FeedSubscription::default()
     }
+
+    /// Checks that the source can serve a device feed of `index` before a server opens one.
+    ///
+    /// # Errors
+    ///
+    /// Fails with `SYNC_NOT_READY` where a cluster node follows a specification version that serves no device sync.
+    fn admit_feed(&self, _index: &str) -> Result<()> {
+        Ok(())
+    }
 }
 
 /// Where a change feed reads an index: the device feed's log reads, and what a change feed needs beyond them.
@@ -161,5 +170,15 @@ pub trait ChangeSource: FeedSource {
     /// Fails with `INSTANCE_SHUT_DOWN` once the source has shut down.
     fn index_resting(&self, _index: &str) -> Result<bool> {
         Ok(false)
+    }
+
+    /// Checks that the source can serve a change feed of `index` before a caller opens one.
+    ///
+    /// # Errors
+    ///
+    /// Fails with `CHANGES_NOT_READY` where a cluster node follows a specification version that keeps no history
+    /// for change capture.
+    fn admit_changes(&self, _index: &str) -> Result<()> {
+        Ok(())
     }
 }

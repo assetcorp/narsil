@@ -20,7 +20,10 @@ mod watcher;
 mod writes;
 
 pub use config::DataNodeConfig;
-pub(crate) use device_sync::SharedFeedSource;
+pub(crate) use device_sync::{
+    CHANGE_CAPTURE_READINESS, DEVICE_SYNC_READINESS, Readiness, SharedFeedSource, nodes_below,
+    not_ready,
+};
 pub(crate) use role::DataRole;
 pub(crate) use writes::{
     AllocationView, PrimaryWrites, abandoned_with_term, routed_partition, unassigned,

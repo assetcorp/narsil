@@ -70,6 +70,10 @@ fn not_enabled(kind: FeedKind, index: &str) -> ServerError {
 }
 
 fn feed_is_on(source: &dyn ChangeSource, kind: FeedKind, index: &str) -> Result<bool, NarsilError> {
+    match kind {
+        FeedKind::Sync => source.admit_feed(index)?,
+        FeedKind::Changes => source.admit_changes(index)?,
+    }
     let answer = match kind {
         FeedKind::Sync => source.index_state(index).map(|state| state.is_some()),
         FeedKind::Changes => source.changes_state(index).map(|state| state.is_some()),
