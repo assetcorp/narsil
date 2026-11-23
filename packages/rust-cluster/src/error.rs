@@ -76,6 +76,21 @@ pub mod codes {
     /// A node reports an orphaned copy, or a caller sends that node a read, a write, or a create for the copy's index
     /// name.
     pub const INDEX_ORPHANED: &str = "INDEX_ORPHANED";
+    /// A node refuses an insert or an update because a node that holds a copy of the index reports full memory,
+    /// because the writes in flight on the node would pass its bound, or because the write would not fit in memory.
+    pub const CLUSTER_WRITE_BLOCKED: &str = "CLUSTER_WRITE_BLOCKED";
+    /// Device sync would go on, or a feed would read a log, through a node that keeps no write-ahead log.
+    pub const SYNC_DURABILITY_REQUIRED: &str = "SYNC_DURABILITY_REQUIRED";
+    /// Device sync would go on through a node that has no backup store.
+    pub const SYNC_BACKUP_STORE_REQUIRED: &str = "SYNC_BACKUP_STORE_REQUIRED";
+    /// Device sync would go on while a registered node follows a specification version below 1.3.
+    pub const SYNC_NOT_READY: &str = "SYNC_NOT_READY";
+    /// Change capture would go on through a node that keeps no write-ahead log.
+    pub const CHANGES_DURABILITY_REQUIRED: &str = "CHANGES_DURABILITY_REQUIRED";
+    /// Change capture would go on through a node that has no backup store.
+    pub const CHANGES_BACKUP_STORE_REQUIRED: &str = "CHANGES_BACKUP_STORE_REQUIRED";
+    /// Change capture would go on while a registered node follows a specification version below 1.5.
+    pub const CHANGES_NOT_READY: &str = "CHANGES_NOT_READY";
     /// The cluster owns the index and has yet to allocate it.
     pub const QUERY_ROUTING_FAILED: &str = "QUERY_ROUTING_FAILED";
     /// No node that holds the copy could take the request, because the transport could not reach it.

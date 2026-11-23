@@ -28,7 +28,7 @@ impl ClusterNode {
     ///
     /// Fails with `CONFIG_INVALID` where the registration holds no role, an unknown role, an empty address, or an
     /// invalid node id, where `data` holds settings for a node without the `data` role or none for a node with it,
-    /// or where a timing value is zero.
+    /// where a timing value is zero, or where `in_flight_write_fraction` is not above 0 and at most 1.
     pub fn new(config: ClusterNodeConfig) -> ClusterResult<ClusterNode> {
         validate_config(&config)?;
         Ok(ClusterNode {

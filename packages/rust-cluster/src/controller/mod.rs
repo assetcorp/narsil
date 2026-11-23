@@ -34,7 +34,8 @@ use crate::transport::{NodeTransport, Respond};
 
 pub(crate) use self::messages::is_controller_message;
 pub(crate) use self::metadata::{
-    IndexMetadata, index_metadata, records_previous_documents, stored_index_metadata,
+    IndexMetadata, index_metadata, metadata_key, records_previous_documents, stored_index_metadata,
+    validate_index_name,
 };
 pub(crate) use self::settings::{previous_documents_recorded, stored_settings_readable};
 pub(crate) use self::table::{belongs_to_another_index, stored_table};
