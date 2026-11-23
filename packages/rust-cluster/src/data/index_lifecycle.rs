@@ -1,8 +1,10 @@
-use narsil::{IndexConfig, Value};
+use narsil::held_analysis::{HeldAnalysisChanges, PendingAnalysisChange};
+use narsil::{AnalysisChange, IndexConfig, Value};
 
 use super::blocking::off_executor;
 use super::copies::LocalCopies;
 use super::role::DataRole;
+use super::stored_index::stored_index;
 use crate::error::{ClusterResult, codes};
 
 impl DataRole {
@@ -35,6 +37,30 @@ impl DataRole {
             Ok(copies.schema_of(&name)?)
         })
         .await
+    }
+
+    pub(crate) async fn check_analysis_change(
+        &self,
+        serving_name: &str,
+        public_name: &str,
+        schema: &Value,
+        change: &AnalysisChange,
+    ) -> ClusterResult<Option<PendingAnalysisChange>> {
+        let Some(stored) = stored_index(&self.coordinator, serving_name, schema).await? else {
+            return Ok(None);
+        };
+        let (name, change) = (public_name.to_string(), change.clone());
+        self.on_copies(move |copies| {
+            Ok(
+                HeldAnalysisChanges::new(&copies.engine).check_analysis_change(
+                    &name,
+                    &stored.config,
+                    &change,
+                )?,
+            )
+        })
+        .await
+        .map(Some)
     }
 
     pub(crate) async fn lists_local_index(&self, index_name: &str) -> ClusterResult<bool> {
