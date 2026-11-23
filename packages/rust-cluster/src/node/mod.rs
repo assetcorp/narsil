@@ -5,6 +5,7 @@ mod join;
 mod local_copies;
 mod member;
 mod not_ready;
+mod rebalance;
 mod started_at;
 mod writes;
 

@@ -25,6 +25,7 @@ mod lost_copy_wait;
 mod mixed_analysis_change;
 mod mixed_catch_up;
 mod mixed_failover;
+mod mixed_rebalance_request;
 mod mixed_settings;
 mod mixed_writes;
 mod primary_writes;
