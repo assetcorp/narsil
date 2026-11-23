@@ -186,6 +186,7 @@ pub(crate) async fn list_cluster(
                     &message,
                     &index,
                     validate_list_result_payload,
+                    true,
                 )
                 .await
             }

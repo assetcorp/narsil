@@ -3,8 +3,9 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use narsil::coordination::{
-    check_rerank, decode_cursor, hybrid_depth, page_hits_by_position, place_pinned_hits,
-    query_binding, reorder_hits_by_rerank, rerank_first_stage_depth, rerank_text,
+    RerankHost, check_rerank, decode_cursor, hybrid_depth, page_hits_by_position,
+    place_pinned_hits, query_binding, reorder_hits_by_rerank, rerank_first_stage_depth,
+    rerank_text,
 };
 use narsil::{
     DocumentProjection, GroupResult, Hit, Map, Pin, QueryParams, QueryResult, SearchMode,
@@ -40,6 +41,25 @@ fn deduped_ids(pins: &[Pin]) -> Vec<String> {
         }
     }
     ids
+}
+
+async fn rerank_scores(
+    host: &Arc<RerankHost>,
+    adapter: &str,
+    query: &str,
+    documents: Vec<String>,
+) -> ClusterResult<Vec<f64>> {
+    let host = Arc::clone(host);
+    let (adapter, query) = (adapter.to_string(), query.to_string());
+    let scored = tokio::task::spawn_blocking(move || host.score(&adapter, &query, documents))
+        .await
+        .map_err(|_| {
+            ClusterError::new(
+                codes::INTERNAL_ERROR,
+                "A rerank adapter call stopped before it finished",
+            )
+        })?;
+    Ok(scored?)
 }
 
 async fn fill_documents(
@@ -103,12 +123,6 @@ pub(super) async fn rerank_cluster_query(
     reader: &mut RankedDocumentReader,
 ) -> ClusterResult<QueryResult> {
     let started = Instant::now();
-    let Some(local) = deps.local.as_ref().map(Arc::clone) else {
-        return Err(ClusterError::new(
-            codes::RERANK_CONFIG_INVALID,
-            "This cluster node holds no rerank adapters",
-        ));
-    };
     let fuses = fuses_rankings(params);
     let hybrid = match fuses {
         true => hybrid_depth(params.hybrid.as_ref())?,
@@ -118,7 +132,7 @@ pub(super) async fn rerank_cluster_query(
         params,
         &search.settings.schema,
         hybrid,
-        local.max_rerank_window(),
+        deps.rerank.max_window(),
     )?;
     let limit = params.limit.unwrap_or(DEFAULT_PAGE_SIZE);
     let offset = params.offset.unwrap_or(0);
@@ -195,15 +209,11 @@ pub(super) async fn rerank_cluster_query(
                         .unwrap_or_default()
                 })
                 .collect();
-            let scores = local
-                .rerank_scores(&plan.adapter, &plan.query, texts)
-                .await?;
+            let scores = rerank_scores(&deps.rerank, &plan.adapter, &plan.query, texts).await?;
             reorder_hits_by_rerank(ranked, window_size, &scores)
         }
         false => {
-            local
-                .rerank_scores(&plan.adapter, &plan.query, Vec::new())
-                .await?;
+            rerank_scores(&deps.rerank, &plan.adapter, &plan.query, Vec::new()).await?;
             ranked
         }
     };

@@ -41,6 +41,8 @@ impl NodeInner {
             transport: Arc::clone(&self.transport),
             view: router.view(),
             local: local_reads,
+            memory: self.memory(),
+            rerank: Arc::clone(&self.rerank),
             query: self.query,
             on_error: self.on_error.clone(),
         })

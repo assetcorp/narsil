@@ -4,6 +4,7 @@ use std::sync::Arc;
 use narsil::Map;
 
 use super::ReadDeps;
+use super::decode_room::refuse_decode_without_room;
 use super::node_messaging::{
     SendFailureContext, answer_is_refusal, decoded_answer, no_active_replica, read_rejection_of,
     send_to_node,
@@ -63,6 +64,7 @@ pub(crate) async fn send_read_request<T>(
     message: &TransportMessage,
     index_name: &str,
     validate: impl FnOnce(Map) -> ClusterResult<T>,
+    bound_decode: bool,
 ) -> Result<T, Failure> {
     let answer = send_to_node(
         deps,
@@ -76,6 +78,9 @@ pub(crate) async fn send_read_request<T>(
         },
     )
     .await?;
+    if bound_decode {
+        refuse_decode_without_room(deps, &answer.payload)?;
+    }
     let decoded = decoded_answer(&answer)?;
     if answer_is_refusal(&answer, &decoded) {
         return Err(read_rejection_of(&decoded, target_node_id, index_name));

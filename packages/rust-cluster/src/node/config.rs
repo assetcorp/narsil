@@ -1,7 +1,9 @@
+use std::collections::BTreeMap;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 
-use narsil::Value;
+use narsil::coordination::RerankHost;
+use narsil::{RerankAdapter, Value};
 
 use crate::constants::{
     DEFAULT_CONTROLLER_LEASE_TTL_MS, DEFAULT_IN_FLIGHT_WRITE_FRACTION,
@@ -68,6 +70,21 @@ impl Default for ClusterQueryConfig {
     }
 }
 
+/// The rerank adapters that a node scores the best hits of a cluster search with, and the timeout and window that
+/// its calls follow.
+#[derive(Clone, Default)]
+pub struct ClusterRerankConfig {
+    /// The adapters that a query gives by name in `rerank.adapter`. A node with the `data` role also scores with the
+    /// adapters in `data.rerank_adapters`, and an adapter here replaces one there under the same name.
+    pub adapters: BTreeMap<String, Arc<dyn RerankAdapter>>,
+    /// How many milliseconds an adapter may take before the search fails with `RERANK_FAILED`, from 1 to
+    /// 2,147,483,647. `None` takes `data.engine.rerank_timeout_ms` on a node with the `data` role, and 30,000 otherwise.
+    pub timeout_ms: Option<u64>,
+    /// The most hits that one search may rerank, from 1 to 1,000. `None` takes `data.engine.max_rerank_window` on a
+    /// node with the `data` role, and 100 otherwise.
+    pub max_window: Option<usize>,
+}
+
 /// The settings of a [`ClusterNode`](super::ClusterNode).
 pub struct ClusterNodeConfig {
     /// The etcd coordinator that the node registers with and that its controller writes allocation tables through.
@@ -89,6 +106,9 @@ pub struct ClusterNodeConfig {
     pub in_flight_write_fraction: f64,
     /// How the node answers a search that some partitions failed to answer.
     pub query: ClusterQueryConfig,
+    /// The rerank adapters that the node scores a reranked search with, which every node that takes searches from
+    /// clients needs, whatever its roles.
+    pub rerank: ClusterRerankConfig,
     /// Receives the failures that no awaited call returns.
     pub on_error: Option<NodeErrorHandler>,
 }
@@ -96,7 +116,7 @@ pub struct ClusterNodeConfig {
 impl ClusterNodeConfig {
     /// Returns the settings of a node that writes `registration`, with the default controller timing, the default
     /// heartbeat interval of 10 seconds, searches that answer from the partitions that answer within 5 seconds, no
-    /// error handler, and no data settings.
+    /// rerank adapter, no error handler, and no data settings.
     pub fn new(
         coordinator: Arc<EtcdCoordinator>,
         transport: Arc<dyn NodeTransport>,
@@ -111,6 +131,7 @@ impl ClusterNodeConfig {
             heartbeat_interval_ms: DEFAULT_NODE_HEARTBEAT_INTERVAL_MS,
             in_flight_write_fraction: DEFAULT_IN_FLIGHT_WRITE_FRACTION,
             query: ClusterQueryConfig::default(),
+            rerank: ClusterRerankConfig::default(),
             on_error: None,
         }
     }
@@ -128,6 +149,24 @@ fn require_positive(value: u64, name: &str) -> ClusterResult<()> {
         .with_detail(name, Value::Number(0.0)));
     }
     Ok(())
+}
+
+pub(crate) fn rerank_host_of(config: &ClusterNodeConfig) -> ClusterResult<Arc<RerankHost>> {
+    let data = config.data.as_ref();
+    let timeout_ms = config
+        .rerank
+        .timeout_ms
+        .or_else(|| data.and_then(|data| data.engine.rerank_timeout_ms));
+    let max_window = config
+        .rerank
+        .max_window
+        .or_else(|| data.and_then(|data| data.engine.max_rerank_window));
+    let host = RerankHost::new(timeout_ms, max_window)?;
+    let data_adapters = data.into_iter().flat_map(|data| &data.rerank_adapters);
+    for (name, adapter) in data_adapters.chain(&config.rerank.adapters) {
+        host.register(name, Arc::clone(adapter))?;
+    }
+    Ok(Arc::new(host))
 }
 
 pub(crate) fn validate_config(config: &ClusterNodeConfig) -> ClusterResult<()> {
