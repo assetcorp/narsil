@@ -17,6 +17,7 @@ mod primary_backup;
 mod primary_handlers;
 mod primary_restore;
 mod primary_tasks;
+mod query_history;
 mod replication_factor;
 mod requests;
 mod restore_publish;
@@ -31,6 +32,7 @@ pub(crate) use keys::validate_backup_config;
 pub(crate) use primary_handlers::{
     BackupPrimary, PrimaryContext, answer_backup_partition, answer_restore_partition,
 };
+pub(crate) use query_history::{ClusterQueryHistory, HistoryFileReceiver};
 pub(crate) use requests::{
     request_backup, request_backup_deletion, request_restore, require_backup_store,
 };

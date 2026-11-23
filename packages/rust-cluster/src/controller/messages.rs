@@ -8,15 +8,14 @@ use crate::message::{TransportMessage, message_types, refusal};
 use crate::node::decode_request_payload;
 use crate::transport::Respond;
 
-const UNSUPPORTED_MESSAGE_TYPES: [&str; 1] = [message_types::SUGGESTIONS_BUILD];
-
 const BACKUP_MESSAGE_TYPES: [&str; 3] = [
     message_types::CLUSTER_BACKUP,
     message_types::CLUSTER_BACKUP_RESTORE,
     message_types::CLUSTER_BACKUP_DELETE,
 ];
 
-const SUPPORTED_MESSAGE_TYPES: [&str; 6] = [
+const SUPPORTED_MESSAGE_TYPES: [&str; 7] = [
+    message_types::SUGGESTIONS_BUILD,
     message_types::CLUSTER_REPLICATION_FACTOR,
     message_types::CLUSTER_REBALANCE,
     message_types::REPLICATION_INSYNC_ADD,
@@ -26,9 +25,7 @@ const SUPPORTED_MESSAGE_TYPES: [&str; 6] = [
 ];
 
 pub(crate) fn is_controller_message(message_type: &str) -> bool {
-    SUPPORTED_MESSAGE_TYPES.contains(&message_type)
-        || UNSUPPORTED_MESSAGE_TYPES.contains(&message_type)
-        || BACKUP_MESSAGE_TYPES.contains(&message_type)
+    SUPPORTED_MESSAGE_TYPES.contains(&message_type) || BACKUP_MESSAGE_TYPES.contains(&message_type)
 }
 
 pub(super) fn integer_field(fields: &Map, key: &str) -> Option<f64> {
@@ -113,7 +110,13 @@ pub(super) async fn handle_message(
         tokio::spawn(answer_backup(message, respond));
         return;
     }
-    if UNSUPPORTED_MESSAGE_TYPES.contains(&message.message_type.as_str())
+    if message.message_type == message_types::SUGGESTIONS_BUILD
+        && let Some(answer_build) = &inner.config.suggestion_builds
+    {
+        tokio::spawn(answer_build(message, respond));
+        return;
+    }
+    if message.message_type == message_types::SUGGESTIONS_BUILD
         || BACKUP_MESSAGE_TYPES.contains(&message.message_type.as_str())
     {
         respond.send(unsupported(&message, inner.node_id())).await;

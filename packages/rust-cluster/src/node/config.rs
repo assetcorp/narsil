@@ -1,7 +1,7 @@
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 
-use narsil::Value;
+use narsil::{QuerySuggestionsConfig, Value};
 
 use crate::backups::{ClusterBackupConfig, validate_backup_config};
 use crate::constants::{
@@ -93,6 +93,10 @@ pub struct ClusterNodeConfig {
     /// Where the cluster keeps its backups, which every node of the cluster sets alike, or `None` for a node that
     /// takes no part in a backup.
     pub backups: Option<ClusterBackupConfig>,
+    /// The key that scrambles each person whose searches the node counts for popular query suggestions, which
+    /// every node of the cluster sets alike, or `None` for a node that counts nothing and builds nothing. A node with
+    /// the `data` role keeps its counts beside its copies; any other node keeps them in memory.
+    pub query_suggestions: Option<QuerySuggestionsConfig>,
     /// Receives the failures that no awaited call returns.
     pub on_error: Option<NodeErrorHandler>,
 }
@@ -100,7 +104,7 @@ pub struct ClusterNodeConfig {
 impl ClusterNodeConfig {
     /// Returns the settings of a node that writes `registration`, with the default controller timing, the default
     /// heartbeat interval of 10 seconds, searches that answer from the partitions that answer within 5 seconds, no
-    /// error handler, no data settings, and no backup store.
+    /// error handler, no data settings, no backup store, and no query suggestions key.
     pub fn new(
         coordinator: Arc<EtcdCoordinator>,
         transport: Arc<dyn NodeTransport>,
@@ -116,6 +120,7 @@ impl ClusterNodeConfig {
             in_flight_write_fraction: DEFAULT_IN_FLIGHT_WRITE_FRACTION,
             query: ClusterQueryConfig::default(),
             backups: None,
+            query_suggestions: None,
             on_error: None,
         }
     }
@@ -187,6 +192,15 @@ pub(crate) fn validate_config(config: &ClusterNodeConfig) -> ClusterResult<()> {
     }
     if let Some(backups) = &config.backups {
         validate_backup_config(backups)?;
+    }
+    if config
+        .data
+        .as_ref()
+        .is_some_and(|data| data.engine.query_suggestions.is_some())
+    {
+        return Err(invalid(
+            "ClusterNodeConfig.data.engine.query_suggestions must be None, because a cluster node counts searches with ClusterNodeConfig.query_suggestions",
+        ));
     }
     require_positive(config.heartbeat_interval_ms, "heartbeat_interval_ms")?;
     require_positive(

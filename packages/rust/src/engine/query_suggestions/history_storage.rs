@@ -4,8 +4,7 @@ use std::sync::Arc;
 use super::build_record::new_build_id;
 use super::constants::{QUERY_HISTORY_FOLDER, RESTORE_STAGING_INFIX};
 use super::history_files::{
-    HistoryRead, history_files_of, read_history_file, remove_history_folder,
-    restore_staging_prefix,
+    HistoryRead, history_files_of, read_history_file, remove_history_folder, restore_staging_prefix,
 };
 use super::host::{HistoryFilesRef, SuggestionsHost};
 use crate::durability::checkpoint_store::{AdapterStore, CheckpointStore};

@@ -1,3 +1,4 @@
+use narsil::suggestions_host::SuggestionState;
 use narsil::{Map, Value, decode_msgpack, encode_msgpack};
 
 use super::metadata::{IndexMetadata, metadata_key, validate_index_name, validate_record};
@@ -281,5 +282,19 @@ pub(crate) fn metadata_with_analysis_failure(
     let (fields, mut settings) = snapshot.fields();
     settings.remove(PENDING_ANALYSIS_FIELD);
     settings.insert(ANALYSIS_FAILURE_FIELD, failure_to_value(failure));
+    encoded(fields, settings)
+}
+
+pub(crate) fn metadata_with_suggestion_state(
+    snapshot: &IndexMetadataSnapshot,
+    state: &SuggestionState,
+) -> ClusterResult<Vec<u8>> {
+    let (fields, mut settings) = snapshot.fields();
+    if !matches!(fields.get(SETTINGS_FIELD), Some(Value::Object(_)))
+        && !settings.contains_key("language")
+    {
+        settings.insert("language", Value::String(DEFAULT_LANGUAGE.to_string()));
+    }
+    state.write_settings(&mut settings);
     encoded(fields, settings)
 }

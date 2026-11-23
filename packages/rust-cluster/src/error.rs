@@ -271,7 +271,7 @@ impl std::error::Error for ClusterError {}
 impl From<NarsilError> for ClusterError {
     fn from(error: NarsilError) -> ClusterError {
         ClusterError {
-            code: error.code().as_str().to_string(),
+            code: error.spec_code().to_string(),
             message: error.message().to_string(),
             details: error.details().cloned().unwrap_or_default(),
         }
