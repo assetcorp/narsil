@@ -4,6 +4,7 @@ pub(crate) mod entry;
 pub(crate) mod fields;
 pub(crate) mod forward;
 pub(crate) mod replica;
+pub(crate) mod snapshot;
 pub(crate) mod sync;
 pub(crate) mod term_start;
 

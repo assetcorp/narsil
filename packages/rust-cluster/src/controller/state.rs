@@ -26,9 +26,9 @@ pub(crate) struct LoopState {
     pub(crate) teardowns: HashMap<String, (u64, JoinHandle<()>)>,
     pub(crate) watches: Vec<WatchHandle>,
     pub(crate) listening: bool,
-    pub(crate) analysis_drivers: HashMap<String, AnalysisDriver>,
     pub(crate) rebalance_drivers: HashMap<String, String>,
     pub(crate) rebalance_epoch: u64,
+    pub(crate) analysis_drivers: HashMap<String, AnalysisDriver>,
 }
 
 fn abort(timer: &mut Timer) {

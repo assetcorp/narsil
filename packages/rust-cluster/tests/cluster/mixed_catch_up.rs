@@ -1,8 +1,6 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 
-use narsil::Value;
 use narsil_cluster::coordinator::etcd::{EtcdCoordinator, EtcdCoordinatorConfig};
 
 use crate::data_node::{
@@ -10,36 +8,15 @@ use crate::data_node::{
     unique_key_prefix,
 };
 use crate::ledger::{
-    DIVERGED_DOCUMENT_ID, FIRST_DATA_NODE, LEDGER, LEDGER_UUID, Member, PAUSE_BETWEEN_WRITES,
-    SECOND_DATA_NODE, holds_exactly, placement, start_controller, title_of,
+    DIVERGED_DOCUMENT_ID, FIRST_DATA_NODE, LEDGER, LEDGER_UUID, Member, SECOND_DATA_NODE,
+    holds_exactly, placement, start_controller, title_of,
 };
 use crate::spread::titled;
 use crate::typescript_node::TypescriptNode;
 
 const TYPESCRIPT_DATA_NODE: &str = "ledger-typescript-data";
 const ROUTER: &str = "ledger-router";
-const BOOTSTRAP_FAILED: &str = "NODE_BOOTSTRAP_FAILED";
-const RESTORE_FAILED: &str = "SNAPSHOT_SYNC_RESTORE_FAILED";
-const REFUSED_SYNCS_TO_WATCH: usize = 3;
-const REFUSED_SYNCS_WAIT: Duration = Duration::from_secs(60);
-
 type Written = BTreeMap<String, String>;
-
-impl Member {
-    fn refused_syncs(&self) -> usize {
-        self.data()
-            .reported
-            .lock()
-            .expect("no reporter panicked")
-            .iter()
-            .filter(|error| {
-                error.code() == BOOTSTRAP_FAILED
-                    && error.details().get("innerCode").and_then(Value::as_str)
-                        == Some(RESTORE_FAILED)
-            })
-            .count()
-    }
-}
 
 struct MixedCluster {
     endpoint: String,
@@ -208,7 +185,7 @@ async fn a_returning_typescript_replica_catches_up_from_a_rust_primary() {
 
     replica.shutdown().await;
     cluster.write("while-away", 30, &mut written).await;
-    let mut replica = cluster.typescript_data_node().await;
+    let replica = cluster.typescript_data_node().await;
     cluster
         .admitted(
             TYPESCRIPT_DATA_NODE,
@@ -216,6 +193,21 @@ async fn a_returning_typescript_replica_catches_up_from_a_rust_primary() {
         )
         .await;
     cluster.write("after-return", 10, &mut written).await;
+    replica.shutdown().await;
+    cluster.write("past-the-log", 5, &mut written).await;
+    primary.stop().await;
+    primary.restart(&cluster.coordinator).await;
+    cluster
+        .led_by(FIRST_DATA_NODE, "the restarted Rust primary leads again")
+        .await;
+    let mut replica = cluster.typescript_data_node().await;
+    cluster
+        .admitted(
+            TYPESCRIPT_DATA_NODE,
+            "the TypeScript replica is admitted after a snapshot from the Rust primary",
+        )
+        .await;
+    cluster.write("after-snapshot", 5, &mut written).await;
     primary.stop().await;
     cluster
         .led_by(
@@ -234,7 +226,7 @@ async fn a_returning_typescript_replica_catches_up_from_a_rust_primary() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_rust_replica_with_an_entry_from_an_earlier_term_is_never_admitted_by_a_typescript_primary()
+async fn a_rust_replica_with_an_entry_from_an_earlier_term_takes_a_snapshot_from_a_typescript_primary()
  {
     let Some(mut cluster) = MixedCluster::start().await else {
         return;
@@ -273,47 +265,29 @@ async fn a_rust_replica_with_an_entry_from_an_earlier_term_is_never_admitted_by_
     let diverged_title = "written by the departed primary and never replicated";
     let (_, diverged_term) = departed.diverge_while_stopped(diverged_title);
     assert!((diverged_term as f64) < promoted_term);
-    let mut kept = written.clone();
-    kept.insert(DIVERGED_DOCUMENT_ID.to_string(), diverged_title.to_string());
     cluster.write("after-failover", 1, &mut written).await;
     departed.restart(&cluster.coordinator).await;
-
-    let deadline = Instant::now() + REFUSED_SYNCS_WAIT;
-    let mut serial = 0;
-    while departed.refused_syncs() < REFUSED_SYNCS_TO_WATCH {
-        assert!(
-            Instant::now() < deadline,
-            "timed out waiting for {REFUSED_SYNCS_TO_WATCH} refused syncs: {:?}",
-            departed
-                .data()
-                .reported
-                .lock()
-                .expect("no reporter panicked")
-        );
-        cluster
-            .write(&format!("while-refused-{serial}"), 1, &mut written)
-            .await;
-        serial += 1;
-        let placed = placement(&cluster.coordinator)
-            .await
-            .expect("the ledger is placed");
-        assert!(placed.is_led_by(TYPESCRIPT_DATA_NODE));
-        assert_eq!(placed.primary_term, promoted_term);
-        assert!(
-            !placed.lists_in_sync(FIRST_DATA_NODE),
-            "the diverged Rust copy stays out of the in-sync set"
-        );
-        let later: Vec<String> = written
-            .keys()
-            .filter(|document_id| !kept.contains_key(*document_id))
-            .cloned()
-            .collect();
-        assert!(
-            holds_exactly(departed.data(), &kept, &later).await,
-            "the diverged Rust copy keeps what it held and takes no later write"
-        );
-        tokio::time::sleep(PAUSE_BETWEEN_WRITES).await;
-    }
+    cluster
+        .admitted(
+            FIRST_DATA_NODE,
+            "the diverged Rust copy is admitted after a snapshot from the TypeScript primary",
+        )
+        .await;
+    cluster.write("after-snapshot", 3, &mut written).await;
+    let placed = placement(&cluster.coordinator)
+        .await
+        .expect("the ledger is placed");
+    assert!(placed.is_led_by(TYPESCRIPT_DATA_NODE));
+    assert_eq!(placed.primary_term, promoted_term);
+    assert!(
+        holds_exactly(
+            departed.data(),
+            &written,
+            &[DIVERGED_DOCUMENT_ID.to_string()]
+        )
+        .await,
+        "the Rust copy holds every acknowledged write and drops the entry that only it wrote"
+    );
     assert_eq!(successor.title(LEDGER, DIVERGED_DOCUMENT_ID).await, None);
     let difference = typescript_copy_difference(&mut successor, &written).await;
     assert!(difference.is_none(), "{difference:?}");

@@ -51,6 +51,29 @@ fn write_failed(error: std::io::Error) -> NarsilError {
 }
 
 impl ArchiveCheckpoint {
+    /// Returns the checkpoint that `store` holds in memory for `index_name`, once a checkpoint committed there.
+    pub(super) fn in_memory(store: SnapshotStore, index_name: &str) -> Result<ArchiveCheckpoint> {
+        let missing = || {
+            save_failed(format!(
+                "The archive of index \"{index_name}\" holds no manifest"
+            ))
+        };
+        let manifest_bytes = store
+            .store()
+            .read_within(&manifest_key(index_name), MAX_FILE_BYTES)?
+            .ok_or_else(missing)?;
+        let (_, raw) = open_manifest_payload(&manifest_bytes)?;
+        let DecodedManifest::Current(manifest) = decode_manifest_payload(&raw, index_name)? else {
+            return Err(missing());
+        };
+        Ok(ArchiveCheckpoint {
+            manifest_bytes,
+            manifest,
+            capture_epoch: None,
+            files: ArchiveFiles::Memory(store),
+        })
+    }
+
     fn store(&self) -> &dyn CheckpointStore {
         match &self.files {
             ArchiveFiles::Stored(backing, _) => backing.files(),
@@ -185,28 +208,7 @@ fn memory_checkpoint(index: &IndexState) -> Result<ArchiveCheckpoint> {
     };
     let built = build_checkpoint(&mut target, index, &partitions, plan)?;
     target.commit(&built.manifest, &built.metadata, &mut HashSet::new)?;
-    let manifest_bytes = store
-        .store()
-        .read_within(&manifest_key(&index.name), MAX_FILE_BYTES)?
-        .ok_or_else(|| {
-            save_failed(format!(
-                "The archive of index \"{}\" holds no manifest",
-                index.name
-            ))
-        })?;
-    let (_, raw) = open_manifest_payload(&manifest_bytes)?;
-    let DecodedManifest::Current(manifest) = decode_manifest_payload(&raw, &index.name)? else {
-        return Err(save_failed(format!(
-            "The archive of index \"{}\" holds no manifest",
-            index.name
-        )));
-    };
-    Ok(ArchiveCheckpoint {
-        manifest_bytes,
-        manifest,
-        capture_epoch: None,
-        files: ArchiveFiles::Memory(store),
-    })
+    ArchiveCheckpoint::in_memory(store, &index.name)
 }
 
 /// Returns a checkpoint of `index` for an archive: under the write-ahead log, a new checkpoint whose files stay

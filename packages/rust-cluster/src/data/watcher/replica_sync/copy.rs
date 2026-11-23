@@ -1,6 +1,10 @@
 use std::sync::Arc;
+use std::time::Instant;
 
 use narsil::Value;
+use narsil::replication::CopyPosition;
+
+use crate::data::snapshot_spool::SpooledSnapshot;
 
 use super::{ReplicaSync, sync_error, with_cause};
 use crate::data::blocking::off_executor;
@@ -34,6 +38,54 @@ impl WatcherContext {
             self.writes.forget_index(&key.0);
         }
         self.check_replica_copy(sync).await
+    }
+
+    pub(super) async fn restore_snapshot(
+        self: &Arc<Self>,
+        sync: &ReplicaSync<'_>,
+        target: &str,
+        position: CopyPosition,
+        archive: SpooledSnapshot,
+    ) -> ClusterResult<()> {
+        let key = sync.key;
+        let remaining = sync.deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err(sync_error(
+                codes::SNAPSHOT_SYNC_TIMEOUT,
+                key,
+                "bootstrap sync exceeded deadline before partition restore".to_string(),
+            )
+            .with_detail("primaryNodeId", Value::from(target)));
+        }
+        let restoring = self
+            .writes
+            .restore_snapshot(&key.0, key.1, position, archive);
+        let restored = match tokio::time::timeout(remaining, restoring).await {
+            Ok(restored) => restored,
+            Err(_) => {
+                return Err(sync_error(
+                    codes::SNAPSHOT_SYNC_TIMEOUT,
+                    key,
+                    "bootstrap sync exceeded deadline during partition-restore".to_string(),
+                ));
+            }
+        };
+        if let Err(error) = restored {
+            let failure = sync_error(
+                codes::SNAPSHOT_SYNC_RESTORE_FAILED,
+                key,
+                format!("partition restore failed: {}", error.message()),
+            )
+            .with_detail("primaryNodeId", Value::from(target));
+            return Err(with_cause(failure, &error));
+        }
+        match self
+            .checked_schema(&key.0, &sync.stored.config.schema)
+            .await
+        {
+            Some(error) => Err(error),
+            None => Ok(()),
+        }
     }
 
     async fn check_replica_copy(self: &Arc<Self>, sync: &ReplicaSync<'_>) -> ClusterResult<()> {

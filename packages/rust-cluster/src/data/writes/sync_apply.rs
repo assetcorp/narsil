@@ -1,9 +1,14 @@
+use std::fs::File;
+use std::io::BufReader;
 use std::sync::Arc;
 
 use narsil::Value;
+use narsil::replication::CopyPosition;
 
 use super::PrimaryWrites;
 use super::log_order::EntrySource;
+use crate::controller::lock;
+use crate::data::snapshot_spool::SpooledSnapshot;
 use crate::error::{ClusterError, ClusterResult, codes};
 use crate::payload::entry::WireEntry;
 use crate::payload::replica::EntryRun;
@@ -32,6 +37,35 @@ fn out_of_order(index_name: &str, partition_id: u32, seq_no: u64, expected: u64)
 }
 
 impl PrimaryWrites {
+    pub(crate) async fn restore_snapshot(
+        &self,
+        index_name: &str,
+        partition_id: u32,
+        position: CopyPosition,
+        archive: SpooledSnapshot,
+    ) -> ClusterResult<()> {
+        let partition = self.partitions.of(index_name, partition_id);
+        let turn = partition.turn().await;
+        let name = index_name.to_string();
+        let restored = self
+            .on_copies(move |copies| {
+                let file = File::open(&archive.path).map_err(|error| {
+                    ClusterError::new(
+                        codes::SNAPSHOT_SYNC_RESTORE_FAILED,
+                        format!("the received snapshot could not be read: {error}"),
+                    )
+                })?;
+                let mut reader = BufReader::new(file);
+                copies.restore_partition(&name, partition_id, position, &mut reader)
+            })
+            .await;
+        if restored.is_ok() {
+            lock(&partition.log).clear();
+        }
+        drop(turn);
+        restored
+    }
+
     pub(crate) async fn apply_sync_batches(
         self: &Arc<Self>,
         index_name: &str,
