@@ -131,6 +131,7 @@ const PATHS_BY_LANGUAGE_AREA = {
   rust_cluster: {
     paths: [
       'packages/rust-cluster/',
+      'packages/rust-server/',
       'packages/rust/',
       'packages/native/src/',
       'packages/native/include/',
