@@ -35,12 +35,19 @@ pub trait PersistenceAdapter: Send + Sync {
     ///
     /// Returns `None` where the store offers no such step, which is the default. A cluster refuses a backup store
     /// that returns `None`, because a save followed by a load can't stop two clusters from both claiming a prefix.
+    /// A store that overrides this method also overrides [`PersistenceAdapter::offers_save_if_absent`].
     fn save_if_absent(
         &self,
         _key: &str,
         _data: &[u8],
     ) -> Option<std::result::Result<bool, AdapterError>> {
         None
+    }
+
+    /// Reports whether [`PersistenceAdapter::save_if_absent`] stores data, so that a cluster node can refuse a backup
+    /// store without it as the node starts. The default is false.
+    fn offers_save_if_absent(&self) -> bool {
+        false
     }
 
     /// Returns the directory that holds the keys when the store is a local directory, which lets an engine run the
@@ -119,6 +126,10 @@ impl PersistenceAdapter for MemoryPersistence {
         entries.insert(key.to_string(), data.to_vec());
         Some(Ok(true))
     }
+
+    fn offers_save_if_absent(&self) -> bool {
+        true
+    }
 }
 
 /// Writes each key to a file under one directory, flushing it to the disk and renaming it into place, so that a
@@ -178,6 +189,10 @@ impl PersistenceAdapter for FilesystemPersistence {
         data: &[u8],
     ) -> Option<std::result::Result<bool, AdapterError>> {
         Some(self.directory.write_if_absent(key, data).map_err(boxed))
+    }
+
+    fn offers_save_if_absent(&self) -> bool {
+        true
     }
 
     fn directory(&self) -> Option<&Path> {

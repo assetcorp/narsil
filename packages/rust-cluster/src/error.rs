@@ -155,6 +155,30 @@ pub mod codes {
     /// A node started without its copy of a partition that the allocation table gives it as primary or as an
     /// in-sync replica, so it waits to register until the controller fails that copy over.
     pub const NODE_COPY_MISSING: &str = "NODE_COPY_MISSING";
+    /// The backup store holds no manifest under the backup name.
+    pub const BACKUP_NOT_FOUND: &str = "BACKUP_NOT_FOUND";
+    /// A manifest or a running job already holds the backup name.
+    pub const BACKUP_ALREADY_EXISTS: &str = "BACKUP_ALREADY_EXISTS";
+    /// A backup manifest fails to decode, or a file that it lists is missing or has another length or SHA-256.
+    pub const BACKUP_DAMAGED: &str = "BACKUP_DAMAGED";
+    /// A primary runs without write-ahead log durability, so it can't take a backup.
+    pub const BACKUP_DURABILITY_REQUIRED: &str = "BACKUP_DURABILITY_REQUIRED";
+    /// Another backup job conflicts with the one that a request asks for.
+    pub const BACKUP_IN_PROGRESS: &str = "BACKUP_IN_PROGRESS";
+    /// Another cluster's UUID is stored under the backup store's key prefix.
+    pub const BACKUP_STORE_CLAIMED: &str = "BACKUP_STORE_CLAIMED";
+    /// A registered node follows a specification version below the one that backups need.
+    pub const BACKUP_NOT_READY: &str = "BACKUP_NOT_READY";
+    /// The node that receives a backup, restore, deletion, or listing request has no backup store.
+    pub const BACKUP_STORE_NOT_CONFIGURED: &str = "BACKUP_STORE_NOT_CONFIGURED";
+    /// A read of a backup store or a stored file failed.
+    pub const PERSISTENCE_LOAD_FAILED: &str = "PERSISTENCE_LOAD_FAILED";
+    /// An index's settings changed while its partitions were backed up.
+    pub const ANALYSIS_CHANGE_NOT_READY: &str = "ANALYSIS_CHANGE_NOT_READY";
+    /// A partition count change of the index runs, so the request waits until it ends.
+    pub const PARTITION_REBALANCING_BACKPRESSURE: &str = "PARTITION_REBALANCING_BACKPRESSURE";
+    /// The cluster already holds an index under the name that a restore asks for.
+    pub const INDEX_ALREADY_EXISTS: &str = "INDEX_ALREADY_EXISTS";
 }
 
 /// A failure of a cluster node, a transport, or a coordinator, with the code that a peer or a caller branches on.
