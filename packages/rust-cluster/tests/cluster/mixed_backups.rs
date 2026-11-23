@@ -6,10 +6,10 @@ use std::time::Duration;
 use narsil::replication::decode_backup_manifest;
 use narsil::{FilesystemPersistence, Map, Value};
 use narsil_cluster::coordinator::etcd::{EtcdCoordinator, EtcdCoordinatorConfig};
-use narsil_cluster::node::ClusterBackupConfig;
+use narsil_cluster::node::{ClusterBackupConfig, CreateBackupOptions, RestoreBackupOptions};
 
 use crate::data_node::{
-    DataNode, Scratch, coordinator_at, etcd_endpoint, metadata_key, unique_key_prefix,
+    DataNode, Scratch, coordinator_at, etcd_endpoint, eventually, metadata_key, unique_key_prefix,
 };
 use crate::typescript_node::{TypescriptNode, fields};
 
@@ -18,7 +18,12 @@ const LEDGER_COPY: &str = "ledger-copy";
 const JOURNAL: &str = "journal";
 const JOURNAL_COPY: &str = "journal-copy";
 const DAMAGED_COPY: &str = "journal-damaged-copy";
+const JOURNAL_RUST: &str = "journal-rust";
+const JOURNAL_AGAIN: &str = "journal-again";
+const DAMAGED_RUST_COPY: &str = "journal-again-damaged";
+const LEDGER_RUST: &str = "ledger-rust";
 const CONTROLLER: &str = "backup-controller";
+const RUST_CONTROLLER: &str = "backup-rust-controller";
 const TYPESCRIPT_DATA_NODE: &str = "backup-typescript-data";
 const FIRST_RUST_NODES: [&str; 2] = ["backup-rust-data-a", "backup-rust-data-b"];
 const LATER_RUST_NODES: [&str; 2] = ["backup-rust-data-c", "backup-rust-data-d"];
@@ -52,7 +57,8 @@ struct MixedBackupCluster {
     coordinator: Arc<EtcdCoordinator>,
     endpoint: String,
     key_prefix: String,
-    controller: TypescriptNode,
+    controller: Option<TypescriptNode>,
+    rust_controller: Option<DataNode>,
     rust_data: Vec<DataNode>,
     store: Scratch,
     scratches: Vec<Scratch>,
@@ -77,35 +83,95 @@ impl MixedBackupCluster {
             coordinator,
             endpoint,
             key_prefix,
-            controller,
+            controller: Some(controller),
+            rust_controller: None,
             rust_data: Vec::new(),
             store,
             scratches: Vec::new(),
         })
     }
 
+    async fn start_rust_node(&mut self, node_id: &str, roles: &[&str]) -> DataNode {
+        let scratch = Scratch::new();
+        let store_directory = self.store.path().to_path_buf();
+        let node = DataNode::start_configured(
+            &self.coordinator,
+            node_id,
+            scratch.path(),
+            roles,
+            |config| {
+                config.backups = Some(ClusterBackupConfig {
+                    store: Arc::new(
+                        FilesystemPersistence::new(&store_directory)
+                            .expect("the store directory is valid"),
+                    ),
+                    key_prefix: KEY_PREFIX.to_string(),
+                });
+            },
+        )
+        .await;
+        self.scratches.push(scratch);
+        node
+    }
+
     async fn start_rust_data_nodes(&mut self, node_ids: [&str; 2]) {
         for node_id in node_ids {
-            let scratch = Scratch::new();
-            let store_directory = self.store.path().to_path_buf();
-            let node = DataNode::start_configured(
-                &self.coordinator,
-                node_id,
-                scratch.path(),
-                &["data"],
-                |config| {
-                    config.backups = Some(ClusterBackupConfig {
-                        store: Arc::new(
-                            FilesystemPersistence::new(&store_directory)
-                                .expect("the store directory is valid"),
-                        ),
-                        key_prefix: KEY_PREFIX.to_string(),
-                    });
-                },
-            )
-            .await;
+            let node = self.start_rust_node(node_id, &["data"]).await;
             self.rust_data.push(node);
-            self.scratches.push(scratch);
+        }
+    }
+
+    async fn hand_control_to_rust(&mut self) {
+        let rust_controller = self.start_rust_node(RUST_CONTROLLER, &["controller"]).await;
+        if let Some(controller) = self.controller.take() {
+            controller.shutdown().await;
+        }
+        eventually("the Rust node holds the controller lease", || async {
+            rust_controller.node.is_controller()
+        })
+        .await;
+        self.rust_controller = Some(rust_controller);
+    }
+
+    fn rust_controller(&self) -> &DataNode {
+        self.rust_controller
+            .as_ref()
+            .expect("a Rust node holds the controller lease")
+    }
+
+    fn typescript_controller(&mut self) -> &mut TypescriptNode {
+        self.controller
+            .as_mut()
+            .expect("the TypeScript node holds the controller lease")
+    }
+
+    async fn rust_restore(&self, backup_name: &str, index_name: &str) -> Option<String> {
+        let options = RestoreBackupOptions {
+            index_name: index_name.to_string(),
+            replication_factor: Some(0),
+            ..RestoreBackupOptions::default()
+        };
+        self.rust_controller()
+            .node
+            .restore_backup(backup_name, &options)
+            .await
+            .err()
+            .map(|error| error.code().to_string())
+    }
+
+    async fn expect_rust_copies(&self, index_name: &str, ledger: &Ledger) {
+        let generation = self.generation_of(index_name).await;
+        let settled = tokio::time::timeout(RESTORE_SETTLE_WAIT, async {
+            while self.rust_difference(&generation, ledger).await.is_some() {
+                tokio::time::sleep(RESTORE_SETTLE_POLL).await;
+            }
+        })
+        .await;
+        if settled.is_err() {
+            panic!(
+                "every Rust copy of {index_name} matches its ledger: {:?}",
+                self.rust_difference(&generation, ledger).await
+            );
         }
     }
 
@@ -130,7 +196,10 @@ impl MixedBackupCluster {
     }
 
     async fn call(&mut self, operation: &str, request: Map) -> Value {
-        self.controller.call(operation, request).await.value()
+        self.typescript_controller()
+            .call(operation, request)
+            .await
+            .value()
     }
 
     async fn create_index(&mut self, index_name: &str) {
@@ -138,7 +207,7 @@ impl MixedBackupCluster {
             ("title", Value::from("string")),
             ("version", Value::from("number")),
         ]));
-        self.controller
+        self.typescript_controller()
             .create_index_with_schema(index_name, PARTITION_COUNT, 1, schema, Map::new())
             .await;
     }
@@ -174,7 +243,10 @@ impl MixedBackupCluster {
             for at in (round..DOCUMENTS).step_by(7) {
                 let id = format!("doc-{at}");
                 if at % 3 == 0 {
-                    self.controller.remove(index_name, &id).await.value();
+                    self.typescript_controller()
+                        .remove(index_name, &id)
+                        .await
+                        .value();
                     ledger.remove(&id);
                 } else if ledger.contains_key(&id) {
                     let version = round as u64 + 2;
@@ -234,7 +306,7 @@ impl MixedBackupCluster {
             ("indexName", Value::from(index_name)),
             ("replicationFactor", Value::from(0)),
         ]);
-        self.controller
+        self.typescript_controller()
             .call("restoreBackup", request)
             .await
             .code()
@@ -281,7 +353,7 @@ impl MixedBackupCluster {
             }
         }
         let counted: u64 = self
-            .controller
+            .typescript_controller()
             .partition_counts(index_name)
             .await
             .iter()
@@ -426,7 +498,12 @@ impl MixedBackupCluster {
 
     async fn stop(mut self) {
         self.stop_rust_data_nodes().await;
-        self.controller.shutdown().await;
+        if let Some(rust_controller) = self.rust_controller.take() {
+            rust_controller.stop().await;
+        }
+        if let Some(controller) = self.controller.take() {
+            controller.shutdown().await;
+        }
         self.coordinator.shutdown().await;
     }
 }
@@ -478,23 +555,48 @@ async fn a_backup_that_one_language_takes_restores_whole_in_the_other() {
     }
 
     assert_eq!(cluster.restore("journal", JOURNAL_COPY).await, None);
-    let generation = cluster.generation_of(JOURNAL_COPY).await;
-    let settled = tokio::time::timeout(RESTORE_SETTLE_WAIT, async {
-        while cluster
-            .rust_difference(&generation, &journal)
+    cluster.expect_rust_copies(JOURNAL_COPY, &journal).await;
+
+    cluster.hand_control_to_rust().await;
+    assert_eq!(cluster.rust_restore("journal", JOURNAL_RUST).await, None);
+    cluster.expect_rust_copies(JOURNAL_RUST, &journal).await;
+    let again = cluster
+        .rust_controller()
+        .node
+        .create_backup(
+            JOURNAL_RUST,
+            "journal-again",
+            &CreateBackupOptions::default(),
+        )
+        .await
+        .expect("the Rust controller backs up a restored index");
+    assert_eq!(again.partition_count, PARTITION_COUNT);
+    cluster
+        .rust_controller()
+        .node
+        .delete_backup("journal", None)
+        .await
+        .expect("the Rust controller deletes a backup");
+
+    let flipped = cluster.flip_first_file_of_each_partition("journal-again");
+    assert_eq!(
+        cluster
+            .rust_restore("journal-again", DAMAGED_RUST_COPY)
             .await
-            .is_some()
-        {
-            tokio::time::sleep(RESTORE_SETTLE_POLL).await;
-        }
-    })
-    .await;
-    if settled.is_err() {
-        panic!(
-            "every Rust copy of the restored journal matches its ledger: {:?}",
-            cluster.rust_difference(&generation, &journal).await
-        );
+            .as_deref(),
+        Some("BACKUP_DAMAGED")
+    );
+    cluster.expect_no_index(DAMAGED_RUST_COPY).await;
+    for (path, original) in flipped {
+        std::fs::write(path, original).expect("the stored file takes its original bytes back");
     }
+    assert_eq!(
+        cluster.rust_restore("journal-again", JOURNAL_AGAIN).await,
+        None
+    );
+    cluster.expect_rust_copies(JOURNAL_AGAIN, &journal).await;
+    assert_eq!(cluster.rust_restore("second", LEDGER_RUST).await, None);
+    cluster.expect_rust_copies(LEDGER_RUST, &ledger).await;
     assert_eq!(cluster.stray_generations().await, Vec::<String>::new());
     cluster.stop().await;
 }
