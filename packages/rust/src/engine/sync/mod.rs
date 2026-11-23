@@ -1,9 +1,11 @@
 pub(crate) mod closed;
 pub(crate) mod constants;
+pub(crate) mod engine_source;
 pub(crate) mod feed;
 pub(crate) mod notify;
 pub(crate) mod retention;
 pub(crate) mod snapshot;
+pub(crate) mod source;
 
 use std::sync::Arc;
 
