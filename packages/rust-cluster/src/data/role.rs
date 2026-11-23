@@ -7,7 +7,9 @@ use super::analysis_change::AnalysisChanges;
 use super::blocking::off_executor;
 use super::config::DataNodeConfig;
 use super::copies::LocalCopies;
-use super::device_sync::DeviceSyncView;
+use super::device_sync::{
+    ClusterFeedSource, DeviceSyncView, FeedParts, PrimaryReads, SharedFeedSource,
+};
 use super::lost_copy::LostCopyWait;
 use super::partition_stores::{partition_stores_answer, requested_index};
 use super::queries::{QueryDeps, answer_query, answers_query};
@@ -34,6 +36,7 @@ pub(crate) struct DataRole {
     device_sync: tokio::sync::Mutex<Option<Arc<DeviceSyncView>>>,
     search_contexts: Arc<SearchContexts>,
     analysis: Mutex<Option<(Arc<AnalysisChanges>, WatchHandle)>>,
+    feed: Arc<ClusterFeedSource>,
 }
 
 impl DataRole {
@@ -54,6 +57,7 @@ impl DataRole {
             device_sync: tokio::sync::Mutex::new(None),
             search_contexts: Arc::new(SearchContexts::default()),
             analysis: Mutex::new(None),
+            feed: Arc::default(),
         }
     }
 
@@ -128,6 +132,7 @@ impl DataRole {
                 .unwrap_or_else(std::env::temp_dir),
             memory,
         }));
+        let feed_transport = Arc::clone(&transport);
         let started = AllocationWatcher::start(WatcherSettings {
             node_id: self.node_id.clone(),
             coordinator: Arc::clone(&self.coordinator),
@@ -146,7 +151,7 @@ impl DataRole {
             }
         };
         writes.start();
-        if let Some(previous) = lock(&self.writes).replace(writes) {
+        if let Some(previous) = lock(&self.writes).replace(Arc::clone(&writes)) {
             previous.stop();
         }
         if let Some(previous) = self.watcher.lock().await.replace(started) {
@@ -154,14 +159,31 @@ impl DataRole {
         }
         let device_sync = Arc::new(DeviceSyncView::new(
             Arc::clone(&self.coordinator),
-            copies,
+            Arc::clone(&copies),
             self.on_error.clone(),
         ));
         let mut held = self.device_sync.lock().await;
         if let Some(previous) = held.replace(Arc::clone(&device_sync)) {
+            self.feed.detach();
             previous.stop().await;
         }
-        device_sync.start().await
+        device_sync.start().await?;
+        self.feed.attach(FeedParts {
+            runtime: tokio::runtime::Handle::current(),
+            reads: Arc::new(PrimaryReads {
+                node_id: self.node_id.clone(),
+                transport: feed_transport,
+                writes: Arc::clone(&writes),
+                view: device_sync,
+            }),
+            copies,
+            coordinator: Arc::clone(&self.coordinator),
+        });
+        Ok(())
+    }
+
+    pub(crate) fn feed_source(&self) -> Arc<SharedFeedSource> {
+        Arc::new(SharedFeedSource(Arc::clone(&self.feed)))
     }
 
     pub(crate) fn keeps_write_ahead_log(&self) -> bool {
@@ -312,6 +334,7 @@ impl DataRole {
         if let Some((_, analysis_watch)) = lock(&self.analysis).take() {
             analysis_watch.stop();
         }
+        self.feed.detach();
         let device_sync = self.device_sync.lock().await.take();
         if let Some(device_sync) = device_sync {
             device_sync.stop().await;

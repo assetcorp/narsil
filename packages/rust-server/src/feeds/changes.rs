@@ -1,9 +1,10 @@
+use std::sync::Arc;
 use std::time::Duration;
 
 use bytes::Bytes;
 use narsil::{
-    Change, ChangeFeed, ChangeGroup, ChangePosition, ChangesEvent, ChangesRequest, ErrorCode,
-    Filter, Map, Narsil, NarsilError, Value, encode_msgpack,
+    BoundsFreshness, Change, ChangeFeed, ChangeGroup, ChangePosition, ChangeSource, ChangesEvent,
+    ChangesRequest, ErrorCode, Filter, Map, NarsilError, Value, encode_msgpack,
 };
 use tokio::time::Instant;
 
@@ -71,20 +72,20 @@ fn changes_message(group: ChangeGroup) -> Option<Vec<u8>> {
     encode_msgpack(&Value::Object(record)).ok()
 }
 
-fn open(engine: &Narsil, index: &str, request: &ChangesRequest) -> Opened {
-    let mut feed = engine.changes(index, request)?;
+fn open(source: Arc<dyn ChangeSource>, index: &str, request: &ChangesRequest) -> Opened {
+    let mut feed = ChangeFeed::follow(Arc::clone(&source), index, request)?;
     let first = feed.next_within_bytes(Duration::ZERO, 1);
     let vector_fields = match &first {
-        Some(Ok(ChangesEvent::Subscribed(_))) => engine.vector_fields(index)?,
+        Some(Ok(ChangesEvent::Subscribed(_))) => source.vector_fields(index)?,
         _ => Vec::new(),
     };
     Ok((feed, first, vector_fields))
 }
 
-fn undurable(engine: &Narsil, index: &str, partitions: usize) -> bool {
+fn undurable(source: &dyn ChangeSource, index: &str, partitions: usize) -> bool {
     (0..partitions as u32).any(|partition| {
-        engine
-            .sync_bounds(index, partition)
+        source
+            .bounds(index, partition, BoundsFreshness::Recent)
             .is_ok_and(|bounds| bounds.highest_seq_no > bounds.head)
     })
 }
@@ -164,11 +165,8 @@ impl ChangesFeed {
             }),
             filter: filter.map(Filter::from_value),
         };
-        let index = core.index.clone();
-        let Some(opened) = core
-            .catch_up(move |engine| open(engine, &index, &request))
-            .await
-        else {
+        let (index, source) = (core.index.clone(), Arc::clone(&core.source));
+        let Some(opened) = core.catch_up(move |_| open(source, &index, &request)).await else {
             return;
         };
         let (feed, first, vector_fields) = match opened {
@@ -283,7 +281,7 @@ impl ChangesFeed {
         }
         let (index, count) = (core.index.clone(), self.sent.len());
         if let Some(true) = core
-            .blocking(move |engine| undurable(engine, &index, count))
+            .blocking(move |source| undurable(source, &index, count))
             .await
         {
             core.retry_at = Some(Instant::now() + Duration::from_millis(FEED_HEAD_RETRY_MS));

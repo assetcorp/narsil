@@ -4,7 +4,7 @@ use std::sync::Arc;
 use http::header::{CONNECTION, SEC_WEBSOCKET_KEY, SEC_WEBSOCKET_PROTOCOL, UPGRADE};
 use http::{HeaderMap, Request};
 use hyper::body::Incoming;
-use narsil::{ErrorCode, Narsil, NarsilError, Value};
+use narsil::{ChangeSource, ErrorCode, NarsilError, Value};
 use tokio_tungstenite::tungstenite::handshake::derive_accept_key;
 
 use super::changes::ChangesFeed;
@@ -69,12 +69,10 @@ fn not_enabled(kind: FeedKind, index: &str) -> ServerError {
         .with_detail("indexName", Value::String(index.to_string()))
 }
 
-fn feed_is_on(engine: &Narsil, kind: FeedKind, index: &str) -> Result<bool, NarsilError> {
+fn feed_is_on(source: &dyn ChangeSource, kind: FeedKind, index: &str) -> Result<bool, NarsilError> {
     let answer = match kind {
-        FeedKind::Sync => engine.sync_feed_state(index).map(|state| state.is_some()),
-        FeedKind::Changes => engine
-            .get_changes_setting(index)
-            .map(|status| status.enabled),
+        FeedKind::Sync => source.index_state(index).map(|state| state.is_some()),
+        FeedKind::Changes => source.changes_state(index).map(|state| state.is_some()),
     };
     match answer {
         Err(failure) if failure.code() == ErrorCode::INDEX_NOT_FOUND => Ok(false),
@@ -82,9 +80,13 @@ fn feed_is_on(engine: &Narsil, kind: FeedKind, index: &str) -> Result<bool, Nars
     }
 }
 
-async fn check_feed(engine: &Arc<Narsil>, kind: FeedKind, index: &str) -> Result<(), ServerError> {
-    let (engine, name) = (Arc::clone(engine), index.to_string());
-    let answer = tokio::task::spawn_blocking(move || feed_is_on(&engine, kind, &name))
+async fn check_feed(
+    source: &Arc<dyn ChangeSource>,
+    kind: FeedKind,
+    index: &str,
+) -> Result<(), ServerError> {
+    let (source, name) = (Arc::clone(source), index.to_string());
+    let answer = tokio::task::spawn_blocking(move || feed_is_on(source.as_ref(), kind, &name))
         .await
         .map_err(|_| ServerError::internal())?;
     match answer {
@@ -95,7 +97,7 @@ async fn check_feed(engine: &Arc<Narsil>, kind: FeedKind, index: &str) -> Result
 }
 
 struct Session {
-    engine: Arc<Narsil>,
+    source: Arc<dyn ChangeSource>,
     hub: Arc<Hub>,
     kind: FeedKind,
     index: String,
@@ -108,7 +110,7 @@ async fn serve(session: Session, upgraded: hyper::upgrade::Upgraded) {
     let held = Arc::clone(&signals);
     serve_socket(stream, signals, move |socket, inbound| async move {
         let mut outbox = Outbox::new(socket, Arc::clone(&session.hub.budget), session.expires_at);
-        let Some(membership) = session.hub.join(&session.engine, &session.index, &held) else {
+        let Some(membership) = session.hub.join(&session.source, &session.index, &held) else {
             outbox.close(CLOSE_GOING_AWAY, SERVER_CLOSING_REASON);
             return;
         };
@@ -116,7 +118,7 @@ async fn serve(session: Session, upgraded: hyper::upgrade::Upgraded) {
             FeedKind::Sync => Protocol::Sync(Box::<SyncFeed>::default()),
             FeedKind::Changes => Protocol::Changes(Box::<ChangesFeed>::default()),
         };
-        let core = Core::new(session.engine, session.hub, session.index, held, outbox);
+        let core = Core::new(session.source, session.hub, session.index, held, outbox);
         drive(core, protocol, inbound).await;
         drop(membership);
     })
@@ -181,7 +183,8 @@ pub(crate) async fn upgrade(
     if let Err(refusal) = hub.refuse_when_closed() {
         return error(&refusal);
     }
-    if let Err(refusal) = check_feed(&state.engine, kind, &index).await {
+    let source = state.feed_source();
+    if let Err(refusal) = check_feed(&source, kind, &index).await {
         return error(&refusal);
     }
     let slot = match hub.reserve() {
@@ -191,7 +194,7 @@ pub(crate) async fn upgrade(
     let pending = hyper::upgrade::on(&mut request);
     let tracked = state.feeds.tracker.enter();
     let session = Session {
-        engine: Arc::clone(&state.engine),
+        source,
         hub,
         kind,
         index,

@@ -117,11 +117,12 @@ impl ChangeFeed {
                 subscribed.bytes_behind = feed.source.bytes_behind(index, &subscribed.positions)?;
                 let name = index.to_string();
                 let woken = Arc::clone(&signal);
-                feed.subscriptions.push(feed.source.listen(Arc::new(move |changed, _| {
-                    if changed == name {
-                        woken.wake();
-                    }
-                })));
+                feed.subscriptions
+                    .push(feed.source.listen(Arc::new(move |changed, _| {
+                        if changed == name {
+                            woken.wake();
+                        }
+                    })));
                 feed.subscriptions.push(feed.source.watch_index(index));
                 feed.pending
                     .push_back(Ok(ChangesEvent::Subscribed(subscribed)));

@@ -91,6 +91,10 @@ pub mod codes {
     pub const CHANGES_BACKUP_STORE_REQUIRED: &str = "CHANGES_BACKUP_STORE_REQUIRED";
     /// Change capture would go on while a registered node follows a specification version below 1.5.
     pub const CHANGES_NOT_READY: &str = "CHANGES_NOT_READY";
+    /// Device sync is off for the index that a feed reads.
+    pub const SYNC_NOT_ENABLED: &str = "SYNC_NOT_ENABLED";
+    /// Change capture is off for the index that a change feed reads.
+    pub const CHANGES_NOT_ENABLED: &str = "CHANGES_NOT_ENABLED";
     /// The cluster owns the index and has yet to allocate it.
     pub const QUERY_ROUTING_FAILED: &str = "QUERY_ROUTING_FAILED";
     /// No node that holds the copy could take the request, because the transport could not reach it.

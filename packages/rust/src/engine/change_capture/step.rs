@@ -1,7 +1,5 @@
 use crate::engine::sync::feed::{SyncCursor, SyncEntry, SyncRead};
-use crate::engine::sync::source::{
-    BoundsFreshness, ChangeSource, ChangesIndexState, DocumentTest,
-};
+use crate::engine::sync::source::{BoundsFreshness, ChangeSource, ChangesIndexState, DocumentTest};
 use crate::error::Result;
 use crate::format::wal::decode_entry;
 
@@ -90,10 +88,7 @@ impl Following {
         let Some(scanned_seq_no) = entries.last().map(|entry| entry.seq_no) else {
             return Ok(None);
         };
-        let scanned_bytes = entries
-            .iter()
-            .map(|entry| entry.payload.len() as u64)
-            .sum();
+        let scanned_bytes = entries.iter().map(|entry| entry.payload.len() as u64).sum();
         let mut changes = Vec::with_capacity(entries.len());
         for entry in entries {
             let entry = decode_entry(&entry.payload)?;

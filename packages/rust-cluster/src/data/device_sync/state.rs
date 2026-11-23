@@ -1,6 +1,7 @@
 use narsil::replication::{CopyChangesState, CopyEpochStates, CopySyncState};
-use narsil::{Map, Value};
+use narsil::{FeedChange, Map, Value};
 
+use super::held::HeldSyncIndex;
 use crate::constants::MAX_SAFE_INTEGER;
 
 fn feature<'s>(settings: &'s Map, key: &str) -> Option<&'s Map> {
@@ -46,8 +47,8 @@ fn changes_state_of_settings(settings: &Map, epoch: &str) -> Option<CopyChangesS
     })
 }
 
-pub(super) fn epoch_states_of_settings(settings: Option<&Value>) -> CopyEpochStates {
-    let Some(Value::Object(settings)) = settings else {
+pub(super) fn epoch_states_of_settings(settings: Option<&Map>) -> CopyEpochStates {
+    let Some(settings) = settings else {
         return CopyEpochStates::default();
     };
     let Some(Value::String(epoch)) = settings.get("syncEpoch") else {
@@ -57,4 +58,59 @@ pub(super) fn epoch_states_of_settings(settings: Option<&Value>) -> CopyEpochSta
         sync: sync_state_of_settings(settings, epoch),
         changes: changes_state_of_settings(settings, epoch),
     }
+}
+
+fn same_feed_settings(held: &HeldSyncIndex, next: &HeldSyncIndex) -> bool {
+    let field = |held: &HeldSyncIndex, key: &str| -> Option<Value> {
+        held.settings
+            .as_ref()
+            .and_then(|settings| settings.get(key))
+            .cloned()
+    };
+    let bm25_revision = |held: &HeldSyncIndex| match field(held, "bm25Revision") {
+        Some(Value::Number(revision)) => revision,
+        _ => 0.0,
+    };
+    held.synonyms_generation == next.synonyms_generation
+        && ["language", "tokenizer", "stopWords", "stopWordList"]
+            .iter()
+            .all(|key| field(held, key) == field(next, key))
+        && bm25_revision(held) == bm25_revision(next)
+}
+
+pub(super) fn change_between(
+    held: Option<&HeldSyncIndex>,
+    next: Option<&HeldSyncIndex>,
+) -> Option<FeedChange> {
+    let held = held?;
+    let before = held.states.sync.as_ref()?;
+    let Some(next) = next.filter(|next| next.index_uuid == held.index_uuid) else {
+        return Some(FeedChange::Dropped);
+    };
+    let Some(after) = next.states.sync.as_ref() else {
+        return Some(FeedChange::SyncOff);
+    };
+    if after.epoch != before.epoch || next.serving.partition_count != held.serving.partition_count {
+        return Some(FeedChange::Epoch);
+    }
+    (!same_feed_settings(held, next)).then_some(FeedChange::Settings)
+}
+
+pub(super) fn changes_change_between(
+    held: Option<&HeldSyncIndex>,
+    next: Option<&HeldSyncIndex>,
+) -> Option<FeedChange> {
+    let held = held?;
+    let before = held.states.changes.as_ref()?;
+    let Some(next) = next.filter(|next| next.index_uuid == held.index_uuid) else {
+        return Some(FeedChange::Dropped);
+    };
+    let Some(after) = next.states.changes.as_ref() else {
+        return Some(FeedChange::ChangesOff);
+    };
+    if after.epoch != before.epoch || next.serving.partition_count != held.serving.partition_count {
+        return Some(FeedChange::Epoch);
+    }
+    (before.previous_document && !after.previous_document)
+        .then_some(FeedChange::PreviousDocumentOff)
 }
