@@ -3,12 +3,14 @@ use std::sync::Arc;
 use narsil::coordination::score_with_rerank_adapter;
 use narsil::{DocumentProjection, IndexInfo, Map};
 
+use super::analysis_change::AnalysisChanges;
 use super::blocking::off_executor;
 use super::copies::LocalCopies;
 use super::queries::{QueryDeps, answer_query, answers_query};
 use super::search_contexts::SearchContexts;
-use super::writes::AllocationView;
+use super::writes::{AllocationView, PrimaryWrites};
 use crate::error::ClusterResult;
+use crate::memory::NodeMemory;
 use crate::message::{TransportMessage, refusal};
 
 pub(crate) struct LocalReads {
@@ -16,20 +18,27 @@ pub(crate) struct LocalReads {
     copies: Arc<LocalCopies>,
     view: Arc<AllocationView>,
     contexts: Arc<SearchContexts>,
+    analysis: Arc<AnalysisChanges>,
+    memory: Option<Arc<NodeMemory>>,
+}
+
+pub(super) struct LocalReadHandles {
+    pub(super) node_id: String,
+    pub(super) copies: Arc<LocalCopies>,
+    pub(super) writes: Arc<PrimaryWrites>,
+    pub(super) contexts: Arc<SearchContexts>,
+    pub(super) analysis: Arc<AnalysisChanges>,
 }
 
 impl LocalReads {
-    pub(super) fn new(
-        node_id: String,
-        copies: Arc<LocalCopies>,
-        view: Arc<AllocationView>,
-        contexts: Arc<SearchContexts>,
-    ) -> LocalReads {
+    pub(super) fn new(handles: LocalReadHandles) -> LocalReads {
         LocalReads {
-            node_id,
-            copies,
-            view,
-            contexts,
+            node_id: handles.node_id,
+            copies: handles.copies,
+            view: handles.writes.view(),
+            contexts: handles.contexts,
+            analysis: handles.analysis,
+            memory: handles.writes.memory(),
         }
     }
 
@@ -51,6 +60,8 @@ impl LocalReads {
             copies: Arc::clone(&self.copies),
             view: Arc::clone(&self.view),
             contexts: Arc::clone(&self.contexts),
+            analysis: Arc::clone(&self.analysis),
+            memory: self.memory.clone(),
         };
         match answer_query(&deps, message).await {
             Ok(reply) => reply,

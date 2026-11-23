@@ -127,6 +127,15 @@ impl NodeMemory {
             .sample_if_older_than(Duration::from_millis(WRITE_MEMORY_SAMPLE_MAX_AGE_MS));
     }
 
+    pub(crate) fn recent_reading(&self) -> Option<NodeMemoryReading> {
+        lock(&self.shared.sample).reading
+    }
+
+    pub(crate) fn measured_reading(&self) -> Option<NodeMemoryReading> {
+        self.shared.sample();
+        lock(&self.shared.sample).reading
+    }
+
     pub(crate) async fn full_changed(&self) {
         self.shared.full_changed.notified().await;
     }

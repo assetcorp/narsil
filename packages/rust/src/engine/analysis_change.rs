@@ -47,7 +47,7 @@ pub(super) fn record_pending(index: &IndexState, pending: Option<PendingAnalysis
 
 fn next_generation(index: &IndexState) -> u64 {
     let Some(log) = index.log() else {
-        return 1;
+        return index.analysis_generation().saturating_add(1);
     };
     let metadata = log.metadata(index);
     let pending = metadata
@@ -156,14 +156,20 @@ pub(super) fn rebuild_under(
             synonyms: Arc::new(synonyms),
         };
         let config = Arc::new(config_under(&index.config(), target));
-        switch_layout(
+        let switched = switch_layout(
             index,
             LayoutSwitch {
                 layout,
                 config,
                 record: &record,
             },
-        )
+        );
+        if switched.is_ok()
+            && let Some(generation) = generation
+        {
+            index.record_analysis_generation(generation);
+        }
+        switched
     };
     let mut rebuilt = 0;
     let mut progress = |done: usize| rebuilt = done;
