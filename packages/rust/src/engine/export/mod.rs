@@ -1,5 +1,5 @@
 mod import;
-mod write;
+pub(crate) mod write;
 
 use std::io::{Read, Write};
 

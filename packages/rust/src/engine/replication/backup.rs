@@ -152,12 +152,12 @@ fn listed_key(file: &FileRef, source_index_name: &str) -> Result<String> {
         })
 }
 
-struct PartitionManifest {
-    manifest: SegmentManifest,
-    source_index_name: String,
+pub(super) struct PartitionManifest {
+    pub(super) manifest: SegmentManifest,
+    pub(super) source_index_name: String,
 }
 
-fn read_partition_manifest(
+pub(super) fn read_partition_manifest(
     backup: &BackupPartitionFiles<'_>,
     partition: u32,
 ) -> Result<PartitionManifest> {
