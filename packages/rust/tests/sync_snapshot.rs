@@ -17,6 +17,7 @@ const FIRST_NOTES: usize = 200;
 const LATER_NOTES: usize = 50;
 const RANGE_START: u64 = 1_000;
 const RANGE_END: u64 = 5_999;
+const FEED_HISTORY_MAX_BYTES: u64 = 1_073_741_824;
 
 fn log_config(root: &Path) -> NarsilConfig {
     NarsilConfig {
@@ -50,16 +51,20 @@ fn ids(prefix: &str, count: usize) -> Vec<String> {
 }
 
 fn synced_engine(root: &Path, notes: &[String]) -> Narsil {
+    let on = SyncSetting {
+        enabled: true,
+        ..SyncSetting::default()
+    };
+    synced_engine_with(root, notes, &on)
+}
+
+fn synced_engine_with(root: &Path, notes: &[String], setting: &SyncSetting) -> Narsil {
     let narsil = Narsil::open(log_config(root)).expect("the log tier opens");
     narsil.create_index(INDEX, index_config()).unwrap();
     for id in notes {
         narsil.insert(INDEX, note_of(id), Some(id)).unwrap();
     }
-    let on = SyncSetting {
-        enabled: true,
-        ..SyncSetting::default()
-    };
-    narsil.update_sync(INDEX, &on).expect("sync goes on");
+    narsil.update_sync(INDEX, setting).expect("sync goes on");
     narsil
 }
 
@@ -334,7 +339,12 @@ fn read_all(narsil: &Narsil, partition_id: u32, after: u64, up_to: u64) -> Vec<u
 fn the_feed_reader_returns_every_durable_entry_since_the_download_after_a_restart() {
     let scratch = ScratchDirectory::new("sync-feed-reader");
     let root = scratch.path().join("data");
-    let narsil = synced_engine(&root, &[]);
+    let roomy_history = SyncSetting {
+        enabled: true,
+        history_max_bytes: Some(FEED_HISTORY_MAX_BYTES),
+        ..SyncSetting::default()
+    };
+    let narsil = synced_engine_with(&root, &[], &roomy_history);
     let epoch = narsil.sync_snapshot(INDEX).unwrap().epoch().to_string();
     let written = ids("w", 30);
     for id in &written {
