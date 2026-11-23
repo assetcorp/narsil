@@ -198,7 +198,7 @@ jobs:
           src/__tests__/e2e/cluster-faults/rust-controller.test.ts
           src/__tests__/e2e/cluster-faults/rust-controller-handover.test.ts
 
-      - name: Compare every route and its hostile cases on a Rust node and a TypeScript node
+      - name: Compare every route, its hostile cases, and the upkeep of each copy on a Rust node and a TypeScript node
         working-directory: packages/ts
         env:
           NARSIL_RUST_CLUSTER_NODE: ${{ github.workspace }}/packages/rust-server/target/debug/examples/fault_node
@@ -206,6 +206,7 @@ jobs:
           pnpm vitest run --no-file-parallelism
           src/__tests__/e2e/cluster-faults/rust-routes.test.ts
           src/__tests__/e2e/cluster-faults/rust-route-faults.test.ts
+          src/__tests__/e2e/cluster-faults/rust-copy-upkeep.test.ts
 
       - name: Run one seed of faults with a Rust node in the middle slot
         working-directory: packages/ts
