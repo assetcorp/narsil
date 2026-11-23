@@ -39,6 +39,30 @@ const FAMILIES = [
   'narsil_vector_rebuild_waiting_for_memory',
   'narsil_coordinator_request_seconds',
 ]
+const COORDINATOR_METHODS: readonly string[] = [
+  'registerNode',
+  'deregisterNode',
+  'confirmRegistrationLease',
+  'listNodes',
+  'getAllocation',
+  'putAllocation',
+  'deleteAllocation',
+  'listAllocations',
+  'getPartitionState',
+  'putPartitionState',
+  'acquireLease',
+  'renewLease',
+  'releaseLease',
+  'get',
+  'compareAndSet',
+  'delete',
+  'getSchema',
+  'putSchema',
+  'dropSchema',
+  'listSchemas',
+  'getLeaseHolder',
+  'shutdown',
+]
 const plain = process.env.NARSIL_FAULT_PLAIN === '1'
 
 interface Sample {
@@ -258,6 +282,7 @@ describe.skipIf(process.env[RUST_NODE_VARIABLE] === undefined)(
       const histogram = samplesOf(rust.text).filter(sample => sample.name.startsWith('narsil_coordinator_request_'))
       const operations = [...new Set(histogram.map(sample => sample.labels.operation))]
       expect(operations).toContain('listNodes')
+      expect(operations.filter(operation => !COORDINATOR_METHODS.includes(operation))).toEqual([])
       expect(operations).toEqual([...operations].sort())
       const typescriptBounds = samplesOf(typescript.text)
         .filter(sample => sample.name === 'narsil_coordinator_request_seconds_bucket')

@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::sync::{Mutex, MutexGuard};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use super::EtcdCoordinator;
 use crate::constants::COORDINATOR_REQUEST_BUCKET_BOUNDS_SECONDS;
@@ -78,8 +78,23 @@ impl CoordinatorTiming {
 }
 
 impl EtcdCoordinator {
-    /// Returns how long this coordinator's calls to etcd took, one histogram for each operation, ordered by the
-    /// operation's name.
+    pub(super) fn timed<'a, T>(
+        &'a self,
+        operation: &'a str,
+        work: impl Future<Output = T> + 'a,
+    ) -> impl Future<Output = T> + 'a {
+        let work = Box::pin(work);
+        async move {
+            let started = Instant::now();
+            let outcome = work.await;
+            self.inner.pool.timing.record(operation, started.elapsed());
+            outcome
+        }
+    }
+
+    /// Returns how long this coordinator's calls took, one histogram for each operation, ordered by the operation's
+    /// name. Each call of a coordinator method counts once, however many requests it sent to etcd, and a watch
+    /// counts in no histogram.
     pub fn request_figures(&self) -> Vec<CoordinatorRequestFigure> {
         self.inner.pool.timing.figures()
     }
