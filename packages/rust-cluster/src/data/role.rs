@@ -133,6 +133,10 @@ impl DataRole {
                 | message_types::REPLICATION_ENTRY_BATCH
                 | message_types::REPLICATION_TERM_START
                 | message_types::REPLICATION_SYNC_REQUEST
+                | message_types::CLUSTER_RESHARD_START
+                | message_types::CLUSTER_RESHARD_FORWARD
+                | message_types::CLUSTER_RESHARD_CUTOVER
+                | message_types::CLUSTER_RESHARD_PURGE
         )
     }
 
@@ -160,6 +164,13 @@ impl DataRole {
             }
             message_types::REPLICATION_TERM_START => match self.primary_writes() {
                 Ok(writes) => writes.answer_term_start(&message).await,
+                Err(error) => refusal(&message, &self.node_id, &error),
+            },
+            message_types::CLUSTER_RESHARD_START
+            | message_types::CLUSTER_RESHARD_FORWARD
+            | message_types::CLUSTER_RESHARD_CUTOVER
+            | message_types::CLUSTER_RESHARD_PURGE => match self.primary_writes() {
+                Ok(writes) => writes.answer_reshard(&message).await,
                 Err(error) => refusal(&message, &self.node_id, &error),
             },
             _ => match self.answer_partition_stores(&message).await {
