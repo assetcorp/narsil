@@ -12,7 +12,7 @@ mod role;
 mod schema_check;
 mod snapshot_spool;
 mod stored_index;
-mod synonym_set;
+pub(crate) mod synonym_set;
 mod watcher;
 pub(crate) mod writes;
 

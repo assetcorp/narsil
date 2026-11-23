@@ -12,10 +12,10 @@ const DIGEST_HEX_DIGITS: usize = 64;
 const FIRST_PRINTABLE_CHARACTER: char = ' ';
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct SynonymSetRef {
-    pub(super) generation: String,
+pub(crate) struct SynonymSetRef {
+    pub(crate) generation: String,
     digest: String,
-    chunk_count: u64,
+    pub(crate) chunk_count: u64,
     byte_length: u64,
 }
 
@@ -46,7 +46,7 @@ fn is_digest(text: &str) -> bool {
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
-pub(super) fn synonym_set_ref(raw: &Value) -> Result<SynonymSetRef, &'static str> {
+pub(crate) fn synonym_set_ref(raw: &Value) -> Result<SynonymSetRef, &'static str> {
     let Value::Object(fields) = raw else {
         return Err("synonyms must be an object");
     };
