@@ -26,7 +26,7 @@ use crate::transport::{BoxFuture, NodeTransport, Respond};
 
 pub(crate) struct DataRole {
     node_id: String,
-    coordinator: Arc<EtcdCoordinator>,
+    pub(super) coordinator: Arc<EtcdCoordinator>,
     config: DataNodeConfig,
     on_error: Option<NodeErrorHandler>,
     settled: Mutex<Option<Arc<LocalCopies>>>,

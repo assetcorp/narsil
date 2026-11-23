@@ -1,8 +1,9 @@
 mod analysis_change;
-mod blocking;
+pub(crate) mod blocking;
 mod config;
 mod copies;
 mod device_sync;
+mod index_lifecycle;
 mod local_reads;
 mod lost_copy;
 mod memory_figures;

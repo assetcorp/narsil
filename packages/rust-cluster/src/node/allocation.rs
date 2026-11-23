@@ -2,6 +2,7 @@ use narsil::{Map, Value, decode_msgpack, encode_msgpack};
 
 use super::handle::ClusterNode;
 use super::identity::generate_node_id;
+use super::rebalance::resolve_node_targets;
 use crate::constants::{CONTROLLER_LEASE_KEY, MAX_REPLICATION_FACTOR};
 use crate::coordinator::AllocationTable;
 use crate::error::{ClusterError, ClusterResult, codes};
@@ -148,7 +149,7 @@ impl ClusterNode {
         details.insert("indexName", Value::from(serving.as_str()));
         details.insert("targetNodeId", Value::from(controller_node_id.as_str()));
         let mut last_error = None;
-        for target in self.resolve_node_targets(&controller_node_id).await? {
+        for target in resolve_node_targets(self.inner.coordinator(), &controller_node_id).await? {
             match self.inner.transport().send(&target, message.clone()).await {
                 Ok(response) => {
                     return controller_answer(&response, &serving, &controller_node_id);
