@@ -3,7 +3,8 @@ use std::time::{Duration, Instant};
 
 use super::Narsil;
 use super::constants::{
-    DEFAULT_SUGGEST_LIMIT, MAX_SUGGEST_LIMIT, MIN_SUGGEST_LIMIT, SUGGEST_PARTITION_OVERSAMPLE,
+    DEFAULT_SUGGEST_LIMIT, MAX_SUGGEST_LIMIT, MAX_SUGGEST_SCATTER_LIMIT, MIN_SUGGEST_LIMIT,
+    SUGGEST_PARTITION_OVERSAMPLE,
 };
 use super::index::IndexState;
 use crate::analysis::{Analyser, ResolvedAnalysis, TokenOptions};
@@ -142,10 +143,10 @@ fn partition_suggestions(
         .collect())
 }
 
-fn suggestion_limit(limit: Option<usize>) -> usize {
+fn suggestion_limit(limit: Option<usize>, ceiling: usize) -> usize {
     limit
         .unwrap_or(DEFAULT_SUGGEST_LIMIT)
-        .clamp(MIN_SUGGEST_LIMIT, MAX_SUGGEST_LIMIT)
+        .clamp(MIN_SUGGEST_LIMIT, ceiling)
 }
 
 fn completed_word(analyser: &Analyser, prefix: &str) -> Result<Option<(String, String)>> {
@@ -167,7 +168,11 @@ fn suggested_terms(
     params: &SuggestParams,
     partition_ids: Option<&[u32]>,
 ) -> Result<Vec<SuggestedTerm>> {
-    let limit = suggestion_limit(params.limit);
+    let ceiling = match partition_ids {
+        None => MAX_SUGGEST_LIMIT,
+        Some(_) => MAX_SUGGEST_SCATTER_LIMIT,
+    };
+    let limit = suggestion_limit(params.limit, ceiling);
     let prefix = javascript_trim(&params.prefix);
     if prefix.is_empty() {
         return Ok(Vec::new());

@@ -31,6 +31,7 @@ pub mod partitions {
     pub use crate::engine::{
         PartitionQuery, PartitionStatistics, StatsExpansion, SuppliedStatistics,
     };
+    pub use crate::ordering::document_sort_values;
 }
 mod schema;
 mod search;
