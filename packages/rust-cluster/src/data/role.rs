@@ -122,11 +122,7 @@ impl DataRole {
             view: Arc::clone(&view),
             on_error: self.on_error.clone(),
             log_retention_bytes: self.config.log_retention_bytes,
-            spool_directory: self
-                .config
-                .snapshot_spool_directory
-                .clone()
-                .unwrap_or_else(std::env::temp_dir),
+            spool_directory: copies.spool.path().to_path_buf(),
             memory,
         }));
         let started = AllocationWatcher::start(WatcherSettings {
