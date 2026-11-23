@@ -95,6 +95,7 @@ const operations = {
   update: ({ indexName, documentId, document, vectorFields }) =>
     node.update(indexName, documentId, withVectors(document, vectorFields)),
   remove: ({ indexName, documentId }) => node.remove(indexName, documentId),
+  dropIndex: ({ indexName }) => node.dropIndex(indexName),
   insertBatch: async ({ indexName, documents }) => batchOutcome(await node.insertBatch(indexName, documents)),
   updateBatch: async ({ indexName, updates }) => batchOutcome(await node.updateBatch(indexName, updates)),
   removeBatch: async ({ indexName, documentIds }) => batchOutcome(await node.removeBatch(indexName, documentIds)),
