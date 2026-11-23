@@ -234,9 +234,17 @@ impl LayoutChanges {
         self.held().clone()
     }
 
-    /// Records `run` as the held analysis change of the index, and returns the one that it replaces.
-    pub(crate) fn hold_run(&self, run: Arc<HeldRun>) -> Option<Arc<HeldRun>> {
-        self.held().replace(run)
+    /// Records `run` as the held analysis change of the index, unless the held change of the index already builds
+    /// the same pending change. Returns the run that the index holds afterwards, with the run that `run` replaced.
+    pub(crate) fn hold_run(&self, run: Arc<HeldRun>) -> (Arc<HeldRun>, Option<Arc<HeldRun>>) {
+        let mut held = self.held();
+        if let Some(current) = held.as_ref()
+            && current.pending == run.pending
+        {
+            return (Arc::clone(current), None);
+        }
+        let replaced = held.replace(Arc::clone(&run));
+        (run, replaced)
     }
 
     /// Forgets `run` where it is the held analysis change of the index.
