@@ -5,6 +5,7 @@ use std::time::Duration;
 use narsil::Value;
 
 use super::departures::DepartureRun;
+use super::lead_handoff::HeldHandoffs;
 use super::metadata::index_metadata;
 use super::placement::nodes_for_each_index;
 use super::table::{
@@ -155,33 +156,50 @@ impl Inner {
         &self,
         index_name: &str,
         nodes: &[NodeRegistration],
-        mut departures: Option<&mut DepartureRun>,
+        departures: Option<&mut DepartureRun>,
     ) -> ClusterResult<()> {
+        let mut held = HeldHandoffs::new();
+        let outcome = self
+            .allocate_index(index_name, nodes, departures, &mut held)
+            .await;
+        if !matches!(outcome, Ok(true)) {
+            self.lift_handoffs(index_name, nodes, &held).await;
+        }
+        outcome.map(|_| ())
+    }
+
+    async fn allocate_index(
+        &self,
+        index_name: &str,
+        nodes: &[NodeRegistration],
+        mut departures: Option<&mut DepartureRun>,
+        held: &mut HeldHandoffs,
+    ) -> ClusterResult<bool> {
         let no_retained = HashSet::new();
         for _ in 0..ALLOCATION_CAS_ATTEMPTS {
             if !self.is_active() {
-                return Ok(());
+                return Ok(false);
             }
             let stored = stored_table(self.coordinator(), index_name).await?;
             if !self.is_active() {
-                return Ok(());
+                return Ok(false);
             }
             let Some(metadata) = index_metadata(self.coordinator(), index_name).await? else {
-                return Ok(());
+                return Ok(false);
             };
             if !self.is_active() {
-                return Ok(());
+                return Ok(false);
             }
             let current = stored
                 .as_ref()
                 .filter(|table| !belongs_to_another_index(table, Some(&metadata.index_uuid)));
             if current.is_some_and(|table| table.generation.is_some()) {
-                return Ok(());
+                return Ok(false);
             }
             if current.is_none()
                 && (self.coordinator().schema(index_name).await?.is_none() || !self.is_active())
             {
-                return Ok(());
+                return Ok(false);
             }
             let retained = match (current, departures.as_deref_mut()) {
                 (Some(table), Some(run)) => self.retained_nodes_for(run, table),
@@ -200,8 +218,11 @@ impl Inner {
                     &no_retained
                 },
             })?;
+            let table = self
+                .hand_over_leads(index_name, current, table, nodes, held)
+                .await;
             if !self.is_active() {
-                return Ok(());
+                return Ok(false);
             }
             let write = TableWrite {
                 index_name,
@@ -211,7 +232,7 @@ impl Inner {
             };
             let next = stamped_with(table, Some(&metadata.index_uuid));
             if put_allocation_over(self.coordinator(), write, next).await? {
-                return Ok(());
+                return Ok(true);
             }
         }
         Err(lost_every_attempt(index_name))
@@ -280,6 +301,9 @@ impl Inner {
         let placeable = nodes_for.for_index(index_name);
         if !any_data_node(placeable) || !self.is_active() {
             return Ok(());
+        }
+        if current.is_some() {
+            return self.run_for_index(index_name, placeable, None).await;
         }
         let no_retained = HashSet::new();
         let table = allocate(&AllocationRequest {

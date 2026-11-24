@@ -37,8 +37,8 @@ Hetzner and DigitalOcean run about 40% cheaper than GCP and AWS.
   `hcloud context create` or `HCLOUD_TOKEN`, `doctl auth init`, or `aws configure`.
 - For `hetzner`, `digitalocean`, and `aws`, an SSH key pair. The toolkit uses
   `~/.ssh/id_ed25519` or `~/.ssh/id_rsa` by default; set `SSH_KEY=/path/to/key`
-  to choose another. The public key is `<key>.pub`. GCP manages its own keys, so
-  it needs none of this.
+  to choose another. The public key is `<key>.pub`. On GCP, `gcloud` creates and
+  manages the SSH keys, so it needs none of this.
 
 ## One command
 
@@ -65,7 +65,7 @@ version that the image pins, whatever the host holds.
 in TypeScript, Rust, and Go, and `both` leaves it out. The setup step installs
 the two toolchains that it builds with: Go from the release archive, once its
 checksum matches, and Rust through rustup at the version that
-`../../packages/rust/rust-toolchain.toml` pins. Run it on a VM of its own,
+`../../packages/rust/rust-toolchain.toml` pins. Run it on a separate VM,
 because another suite on the same machine would take CPU time from the engines
 under test.
 
@@ -89,7 +89,7 @@ PROVIDER=hetzner SUITES=inprocess BENCH_INPROCESS_TIERS=text \
   ./run-cloud.sh all --yes --teardown
 ```
 
-## Steps you can run on their own
+## Steps you can run separately
 
 `all` is `up`, `sync`, `setup`, `run`, and `fetch` in order. Run any alone while
 iterating:
@@ -138,7 +138,7 @@ best-config pass runs by default, and on the cloud profile the harness measures
 every concurrency level once and the peak level three times unless
 `BENCH_THROUGHPUT_PASSES` says otherwise.
 
-## The engine on its own VM
+## The engine on a separate VM
 
 On one machine, the load generator's CPU comes out of the cores that the engine
 would serve with. Set `ENGINE_MACHINE_TYPE` on GCP to give the engine a second
@@ -160,8 +160,8 @@ at that deadline; fetch the results before it.
 
 ## One engine per VM
 
-Set `BENCH_RUN_ID` once, then start one VM per engine with that id, and every
-engine file is written under the same run id on its own machine:
+Set `BENCH_RUN_ID` once, then start one VM per engine with that id, so that each
+VM writes the file of its engine under the same run id:
 
 ```bash
 export BENCH_RUN_ID=$(date -u +%Y%m%dT%H%M%SZ)
@@ -194,7 +194,7 @@ BENCH_PROFILE=smoke SUITES=inprocess BENCH_INPROCESS_TIERS=text,full \
   ./run-cloud.sh all --yes
 ```
 
-Set the same `BENCH_PROFILE` when you call `fetch` on its own, because `fetch`
+Set the same `BENCH_PROFILE` when you call `fetch` alone, because `fetch`
 copies the scratch folders back only when `BENCH_PROFILE` is `smoke`. The server
 suite measures the peak concurrency level once on the smoke profile and three times
 on the cloud profile. Set `BENCH_THROUGHPUT_PASSES=3` on a scratch run whenever you
@@ -214,14 +214,14 @@ level the same number of times on both sides.
 
 ## Security
 
-The raw-SSH providers expose port 22 on a public IP. AWS restricts that to your
-own IP through the security group it creates. Hetzner and DigitalOcean leave 22
+The raw-SSH providers expose port 22 on a public IP. AWS restricts that port to
+the public IP that you connect from through the security group that it creates. Hetzner and DigitalOcean leave 22
 reachable, so treat the VM as throwaway and always tear it down. GCP with
 `USE_IAP=1` is the most locked-down option, with no public IP.
 
 ## Publishing a run
 
-Fetched result directories carry the machine, CPU, memory, and engine versions in
-their own `run.json`, so a committed run is self-describing. Commit the
+Each fetched result directory carries the machine, CPU, memory, and engine
+versions in a `run.json` file, so a committed run is self-describing. Commit the
 directories you want to publish; the raw heap snapshots and TREC run files stay
 out of git by the existing ignore rules.

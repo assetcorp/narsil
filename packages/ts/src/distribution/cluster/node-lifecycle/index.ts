@@ -13,7 +13,7 @@ import type { DataNodeHandle, DataNodeLifecycleStatus, NodeLifecycleConfig } fro
 /**
  * Builds the handle a data node joins the cluster with, leaves it with, and shuts down through.
  *
- * The handle reports its own status, and it runs one lifecycle operation at a time, so a `leave` called while a
+ * The handle reports the status of the node, and it runs one lifecycle operation at a time, so a `leave` called while a
  * `join` is still running waits for that join rather than interleaving with it. A node that has shut down cannot
  * rejoin through the same handle. A `shutdown` ends whatever a `join` waits for before it registers, and the join
  * then fails with `NODE_NOT_JOINED`. `renewRegistration` writes

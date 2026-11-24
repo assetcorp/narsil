@@ -209,9 +209,10 @@ class NarsilDriver:
         self._vector_profile = profile
 
     def set_vector_metric(self, metric: str) -> None:
-        """Adopts the similarity every vector clause names. The index carries no
-        metric of its own here, so a worker that kept the driver default would score
-        against a different similarity from the one the run indexed for."""
+        """Adopts the similarity every vector clause names. Each query clause gives
+        the metric here and the index supplies none, so a worker that kept the
+        driver default would score against a different similarity from the one the
+        run indexed for."""
 
         self._metric = metric
 
@@ -368,7 +369,7 @@ class NarsilDriver:
         }
 
     def build_identity(self) -> dict | None:
-        """The running server's own build, read from its `/version` endpoint: the
+        """The build of the running server, read from its `/version` endpoint: the
         package version and the git commit it was built from, with the dirty-tree
         flag that the host checkout gives. Older servers without the endpoint degrade
         to None so a run still completes; the recorded image identity then carries

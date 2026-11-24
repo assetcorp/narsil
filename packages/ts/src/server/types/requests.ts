@@ -140,7 +140,7 @@ export interface HttpIndexConfig {
   defaultScoring?: 'local' | 'dfs' | 'broadcast'
   /** These parameters tune BM25 for this index and for each of its text fields. */
   bm25?: BM25Params
-  /** This is the name of a tokeniser registered on the server, which then splits text in place of the language's own rules. */
+  /** This is the name of a tokeniser registered on the server, which then splits text in place of the tokeniser of the language. */
   tokenizer?: string
   /** This name of a stop word set registered on the server, or this list, replaces the language's stop words. */
   stopWords?: string | string[]

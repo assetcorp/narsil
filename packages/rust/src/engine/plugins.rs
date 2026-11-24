@@ -9,7 +9,7 @@ use crate::config::IndexConfig;
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::value::{Map, Value};
 
-/// Hooks that the engine calls alongside its own work, so that an application can add validation, auditing,
+/// Hooks that the engine calls around its writes, searches, and index changes, so that an application can add validation, auditing,
 /// enrichment, or metrics without forking the engine.
 ///
 /// Every hook does nothing unless the plugin overrides it. A `before` hook runs first and refuses the operation by

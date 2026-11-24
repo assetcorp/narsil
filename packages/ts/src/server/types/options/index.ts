@@ -146,7 +146,7 @@ export interface ServerLimits {
   /** Ceiling for how many task records one `/tasks` page returns. Excess → 400. Defaults to 1000. */
   maxTaskPageSize?: number
   /** Ceiling for how many tasks this instance drives at once; excess is shed
-   * with 429. Each running task holds its own working set, and an async import
+   * with 429. Each running task holds a separate working set, and an async import
    * holds the whole uploaded corpus until it finishes, so this is what bounds
    * the memory a burst of task requests can claim. Defaults to 4. Set 0 to
    * accept every task. */
@@ -205,8 +205,8 @@ export interface ServerOptions {
   /**
    * Stable identifier for this server instance, stamped on every task it owns.
    * Supply a stable value (a pod or container name) so that after a restart the
-   * instance can mark its own previously-running tasks as failed instead of
-   * leaving them stuck. Defaults to a random id, which disables that recovery.
+   * instance can mark the tasks that it was running before the restart as
+   * failed, so that none of them stays stuck at `running`. Defaults to a random id, which disables that recovery.
    */
   instanceId?: string
   /**
@@ -332,7 +332,7 @@ export interface NarsilServer {
    *
    * Shutting the engine down is what ends the request threads, so Node aborts
    * a process that exits while one of those threads still holds a client
-   * connection. Call {@link NarsilServer.close} on its own where the engine
+   * connection. Call {@link NarsilServer.close} alone where the engine
    * keeps running after the server closes, as in a process that fronts one
    * engine with two servers.
    */

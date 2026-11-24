@@ -5,7 +5,20 @@ export interface TransformersEmbeddingConfig {
   dimensions: number
   dtype?: string
   device?: 'wasm' | 'webgpu' | 'cpu'
-  pooling?: 'mean' | 'cls'
+  /**
+   * How the adapter turns the vector of every token into one vector for the
+   * passage. `mean` averages them, and it suits most sentence models. `cls`
+   * keeps the first token, as BERT classifiers expect. `last_token` keeps the
+   * last token, which is the only one that has seen the whole passage in a
+   * model that reads left to right, such as Qwen3-Embedding. Use the mode that
+   * the model card names, which `1_Pooling/config.json` records for a
+   * Sentence Transformers model. With `last_token` and a tokenizer that pads on
+   * the right, `embedBatch` embeds one text at a time, because Transformers.js
+   * takes the last position of the batch, which holds padding for every text
+   * shorter than the longest. `last_token` requires Transformers.js 3.6.0 or
+   * later.
+   */
+  pooling?: 'mean' | 'cls' | 'last_token'
   normalize?: boolean
   documentPrefix?: string
   queryPrefix?: string
@@ -40,6 +53,13 @@ function isBatchSafeDtype(dtype: unknown): boolean {
   )
 }
 
+function paddingSideOf(pipe: unknown): unknown {
+  if (pipe === null || typeof pipe !== 'object' || !('tokenizer' in pipe)) return undefined
+  const tokenizer = pipe.tokenizer
+  if (tokenizer === null || typeof tokenizer !== 'object' || !('padding_side' in tokenizer)) return undefined
+  return tokenizer.padding_side
+}
+
 export function createTransformersEmbedding(config: TransformersEmbeddingConfig): EmbeddingResult {
   const model = config.model ?? DEFAULT_MODEL
   const dtype = config.dtype ?? DEFAULT_DTYPE
@@ -54,6 +74,7 @@ export function createTransformersEmbedding(config: TransformersEmbeddingConfig)
   let pipelineInstance: PipelineFn | null = null
   let rawPipeline: { dispose(): Promise<void> } | null = null
   let pipelinePromise: Promise<PipelineFn> | null = null
+  let poolsPaddingInBatches = false
 
   async function initPipeline(): Promise<PipelineFn> {
     if (pipelineInstance) return pipelineInstance
@@ -82,6 +103,7 @@ export function createTransformersEmbedding(config: TransformersEmbeddingConfig)
 
       rawPipeline = pipe as unknown as { dispose(): Promise<void> }
       pipelineInstance = pipe as unknown as PipelineFn
+      poolsPaddingInBatches = pooling === 'last_token' && paddingSideOf(pipe) !== 'left'
 
       return pipelineInstance
     })()
@@ -178,7 +200,7 @@ export function createTransformersEmbedding(config: TransformersEmbeddingConfig)
 
       signal?.throwIfAborted()
 
-      if (!embedsBatchesWhole) {
+      if (!embedsBatchesWhole || poolsPaddingInBatches) {
         const vectors: Float32Array[] = []
         for (const text of prefixed) {
           signal?.throwIfAborted()

@@ -25,7 +25,7 @@ Start on **Datasets**, which loads a corpus and unlocks the other tabs. The **Wo
 - **Benchmark** sends the 300 SciFact claim queries to the index and reports nDCG@10, P@10, MAP, and MRR against the expert judgments.
 - **Inspector** reports the schema, the partitions, the document counts, and the state of each vector field's graph. Its **Manage** tab edits synonyms, changes the language or the stop words of a live index, compacts and optimises the vector graphs, rebalances the partitions, and downloads or restores a snapshot or an export.
 
-The **Your Dataset** card takes JSON or CSV of your own. The browser parses the file, detects its schema, and indexes it, so every byte stays on your machine.
+The **Your Dataset** card takes a JSON or CSV file that you supply. The browser parses the file, detects its schema, and indexes it, so every byte stays on your machine.
 
 The vector and hybrid modes embed each query in the page with `Xenova/all-MiniLM-L6-v2`, which the app downloads on the first vector or hybrid search and never before it. World Places ships with each place's vector already computed by that model, so loading it embeds nothing.
 

@@ -224,7 +224,7 @@ func (o *Operations) Rebalance(ctx context.Context, name string, body RebalanceB
 //   - name: The name of the index.
 //   - body: How many partitions an index opens with, and how many documents it accepts. An index opens
 //     with `maxPartitions` partitions and keeps that count until Narsil.rebalance changes it, because
-//     the engine adds no partition on its own. Set `watermark` to learn through the
+//     the engine adds no partition unless you ask for one. Set `watermark` to learn through the
 //     `partitionWatermark` event when an index fills its capacity.
 //
 // Answers:
@@ -302,9 +302,9 @@ func (o *Operations) UpdateSynonyms(ctx context.Context, name string, body Synon
 // Parameters:
 //   - name: The name of the index.
 //   - body: BM25 tuning for an index or for one search. Both parameters default to the values the
-//     literature settles on, so change them only once you have measured relevance on your own corpus.
-//     For each field, the engine takes the first value that is set among the search's value for the
-//     field, the search's value, the index's value for the field, the index's value, and the default.
+//     literature settles on, so change them only once you have measured relevance on your corpus. For
+//     each field, the engine takes the first value that is set among the search's value for the field,
+//     the search's value, the index's value for the field, the index's value, and the default.
 //
 // Answers:
 //   - HTTP 200: The server answered the request.

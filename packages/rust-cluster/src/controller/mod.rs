@@ -8,6 +8,7 @@ mod election;
 mod event_loop;
 mod holder_retry;
 mod insync;
+mod lead_handoff;
 mod messages;
 mod metadata;
 mod placement;

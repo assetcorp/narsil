@@ -29,7 +29,7 @@ The commit point is the highest sequence number the primary has acknowledged to 
 _Avoid_: high watermark, global checkpoint, durability point, committed sequence
 
 **Local log end**:
-The local log end is the highest sequence number a node has appended to its own replication log. The value belongs to that node alone.
+The local log end is the highest sequence number a node has appended to its replication log. The value belongs to that node alone.
 _Avoid_: committed sequence, commit point
 
 **Admit**:
@@ -49,7 +49,7 @@ _Avoid_: epoch, generation, leader term
 Use these terms when you write about finding text inside field values.
 
 **Pattern search**:
-A pattern search is a test of a field's whole stored value against literal text, a wildcard pattern, or a regular expression in Narsil's own syntax. The engine includes a document only where its value matches, so it ranks the results the same way with or without a pattern search.
+A pattern search is a test of a field's whole stored value against literal text, a wildcard pattern, or a regular expression in the syntax that Narsil defines. The engine includes a document only where its value matches, so it ranks the results the same way with or without a pattern search.
 _Avoid_: wildcard search, grep search, substring search
 
 **Pattern field**:
@@ -117,7 +117,7 @@ OSQ is the quantization that Elastic named and that Lucene implements, and Narsi
 _Avoid_: SQ8, scalar quantization, binary quantization, BBQ
 
 **Native search core**:
-The native search core is the vector search written in C that every language implementation of Narsil loads where the platform can load native code. It searches the graph for a query, it scores full-precision vectors, it places, removes, and compacts nodes, and it writes the centroid and the code records of a quantized field. It must return the same results and write the same graph as the WebAssembly search, bit for bit. Each language binds it through its own shim, which is a Node-API addon for TypeScript.
+The native search core is the vector search written in C that every language implementation of Narsil loads where the platform can load native code. It searches the graph for a query, it scores full-precision vectors, it places, removes, and compacts nodes, and it writes the centroid and the code records of a quantized field. It must return the same results and write the same graph as the WebAssembly search, bit for bit. Each language binds it through a separate shim, which is a Node-API addon for TypeScript.
 _Avoid_: C engine, native engine, native module, and 'the addon' for the core itself
 
 **Search backend**:

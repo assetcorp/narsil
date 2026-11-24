@@ -7,7 +7,7 @@ use crate::value::Value;
 /// How the partitions of a search gather the statistics that BM25 scores with.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ScoringMode {
-    /// Each partition scores with its own document count, document frequencies, and average field lengths.
+    /// Each partition scores with the document count, document frequencies, and average field lengths that it holds.
     Local,
     /// The engine sums the statistics of every partition before it scores, which ranks exactly.
     Dfs,

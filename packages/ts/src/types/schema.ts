@@ -152,7 +152,7 @@ export type VectorStorageMode = 'memory' | 'disk'
  *
  * A small field answers faster from a brute-force scan, so the engine builds a
  * graph only once the field holds enough vectors to earn one. Leave every
- * field unset to accept the engine's own values.
+ * field unset to accept the engine defaults.
  *
  * @public
  */
@@ -284,7 +284,7 @@ export interface IndexConfig {
   /**
    * The engine raises `DOC_VALIDATION_FAILED` for a document whose value in a
    * `verbatim` field, or in a field whose type includes `pattern`, is longer
-   * than this many code points. It tests each element of a list on its own.
+   * than this many code points. It tests each element of a list separately.
    * Set a whole number from 1 to 65,536, or leave this unset for a limit of
    * 8,192. For any other value, {@link Narsil.createIndex} throws
    * `CONFIG_INVALID`.
@@ -304,7 +304,7 @@ export interface IndexConfig {
 }
 
 /**
- * A tokeniser you supply, which replaces the language module's own.
+ * A tokeniser that you supply, which replaces the tokeniser of the language module.
  *
  * The engine calls it for every text field on write and for every query term,
  * so the same rules apply on both sides.
@@ -331,8 +331,8 @@ export interface CustomTokenizer {
  * How many partitions an index opens with, and how many documents it accepts.
  *
  * An index opens with `maxPartitions` partitions and keeps that count until
- * {@link Narsil.rebalance} changes it, because the engine adds no partition on
- * its own. Set `watermark` to learn through the `partitionWatermark` event
+ * {@link Narsil.rebalance} changes it, because the engine adds no partition unless
+ * you ask for one. Set `watermark` to learn through the `partitionWatermark` event
  * when an index fills its capacity.
  *
  * @public
@@ -354,7 +354,7 @@ export interface PartitionConfig {
 /**
  * How a query gathers the term statistics BM25 scores with.
  *
- * `local` scores each partition from its own statistics, which is fastest and
+ * `local` scores each partition from the statistics of that partition, which is fastest and
  * accurate enough for evenly spread data. `dfs` gathers document frequencies
  * across partitions first, so every score compares like for like. `broadcast`
  * sends the query to every partition and merges the results.

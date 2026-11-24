@@ -88,7 +88,7 @@ export interface HNSWIndex {
     minSimilarity: number,
     options?: GraphSearchOptions,
   ): ResolvedHit[]
-  /** Walks the graph on a native thread, or answers `null` when the native core has no threads of its own. */
+  /** Walks the graph on a native thread, or answers `null` when the native core starts no threads. */
   searchOffThread(
     query: Float32Array,
     k: number,

@@ -2,7 +2,7 @@
 
 This document specifies every algorithm that Narsil uses. Every implementation must produce identical output for identical input, except where floating-point precision makes that impossible. Each section gives the formula, the parameters, the edge cases, and the behaviour that a caller can rely on.
 
-The pseudocode is language-neutral. `List<T>` is an ordered collection of `T`, and `Map<K, V>` is a mapping from keys to values. Arithmetic operators have their usual meaning, `XOR` is bitwise exclusive or, `AND` is bitwise and, and a shift written `>>` on an unsigned value fills from the left with zeros. Names such as `uint32` and `float32` describe exact widths, and each implementation maps them to its own types.
+The pseudocode is language-neutral. `List<T>` is an ordered collection of `T`, and `Map<K, V>` is a mapping from keys to values. Arithmetic operators have their usual meaning, `XOR` is bitwise exclusive or, `AND` is bitwise and, and a shift written `>>` on an unsigned value fills from the left with zeros. Names such as `uint32` and `float32` describe exact widths, and each implementation maps them to the types of its language.
 
 ---
 
@@ -47,7 +47,7 @@ total_score = SUM over each field f of
   boost(f) * BM25(Q, D, field = f)
 ```
 
-Each field uses its own `|D|`, the token count in that field, its own `avgdl`, the average token count for that field across every document, and its own `k1` and `b`.
+Each field uses a separate `|D|`, the token count in that field, a separate `avgdl`, the average token count for that field across every document, and separate values of `k1` and `b`.
 
 ### Expanded Terms
 
@@ -61,15 +61,15 @@ groupScore(D) =
   return the largest factor(t) * score(t, D, idf) over every token t in the group
 ```
 
-The typo matches of a term are its own token and every token that [Bounded Levenshtein Distance](#bounded-levenshtein-distance) accepts for it, except under `exact`, where they are the own token alone. The last term of a prefix query, and each term that partial-word search applies to, has a group that holds the term's own token, its [completions](#prefix-completion), and its [added words](#partial-word-search). An implementation scores the own token of such a term through the group alone. It gives the last term of a prefix query no typo matches, while it adds the other typo matches of any other term with a group through `typoScore`.
+The typo matches of a term are the term's token itself and every token that [Bounded Levenshtein Distance](#bounded-levenshtein-distance) accepts for it, except under `exact`, where they are that token alone. The last term of a prefix query, and each term that partial-word search applies to, has a group that holds the term's token itself, its [completions](#prefix-completion), and its [added words](#partial-word-search). For such a term, an implementation scores the term's token itself through the group alone. It gives the last term of a prefix query no typo matches, while it adds the other typo matches of any other term with a group through `typoScore`.
 
-In a group, `factor(t)` is 1 for the own token. For a completion, it is `minimum(1, length(own token) / length(t))`. For an added word, it is the length of the term as written divided by the length of the shortest [written spelling](#partial-word-search) of `t` that contains the term as written. Every length is a count of code points. For a token that is both a completion and an added word, `factor(t)` is the larger of the two. An implementation scores an added word only in the fields whose type includes `partial`.
+In a group, `factor(t)` is 1 for the term's token itself. For a completion, it is `minimum(1, length(term's token) / length(t))`. For an added word, it is the length of the term as written divided by the length of the shortest [written spelling](#partial-word-search) of `t` that contains the term as written. Every length is a count of code points. For a token that is both a completion and an added word, `factor(t)` is the larger of the two. An implementation scores an added word only in the fields whose type includes `partial`.
 
-Where a query term has [synonyms](#synonyms), an implementation must score the term's own token and its synonyms as one combined term `c`, which takes the place of the own token in every formula above:
+Where a query term has [synonyms](#synonyms), an implementation must score the term's token itself and its synonyms as one combined term `c`, which takes the place of that token in every formula above:
 
 ```text
-tf(c, D)  = SUM over the own token and each synonym s of tf(s, D)
-n(c)      = the largest n(t) over the own token and each synonym
+tf(c, D)  = SUM over the term's token and each synonym s of tf(s, D)
+n(c)      = the largest n(t) over the term's token and each synonym
 factor(c) = 1
 ```
 
@@ -152,9 +152,9 @@ BM25FieldParams {
 }
 ```
 
-An implementation must find each of `k1` and `b` for a field separately, and it must take the first value that is set in this order: the search's value for the field, the search's value, the index's value for the field, the index's value, and the default. So a search that sets `k1` overrides an index's `k1` for a field, while that field keeps its own `b`.
+An implementation must find each of `k1` and `b` for a field separately, and it must take the first value that is set in this order: the search's value for the field, the search's value, the index's value for the field, the index's value, and the default. So a search that sets `k1` overrides an index's `k1` for a field, while the `b` of that field is unchanged.
 
-A key of `fields` must name a field whose type has the base `string` or `string[]`, because no other field holds BM25 terms. An implementation must reject any other name with `CONFIG_INVALID` on an index and with `SEARCH_INVALID_FIELD` on a search, and it must compare a name with the schema's own fields alone, so that a name such as `__proto__` is an unknown field like any other. An empty `BM25FieldParams` sets nothing, and a search whose `BM25Params` sets no value behaves as though it left `bm25` out.
+A key of `fields` must name a field whose type has the base `string` or `string[]`, because no other field holds BM25 terms. An implementation must reject any other name with `CONFIG_INVALID` on an index and with `SEARCH_INVALID_FIELD` on a search, and it must compare a name only with the fields that the schema declares, so that a name such as `__proto__` is an unknown field like any other. An empty `BM25FieldParams` sets nothing, and a search whose `BM25Params` sets no value behaves as though it left `bm25` out.
 
 An implementation must validate the `bm25` of every search. A vector search scores no text, so its `bm25` changes no score, and a [hybrid](#reciprocal-rank-fusion) search applies its `bm25` to the keyword ranking alone.
 
@@ -173,7 +173,7 @@ Every copy of an index that answers one search must score that search under one 
 
 Across partitions, an implementation scores BM25 in one of three modes.
 
-**Local scoring**, the default, gives each partition its own `N`, `n(qi)`, and `avgdl`. It takes one round trip, and its scores are approximate where partition sizes or term distributions differ.
+**Local scoring**, the default, gives each partition a separate `N`, `n(qi)`, and `avgdl`. It takes one round trip, and its scores are approximate where partition sizes or term distributions differ.
 
 **DFS**, for distributed frequency statistics, takes two phases. In the first phase, the coordinator collects `N`, `n(qi)`, and `avgdl` from each partition, sums `N` and `n(qi)`, and computes a weighted `avgdl`. In the second phase, it sends those global values back to the partitions for scoring. The ranking is exact, and it takes two round trips. Under DFS, the coordinator must also collect and sum `n(s)` for each synonym `s` that the query adds, so that every partition computes the same `n(c)`, and it must collect and sum `n(v)` for each variant `v` that [folded matching](#folded-matching) adds in any partition.
 
@@ -238,7 +238,7 @@ An implementation must raise `CONFIG_INVALID` for a query whose `tolerance` or `
 
 With `prefix` set and `exact` unset, an implementation must treat the last query term as unfinished, taking that term, analysed without stemming, as the typed prefix. It must collect as completions the token of every surface form that starts with the typed prefix, together with every token that starts with the typed prefix and occurs at least once as written. A token occurs as written where its total term frequency exceeds the occurrence counts of its surface forms. Where the partition holds no surface forms, an implementation must also collect every such token that starts with the last term's stemmed token.
 
-An implementation must keep only the tokens that a document of the partition holds. From those, it must take the 50 that the most documents of the partition contain, breaking ties in code point order. Where the last term's own token is among those 50, it counts as one of them.
+An implementation must keep only the tokens that a document of the partition holds. From those, it must take the 50 that the most documents of the partition contain, breaking ties in code point order. Where the last term's token itself is among those 50, it counts as one of them.
 
 ---
 
@@ -246,7 +246,7 @@ An implementation must keep only the tokens that a document of the partition hol
 
 With `partialWords` set on a query, an implementation must also match each query word of at least three code points against the inside of longer indexed words, in the fields whose [type](envelope.md#field-types) includes the `partial` option. It must compare the query word, analysed without stemming, with the written spelling of each word that occurs in a `partial` field, which is the [surface form](envelope.md#surface-forms) of that occurrence where stemming changes it and its token otherwise. It must raise `CONFIG_INVALID` for a `partial` field in an index whose `surfaceForms` setting is off. A writer stores these written spellings in each [keyword segment](envelope.md#keyword-segment-payload), so a reader must derive them from documents only for a segment whose `partialWords` is nil, missing, or lists other fields than the `partial` fields of the index.
 
-An implementation must add at most 50 indexed words to the whole query, which it must divide equally among the query words of at least three code points, in query order. Where `n` is the number of such words, capped at 50, an implementation must give each of the first `n` words up to `floor(50 / n)` added words, plus one more for each of the first `50 mod n` words. An implementation must skip partial matching for every such word after the 50th. For each query word, it must add only words that a `partial` field of the partition holds, leaving out the word's own token and its typo matches. It must take first the words that the most documents of the partition contain, breaking ties in code point order. It must apply no typo tolerance to a partial match. It must skip partial matching where `exact` is set, as it skips typo matching and prefix completion there. It must score each query word's added words as [Expanded Terms](#expanded-terms) defines, so it scores an added word below the word's own token wherever both appear with the same term frequency and field length in the same field.
+An implementation must add at most 50 indexed words to the whole query, which it must divide equally among the query words of at least three code points, in query order. Where `n` is the number of such words, capped at 50, an implementation must give each of the first `n` words up to `floor(50 / n)` added words, plus one more for each of the first `50 mod n` words. An implementation must skip partial matching for every such word after the 50th. For each query word, it must add only words that a `partial` field of the partition holds, leaving out the word's token itself and its typo matches. It must take first the words that the most documents of the partition contain, breaking ties in code point order. It must apply no typo tolerance to a partial match. It must skip partial matching where `exact` is set, as it skips typo matching and prefix completion there. It must score each query word's added words as [Expanded Terms](#expanded-terms) defines, so it scores an added word below the word's token itself wherever both appear with the same term frequency and field length in the same field.
 
 ---
 
@@ -382,7 +382,7 @@ The limits above do not bound the positions that a search compares, because a ph
 
 ### Array Position Gap
 
-An implementation must leave a gap of 100 positions between the items of a `string[]` field. It must compute the position of a token as follows, where `position` is the token's place inside its own item, counting from zero:
+An implementation must leave a gap of 100 positions between the items of a `string[]` field. It must compute the position of a token as follows, where `position` is the token's place inside the item that holds it, counting from zero:
 
 ```text
 offset = 0
@@ -520,7 +520,7 @@ An implementation must find the `k` nearest neighbours of a query vector `q` in 
 
 An implementation must remove a vector `v` in two steps:
 
-1. In every layer that holds `v`, take `v` out of the list of each neighbour. Where a neighbour then holds fewer connections than its limit, replace its list with the nodes that `selectNeighbours` returns for its own neighbours and the other neighbours of `v`, and connect each of those nodes back to that neighbour.
+1. In every layer that holds `v`, take `v` out of the list of each neighbour. Where a neighbour then holds fewer connections than its limit, replace its list with the nodes that `selectNeighbours` returns for the neighbours of that neighbour and the other neighbours of `v`, and connect each of those nodes back to that neighbour.
 2. Where `v` is the entry point, make the live node with the highest top layer the new entry point.
 
 ### Parameters
@@ -531,7 +531,7 @@ An implementation must remove a vector `v` in two steps:
 | `efConstruction` | 200 | The size of the dynamic candidate list during a build |
 | `efSearch` | 50 | The size of the dynamic candidate list during a search |
 
-Layer 0 allows `2 * M` connections. A higher `efConstruction` raises the recall of the graph and lengthens each insert. A higher `efSearch` raises recall and lengthens each search, and each query may set its own.
+Layer 0 allows `2 * M` connections. A higher `efConstruction` raises the recall of the graph and lengthens each insert. A higher `efSearch` raises recall and lengthens each search, and each query may set a separate `efSearch`.
 
 [Similarity Functions](#similarity-functions) defines the metrics.
 
@@ -992,7 +992,7 @@ In a pattern search, an implementation tests the whole stored value of a pattern
 | `wildcard` | the whole value matches the [wildcard pattern](#wildcard-syntax) |
 | `regex` | the [regular expression](#regular-expression-syntax) matches anywhere in the value |
 
-An implementation must raise `SEARCH_INVALID_FILTER` for these three tests on any field other than a pattern field, because without a pattern index it has to check every value of that field. It must test each element of a list as a value of its own, so a document matches where one element matches. It must compare the code points of a value as stored, with no Unicode normalisation. It must raise `SEARCH_INVALID_FILTER` for a test whose text or pattern holds more than 1,024 code points.
+An implementation must raise `SEARCH_INVALID_FILTER` for these three tests on any field other than a pattern field, because without a pattern index it has to check every value of that field. It must test each element of a list as a separate value, so a document matches where one element matches. It must compare the code points of a value as stored, with no Unicode normalisation. It must raise `SEARCH_INVALID_FILTER` for a test whose text or pattern holds more than 1,024 code points.
 
 An implementation must raise `DOC_VALIDATION_FAILED` for a document whose value in a pattern field holds more code points than the index's pattern value limit. The limit defaults to 8,192 code points, while a caller may set it from 1 to 65,536 when it creates the index. An implementation must raise `CONFIG_INVALID` for any other limit.
 
@@ -1102,7 +1102,7 @@ An implementation must stop adding positions once the total passes 2,048, so tha
 
 An implementation must match without backtracking, so that it checks one value in at most as many steps as the value's code points multiplied by the pattern's positions, where one step tests one pattern position against one code point. It must hold at most 1 MB of matcher state for one search, so when a cache of matcher states fills, it may empty the cache and continue.
 
-An implementation must count the work of every test on a pattern field across every partition that it answers the search for, adding one unit for each run that it looks up in a pattern index, one unit for each shortlist entry that it reads, and one unit for each step. For a test from which it can take no run, it must count each document that it checks as a shortlist entry that it reads. It must count one step for each pattern position that a match can reach at each code point that it checks. It must count each literal test as the regular expression that it equals, such as `^text$` for `eq` and `text` for `contains`, with every metacharacter in the text escaped. It must count an `in` or a `nin` test as one `eq` test for each distinct value in its list, so the limit of 2,048 positions applies to each value on its own. It must add the units that [Phrase Search](#work-limit) counts to the same count. It must stop the search and raise `SEARCH_WORK_CAP_EXCEEDED` once the count exceeds the work cap, which defaults to 25,000,000 units and which a caller may change through an engine setting.
+An implementation must count the work of every test on a pattern field across every partition that it answers the search for, adding one unit for each run that it looks up in a pattern index, one unit for each shortlist entry that it reads, and one unit for each step. For a test from which it can take no run, it must count each document that it checks as a shortlist entry that it reads. It must count one step for each pattern position that a match can reach at each code point that it checks. It must count each literal test as the regular expression that it equals, such as `^text$` for `eq` and `text` for `contains`, with every metacharacter in the text escaped. It must count an `in` or a `nin` test as one `eq` test for each distinct value in its list, so the limit of 2,048 positions applies to each value separately. It must add the units that [Phrase Search](#work-limit) counts to the same count. It must stop the search and raise `SEARCH_WORK_CAP_EXCEEDED` once the count exceeds the work cap, which defaults to 25,000,000 units and which a caller may change through an engine setting.
 
 ### Pattern Index
 
@@ -1170,7 +1170,7 @@ RerankParams {
 Let `d` be the depth field of the request's cursor, or 0 for a request without a cursor.
 
 1. The engine must rank the query as it would without `rerank`, whether keyword, vector, or hybrid after fusion, to a depth of max(window + 1, min(d + offset + limit + 1, 10,000)), and it must place no pinned document at this step. It must raise `SEARCH_RESULT_WINDOW_EXCEEDED` where d + offset + limit exceeds 10,000. A hybrid query that sets `hybrid.depth` takes as its first stage the fused list at that depth, as [Hybrid Search](vector-index.md#hybrid-search) defines, so the engine must raise `RERANK_CONFIG_INVALID` where the request sets a `window` above that depth. Where the request leaves `window` out, the engine must use the smallest of 100, `maxRerankWindow`, and that depth. A hybrid query that leaves `hybrid.depth` out ranks its first stage to the depth above, as a keyword or vector query does.
-2. It must pass the adapter the query text and, for each of the first `window` hits, the values of `fields` in field order, joined with a newline. Each member of a list field takes a line of its own, and a missing value or a value that is not a string adds nothing.
+2. It must pass the adapter the query text and, for each of the first `window` hits, the values of `fields` in field order, joined with a newline. Each member of a list field takes a separate line, and a missing value or a value that is not a string adds nothing.
 3. It must order those hits by the adapter's score, highest first, with ties broken by document ID in [code point order](#code-point-order). Each of those hits then takes the adapter's score as its score.
 4. It must keep the hits past the window in their first-stage order after the reranked hits, and it must rescale their scores as below, so that no hit past the window outscores a reranked hit.
 5. Where the request carries no cursor, it must then place the pinned documents. The page holds up to `limit` hits from position d + offset.

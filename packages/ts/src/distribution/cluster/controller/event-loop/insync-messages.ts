@@ -165,7 +165,7 @@ export async function respondRefusal(
  * @param message - The request the primary or the failed replica sent.
  * @param respond - The function that returns the confirmation to the sender.
  * @param coordinator - The cluster coordinator that stores the allocation table.
- * @param nodeId - The controller's own node id, which names the sender of the confirmation.
+ * @param nodeId - The node id of the controller, which names the sender of the confirmation.
  * @param isActive - Reports whether this node still holds the controller lease.
  */
 export function handleInsyncRemoveMessage(
@@ -202,7 +202,7 @@ export function handleInsyncRemoveMessage(
  * @param message - The request the primary sent.
  * @param respond - The function that returns the confirmation to the primary.
  * @param coordinator - The cluster coordinator that stores the allocation table.
- * @param nodeId - The controller's own node id, which names the sender of the confirmation.
+ * @param nodeId - The node id of the controller, which names the sender of the confirmation.
  * @param isActive - Reports whether this node still holds the controller lease.
  * @param onError - Called with the index name and the error whenever the allocation that follows fails.
  */
@@ -248,7 +248,7 @@ export function handleInsyncAddMessage(
  * @param message - The report the node sent.
  * @param respond - The function that returns the result to the reporting node.
  * @param coordinator - The cluster coordinator that stores the allocation table.
- * @param nodeId - The controller's own node id, which names the sender of the result.
+ * @param nodeId - The node id of the controller, which names the sender of the result.
  * @param isActive - Reports whether this node still holds the controller lease.
  */
 export function handleQueuedBootstrapComplete(

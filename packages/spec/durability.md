@@ -69,12 +69,12 @@ A node must hold its write-ahead log directory alone, so that no two processes a
 
 - Before recovery lists the directory, the node must create the file `.narsil.lock` in the directory root without replacing an existing file. The file must contain four lines: the process id, the thread id, the process start time in milliseconds since the Unix epoch, and a random token that is unique to this open.
 - The node should write the file under a temporary name and link it into place, so that a reader never finds it empty. On a filesystem without hard links, the node may create the file in place with exclusive creation.
-- Where the file records a running process other than the node's own, the node must refuse to start with `CONFIG_INVALID`.
-- Where the file records the node's own process id and a process start time within one second of the node's own, another open in the same process holds the directory, and the node must refuse to start with `CONFIG_INVALID`.
-- Where the file records a process that no longer runs, the node's own process id with a start time more than one second away, or no process id, the node may delete the file and create it again.
+- Where the file records a running process other than the node's process, the node must refuse to start with `CONFIG_INVALID`.
+- Where the file records the node's process id and a process start time within one second of the start time of the node's process, another open in the same process holds the directory, and the node must refuse to start with `CONFIG_INVALID`.
+- Where the file records a process that no longer runs, the node's process id with a start time more than one second away, or no process id, the node may delete the file and create it again.
 - A second open of a directory from inside the process that holds it must fail with `CONFIG_INVALID`, and the node must identify the directory by its device and inode numbers, so that a symbolic link or another spelling of the path counts as the same directory.
 - A node that fails after it creates the file and before it finishes starting must delete the file.
-- The node must delete `.narsil.lock` on a clean shutdown, and only while the file still contains its own token.
+- The node must delete `.narsil.lock` on a clean shutdown, and only while the file still contains the token that the node wrote.
 
 The folder `_query-counts/` at the root holds [query counts](query-suggestions.md#history), and recovery must treat it as no index.
 
@@ -136,7 +136,7 @@ Offset  Size  Type      Field          Description
 4+N     4     uint32be  frame_crc32    CRC32 (IEEE) of the payload bytes
 ```
 
-`payload` is the MessagePack encoding of the `ReplicationLogEntry` exactly as [replication.md](distribution/replication.md) defines it, the entry's own `checksum` field included.
+`payload` is the MessagePack encoding of the `ReplicationLogEntry` exactly as [replication.md](distribution/replication.md) defines it, the entry's `checksum` field included.
 
 `frame_crc32` covers the `payload` bytes alone. The entry's `checksum` field carries logical integrity for transfer between nodes, and the frame checksum carries on-disk integrity. Both use CRC32 under the IEEE polynomial.
 
@@ -179,7 +179,7 @@ Recovery uses the commit marker to find each segment's durable region and then r
 1. Read the partition's commit marker and take the slot with the highest `write_seq` whose `marker_crc32` is valid. When neither slot is valid, or the marker is absent, the partition has no acknowledged log records beyond the snapshot and recovery replays nothing from the log.
 2. Delete every segment whose `startSeqNo` is greater than `active_segment_seq_no`. Such a segment holds only unacknowledged records from a roll that a crash interrupted.
 3. A segment whose `startSeqNo` is below `active_segment_seq_no` was sealed before the active segment opened, so it is durable in full. Read every record in it.
-4. In the active segment, the first `durable_byte_length` bytes are the fsynced frontier. Read the records inside the frontier by byte offset, never by trusting a record's own length to find where the frontier ends.
+4. In the active segment, the first `durable_byte_length` bytes are the fsynced frontier. Read the records inside the frontier by byte offset, never by trusting the length that a record carries to find where the frontier ends.
 5. Inside the frontier every record must be complete and valid. A `record_length` that overruns the frontier, a `frame_crc32` mismatch, a payload that fails to decode, a failed entry checksum, or a `seqNo` out of order is corruption of acknowledged, fsynced data. Recovery refuses to start and raises `PERSISTENCE_WAL_CORRUPT`.
 6. Once every segment has been read up to the frontier, the highest `seqNo` read must equal `highest_durable_seq_no`. A lower value means a durable record is missing, which is corruption; refuse and raise `PERSISTENCE_WAL_CORRUPT`.
 7. Past `durable_byte_length` in the active segment lie records appended but not yet fsynced, which stay unacknowledged in both modes. In async mode these are the records since the last flush; in sync mode they are the records of a write that a crash caught between its append and its fsync. Recovery parses them one at a time and replays each record that is complete, valid, and carries a `seqNo` above `highest_durable_seq_no`. It stops at the first record that is incomplete or fails its checksum, treats that as the torn tail, truncates the segment to the end of the last good record, and fsyncs it.
@@ -516,7 +516,7 @@ A restore that names an existing index must leave that index serving every reque
 
 A node with durable storage writes the restored checkpoint under a staging prefix. A staging prefix is a top-level key prefix made of `.`, then a letter or a digit, then any number of letters, digits, `.`, `_`, and `-`, then `/`, and it never holds `..`. Index names begin with a letter or a digit, so recovery never takes a staging prefix for an index. A staging prefix must stay short whatever the index name, because a file system can limit one file name to 255 bytes while an index name can be that long, so a node must not build a staging prefix from the index name.
 
-Once every staged file is durable, the node commits the replacement by writing a journal under the key `.swap-<digest>` with an [atomic write](#atomic-write), or by saving that key through the adapter on the snapshot-only tier. The digest is the SHA-256 of the index name's UTF-8 bytes, written as 64 lowercase hexadecimal digits, so the journal key stays short and each index has one. The journal holds two lines of UTF-8 text, the index name and then the staging prefix, and nothing else. It skips step 1 of the atomic write, because recovery checks every byte that it reads from the journal. A crash during that write can leave a temporary key that also begins with `.swap-`. On startup, a node must delete every key that begins with `.swap-` and whose remainder is not the digest of that key's own first line, and it must move nothing for that key.
+Once every staged file is durable, the node commits the replacement by writing a journal under the key `.swap-<digest>` with an [atomic write](#atomic-write), or by saving that key through the adapter on the snapshot-only tier. The digest is the SHA-256 of the index name's UTF-8 bytes, written as 64 lowercase hexadecimal digits, so the journal key stays short and each index has one. The journal holds two lines of UTF-8 text, the index name and then the staging prefix, and nothing else. It skips step 1 of the atomic write, because recovery checks every byte that it reads from the journal. A crash during that write can leave a temporary key that also begins with `.swap-`. On startup, a node must delete every key that begins with `.swap-` and whose remainder is not the digest of the first line that the key holds, and it must move nothing for that key.
 
 The keys of the restored checkpoint, each relative to `<indexName>/`, are `meta`, `manifest`, and every file that the restored manifest lists. A node reads that manifest under the staging prefix while it is still there, and under `<indexName>/` once it has moved. The node then finishes the journal in three steps:
 

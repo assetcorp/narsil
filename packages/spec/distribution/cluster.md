@@ -2,7 +2,7 @@
 
 This document defines cluster formation, node registration, node roles, the partition allocation table, and the partition state machine. It also defines the `ClusterCoordinator` adapter contract.
 
-Structure definitions use a language-neutral notation. `List<T>` is an ordered collection of `T`, `Map<K, V>` a mapping from keys to values, and `T or absent` a value that may be missing; each implementation expresses these in its own type system.
+Structure definitions use a language-neutral notation. `List<T>` is an ordered collection of `T`, `Map<K, V>` a mapping from keys to values, and `T or absent` a value that may be missing; each implementation expresses these in the type system of its language.
 
 ---
 
@@ -237,7 +237,7 @@ The ISO 8601 timestamp of when the node started. It serves diagnostics, and it b
 
 ### version
 
-The specification version the node follows, which is 1.6 for this specification. A version must match `^[0-9]+\.[0-9]+$`, a major number and a minor number that compare as integers, and a node must register the version that it follows, because a minor version can add a capability that a coordinator has to check before it sends a query, as [Phrase Queries](query-routing.md#phrase-queries) and [BM25 Parameters](query-routing.md#bm25-parameters) do. Nodes on incompatible versions must not share a cluster, so the controller places no partition on a node whose major version differs from its own, and it treats a version that it cannot parse as a different major version. The controller must also place no partition of an index with [previousDocument](../changes.md#previous-document) on, or of a generation that it builds for such an index, on a node whose version lies below 1.5, because such a node computes the [checksum](replication.md#checksum) of every entry over seven fields. A node that finds an active controller on a different major version as it joins must fail its start with `NODE_VERSION_INCOMPATIBLE`. A node that finds no active controller joins, and the controller that a later election chooses keeps it out of allocation where the major versions differ.
+The specification version the node follows, which is 1.6 for this specification. A version must match `^[0-9]+\.[0-9]+$`, a major number and a minor number that compare as integers, and a node must register the version that it follows, because a minor version can add a capability that a coordinator has to check before it sends a query, as [Phrase Queries](query-routing.md#phrase-queries) and [BM25 Parameters](query-routing.md#bm25-parameters) do. Nodes on incompatible versions must not share a cluster, so the controller places no partition on a node whose major version differs from the controller's, and it treats a version that it cannot parse as a different major version. The controller must also place no partition of an index with [previousDocument](../changes.md#previous-document) on, or of a generation that it builds for such an index, on a node whose version lies below 1.5, because such a node computes the [checksum](replication.md#checksum) of every entry over seven fields. A node that finds an active controller on a different major version as it joins must fail its start with `NODE_VERSION_INCOMPATIBLE`. A node that finds no active controller joins, and the controller that a later election chooses keeps it out of allocation where the major versions differ.
 
 ### memory
 
@@ -245,7 +245,7 @@ The memory that the node uses, which the [Memory Write Block](#memory-write-bloc
 
 - `processBytes` must be the resident memory of the whole process less the pages that it maps from files, because a node can keep vectors and saved segments outside the heap, while the operating system can reclaim a page that a file backs without ending the process. On Linux it must be `RssAnon` plus `RssShmem` from `/proc/self/status`, and where a runtime can't separate the pages that files back, it must be the whole resident memory.
 - `processLimitBytes` must be the memory limit that a container sets on the process. Where no container sets one, it must be, on Linux, `processBytes` plus the memory that the host reports as available (`MemAvailable`), capped at the host's total memory, and elsewhere the host's total memory.
-- `heapBytes` must be the heap that the node's main thread uses, and `heapLimitBytes` the size to which that heap may grow. Both figures must cover the same part of the heap. Where the runtime keeps new objects in a young generation that its collector empties on its own, both figures must leave that generation out. A node runs out of memory when the rest of its heap can't grow, so the garbage in the young generation never causes that failure.
+- `heapBytes` must be the heap that the node's main thread uses, and `heapLimitBytes` the size to which that heap may grow. Both figures must cover the same part of the heap. Where the runtime keeps new objects in a young generation that its collector empties automatically, both figures must leave that generation out. A node runs out of memory when the rest of its heap can't grow, so the garbage in the young generation never causes that failure.
 - `full` must hold the value that the [Memory Write Block](#memory-write-block) rules give it.
 
 ### partitionBytes
@@ -258,7 +258,7 @@ A node that an operator removes from the cluster writes its registration again w
 
 - The controller must place no new copy on a draining node.
 - The controller moves each replica on the node as [removingReplicas](#removingreplicas) describes.
-- For each partition that the node leads, the controller first gives the lead to an in-sync replica on another node and raises the `primaryTerm`, and it then moves the node's copy in the same way.
+- For each partition that the node leads, the controller first gives the lead to an in-sync replica on another node and raises the `primaryTerm`, as [Handing Over the Lead](replication.md#handing-over-the-lead) defines, and it then moves the node's copy in the same way. Where the handover fails, the controller moves the lead without it, because the node has to give up every lead that it holds.
 - A node that writes `draining` back to false stops the drain, and the controller then treats it as it treats any other node.
 
 ### Heartbeat
@@ -279,11 +279,11 @@ A data node is stateful, so adding or removing one triggers partition reallocati
 
 ### coordinator
 
-A coordinator node receives client queries, reads the allocation table to learn which data nodes hold the relevant partitions, fans the query out over the node transport, and merges the results. It holds no partitions of its own.
+A coordinator node receives client queries, reads the allocation table to learn which data nodes hold the relevant partitions, fans the query out over the node transport, and merges the results. It holds no partitions.
 
 A coordinator node is stateless. It caches the allocation table locally, kept current by the allocation watch, so it can be added or removed with no data movement.
 
-A data node that receives a client query acts as coordinator for that request as well as searching its own partitions, so every data node carries the coordinator role for the queries it receives directly.
+A data node that receives a client query acts as coordinator for that request as well as searching the partitions that it holds, so every data node carries the coordinator role for the queries it receives directly.
 
 ### controller
 
@@ -337,7 +337,7 @@ PartitionAssignment {
 
 ### version
 
-A counter that increases on every update. A node compares its cached version with the coordinator's to spot stale state, and it rejects an operation tagged with a version below its own.
+A counter that increases on every update. A node compares its cached version with the coordinator's to spot stale state, and it rejects an operation tagged with a version below its cached version.
 
 ### indexUuid
 
@@ -472,7 +472,7 @@ Three rules govern what a node serves:
 
 - A node must route every read and every write for an index through the allocation table the coordinator holds for it.
 - A node must refuse a read or a write with `QUERY_ROUTING_FAILED` while the coordinator holds metadata for the index and holds no allocation table for it.
-- A node may serve an index the coordinator holds no metadata for from its own copy, which is how a purely local index stays readable on a cluster node.
+- A node may serve an index the coordinator holds no metadata for from the node's copy, which is how a purely local index stays readable on a cluster node.
 
 ---
 
@@ -501,8 +501,8 @@ Six rules govern the block:
 - A node must refuse the whole of a batch insert or a batch update to a blocked index.
 - A primary must refuse a forwarded insert or update to a blocked index as well, so that a write which another node forwarded before it learnt of the block still meets it.
 - A node must accept removes, searches, and document reads to a blocked index, so that an operator can free memory by removing documents.
-- A node must judge its own `full` value from its latest measurement, and it may judge every other node's from the latest registration that it has received for that node.
-- A replica must apply every replicated entry whatever its own `full` value, because a refused entry would leave the copies of a partition holding different documents.
+- A node must judge its `full` value from its latest measurement, and it may judge every other node's from the latest registration that it has received for that node.
+- A replica must apply every replicated entry whatever the replica's `full` value, because a refused entry would leave the copies of a partition holding different documents.
 
 The block lifts once no node that holds a copy of the index reports `full`.
 
@@ -521,7 +521,7 @@ A node must accept a write that arrives while no other insert or update is in pr
 
 `requestBytes` is the node's estimate of the bytes in the documents of the write. That estimate must rise with the length of every string and binary value in those documents, including the fields of a partial update. `inFlightBytes` is the sum of `requestBytes` over every insert and update that is in progress on the node, from the moment that the node accepts it until it completes, whether a client sends it to the node or another node forwards it there. A node that receives a write from a client and holds the primary for it must count that write once. The in-flight fraction is 0.02 by default. An implementation must let each node set it to any value above 0 and at most 1. A node must leave removes and replicated entries out of `inFlightBytes` and accept them whatever the value of `inFlightBytes`.
 
-A node must also refuse an insert or an update when the memory in use plus the memory that indexing can take would pass the block fraction of either limit. Indexing a document can take many times the document's own bytes, while the node's measurement shows only the memory in use before the write starts:
+A node must also refuse an insert or an update when the memory in use plus the memory that indexing can take would pass the block fraction of either limit. Indexing a document can take many times the document's size in bytes, while the node's measurement shows only the memory in use before the write starts:
 
 ```text
 when heapBytes + projectedBytes > blockFraction * heapLimitBytes
@@ -535,7 +535,7 @@ Where `heapBytes` leaves out a young generation, a node must add the bytes that 
 
 An implementation must compute the bound from each document without analysing its text, so that the check adds no work to indexing. The bound must never fall below the memory that indexing the document can take, for every language and tokeniser that the index uses, and it must hold for any document that a client can choose, because a client chooses what it sends. An implementation must therefore derive it from the most terms that one character can produce under each field's analysis, multiplied by the memory that its engine spends on one distinct term, and it must document both figures. Where an implementation has no such limit for a field, as with a custom tokeniser, it must count the terms that the field's tokeniser produces before it admits the document.
 
-A node must index a batch in groups whose bounds fit under the block fraction, and it must measure its memory before each group. When the node cannot fit even the next document of a batch under the block fraction, it must refuse that document and every later document of the batch, each with `CLUSTER_WRITE_BLOCKED` among the batch's failures, while it keeps every document that it has already indexed. A node refuses a batch whole under the block because it knows before the batch starts that it is full, while here it learns part of the way through the batch that its memory is running short. A node must refuse a document whose own bound passes the block fraction of its heap limit whatever memory it holds, because that document cannot fit even on an idle node.
+A node must index a batch in groups whose bounds fit under the block fraction, and it must measure its memory before each group. When the node cannot fit even the next document of a batch under the block fraction, it must refuse that document and every later document of the batch, each with `CLUSTER_WRITE_BLOCKED` among the batch's failures, while it keeps every document that it has already indexed. A node refuses a batch whole under the block because it knows before the batch starts that it is full, while here it learns part of the way through the batch that its memory is running short. A node must refuse a document whose bound alone passes the block fraction of its heap limit whatever memory it holds, because that document cannot fit even on an idle node.
 
 A node may collect garbage and measure again before it refuses a document, but it must limit how often it collects garbage for that purpose, because a client can otherwise force a collection with every write that it sends. A node must leave removes and replicated entries out of `projectedBytes` and accept them whatever its value.
 
@@ -775,7 +775,7 @@ A caller changes the `partitionCount` of an index through the [partition count c
 
 After creation, a caller can change an index's `replicationFactor` by sending [cluster.replication_factor](transport.md#clusterreplication_factor) to the controller. The controller stores the new factor in the index metadata, then writes an allocation table that carries it, and it applies the factor at once. A higher factor fills the new replica slots, and each new copy bootstraps. A lower factor removes the surplus replicas, taking any lagging replica first and then the copy on the busiest node, and it never removes the primary. The index metadata holds the factor that counts, so the controller must take the factor from the metadata on every allocator run, which lets a controller elected after a crash between the two writes finish the change.
 
-A caller rebuilds the terms of a cluster index through any node, which sends [cluster.rebuild_analysis](transport.md#clusterrebuild_analysis) to every node that holds a copy of the index. Each node rebuilds every copy that it holds from that copy's own documents, as a single engine rebuilds an index, and it builds each copy with the settings in the index metadata, so a primary and its replicas reach the same terms without sending entries. A node skips a copy whose recorded analysis revision already matches the revision of the language module, so a repeated call rebuilds only the copies that are still stale. The node that received the call reports success once every holder answers. It fails the call with `QUERY_PARTIAL_FAILURE`, naming each node that answered with an error, that the transport could not reach, or that left the cluster before it answered.
+A caller rebuilds the terms of a cluster index through any node, which sends [cluster.rebuild_analysis](transport.md#clusterrebuild_analysis) to every node that holds a copy of the index. Each node rebuilds every copy that it holds from the documents of that copy, as a single engine rebuilds an index, and it builds each copy with the settings in the index metadata, so a primary and its replicas reach the same terms without sending entries. A node skips a copy whose recorded analysis revision already matches the revision of the language module, so a repeated call rebuilds only the copies that are still stale. The node that received the call reports success once every holder answers. It fails the call with `QUERY_PARTIAL_FAILURE`, naming each node that answered with an error, that the transport could not reach, or that left the cluster before it answered.
 
 ### Analysis Change Flow
 
@@ -790,7 +790,7 @@ A caller rebuilds the terms of a cluster index through any node, which sends [cl
       its retry budget of 5 attempts runs out, and then raises
       CLUSTER_WRITE_BLOCKED with the reason settings_contention
    d. reads the partition count change key, and where a change is
-      running it clears its own pendingAnalysis and raises
+      running it clears the pendingAnalysis that it wrote and raises
       PARTITION_REBALANCING_BACKPRESSURE
 
 2. The controller finds each pendingAnalysis through its metadata watch
@@ -837,10 +837,10 @@ A caller rebuilds the terms of a cluster index through any node, which sends [cl
 8. The node that received the request completes the request when its
    watch shows the generation, and it fails the request with the code
    in analysisFailure, or with ANALYSIS_CHANGE_REPLACED where another
-   changeId replaced its own.
+   changeId replaced the changeId of the request.
 ```
 
-A partition count change must also read `pendingAnalysis` after it writes its own key, and it must raise `PARTITION_REBALANCING_BACKPRESSURE` where a change is pending, so that at least one of two requests that start together sees the other. A request that raises this error must first clear what it wrote.
+A partition count change must also read `pendingAnalysis` after it writes the partition count change key, and it must raise `PARTITION_REBALANCING_BACKPRESSURE` where a change is pending, so that at least one of two requests that start together sees the other. A request that raises this error must first clear what it wrote.
 
 ### Partition Count Change
 
@@ -926,7 +926,7 @@ RebalanceProgress {
 }
 ```
 
-A primary's forwardable end is its partition's commit point, extended over each following entry in its log whose `primaryTerm` is below the primary's current term, so that the copy never holds an entry that a failover can roll back. A zero-length value under either key means that the key holds no record. The controller creates the record with compareAndSet against the value that it read, and once the swap or the abort finishes it clears the record and every progress key by compareAndSet to a zero-length value, because `delete` carries no comparison. The primary of each partition writes its progress key with compareAndSet. The generation keeps its own config, schema, and allocation keys under its own name.
+A primary's forwardable end is its partition's commit point, extended over each following entry in its log whose `primaryTerm` is below the primary's current term, so that the copy never holds an entry that a failover can roll back. A zero-length value under either key means that the key holds no record. The controller creates the record with compareAndSet against the value that it read, and once the swap or the abort finishes it clears the record and every progress key by compareAndSet to a zero-length value, because `delete` carries no comparison. The primary of each partition writes its progress key with compareAndSet. The generation keeps separate config, schema, and allocation keys under the generation's name.
 
 The node that received the call waits until the allocation table of the index name carries the generation that the record names, and it fails the call with `ALLOCATION_FAILED` where the record is cleared first. A node must refuse to create an index whose name starts with `narsil-generation-` through any operation that a caller can reach, failing with `CONFIG_INVALID`.
 
@@ -958,7 +958,7 @@ Deleting an index reverses the creation flow, and the controller drives the tear
 
 4. The node that received the drop request answers it once
    getAllocation returns no table for the index, or a table whose
-   `indexUuid` differs from the dropped index's, its own copy is
+   `indexUuid` differs from the dropped index's, the node's copy is
    gone, and every registered data node answers
    cluster.partition_stores with no copy under the dropped
    indexUuid. When those three conditions do not all hold within
@@ -1026,7 +1026,7 @@ A drop is not atomic across nodes: a query routed while the teardown runs can re
    adopts its copy, as step 3a of Joining the Cluster describes.
 ```
 
-The last replacement to write its metadata wins, because each node retries with its own set after another write changes the metadata. A replacement that fails with `QUERY_NODE_TIMEOUT` keeps the new set stored, so a retry of the same request completes it. A crash between steps 1c and 1d leaves chunks that no metadata references, and they stay in the coordinator.
+The last replacement to write its metadata wins, because each node retries with the set that its request carries after another write changes the metadata. A replacement that fails with `QUERY_NODE_TIMEOUT` keeps the new set stored, so a retry of the same request completes it. A crash between steps 1c and 1d leaves chunks that no metadata references, and they stay in the coordinator.
 
 ### BM25 Change Flow
 
@@ -1046,7 +1046,7 @@ The last replacement to write its metadata wins, because each node retries with 
    e. returns to step c when that compareAndSet fails, until its retry
       budget of 5 attempts runs out, and then raises
       CLUSTER_WRITE_BLOCKED with the reason settings_contention
-   f. applies the new value to its own view, as step 2 defines,
+   f. applies the new value to its view, as step 2 defines,
       and answers
 
 2. Every node holds the BM25 setting of each index under its public
@@ -1064,7 +1064,7 @@ The last replacement to write its metadata wins, because each node retries with 
    its copy, as step 3a of Joining the Cluster describes.
 ```
 
-The last change to write its metadata wins, because each node retries with its own value after another write changes the metadata. A partition count change needs no second write, because a coordinator reads the setting under the index name, which the swap keeps. Every other write of the index metadata must keep `settings.bm25` and `settings.bm25Revision` unchanged.
+The last change to write its metadata wins, because each node retries with the value that its request carries after another write changes the metadata. A partition count change needs no second write, because a coordinator reads the setting under the index name, which the swap keeps. Every other write of the index metadata must keep `settings.bm25` and `settings.bm25Revision` unchanged.
 
 A node below specification version 1.1 drops `fields` when it reads the settings. A node must therefore refuse with `BM25_NOT_READY` a create request whose `bm25` holds a non-empty `fields` while any registered node has a version below 1.1, and it must write `bm25Revision` as 1 on such an index, so that [BM25 Parameters](query-routing.md#bm25-parameters) applies to it too. A create request whose `bm25` holds `k1` and `b` alone writes no revision, because a node below 1.1 holds those values.
 

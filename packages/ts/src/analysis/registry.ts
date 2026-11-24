@@ -66,7 +66,7 @@ export function registerStopWords(name: string, stopWords: StopWordOverride): vo
 
 /**
  * Reports whether a tokeniser is registered under this name, which is how a
- * worker bootstrap checks its own work before an index needs it.
+ * worker bootstrap checks what it registered before an index needs it.
  *
  * @param name - The name to look for.
  * @returns True once {@link registerTokenizer} has bound that name.

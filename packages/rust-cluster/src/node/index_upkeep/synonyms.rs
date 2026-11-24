@@ -245,7 +245,7 @@ impl ClusterNode {
     /// Fails as [`ClusterNode::synonyms`] does, with `CONFIG_INVALID` where a rule breaks a limit or holds a word
     /// that the index analyses to no token or to several, with `PARTITION_REBALANCING_BACKPRESSURE` while the
     /// index changes its partition count, with `CLUSTER_WRITE_BLOCKED` where the metadata kept changing over 5
-    /// attempts, with `QUERY_NODE_TIMEOUT` where a holder did not answer, and with a holder's own refusal.
+    /// attempts, with `QUERY_NODE_TIMEOUT` where a holder did not answer, and with the refusal that a holder sends.
     pub async fn replace_synonyms(
         &self,
         index_name: &str,

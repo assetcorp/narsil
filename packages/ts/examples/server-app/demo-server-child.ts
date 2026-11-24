@@ -1,7 +1,7 @@
 import process from 'node:process'
 import { type DemoServerChildMessage, startDemoNarsilServer } from './demo-server.ts'
 
-/* Entry for the demo Narsil server's own process. Checkpoint recovery is
+/* This file starts the demo Narsil server in a separate process. Checkpoint recovery is
  * CPU-bound, so running it here keeps the app dev server responsive. */
 
 function send(message: DemoServerChildMessage): void {

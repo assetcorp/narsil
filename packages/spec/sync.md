@@ -1,6 +1,6 @@
 # Narsil Device Sync Specification
 
-Device sync lets an app search and change an index on a device that has no signal. The device holds an ordinary copy of the index and sends its own writes to the server once it reconnects. Through a feed, it then receives every change that the server accepts from any device or caller.
+Device sync lets an app search and change an index on a device that has no signal. The device holds an ordinary copy of the index and sends its local writes to the server once it reconnects. Through a feed, it then receives every change that the server accepts from any device or caller.
 
 A device receives the whole index, so device sync applies only to an index whose every document belongs to the user of that device. A developer must leave sync off for a public index and for any index that holds the data of several users or tenants. Narsil has no concept of a tenant or an owner, so the developer decides what an index holds and who can read or write it. A developer who wants sync for many users creates one index for each user.
 
@@ -56,7 +56,7 @@ A device's positions are valid only under the epoch under which the device read 
 
 ## Positions
 
-Each partition numbers its own log entries, so a device's position is a list that holds the highest `seqNo` that the device has applied in each partition of the index:
+Each partition numbers its log entries separately, so a device's position is a list that holds the highest `seqNo` that the device has applied in each partition of the index:
 
 ```text
 Position {
@@ -186,7 +186,7 @@ A device sends `checkpoint` to learn the heads at the moment when the node reads
 
 A device can connect to any node. That node reads each partition from the partition's primary with [sync.read](distribution/transport.md#syncread). Every copy of a partition keeps history while `syncActive` is set, so that a new primary can serve the feed after a failover. A replica that applied a full snapshot holds no history below that snapshot, so a device whose position lies below it receives `resync` after a failover to that replica. A node must refuse a connection with `SYNC_NOT_READY` while any registered node has a specification version below 1.3, because such a node can't answer `sync.read`.
 
-Each copy applies the history limits to its own history, and it publishes no snapshot before it deletes a segment, because only the controller takes a backup, and a backup covers every partition. A device whose position lies below the history then receives `resync`, and its next download can return `SYNC_SNAPSHOT_PREPARING` while a node takes a new backup.
+Each copy applies the history limits to the history that it holds, and it publishes no snapshot before it deletes a segment, because only the controller takes a backup, and a backup covers every partition. A device whose position lies below the history then receives `resync`, and its next download can return `SYNC_SNAPSHOT_PREPARING` while a node takes a new backup.
 
 ---
 
@@ -194,13 +194,13 @@ Each copy applies the history limits to its own history, and it publishes no sna
 
 A synced index on a device is an ordinary Narsil index, so a local write is an ordinary write, and a search on the device sees it at once.
 
-- **Queue.** The device must save each local write in a queue before it applies the write, and it must apply its queue again after a restart and after every restore. It uploads an insert or an update as the whole document through the server's write that replaces a document under its ID, because a repeated insert fails with `DOC_ALREADY_EXISTS`. It counts a remove of a missing document as a success. A developer can upload the queue through their own backend, which then decides each conflict, and otherwise the server keeps the last write that it receives.
-- **Refused write.** Where the server refuses a write, the device must fetch the server's copy of that document, replace or remove its own copy, drop the write from its queue, and tell the app.
+- **Queue.** The device must save each local write in a queue before it applies the write, and it must apply its queue again after a restart and after every restore. It uploads an insert or an update as the whole document through the server's write that replaces a document under its ID, because a repeated insert fails with `DOC_ALREADY_EXISTS`. It counts a remove of a missing document as a success. A developer can upload the queue through a backend that they run, which then decides each conflict, and otherwise the server keeps the last write that it receives.
+- **Refused write.** Where the server refuses a write, the device must fetch the server's copy of that document, replace or remove its copy, drop the write from its queue, and tell the app.
 - **Applying the feed.** The device must never apply an entry to a document with a write in its queue, so that the feed can't undo a local edit before the server holds it. After each upload, the device must send `checkpoint`. It then keeps every entry that arrives, on disk and unapplied, until it holds every entry up to the answer's heads, and it applies the newest entry of each document, so that an entry from before the upload can't undo the uploaded edit. Between uploads, the device applies entries in `seqNo` order as they arrive.
-- **Its own writes.** A log entry records no origin, so the device must skip an entry whose document equals the document that it already holds under that ID, which spares it a second build of that document's vectors.
-- **Settings.** The device must apply the BM25 setting, the synonym set, and the `foldMarks` setting of `subscribed` and of each `settings` message to its own copy.
+- **The device's writes.** A log entry records no origin, so the device must skip an entry whose document equals the document that it already holds under that ID, which spares it a second build of that document's vectors.
+- **Settings.** The device must apply the BM25 setting, the synonym set, and the `foldMarks` setting of `subscribed` and of each `settings` message to the copy that it holds.
 - **Positions.** The device must save its positions only once the changes that they cover are durable, and it must acknowledge only saved positions. After a crash, it applies its kept entries again in order. Each entry holds a whole document or a remove, so applying an entry twice leaves the same index.
-- **Snapshot.** Before it downloads a snapshot, the device must compare `language`, `tokenizer`, `stopWords`, and `stopWordList` from `subscribed` with what it has registered, and it must raise `SYNC_ANALYSIS_UNAVAILABLE` and keep its copy where any of them is missing. Where `analysisRevision` differs from the revision of the device's own module, the restore marks the index stale, and the device starts the rebuild that [Index Metadata Payload](envelope.md#index-metadata-payload) describes. The device must check its memory before the download, and where the old and the new copy can't both fit, the app chooses whether to keep the old copy or to drop it and load the new one.
+- **Snapshot.** Before it downloads a snapshot, the device must compare `language`, `tokenizer`, `stopWords`, and `stopWordList` from `subscribed` with what it has registered, and it must raise `SYNC_ANALYSIS_UNAVAILABLE` and keep its copy where any of them is missing. Where `analysisRevision` differs from the revision of the device's module, the restore marks the index stale, and the device starts the rebuild that [Index Metadata Payload](envelope.md#index-metadata-payload) describes. The device must check its memory before the download, and where the old and the new copy can't both fit, the app chooses whether to keep the old copy or to drop it and load the new one.
 - **Vectors.** A local write to an index with automatic embedding needs the embedding adapter or a supplied vector, and a text query needs the same model.
 - **Browser.** In a browser, the device keeps its queue, its kept entries, and its positions in IndexedDB, and it saves the index through the IndexedDB persistence adapter. That adapter runs the write-ahead log, as [IndexedDB Storage](durability.md#indexeddb-storage) defines, so the device can save its positions once the log holds their changes.
 

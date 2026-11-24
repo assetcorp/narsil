@@ -55,7 +55,7 @@ export interface QueryContext {
   partitionIds?: number[]
   rescoreWindow?: number
   cursorBinding: CursorBinding
-  /** The vector fields a search runs against where they are not the manager's own indexes, as on a request thread. */
+  /** A search uses these vector fields in place of the vector indexes that the manager holds, as on a request thread. */
   vectorSearchers?: ReadonlyMap<string, VectorSearcher>
   patternWorkCap?: number
   clock?: SearchClock
@@ -117,7 +117,7 @@ export function coverageFor(manager: PartitionManager, partitionIds: number[] | 
  * Works out which partitions a vector search may answer from.
  *
  * The vector index records the partition of every vector it stores, so a
- * search reads its own membership rather than a list of document ids. A vector
+ * search reads partition membership from the vector index, with no list of document ids. A vector
  * the index stored before it tracked partitions carries none. This fills those
  * in from the manager first, so every later search reads the membership the
  * index already holds.

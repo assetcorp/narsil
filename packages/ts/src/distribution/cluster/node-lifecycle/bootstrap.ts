@@ -55,7 +55,7 @@ async function resolveControllerTargets(coordinator: ClusterCoordinator, control
  *
  * @param indexName - The index the partition is part of.
  * @param partitionId - The partition's id within that index.
- * @param nodeId - This node's own id, which the controller compares with the assignment.
+ * @param nodeId - The id of this node, which the controller compares with the assignment.
  * @param coordinator - The cluster coordinator, which names the controller and holds the assignment.
  * @param transport - The node transport this function sends the report over.
  * @returns True when the controller accepted the report, and false where no node holds the controller lease, the
@@ -161,7 +161,7 @@ async function partitionAwaitsBootstrapReport(
  * @param state - The bootstrap state, which names the partition and records whether a caller has abandoned it.
  * @param coordinator - The cluster coordinator that holds the allocation table and the controller lease.
  * @param transport - The node transport this function sends the completion report over.
- * @param nodeId - This node's own id, which the controller compares with the assignment.
+ * @param nodeId - The id of this node, which the controller compares with the assignment.
  * @param bootstrapRetryBaseMs - The first backoff interval, which doubles on every further attempt.
  * @param bootstrapRetryMaxMs - The longest backoff interval the doubling reaches.
  * @param bootstrapMaxRetries - How many further attempts follow the first one.

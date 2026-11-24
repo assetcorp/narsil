@@ -215,7 +215,7 @@ impl BuiltCheckpoint {
     }
 
     /// Replaces each written segment's in-memory form with the frozen form that the checkpoint wrote, once the
-    /// files belong to the index's own store.
+    /// store of the index holds the files.
     pub(super) fn apply(self, partitions: &[Arc<Partition>]) {
         for (partition, swap) in partitions.iter().zip(self.swaps) {
             apply_swap(partition, swap);

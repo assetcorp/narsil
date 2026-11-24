@@ -115,7 +115,7 @@ function noteAcknowledgedPosition(state: CatchUpState, key: string, replicaNodeI
  * Records the position a replica reports for a partition in a sync request that the primary's log matches, so that
  * the pump sends it the right entries next.
  *
- * The recorded position never passes `logEnd`, the primary's own log end. A request that opens a sync starts a new
+ * The recorded position never passes `logEnd`, the end of the log on the primary. A request that opens a sync starts a new
  * session, so the cursor takes the reported position whichever way it moves, the sync epoch rises, and the feed in
  * flight is cancelled. Such a request can arrive after a later one, so its position only starts the feed, and the
  * pump proposes the replica only once the replica confirms a position in that session. A request that reports the
@@ -129,7 +129,7 @@ function noteAcknowledgedPosition(state: CatchUpState, key: string, replicaNodeI
  * @param partitionId - The partition's id within that index.
  * @param replicaNodeId - The replica that reported the position.
  * @param appliedSeqNo - The highest sequence number the replica reports having applied.
- * @param logEnd - The primary's own log end for the partition.
+ * @param logEnd - The end of the log on the primary for the partition.
  * @param confirmsPosition - True for a request that reports the position after a sync in the replica's current
  *   session, and false for a request that opens a sync.
  */

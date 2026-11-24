@@ -105,17 +105,54 @@ A forwarding node uses `abandonedWrite` for this resend alone, and it must never
 
 A node that becomes primary under a new term must send [replication.term_start](transport.md#replicationterm_start) to every other copy in the in-sync set as soon as it learns that it leads the term, and before it appends the term's first entry, so that a copy whose log diverged leaves the in-sync set even when the partition receives no writes. The primary holds the partition's write queue until every copy has answered or has left the in-sync set, and it bounds that hold by its `replicationTimeout`.
 
-A replica decides the message inside the partition's write queue. It records the term as accepted, and from then on it must never append an entry under an earlier term, including a compensating entry of its own from a term that it led. It then answers with [replication.term_start_ack](transport.md#replicationterm_start_ack), which carries its highest `seqNo` and the term that its [term history](#term-history) gives for it.
+A replica decides the message inside the partition's write queue. It records the term as accepted, and from then on it must never append an entry under an earlier term, including a compensating entry from a term that it led itself. It then answers with [replication.term_start_ack](transport.md#replicationterm_start_ack), which carries its highest `seqNo` and the term that its [term history](#term-history) gives for it.
 
 The primary decides each copy from that answer:
 
-1. Where both numbers equal its own, the copy is in step and stays in the in-sync set.
+1. Where both numbers equal the primary's, the copy is in step and stays in the in-sync set.
 2. Where the copy's highest `seqNo` is below the primary's, and the primary's term history gives the same term for that `seqNo`, the copy lacks entries at the end of the same history. The primary sends it those entries in a `replication.entry_batch`, and the copy stays in the in-sync set once it acknowledges them.
 3. Otherwise, the primary asks the controller to remove the copy from the in-sync set, as the [Removal Flow](#removal-flow) defines. This covers a copy whose term history disagrees at its highest `seqNo`, and a copy whose highest `seqNo` is above the primary's, because that copy holds entries of an earlier term that the new primary lacks.
 
 The primary also removes a copy that does not answer within its `replicationTimeout`, and one that refuses the message. A node from before this message sends no reply to it, so during a rolling upgrade the primary removes that copy once the timeout passes, and the copy rejoins through the [Sync Protocol](#sync-protocol). A removed copy whose term history disagrees receives a snapshot there, as [Choosing the Tier](#choosing-the-tier) defines.
 
 Comparing the highest `seqNo` and its term is enough, because [Log Matching](#log-matching) guards every append: where two copies give the same term for one `seqNo`, they hold the same entries up to it. A port must keep both rules together, because either one alone lets a copy that diverged stay in the in-sync set.
+
+### Handing Over the Lead
+
+Before the controller writes a table that moves the lead of a partition to another copy, the current primary must stop deciding writes and bring that copy to its highest `seqNo`, so that the old primary holds no entry that the new primary lacks. The controller hands over the lead wherever the allocator moves the primary of an `ACTIVE` partition from a node that is registered to a replica in the in-sync set, which covers a move that balances primaries across nodes and a move off a draining node. A failover, in which the controller promotes a replica because the primary's node left, has no primary that could hand anything over, so [Starting a Term](#starting-a-term) decides it alone.
+
+```text
+1. The controller sends cluster.lead_handoff with block to the
+   current primary, with the primary's current primaryTerm and the
+   replica that is to lead.
+2. The primary decides the block inside the partition's write queue,
+   so that every write that it accepted earlier has finished first,
+   whether the primary acknowledged that write or rolled it back.
+3. The primary sends replication.term_start under its current term
+   to the replica, and it applies rules 1 and 2 of Starting a Term to
+   the answer, so that the replica holds the primary's highest seqNo.
+4. The primary answers the controller with that seqNo and the term
+   that its term history gives for it. From then on, the primary holds
+   the write queue, so that every later write waits behind the
+   handover.
+5. The controller writes the table that moves the lead with
+   compareAndSet, as it writes every table.
+6. The primary releases the write queue once its allocation table
+   gives another primary or a higher primaryTerm for the partition.
+   It then refuses each write that waited with PARTITION_NOT_PRIMARY,
+   so that the node that forwarded the write sends it to the new
+   primary.
+```
+
+A write waits in the queue during the handover, because a forwarding node retries `PARTITION_NOT_PRIMARY` only once the table changes, as [transport.md](transport.md#replication-messages) defines, so a refusal during a handover that the controller gives up can fail the write. Seven rules keep the handover safe through faults:
+
+- The primary must refuse a `block` with `ALLOCATION_FAILED` where its allocation table no longer gives it the lead under the request's `primaryTerm`, where the replica is outside its in-sync set, and where the replica's answer fails or falls under rule 3 of Starting a Term. A refused handover leaves the in-sync set as it was, because a handover changes no membership.
+- The primary must bound each handover by its `replicationTimeout`, counted from the moment that it takes the write queue. Once a `lift` arrives, the primary releases the queue and goes on deciding writes under its current term. Once that time passes, the primary must first read the allocation table from the cluster coordinator, because the event that the table changed can reach its watch late, and it goes on deciding writes only where that table gives it the lead under its current term. Where the read fails, the primary keeps holding the queue and reads again. A controller that stops after a `block` therefore delays writes by `replicationTimeout` at most while the cluster coordinator answers, and the next controller computes the allocation again.
+- The controller must wait for the answer to a `block` for half of `replicationTimeout` at most, so that the primary holds the queue for the other half while the compareAndSet completes. Where the primary refuses the `block`, or where its answer fails to arrive in that time, the controller sends `lift`, and it writes the table with the lead on the current primary under the current `primaryTerm`, with the replica back among the replicas and in the in-sync set.
+- A node from before this message sends no reply to it, so the controller leaves the lead on that node when it balances primaries, and a rolling upgrade can move no lead for balance until the primary's node is upgraded.
+- A draining node has to give up every lead that it holds, so where the handover of a draining primary fails, the controller moves the lead without a handover, as [draining](cluster.md#draining) defines. The new primary's term start then decides the old primary's copy by rule 3 of Starting a Term.
+- A `block` with the term and the replica of the handover that the primary holds extends that hold by `replicationTimeout` and answers with the same `seqNo`, because no entry passes the held queue. The primary must refuse with `ALLOCATION_FAILED` a `block` for another replica while it holds a handover.
+- Where the compareAndSet completes after the primary has read a table that still gives it the lead, the primary can append entries under its old term that the new primary lacks. The new primary's term start then removes the old primary's copy by rule 3 of Starting a Term. That removal loses no acknowledged write, because the old primary acknowledges an entry only once every copy in its in-sync set holds it, and the new primary belongs to that set.
 
 ### Read Path
 
@@ -205,7 +242,7 @@ Adding, removing, or reordering a content field changes these bytes and the chec
 
 ### Document Write Record
 
-Every copy of a cluster partition, the primary and each replica alike, keeps for each document that it holds the `seqNo` and `primaryTerm` of the entry that last wrote the document, which is the document's write record. A copy sets the record whenever it applies an `INDEX` entry, whether it appended the entry as the primary, received it as a replica, applied it during a [sync](#sync-protocol), or replayed it from its write-ahead log, and it drops the record together with the document when it applies a `DELETE` entry. A copy that loads a [keyword segment](../envelope.md#keyword-segment-payload), from its own checkpoint or from a snapshot that a sync sends, takes each document's record from that segment, and a document that the segment stores with no record holds none until an entry writes it again.
+Every copy of a cluster partition, the primary and each replica alike, keeps for each document that it holds the `seqNo` and `primaryTerm` of the entry that last wrote the document, which is the document's write record. A copy sets the record whenever it applies an `INDEX` entry, whether it appended the entry as the primary, received it as a replica, applied it during a [sync](#sync-protocol), or replayed it from its write-ahead log, and it drops the record together with the document when it applies a `DELETE` entry. A copy that loads a [keyword segment](../envelope.md#keyword-segment-payload), from its checkpoint or from a snapshot that a sync sends, takes each document's record from that segment, and a document that the segment stores with no record holds none until an entry writes it again.
 
 A standalone index, which runs outside a cluster, keeps no write record, and it writes none to the segments that it saves.
 
@@ -221,7 +258,7 @@ A copy may drop a listed term once the term after it starts at or below both the
 
 A replica that appends an entry at the `seqNo` after its highest must first check that its term history gives the entry's `previousPrimaryTerm` for its highest `seqNo`, or 0 where it holds no entry, and it must refuse the message with `REPLICATION_ENTRY_INVALID` where the two differ. The primary then removes the copy from the in-sync set, as the [Removal Flow](#removal-flow) defines, and the copy rejoins through the [Sync Protocol](#sync-protocol), where its disagreeing term history gives it a snapshot. A replica skips the check where the message carries no `previousPrimaryTerm`, and where it seeds an empty log from the entry after a completed sync.
 
-Only the primary of a term appends entries under that term, and each primary appends a `seqNo` once, so one `seqNo` and one term identify one entry. Because every copy appends only where its own highest entry carries the term that the primary gives for that `seqNo`, two copies that give the same term for one `seqNo` hold the same entries up to it. Raft's log matching rule rests on the same argument.
+Only the primary of a term appends entries under that term, and each primary appends a `seqNo` once, so one `seqNo` and one term identify one entry. Because every copy appends only where the copy's highest entry carries the term that the primary gives for that `seqNo`, two copies that give the same term for one `seqNo` hold the same entries up to it. Raft's log matching rule rests on the same argument.
 
 ---
 
@@ -237,7 +274,7 @@ ReplicationConfig {
 
 The 256 MB default per partition gives most workloads enough headroom to cover a rolling update. A document with a 1536-dimension embedding produces a log entry of roughly 10 to 12 KB, so 256 MB holds somewhere between 22,000 and 26,000 operations.
 
-Size the retention against your own write throughput and the longest replica outage you expect to survive without a full snapshot:
+Size the retention against your write throughput and the longest replica outage you expect to survive without a full snapshot:
 
 ```text
 retentionBytes >= writeRateBytesPerSec * maxOfflineSeconds
@@ -332,11 +369,11 @@ A primary bootstraps its copy while the partition is in `INITIALISING`, whereas 
 
 The in-sync set records which replicas are fully caught up with the primary. Only a replica in that set is eligible for promotion during failover. The controller stores a different list in the same field while a partition is `UNASSIGNED`, which [No Eligible Replica](#no-eligible-replica) describes.
 
-A replica joins the in-sync set once it has applied every entry up to the partition's commit point. The commit point is the highest sequence number the primary has acknowledged to a client. The primary holds its own commit point, and the controller stores a floor on it in the partition assignment, raising that floor whenever it admits a replica and never lowering it.
+A replica joins the in-sync set once it has applied every entry up to the partition's commit point. The commit point is the highest sequence number the primary has acknowledged to a client. The primary holds the commit point, and the controller stores a floor on it in the partition assignment, raising that floor whenever it admits a replica and never lowering it.
 
 A replica leaves the in-sync set when the primary detects it has failed, whether by a timeout on a forwarded entry or by a lost connection. The primary then asks the controller to remove it.
 
-A primary sends each entry only to the copies that its own assignment for the entry's term lists in the in-sync set, together with the replicas whose admission it has asked the controller to confirm, and it leaves out every copy whose removal it has asked for under that term. It counts an acknowledgement only from a copy that it sent the entry to. A copy that the primary removed comes back only through the [Catch-Up Feed](#catch-up-feed) and an admission that the controller confirms, so an assignment that the primary read before the removal and that still lists the copy in the in-sync set never brings it back.
+A primary sends each entry only to the copies that the primary's assignment for the entry's term lists in the in-sync set, together with the replicas whose admission it has asked the controller to confirm, and it leaves out every copy whose removal it has asked for under that term. It counts an acknowledgement only from a copy that it sent the entry to. A copy that the primary removed comes back only through the [Catch-Up Feed](#catch-up-feed) and an admission that the controller confirms, so an assignment that the primary read before the removal and that still lists the copy in the in-sync set never brings it back.
 
 A replica that reads an `ACTIVE` assignment naming it outside the in-sync set must run the sync protocol against the primary. The primary feeds it from there through the [Catch-Up Feed](#catch-up-feed), and asks the controller to admit it once it has caught up. Once that sync finishes, the replica must start no other sync for as long as every assignment that it reads lists the `primary` and `primaryTerm` that it synced from and lists the replica in `replicas` but not in the in-sync set. A second sync opens a new session, so the primary sends no admission request for the replica, as the [Catch-Up Feed](#catch-up-feed) defines. A replica that no assignment lists in the in-sync set 10,000 ms after its sync finishes must run the sync protocol again, because the primary can abandon an admission.
 
@@ -392,7 +429,7 @@ A request that opens a sync can itself arrive after a later one, so its position
 
 The primary sends the entries above the recorded position in sequence-number order, and it may group contiguous entries into one `replication.entry_batch` message. It must bound the bytes it holds in flight across every partition it leads, so that a replica rejoining an idle cluster cannot exhaust the primary's memory.
 
-The primary asks the controller to admit a replica once that replica's recorded position reaches the primary's own log end; see [replication.insync_add](transport.md#replicationinsync_add). The controller admits it only when the position is at or above the stored commit point, and only when the request carries the partition's current [inSyncVersion](cluster.md#insyncversion). A primary whose request the controller refuses for a changed `inSyncVersion` reads the allocation table again and asks again where the replica still qualifies. The primary sends each request, retries included, only once the replica has acknowledged an entry at its recorded position in a send that the primary started after it read the `inSyncVersion` that the request carries. A replica can leave `replicas`, drop its copy, and return between two reads of the table, and only an acknowledgement sent after the read shows that the copy still holds that position. A caught-up replica receives the newest entry in the primary's log again for this purpose, and it acknowledges an entry that it already holds without applying it twice. That covers a resent entry whose `seqNo` falls below the oldest entry that the replica's log retains, where the `seqNo` is at or below the highest `seqNo` that the copy holds, the entry's checksum is valid, and the replica's [term history](#term-history) gives the entry's term for that `seqNo`, because the copy then holds the entry. A replica whose term history no longer covers that `seqNo` refuses the entry, and the primary treats it as a replica whose recorded position falls below the oldest entry that the primary retains. Where the log retains no entry at that position, the primary sends the replica a [cluster.partition_stores](transport.md#clusterpartition_stores) request after the read in its place. It sends the admission request only where the answer lists the partition under the index's `indexUuid` and the replica has opened no new sync session since it confirmed that position. A node that drops its copy takes the partition off that list, and it can build a new copy only through a sync with the primary, which opens a new session. The primary reads the replica's registration before it sends the proof and carries that registration's `startedAt` in the request. A replica whose recorded position is 0 needs no acknowledgement, because the partition holds no acknowledged write.
+The primary asks the controller to admit a replica once that replica's recorded position reaches the end of the primary's log; see [replication.insync_add](transport.md#replicationinsync_add). The controller admits it only when the position is at or above the stored commit point, and only when the request carries the partition's current [inSyncVersion](cluster.md#insyncversion). A primary whose request the controller refuses for a changed `inSyncVersion` reads the allocation table again and asks again where the replica still qualifies. The primary sends each request, retries included, only once the replica has acknowledged an entry at its recorded position in a send that the primary started after it read the `inSyncVersion` that the request carries. A replica can leave `replicas`, drop its copy, and return between two reads of the table, and only an acknowledgement sent after the read shows that the copy still holds that position. A caught-up replica receives the newest entry in the primary's log again for this purpose, and it acknowledges an entry that it already holds without applying it twice. That covers a resent entry whose `seqNo` falls below the oldest entry that the replica's log retains, where the `seqNo` is at or below the highest `seqNo` that the copy holds, the entry's checksum is valid, and the replica's [term history](#term-history) gives the entry's term for that `seqNo`, because the copy then holds the entry. A replica whose term history no longer covers that `seqNo` refuses the entry, and the primary treats it as a replica whose recorded position falls below the oldest entry that the primary retains. Where the log retains no entry at that position, the primary sends the replica a [cluster.partition_stores](transport.md#clusterpartition_stores) request after the read in its place. It sends the admission request only where the answer lists the partition under the index's `indexUuid` and the replica has opened no new sync session since it confirmed that position. A node that drops its copy takes the partition off that list, and it can build a new copy only through a sync with the primary, which opens a new session. The primary reads the replica's registration before it sends the proof and carries that registration's `startedAt` in the request. A replica whose recorded position is 0 needs no acknowledgement, because the partition holds no acknowledged write.
 
 A replica whose recorded position falls below the oldest entry the primary retains must leave the feed and run the [Sync Protocol](#sync-protocol) again, because the primary can no longer send it what it lacks.
 
@@ -455,7 +492,7 @@ When a partition's primary fails, the controller promotes a replica.
 
 ### No Eligible Replica
 
-An empty in-sync set at the moment the primary fails, because every replica had already been removed, moves the partition to `UNASSIGNED`. It then serves neither reads nor writes until a node holding persisted data for that partition rejoins and the controller makes it primary, or the data is rebuilt from the system of record. A primary that gave the partition up through [Copy Failure](#copy-failure) as its last copy must reload the partition from its own checkpoint and write-ahead log before it lists the partition in `cluster.partition_stores`, and where that reload fails, it must leave the partition out of the answer and report a typed error giving the index and the partition, so that the partition stays `UNASSIGNED`.
+An empty in-sync set at the moment the primary fails, because every replica had already been removed, moves the partition to `UNASSIGNED`. It then serves neither reads nor writes until a node holding persisted data for that partition rejoins and the controller makes it primary, or the data is rebuilt from the system of record. A primary that gave the partition up through [Copy Failure](#copy-failure) as its last copy must reload the partition from its checkpoint and write-ahead log before it lists the partition in `cluster.partition_stores`, and where that reload fails, it must leave the partition out of the answer and report a typed error giving the index and the partition, so that the partition stays `UNASSIGNED`.
 
 The controller records the partition's last holders as it moves the partition so that it can recognise a returning node as one of them:
 
@@ -474,11 +511,11 @@ The controller records the partition's last holders as it moves the partition so
       on record.
    b. It raises the primaryTerm.
    c. It moves the partition to INITIALISING, and the node reports
-      cluster.bootstrap_complete against its own copy.
+      cluster.bootstrap_complete against the copy that it holds.
 5. The controller clears lastHolders as it moves the partition to
    ACTIVE.
 6. The promoted primary numbers its first new entry one above
-   the greater of the highest seqNo its own log recovered and
+   the greater of the highest seqNo that its log recovered and
    the commitPoint the controller stored, so it reuses no
    seqNo its copy already holds.
 ```
@@ -494,7 +531,7 @@ The `primaryTerm` keeps a primary that lost its lease from corrupting a partitio
 - A primary cut off from the network cannot renew its lease, and the controller promotes a new primary with a higher `primaryTerm`.
 - The old primary that comes back and tries to replicate entries is rejected by the replicas, because its `primaryTerm` is stale.
 - The old primary then reads the higher `primaryTerm` from the allocation table, demotes itself, and syncs from the new primary.
-- A primary must refuse every write with `PARTITION_NOT_PRIMARY` once its node lease TTL, less a margin for clock drift, has passed since it sent the last lease renewal that the cluster coordinator accepted, because the controller may already have promoted another copy, and no replica sees a write that the primary refuses from its own copy.
+- A primary must refuse every write with `PARTITION_NOT_PRIMARY` once its node lease TTL, less a margin for clock drift, has passed since it sent the last lease renewal that the cluster coordinator accepted, because the controller may already have promoted another copy, and no replica sees a write that the primary refuses from its copy.
 
 ---
 

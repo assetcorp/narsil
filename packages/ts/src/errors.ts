@@ -194,7 +194,7 @@ export const ServerErrorCodes = {
 export type ServerErrorCode = (typeof ServerErrorCodes)[keyof typeof ServerErrorCodes]
 
 /**
- * Every code that the caller's own side raises, where a request never reaches
+ * Every code that the calling side raises, where a request never reaches
  * a server, or where the caller cannot read the answer.
  *
  * The HTTP client raises the first five. The React bindings raise
@@ -230,7 +230,7 @@ export type ClientErrorCode = (typeof ClientErrorCodes)[keyof typeof ClientError
  * HTTP layer raised, one the client raised, or any other string.
  *
  * The last arm exists for a server's `onRequest` hook, which rejects a request
- * under a code of its own, such as `UNAUTHORIZED`, and the client then passes
+ * under a code that the hook chooses, such as `UNAUTHORIZED`, and the client then passes
  * that code through unchanged. An editor still completes every code Narsil
  * defines.
  *
@@ -278,7 +278,7 @@ export class NarsilError extends Error {
  * Reports whether a caught value is a {@link NarsilError}, including one that
  * another entry point of this package raises.
  *
- * Each browser bundle holds its own copy of the class, so an `instanceof` test
+ * Each browser bundle holds a separate copy of the class, so an `instanceof` test
  * inside the React bindings returns false for an error that the client raises,
  * although that error still holds its code. This function tests for the marker
  * that the constructor writes, so it returns true for an error from any entry

@@ -11,7 +11,7 @@ export interface BatchEmbedResult {
 }
 
 /** With an embedding config but no bound adapter (recovery before the named
- * adapter is registered), only documents that bring their own vectors may
+ * adapter is registered), only documents that already carry their vectors may
  * index; anything else must fail instead of losing its vectors silently. */
 export function assertDocumentCarriesMappedVectors(
   document: Record<string, unknown>,

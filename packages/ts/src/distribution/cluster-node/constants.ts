@@ -21,8 +21,8 @@ export const DEFAULT_REPLICATION_FACTOR = 1
 
 /**
  * A node claims this much capacity when {@link ClusterNodeConfig} declares
- * none. Measure your own hosts and set it, because these figures are a
- * placeholder rather than a reading.
+ * none. Measure the hosts that you deploy on and set it, because these figures
+ * are a placeholder that nobody measured.
  *
  * @public
  */
@@ -73,6 +73,9 @@ export const ROLLBACK_RETRY_INITIAL_DELAY_MS = 50
 export const ROLLBACK_RETRY_DELAY_CAP_MS = 1_000
 export const OUT_OF_STEP_REMOVAL_RETRY_INITIAL_DELAY_MS = 50
 export const OUT_OF_STEP_REMOVAL_RETRY_DELAY_CAP_MS = 1_000
+export const LEAD_HANDOFF_TABLE_POLL_INTERVAL_MS = 25
+export const LEAD_HANDOFF_TABLE_READ_RETRY_INITIAL_DELAY_MS = 50
+export const LEAD_HANDOFF_TABLE_READ_RETRY_DELAY_CAP_MS = 1_000
 export const PARTITION_WRITE_CONCURRENCY = 16
 export const MAX_NODE_LEFT_DELAY_MS = 2_147_483_647
 

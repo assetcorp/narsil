@@ -23,8 +23,8 @@ run that it came from. `headline_section.py` names the two files, and it gives t
 package README the benchmark page's address on GitHub, because npm publishes that
 file away from the repository.
 
-`charts.py` draws the figures the page embeds into a `charts/` directory inside
-each run's own directory, so the figures drawn from a run's numbers stay beside
+`charts.py` draws the figures that the page embeds into a `charts/` directory
+inside the directory of each run, so the figures drawn from a run's numbers stay beside
 them, and each figure prints the run id it came from. It draws five kinds of chart:
 
 - bar charts of ranking quality and peak throughput with confidence intervals,

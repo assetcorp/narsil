@@ -13,7 +13,7 @@ use crate::error::{Result, index_not_found, instance_shut_down};
 use crate::filters::Filter;
 use crate::value::Map;
 
-/// The feed source of one engine, which [`Narsil::feed_source`] returns: it reads the engine's own log, and it
+/// The feed source of one engine, which [`Narsil::feed_source`] returns: it reads the log of that engine, and it
 /// holds the engine weakly, so a feed that outlives the engine fails with `INSTANCE_SHUT_DOWN`.
 pub struct EngineFeedSource {
     engine: Weak<EngineInner>,
@@ -140,7 +140,7 @@ impl ChangeSource for EngineFeedSource {
 }
 
 impl Narsil {
-    /// Returns the engine's feed source, which reads the engine's own log for a device feed and a change feed, so
+    /// Returns the engine's feed source, which reads the log of this engine for a device feed and a change feed, so
     /// that a server serves an engine and a cluster node through one [`ChangeSource`].
     pub fn feed_source(&self) -> Arc<EngineFeedSource> {
         Arc::new(EngineFeedSource {

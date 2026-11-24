@@ -64,7 +64,7 @@ def _quality_columns(rows: list[dict]) -> list[str]:
 
 def _operational_columns(rows: list[dict]) -> list[str]:
     lines = [
-        "Operational metrics. Latency below is the engine's own reported query time "
+        "Operational metrics. Latency below is the query time that the engine reports "
         "(server-side); the client round-trip is reported separately underneath.",
         "",
         "| Dataset | Docs | Ingest docs/s | Build s | On disk | Peak heap | Server p50 ms | Server p95 ms | Server p99 ms |",
@@ -291,7 +291,7 @@ def _engine_build_line(engine: dict) -> str:
 
 
 def _provenance_lines(report: dict) -> list[str]:
-    """Provenance of the exact code and data under test: the engine's own build
+    """Provenance of the exact code and data under test: the engine's build
     identity, the immutable image artifact it ran as, and the content hash of each
     dataset, so a result can be tied to a precise engine build and corpus version."""
 

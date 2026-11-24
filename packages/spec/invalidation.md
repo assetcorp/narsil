@@ -1,8 +1,8 @@
 # Narsil Invalidation Protocol
 
-Several Narsil instances can run against one shared persistence backend, whether that backend is a filesystem, Redis, or object storage. Each instance holds its own in-memory copy of the partitions it serves, so a mutation in one instance leaves every other instance's copy out of date. The invalidation protocol closes that window: after an instance persists a mutated partition, it publishes an event, and every other instance evicts that partition so the next read reloads it from persistence.
+Several Narsil instances can run against one shared persistence backend, whether that backend is a filesystem, Redis, or object storage. Each instance holds a separate in-memory copy of the partitions it serves, so a mutation in one instance leaves every other instance's copy out of date. The invalidation protocol closes that window: after an instance persists a mutated partition, it publishes an event, and every other instance evicts that partition so the next read reloads it from persistence.
 
-Structure definitions below use a language-neutral notation. `List<T>` is an ordered collection of `T`, `Map<K, V>` is a mapping from keys to values, and `integer`, `text`, and `boolean` are the scalars they name. Each implementation expresses them in its own type system.
+Structure definitions below use a language-neutral notation. `List<T>` is an ordered collection of `T`, `Map<K, V>` is a mapping from keys to values, and `integer`, `text`, and `boolean` are the scalars they name. Each implementation expresses them in the type system of its language.
 
 ---
 
@@ -78,7 +78,7 @@ A partition whose save failed stays dirty and is retried on a later flush, and i
 ### Receiving Instance
 
 1. The subscriber receives the event.
-2. It compares `sourceInstanceId` with its own instance ID and ignores the event when the two match.
+2. It compares `sourceInstanceId` with its instance ID and ignores the event when the two match.
 3. It evicts the named partitions from its in-memory cache.
 4. On the next query or mutation that targets one of those partitions, it loads the bytes from persistence, deserialises the `.nrsl` envelope, and proceeds.
 
@@ -99,14 +99,14 @@ Every implementation must enforce this order.
 The broadcast scoring mode runs on a timer:
 
 1. On a configurable interval, recommended at 5 seconds, an instance collects the statistics of every partition it holds and publishes one statistics event.
-2. A receiving instance merges the incoming statistics with its own and stores the result as its global statistics.
+2. A receiving instance merges the incoming statistics with its local statistics and stores the result as its global statistics.
 3. A query that asks for `scoring: "broadcast"` scores against those merged statistics.
 
 Statistics are eventually consistent, and the staleness window equals the broadcast interval. Search relevance tolerates that window because small variations in inverse document frequency barely move result ordering.
 
 ### Merging Statistics
 
-An instance merges the latest statistics from every instance, its own included:
+An instance merges the latest statistics from every instance, itself included:
 
 ```text
 global.totalDocs =
@@ -144,7 +144,7 @@ The protocol provides none of the following:
 
 ### Delivery Limits
 
-Delivery is best effort across subscriber lifetimes. The at-least-once guarantee above covers a subscribed instance; an instance that is not subscribed when an event is published, because it is offline, restarting, or not yet started, never receives that event. A missed partition event leaves the instance serving its stale copy until the next event for that index arrives. An application that cannot tolerate that window must reload on its own schedule or coordinate above Narsil.
+Delivery is best effort across subscriber lifetimes. The at-least-once guarantee above covers a subscribed instance; an instance that is not subscribed when an event is published, because it is offline, restarting, or not yet started, never receives that event. A missed partition event leaves the instance serving its stale copy until the next event for that index arrives. An application that cannot tolerate that window must reload on a schedule that it sets or coordinate above Narsil.
 
 ### Conflicting Mutations
 
@@ -154,7 +154,7 @@ Search workloads accept that outcome because the index can always be rebuilt fro
 
 ### Instance Identity
 
-Each instance generates a unique `instanceId` (UUID v4 or v7) at startup and uses it in two places: as `sourceInstanceId` on partition events, so an instance can skip its own, and as `instanceId` on statistics events, so merged statistics stay keyed per instance. The value is ephemeral and changes on every restart.
+Each instance generates a unique `instanceId` (UUID v4 or v7) at startup and uses it in two places: as `sourceInstanceId` on partition events, so an instance can skip the events that it published, and as `instanceId` on statistics events, so merged statistics stay keyed per instance. The value is ephemeral and changes on every restart.
 
 ---
 

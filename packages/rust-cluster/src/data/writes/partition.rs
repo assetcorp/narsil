@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::future::Future;
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use tokio::sync::{OwnedMutexGuard, watch};
 use tokio::task::JoinHandle;
@@ -8,6 +9,7 @@ use tokio::task::JoinHandle;
 use super::catch_up::CatchUp;
 use super::log::ReplicationLog;
 use crate::controller::lock;
+use crate::payload::term_start::HeldEnd;
 
 pub(super) type PartitionKey = (String, u32);
 
@@ -34,6 +36,15 @@ pub(super) struct SupersedingPrimary {
     pub(super) primary_term: u64,
 }
 
+#[derive(Debug, Clone)]
+pub(super) struct LeadHold {
+    pub(super) primary_term: u64,
+    pub(super) target: String,
+    pub(super) number: u64,
+    pub(super) deadline: Instant,
+    pub(super) held: Option<HeldEnd>,
+}
+
 #[derive(Default)]
 pub(super) struct Partition {
     queue: Arc<tokio::sync::Mutex<()>>,
@@ -41,6 +52,8 @@ pub(super) struct Partition {
     pub(super) terms: Mutex<Terms>,
     pub(super) superseding: watch::Sender<Option<SupersedingPrimary>>,
     pub(super) catch_up: Mutex<CatchUp>,
+    pub(super) lead_hold: Mutex<Option<LeadHold>>,
+    pub(super) lead_hold_changes: watch::Sender<u64>,
 }
 
 pub(super) struct QueueTurn {
@@ -83,6 +96,41 @@ impl Partition {
             });
             true
         });
+    }
+
+    pub(super) fn signal_lead_hold_change(&self) {
+        self.lead_hold_changes
+            .send_modify(|count| *count = count.wrapping_add(1));
+    }
+
+    pub(super) fn lead_hold_deadline(&self, number: u64) -> Option<Instant> {
+        lock(&self.lead_hold)
+            .as_ref()
+            .filter(|hold| hold.number == number)
+            .map(|hold| hold.deadline)
+    }
+
+    pub(super) fn end_lead_hold(&self, number: u64) {
+        let mut hold = lock(&self.lead_hold);
+        if hold.as_ref().is_some_and(|held| held.number == number) {
+            *hold = None;
+            drop(hold);
+            self.signal_lead_hold_change();
+        }
+    }
+
+    pub(super) fn end_expired_lead_hold(&self, number: u64) -> bool {
+        let mut hold = lock(&self.lead_hold);
+        let Some(held) = hold.as_ref().filter(|held| held.number == number) else {
+            return true;
+        };
+        if Instant::now() < held.deadline {
+            return false;
+        }
+        *hold = None;
+        drop(hold);
+        self.signal_lead_hold_change();
+        true
     }
 
     pub(super) fn note_accepted(&self, primary_term: u64) {

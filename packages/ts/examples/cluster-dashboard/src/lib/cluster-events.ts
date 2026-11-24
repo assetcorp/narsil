@@ -223,8 +223,8 @@ function clusterEvents(previous: ClusterSnapshot, next: ClusterSnapshot): EventD
  *
  * The dashboard keeps these entries in a log, so that a failover reads as a sequence a person can follow: the lease
  * expires, the controller promotes a replica, and the in-sync set narrows and fills again. A partition that loses
- * every copy carries its own line, which names the nodes that still hold one and then the reason the controller
- * records while it waits for one of them.
+ * every copy gets a separate line, which names the nodes that still hold one and then the reason that the
+ * controller records while it waits for one of them.
  *
  * @param previous - The snapshot the dashboard held before this update.
  * @param next - The snapshot the dashboard has now received.

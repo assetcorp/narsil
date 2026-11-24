@@ -65,7 +65,7 @@ Under an engine, each read hook returns the same data that a client returns from
 
 The provider registers a listener for the engine's `write` event, whose payload holds the name of the index. The engine emits the event after the inserts, updates, and removals, singly or in a batch, and after `clear`, `restore`, `rebalance`, `rebuildAnalysis`, `compactVectors`, `optimizeVectors`, `createIndex`, and `dropIndex`. The engine also emits it after a call that throws, because a call can change the index before it throws. After a write, every hook that reads that index searches again, while `useIndexes` searches again after a write to any index.
 
-The provider refreshes the hooks that read an index once 200 ms pass with no further write to that index, so each mounted hook searches once per burst of writes, after the last write in the burst. The provider times each index on its own, while `useIndexes` searches again once 200 ms pass with no write to any index. The 200 ms matches the default update interval of [live queries in Couchbase Lite](https://docs.couchbase.com/mobile/1.4.4/couchbase-lite-ios/interfaceCBLLiveQuery.html). Set `refreshAfterWriteMs` on the provider for a longer or a shorter wait. While an application keeps writing to an index at intervals shorter than that wait, the hooks that read that index keep their last answer on screen.
+The provider refreshes the hooks that read an index once 200 ms pass with no further write to that index, so each mounted hook searches once per burst of writes, after the last write in the burst. The provider times each index separately, while `useIndexes` searches again once 200 ms pass with no write to any index. The 200 ms matches the default update interval of [live queries in Couchbase Lite](https://docs.couchbase.com/mobile/1.4.4/couchbase-lite-ios/interfaceCBLLiveQuery.html). Set `refreshAfterWriteMs` on the provider for a longer or a shorter wait. While an application keeps writing to an index at intervals shorter than that wait, the hooks that read that index keep their last answer on screen.
 
 A hook discards any answer that is still in flight when the engine reports a write to its index, so an older answer never replaces a newer one.
 
@@ -110,7 +110,7 @@ The last argument of every read hook holds the same settings, apart from `useTas
 | `useTasks(query?, options?)` | `listTasks`, under a client alone |
 | `useImport(indexName, options?)` | `startImport` and `getTask`, under a client alone |
 
-`useNarsilClient` returns the client that the provider holds, for every method that has no hook of its own, such as a write.
+`useNarsilClient` returns the client that the provider holds, for every method that no hook covers, such as a write.
 
 <!-- example setup
 import { useCallback } from 'react'
@@ -128,7 +128,7 @@ const onSave = useCallback(() => client.put('movies', id, document), [client, id
 
 ## One request for the whole tree
 
-Two components that ask for the same thing under one provider send one request and read one answer. The provider gives each set of arguments a key and sends one request per key, so a header, a filter, or a page size that differs starts a request of its own.
+Two components that ask for the same thing under one provider send one request and read one answer. The provider gives each set of arguments a key and sends one request per key, so a header, a filter, or a page size that differs starts a separate request.
 
 The provider keeps an answer for two seconds after the last component that reads it unmounts, which is the interval within which [SWR dedupes requests](https://swr.vercel.app/docs/api). That wait covers the gap that React leaves between unmounting a component and mounting it again, so a development double render and a quick navigation back each send one request. Set `keepAliveMs` on the provider for a longer or a shorter wait.
 
@@ -256,4 +256,4 @@ A hook called outside a `NarsilProvider` throws `CONFIG_INVALID` as it renders.
 
 ## Credentials in a browser
 
-Anybody who reads the bundle can read the key that a browser client sends. Point the client at a path on your own origin, such as `/search-api`, and let your own server add the key as it passes the request on. The [HTTP server guide](http-server.md) covers the `onRequest` hook, where the Narsil server checks that key.
+Anybody who reads the bundle can read the key that a browser client sends. Point the client at a path on your origin, such as `/search-api`, and let your server add the key as it passes the request on. The [HTTP server guide](http-server.md) covers the `onRequest` hook, where the Narsil server checks that key.

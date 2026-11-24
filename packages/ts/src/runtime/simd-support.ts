@@ -23,8 +23,8 @@ let simdAvailable = runtimeStartsSimdModule()
  * search latency between two hosts rather than to decide whether to search.
  *
  * @returns True when the runtime can compile and start a WebAssembly module
- * that uses SIMD instructions, and false once the vector code fails to load its
- * own SIMD module.
+ * that uses SIMD instructions, and false once the vector code fails to load the
+ * SIMD module that it needs.
  *
  * @public
  */

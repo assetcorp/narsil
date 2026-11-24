@@ -21,7 +21,7 @@ await narsil.createIndex('articles', {
 - `dimensions` has to equal the `N` in `vector[N]`. The transformers adapter loads `Xenova/all-MiniLM-L6-v2` by default, which returns 384 numbers. Its first call downloads the model from the Hugging Face Hub, so the first execution needs network access, and the adapter reads the cached copy after that.
 - When the installed adapter's `peerDependencies` allow only `@huggingface/transformers` releases below 4.0.0, install a 3.x release, and pass `dtype: 'fp32'`, because that adapter defaults to 8-bit weights, which give a text a different vector inside a batch.
 - For a hosted model, use `createOpenAIEmbedding({ baseUrl, apiKey, model, dimensions })` from `@delali/narsil/embeddings/openai`, which takes any OpenAI-compatible endpoint. Ask the user for the key and read it from the environment.
-- An adapter of your own needs `dimensions` and `embed(input, purpose, signal)`, where `purpose` is `'document'` or `'query'`. Add `embedBatch` when the model embeds a batch faster than single texts.
+- An adapter that you write needs `dimensions` and `embed(input, purpose, signal)`, where `purpose` is `'document'` or `'query'`. Add `embedBatch` when the model embeds a batch faster than single texts.
 - To supply vectors yourself, leave `embedding` out of the index, store a `number[]` in the vector field, and query with `vector: { field, value }`.
 
 ## Query by meaning
@@ -49,7 +49,7 @@ const results = await narsil.query('articles', {
 
 ## Answers that cite their sources
 
-1. Index each passage as its own document, such as one section of a help article, and store the article's URL and title beside it, so that each hit points at a passage that the answer can quote.
+1. Index each passage as a separate document, such as one section of a help article, and store the article's URL and title beside it, so that each hit points at a passage that the answer can quote.
 2. Retrieve with the hybrid query above, and give the model each hit's `id`, title, and passage text, with an instruction to cite the ids that it uses.
 3. Check each cited id against the retrieved hits, and render the answer with a link for each cited source.
 4. When the query returns no hits, tell the user that the documentation holds no answer, and leave the model out of it. A `similarity` floor on a `mode: 'vector'` query is what lets a weak match drop out, since a hybrid query keeps every keyword match.

@@ -3,7 +3,7 @@ import type { AnyDocument, IndexConfig } from './schema'
 import type { QueryParams } from './search'
 
 /**
- * Hooks that the engine calls alongside its own work, so that an application
+ * Hooks that the engine calls around its writes, searches, and index changes, so that an application
  * can add validation, auditing, enrichment, or metrics without forking the
  * engine.
  *
@@ -44,7 +44,7 @@ export interface NarsilPlugin {
   beforeSearch?(ctx: SearchContext): void | Promise<void>
   /**
    * Fires once a search returns. The context holds a copy of the results, so a
-   * change that you make here leaves the caller's own result untouched. Where
+   * change that you make here leaves the result that the caller receives untouched. Where
    * this hook throws, the engine logs a warning and answers the query all the
    * same, because the search is already over.
    */
@@ -67,7 +67,7 @@ export interface NarsilPlugin {
    * Fires once {@link Narsil.rebalance} moves an index onto a new partition
    * count, which is the only way that the count changes. An index opens with
    * the count that `partitions.maxPartitions` sets, because the engine adds no
-   * partition on its own. Subscribe to the `partitionWatermark` event to learn
+   * partition unless you ask for one. Subscribe to the `partitionWatermark` event to learn
    * when an index fills its capacity.
    */
   onPartitionSplit?(ctx: PartitionContext): void | Promise<void>

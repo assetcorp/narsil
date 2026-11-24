@@ -156,7 +156,7 @@ export interface FacetResult {
    * count of at most this figure too. Where the engine counts a field on one
    * thread, it counts every value exactly, so this figure is the largest
    * count that it leaves out. Where it splits the count across worker copies
-   * or cluster nodes, each of them returns only its own top values, so the
+   * or cluster nodes, each of them returns only the top values that it counted, so the
    * merged count of a value that is common overall but rare on one of them
    * can lack the matches on that one. A bound of 0 means that `values` holds
    * every matching value, each with its exact count.

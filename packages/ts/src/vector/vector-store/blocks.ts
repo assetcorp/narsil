@@ -81,7 +81,7 @@ export type VectorBlockStorage =
 
 /**
  * This handle names one block of a field, which every thread holding the
- * field opens on its own side.
+ * field opens separately.
  *
  * @internal
  */

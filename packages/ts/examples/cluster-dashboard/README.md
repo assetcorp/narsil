@@ -33,7 +33,7 @@ Run those two builds again whenever you change `packages/ts/src`, because the co
 
 ## Run it
 
-The cluster and the dashboard each take a terminal of their own. Start the cluster from this directory:
+The cluster and the dashboard each need a separate terminal. Start the cluster from this directory:
 
 ```sh
 pnpm cluster:up
@@ -64,7 +64,7 @@ Press **Create and ingest** first, which creates `forum-answers` and writes 2,00
 
 ## Security
 
-This example publishes every port on loopback, so anyone on your own machine reaches all of them without a credential. Each node binds its HTTP server to `0.0.0.0` so that Docker can publish the port. The server refuses that address unless the caller supplies an authentication hook, because the admin routes would otherwise answer anyone who reaches the container, so `src/cluster-node.ts` sets `allowInsecure`. Replication between the nodes uses mutual TLS with a locally generated authority, while etcd answers over plain HTTP inside the Docker network. Put authentication in front of all three before you run anything like this outside your own machine.
+This example publishes every port on loopback, so anyone who can use your machine reaches all of them without a credential. Each node binds its HTTP server to `0.0.0.0` so that Docker can publish the port. The server refuses that address unless the caller supplies an authentication hook, because the admin routes would otherwise answer anyone who reaches the container, so `src/cluster-node.ts` sets `allowInsecure`. Replication between the nodes uses mutual TLS with a locally generated authority, while etcd answers over plain HTTP inside the Docker network. Put authentication in front of all three before you run anything like this on a machine that other people can reach.
 
 ## Where the pieces are
 

@@ -19,7 +19,7 @@ export interface RerankConfig {
   /**
    * The engine sends the adapter the values of these text fields, in this
    * order and joined with newlines, as the text of each hit. Each member of a
-   * list field takes a line of its own. The engine throws
+   * list field takes a separate line. The engine throws
    * `RERANK_CONFIG_INVALID` for an empty list, for a field that the schema
    * does not declare as text, and for a field that the list gives twice.
    */

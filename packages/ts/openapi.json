@@ -3148,7 +3148,7 @@
             "description": "These parameters apply to the text fields that this map holds. A name that is not a text field that the schema declares fails with `CONFIG_INVALID` on an index and with `SEARCH_INVALID_FIELD` on a search."
           }
         },
-        "description": "BM25 tuning for an index or for one search. Both parameters default to the values the literature settles on, so change them only once you have measured relevance on your own corpus. For each field, the engine takes the first value that is set among the search's value for the field, the search's value, the index's value for the field, the index's value, and the default."
+        "description": "BM25 tuning for an index or for one search. Both parameters default to the values the literature settles on, so change them only once you have measured relevance on your corpus. For each field, the engine takes the first value that is set among the search's value for the field, the search's value, the index's value for the field, the index's value, and the default."
       },
       "CapabilitiesResponse": {
         "type": "object",
@@ -3788,7 +3788,7 @@
           },
           "errorBound": {
             "type": "number",
-            "description": "Every count in `values` is at most this far below its true count. A value that the engine leaves out of `values` because of `limit` has a true count of at most this figure too. Where the engine counts a field on one thread, it counts every value exactly, so this figure is the largest count that it leaves out. Where it splits the count across worker copies or cluster nodes, each of them returns only its own top values, so the merged count of a value that is common overall but rare on one of them can lack the matches on that one. A bound of 0 means that `values` holds every matching value, each with its exact count."
+            "description": "Every count in `values` is at most this far below its true count. A value that the engine leaves out of `values` because of `limit` has a true count of at most this figure too. Where the engine counts a field on one thread, it counts every value exactly, so this figure is the largest count that it leaves out. Where it splits the count across worker copies or cluster nodes, each of them returns only the top values that it counted, so the merged count of a value that is common overall but rare on one of them can lack the matches on that one. A bound of 0 means that `values` holds every matching value, each with its exact count."
           }
         },
         "required": [
@@ -4203,7 +4203,7 @@
           },
           "tokenizer": {
             "type": "string",
-            "description": "This is the name of a tokeniser registered on the server, which then splits text in place of the language's own rules."
+            "description": "This is the name of a tokeniser registered on the server, which then splits text in place of the tokeniser of the language."
           },
           "stopWords": {
             "anyOf": [
@@ -5456,7 +5456,7 @@
             "description": "The engine emits `partitionWatermark` once the index fills this share of its capacity, above 0 and at most 1."
           }
         },
-        "description": "How many partitions an index opens with, and how many documents it accepts. An index opens with `maxPartitions` partitions and keeps that count until Narsil.rebalance  changes it, because the engine adds no partition on its own. Set `watermark` to learn through the `partitionWatermark` event when an index fills its capacity."
+        "description": "How many partitions an index opens with, and how many documents it accepts. An index opens with `maxPartitions` partitions and keeps that count until Narsil.rebalance  changes it, because the engine adds no partition unless you ask for one. Set `watermark` to learn through the `partitionWatermark` event when an index fills its capacity."
       },
       "PartitionStatsResult": {
         "type": "object",
@@ -6049,7 +6049,7 @@
             "items": {
               "type": "string"
             },
-            "description": "The engine sends the adapter the values of these text fields, in this order and joined with newlines, as the text of each hit. Each member of a list field takes a line of its own. The engine throws `RERANK_CONFIG_INVALID` for an empty list, for a field that the schema does not declare as text, and for a field that the list gives twice."
+            "description": "The engine sends the adapter the values of these text fields, in this order and joined with newlines, as the text of each hit. Each member of a list field takes a separate line. The engine throws `RERANK_CONFIG_INVALID` for an empty list, for a field that the schema does not declare as text, and for a field that the list gives twice."
           },
           "query": {
             "type": "string",
@@ -6257,7 +6257,7 @@
           },
           "caseFold": {
             "type": "boolean",
-            "description": "When this is true, the engine compares the case fold of each value of a pattern field with the case fold of the text, so a test for `error` matches `ERROR`. It applies to `eq`, `ne`, `in`, `nin`, `startsWith`, `endsWith`, `contains`, `wildcard`, and `regex`. Under `caseFold`, a set that does not open with `^` can also match a sequence of code points. When a member that the set holds on its own folds to several code points, the set matches that whole fold, so `[ß]` matches `ss`."
+            "description": "When this is true, the engine compares the case fold of each value of a pattern field with the case fold of the text, so a test for `error` matches `ERROR`. It applies to `eq`, `ne`, `in`, `nin`, `startsWith`, `endsWith`, `contains`, `wildcard`, and `regex`. Under `caseFold`, a set that does not open with `^` can also match a sequence of code points. When a single member of the set folds to several code points, the set matches that whole fold, so `[ß]` matches `ss`."
           },
           "tolerance": {
             "anyOf": [
@@ -6279,7 +6279,7 @@
             "description": "This lets the `eq` test of a pattern field match a value within this many edits of the text, so a test for `INV-2O24` with a tolerance of 1 matches `INV-2024`. An edit inserts, deletes, or replaces one code point, so a swap of two neighbouring code points counts as two edits. With `caseFold`, the engine counts the edits between the case folds of the value and the text. The tolerance applies to `eq` alone, so the other tests of the field still compare exactly. The engine takes its candidates from the pattern index, so the case fold of the text has to hold enough distinct runs of three code points. For a tolerance of `k`, the engine needs `k × (2 + f) + 1` runs, where `f` is the number of code points in the longest case fold among the text's code points, which is 1 for most text. A tolerance of 1 on `INV-2O24` therefore needs 4 of its 6 runs, while a tolerance of 2 needs 7. Under `'auto'`, the engine uses 2 where the text holds enough runs for 2, otherwise 1 where it holds enough for 1, and otherwise 0. The engine throws `SEARCH_INVALID_FILTER` for a tolerance of 1 or 2 on a text with too few runs, stating how many runs that tolerance needs. It throws the same error for any other tolerance, for a tolerance on a field that is not a pattern field, and for a tolerance in a filter without an `eq` test. Towards the pattern work cap, it counts one unit for each cell that it fills in the table of edit distances between the text and a value."
           }
         },
-        "description": "The engine tests a text field against this filter for equality, for a text range, or with the set, prefix, and pattern tests. On a `string[]`, `verbatim[]`, or `enum[]` field, the engine tests each element of the list on its own. A document passes `eq`, `in`, `startsWith`, `endsWith`, `contains`, `wildcard`, or `regex` when one element passes the test. However, a document passes `ne` or `nin` only when every element differs from the values. The engine applies the range tests `gt`, `gte`, `lt`, `lte`, and `between` to a single `string` or `verbatim` field whose type includes `sortable`. It throws `SEARCH_INVALID_FILTER` for a text range on any other field. It orders the values as a sort on the field does, so it compares their case folds first and compares their raw code points only where the folds are equal. A pattern field is a `verbatim` or `verbatim[]` field, or a `string` or `string[]` field whose type includes `pattern`. On a pattern field, the engine answers `eq`, `ne`, `in`, `nin`, `startsWith`, `endsWith`, `contains`, `wildcard`, and `regex` from the field's pattern index, and `caseFold` applies to each of those tests. The engine compares the code points of each value as they are stored, with no Unicode normalisation. On an `enum` or `enum[]` field, the engine answers `eq`, `ne`, `in`, `nin`, `startsWith`, and `endsWith` from the field's index of values. A `string` or `string[]` field whose type leaves out `pattern` keeps no index of whole values, so the engine throws `SEARCH_INVALID_FILTER` for those six tests, and for `matchesAny` and `containsAll`, on such a field. The engine also throws `SEARCH_INVALID_FILTER` in these cases: - The filter sets `contains`, `wildcard`, `regex`, or `caseFold` on a field that is not a pattern field. - The text or the pattern of a test on a pattern field holds more than 1,024 code points. - A literal test under `caseFold` has a text whose case fold holds more than 2,048 code points. - A `wildcard` or `regex` pattern breaks its syntax or one of its limits."
+        "description": "The engine tests a text field against this filter for equality, for a text range, or with the set, prefix, and pattern tests. On a `string[]`, `verbatim[]`, or `enum[]` field, the engine tests each element of the list separately. A document passes `eq`, `in`, `startsWith`, `endsWith`, `contains`, `wildcard`, or `regex` when one element passes the test. However, a document passes `ne` or `nin` only when every element differs from the values. The engine applies the range tests `gt`, `gte`, `lt`, `lte`, and `between` to a single `string` or `verbatim` field whose type includes `sortable`. It throws `SEARCH_INVALID_FILTER` for a text range on any other field. It orders the values as a sort on the field does, so it compares their case folds first and compares their raw code points only where the folds are equal. A pattern field is a `verbatim` or `verbatim[]` field, or a `string` or `string[]` field whose type includes `pattern`. On a pattern field, the engine answers `eq`, `ne`, `in`, `nin`, `startsWith`, `endsWith`, `contains`, `wildcard`, and `regex` from the field's pattern index, and `caseFold` applies to each of those tests. The engine compares the code points of each value as they are stored, with no Unicode normalisation. On an `enum` or `enum[]` field, the engine answers `eq`, `ne`, `in`, `nin`, `startsWith`, and `endsWith` from the field's index of values. A `string` or `string[]` field whose type leaves out `pattern` keeps no index of whole values, so the engine throws `SEARCH_INVALID_FILTER` for those six tests, and for `matchesAny` and `containsAll`, on such a field. The engine also throws `SEARCH_INVALID_FILTER` in these cases: - The filter sets `contains`, `wildcard`, `regex`, or `caseFold` on a field that is not a pattern field. - The text or the pattern of a test on a pattern field holds more than 1,024 code points. - A literal test under `caseFold` has a text whose case fold holds more than 2,048 code points. - A `wildcard` or `regex` pattern breaks its syntax or one of its limits."
       },
       "SuggestParams": {
         "type": "object",
@@ -6693,7 +6693,7 @@
             "description": "The engine keeps the field's full-precision vectors here. When this is unset, it picks `disk` under filesystem durability and `memory` on every other engine."
           }
         },
-        "description": "Controls when a vector field moves from a brute-force scan to an HNSW graph, and how that graph is built. A small field answers faster from a brute-force scan, so the engine builds a graph only once the field holds enough vectors to earn one. Leave every field unset to accept the engine's own values."
+        "description": "Controls when a vector field moves from a brute-force scan to an HNSW graph, and how that graph is built. A small field answers faster from a brute-force scan, so the engine builds a graph only once the field holds enough vectors to earn one. Leave every field unset to accept the engine defaults."
       },
       "VectorMaintenanceResponse": {
         "type": "object",

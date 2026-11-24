@@ -262,8 +262,8 @@ async function pumpPartition(
  * `CATCH_UP_FEED_WINDOW_MS`. Once a replica has acknowledged a batch in that window and the entries it still lacks
  * fit in one batch, the primary sends them from inside the partition's write queue and marks the admission pending before the queue lets the next write in, so every
  * later write reaches the replica in order and a steady stream of writes cannot keep it out of the in-sync set. It
- * forgets a replica once that replica has fallen behind the retained log and needs a fresh snapshot instead. The pump feeds every replica on its own, so a replica that fails or is slow to answer
- * holds up only its own feed, and the next tick skips a replica whose last batch or proposal is still in flight. Each
+ * forgets a replica once that replica has fallen behind the retained log and needs a fresh snapshot instead. The pump feeds every replica separately, so a replica that fails or is slow to answer
+ * holds up only the feed to that replica, and the next tick skips a replica whose last batch or proposal is still in flight. Each
  * batch waits no longer than the transport's `replicationTimeout`. A tick cancels a feed in flight once its replica has
  * left the cluster or restarted, or once the partition's primary term or in-sync set has changed since the feed began,
  * so the tick after that feeds or proposes the replica afresh. Each tick reads the allocation table from the cluster
@@ -318,8 +318,8 @@ export function runCatchUpTick(state: CatchUpState, deps: WriteRoutingDeps): Pro
  * Starts the timer that runs {@link runCatchUpTick}, so that a lagging replica keeps receiving entries between
  * writes.
  *
- * The timer is unreferenced, so it never holds a process open on its own, and starting the pump twice replaces the
- * previous timer rather than adding a second one.
+ * The timer is unreferenced, so a process can exit while the timer is pending, and starting the pump twice replaces
+ * the previous timer, so that one timer is pending at most.
  *
  * @param state - The catch-up state the pump advances.
  * @param deps - The write routing dependencies each tick passes on.

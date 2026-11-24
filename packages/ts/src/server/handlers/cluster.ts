@@ -48,7 +48,7 @@ function malformedIndexName(indexName: string): string | null {
  * topology from the node it talks to.
  *
  * `/cluster` names every registered node, the node holding the controller
- * lease, and this node's own readiness, while `/indexes/:name/cluster` reports
+ * lease, and the readiness of this node, while `/indexes/:name/cluster` reports
  * the allocation of one index partition by partition, and
  * `PUT /indexes/:name/replication-factor` changes how many replicas each
  * partition keeps, and `/cluster/health` reports a green, yellow, or red status

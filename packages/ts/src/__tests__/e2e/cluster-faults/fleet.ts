@@ -14,6 +14,8 @@ const READY_TIMEOUT_MS = 90_000
 const STOP_TIMEOUT_MS = 15_000
 const READY_LINE = /READY (\S+)\n/
 const PORT_ATTEMPTS = 5
+const ETCD_UNREACHABLE_AT_START = /The coordinator could not reach any etcd endpoint/
+const ETCD_UNREACHABLE_RESTART_DELAY_MS = 1_000
 const NODE_ID_FILE = '.narsil-node-id'
 
 export interface FleetSettings {
@@ -164,14 +166,28 @@ export async function startFleet(
   async function start(slot: number): Promise<void> {
     const entry = slotAt(slot)
     if (entry.child !== null) throw new Error(`Slot ${slot} is already running`)
-    for (let attempt = 1; !(await startOnce(entry)); attempt++) {
-      if (attempt === PORT_ATTEMPTS) throw new Error(`Slot ${slot} found no free port in ${PORT_ATTEMPTS} attempts`)
+    const deadline = Date.now() + READY_TIMEOUT_MS
+    let portAttempts = 0
+    for (;;) {
+      const outcome = await startOnce(entry)
+      if (outcome === 'ready') return
+      if (outcome === 'etcd-unreachable') {
+        if (Date.now() >= deadline)
+          throw new Error(
+            `Slot ${slot} reached no etcd quorum within ${READY_TIMEOUT_MS} ms: ${entry.output.slice(-4_000)}`,
+          )
+        await sleep(ETCD_UNREACHABLE_RESTART_DELAY_MS)
+        continue
+      }
+      portAttempts += 1
+      if (portAttempts === PORT_ATTEMPTS)
+        throw new Error(`Slot ${slot} found no free port in ${PORT_ATTEMPTS} attempts`)
       entry.httpPort = await freePort()
       entry.transportPort = await freePort()
     }
   }
 
-  async function startOnce(entry: Slot): Promise<boolean> {
+  async function startOnce(entry: Slot): Promise<'ready' | 'lost-port' | 'etcd-unreachable'> {
     const slot = entry.slot
     const { NODE_OPTIONS: _inherited, ...parentEnv } = process.env
     const rust = settings.rustSlots?.includes(slot) === true
@@ -191,7 +207,7 @@ export async function startFleet(
     child.stderr?.on('data', (chunk: Buffer) => {
       entry.output += chunk.toString()
     })
-    return await new Promise<boolean>((resolve, reject) => {
+    return await new Promise<'ready' | 'lost-port' | 'etcd-unreachable'>((resolve, reject) => {
       const timer = setTimeout(() => {
         reject(new Error(`Slot ${slot} did not start within ${READY_TIMEOUT_MS} ms: ${entry.output.slice(-4_000)}`))
       }, READY_TIMEOUT_MS)
@@ -201,12 +217,14 @@ export async function startFleet(
         if (ready !== null) {
           entry.nodeId = ready[1] ?? ''
           clearTimeout(timer)
-          resolve(true)
+          resolve('ready')
         }
       })
       child.once('exit', code => {
         clearTimeout(timer)
-        if (lostPortRace(entry.output.slice(entry.output.lastIndexOf('--- start')))) resolve(false)
+        const lastStart = entry.output.slice(entry.output.lastIndexOf('--- start'))
+        if (lostPortRace(lastStart)) resolve('lost-port')
+        else if (code === 1 && ETCD_UNREACHABLE_AT_START.test(lastStart)) resolve('etcd-unreachable')
         else reject(new Error(`Slot ${slot} exited with code ${code} before it started: ${entry.output.slice(-4_000)}`))
       })
     })

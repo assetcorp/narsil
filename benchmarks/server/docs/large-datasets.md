@@ -22,7 +22,7 @@ other 995,000. The harness holds the corpus matrix in memory while an engine
 indexes, which is 995,000 by 1,536 float32 values, about 6.1 GB. Each of the 16
 import clients holds one encoded batch of 2,000 documents while it sends it, about
 66 MiB of JSON at these dimensions, and a batch waiting its turn holds only views
-into the matrix, so the harness peaks at about 7.5 GB. Each engine holds its own
+into the matrix, so the harness peaks at about 7.5 GB. Each engine holds a separate
 copy plus its index under `BENCH_MEM_CAP`, so a 32 GiB box with a 20 GiB cap
 leaves about 4.5 GB for the operating system and the load generator.
 
@@ -57,8 +57,8 @@ BENCH_MACHINE_LABEL="GCP c3-standard-8, 8 vCPU / 32 GiB" \
 
 One `BENCH_JVM_HEAP` applies to every Java engine that a command starts. Name the
 other engines after `./run-all.sh` in the command above, so that the command
-leaves OpenSearch out. Then test OpenSearch with its own command under the same
-run id, or on its own VM as the cloud toolkit's README describes:
+leaves OpenSearch out. Then test OpenSearch with a separate command under the same
+run id, or on a separate VM as the cloud toolkit's README describes:
 
 ```bash
 BENCH_RUN_ID=<the run id printed above> \
@@ -113,11 +113,11 @@ Provision generous disk for the Docker volumes (the dataset cache, the embedding
 shards, and each engine's persisted index):
 
 - `dbpedia-entities-openai-1m`: at least 40 GiB. The artifact is about 6.3 GB
-  and every engine persists its own copy of the vectors and index.
+  and every engine persists a separate copy of the vectors and index.
 - `beir/nq`: at least 60 GiB.
 - `beir/msmarco/dev`: at least 150 GiB. The MS MARCO collection alone is about
-  3 GiB, its embedding shards about 12.6 GiB, and the engines persist their own
-  copies of the vectors and index.
+  3 GiB, its embedding shards about 12.6 GiB, and every engine persists a
+  separate copy of the vectors and index.
 
 ## Set up the VM
 

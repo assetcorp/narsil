@@ -6,7 +6,7 @@
  * Serbian is written in both scripts, and the stop word check reads a token
  * before the normaliser runs, so each entry is also held in its Gaj Latin
  * spelling. The normaliser produces the same Gaj Latin the Snowball algorithm
- * transliterates to in its own first step, so both scripts reach one spelling.
+ * transliterates to in its first step, so both scripts reach one spelling.
  *
  * The stemmer is generated from Snowball's algorithms/serbian.sbl; see snowball/build.ts.
  */

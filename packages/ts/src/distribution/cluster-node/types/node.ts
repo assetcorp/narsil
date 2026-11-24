@@ -74,15 +74,15 @@ export interface ClusterNode
    * @param docId - Pass an id to control it yourself, or omit it and read the
    * returned value.
    * @param options - Setting `skipClone` stores the object you passed rather
-   * than a copy, and it applies only where this node is the partition's own
-   * primary, because a document sent to another node is encoded for the wire
+   * than a copy, and it applies only where this node is the primary of the
+   * partition, because a document sent to another node is encoded for the wire
    * and decoded there.
    * @returns The id the document is stored under.
    */
   insert(indexName: string, document: AnyDocument, docId?: string, options?: InsertOptions): Promise<string>
   /**
-   * Adds many documents, routing each to its own partition's primary, and
-   * reports each one's outcome.
+   * Adds many documents, routing each to the primary of the partition that
+   * holds it, and reports each one's outcome.
    *
    * @param indexName - The index that receives the documents.
    * @param documents - The documents to write.
@@ -118,8 +118,8 @@ export interface ClusterNode
    */
   update(indexName: string, docId: string, document: AnyDocument): Promise<void>
   /**
-   * Replaces many documents, routing each to its own partition's primary, and
-   * reports each one's outcome. Replacements bound for one remote primary
+   * Replaces many documents, routing each to the primary of the partition that
+   * holds it, and reports each one's outcome. Replacements bound for one remote primary
    * travel together in one message.
    *
    * @param indexName - The index holding the documents.
@@ -197,7 +197,7 @@ export interface ClusterNode
    * Lists every index that the cluster holds a schema for, with its document count summed over every partition, its
    * partition count, and its language.
    *
-   * The state, the reopen count, and the stale analysis flag describe this node's own copy, so an index that this node
+   * The state, the reopen count, and the stale analysis flag describe the copy on this node, so an index that this node
    * holds no copy of reports `open` and 0 reopens. An index that a caller drops while the listing runs drops out of it.
    *
    * @returns One entry per index, in the order the coordinator lists the schemas.
@@ -208,7 +208,7 @@ export interface ClusterNode
    * Rebuilds the terms of an index on every node that holds a copy, and resolves once every one of those nodes has
    * finished.
    *
-   * Each node rebuilds its own copies from their documents, so a primary and its replicas reach the same terms without
+   * Each node rebuilds the copies that it holds from their documents, so a primary and its replicas reach the same terms without
    * sending entries, and a node skips a copy whose analysis is already current. A node that answers late keeps its
    * rebuild running, and this call waits for it for as long as the node stays registered.
    *
@@ -278,7 +278,7 @@ export interface ClusterNode
   checkpoint(indexName: string): Promise<void>
   /**
    * Reports what this node's engine and process are using. Memory is a
-   * per-node fact, so ask each node for its own.
+   * per-node fact, so ask each node separately.
    *
    * @returns Process heap figures and this node's engine estimate.
    */
@@ -286,7 +286,7 @@ export interface ClusterNode
   /**
    * Registers a rerank adapter on this node under a name that a query gives
    * in `rerank.adapter`. The node that receives a reranked query scores it
-   * with its own adapter, so register the adapter on every node that takes
+   * with the adapter registered on that node, so register the adapter on every node that takes
    * queries from clients. A data node needs none.
    *
    * @param name - The name that a query gives in `rerank.adapter`.

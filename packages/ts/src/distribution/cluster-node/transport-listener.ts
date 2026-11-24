@@ -72,7 +72,7 @@ export function createNotReadyHandler(nodeId: string): TransportHandler {
 /**
  * Splits one transport between the data handler and the controller on a node that may hold both roles.
  *
- * The controller listens on the returned transport, and the data node wraps its own handler with `createHandler`,
+ * The controller listens on the returned transport, and the data node wraps its message handler with `createHandler`,
  * which sends each controller message to the controller while one is listening. While none is, the node refuses
  * the message with `NODE_NOT_CONTROLLER`, so the sender retries against the node that holds the lease. A node that
  * has yet to join listens with `createJoiningHandler`, which sends a controller message to a controller that won the

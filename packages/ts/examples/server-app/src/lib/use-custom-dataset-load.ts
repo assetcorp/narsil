@@ -17,7 +17,7 @@ export interface CustomDatasetLoad {
 /**
  * Sends a corpus the visitor picked in the browser straight to the search
  * server and follows the import task it answers with. The documents are
- * already here, so they never take the detour through this app's own server.
+ * already in the browser, so they never pass through this app's server.
  */
 export function useCustomDatasetLoad(config: CustomDatasetConfig | null, onLoaded: () => void): CustomDatasetLoad {
   const client = useNarsilClient()

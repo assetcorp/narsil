@@ -65,7 +65,7 @@ impl FileSwap<'_> {
     /// returning the log that the restored index writes to.
     ///
     /// A failure after the open index closed its files records the index as closed on whatever files hold its
-    /// name afterwards: the open index's own where the store put them back, or the restored ones where the store
+    /// name afterwards: the files of the open index where the store put them back, or the restored ones where the store
     /// committed the swap and failed, so that no call reads an index whose files are closed.
     pub(super) fn run(
         &self,

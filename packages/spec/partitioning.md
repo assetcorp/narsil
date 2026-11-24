@@ -2,13 +2,13 @@
 
 A large index is split across several independent partitions, each holding a slice of the documents. This document defines how documents route to partitions, how a rebalance redistributes them, how a query fans out and merges, how deep pagination works, and how a listing pages through stored documents. Every implementation must follow these rules so that two implementations reading the same index return the same results.
 
-Structure definitions use a language-neutral notation. `List<T>` is an ordered collection of `T`, `Map<K, V>` a mapping from keys to values, and `T or absent` a value that may be missing; each implementation expresses these in its own type system.
+Structure definitions use a language-neutral notation. `List<T>` is an ordered collection of `T`, `Map<K, V>` a mapping from keys to values, and `T or absent` a value that may be missing; each implementation expresses these in the type system of its language.
 
 ---
 
 ## Overview
 
-A partition is a self-contained unit holding its own inverted index, document store, field indexes, geopoint storage, and statistics. Vector data is held apart from partitions in per-field vector indexes; see [vector-index.md](vector-index.md).
+A partition is a self-contained unit holding a separate inverted index, document store, field indexes, geopoint storage, and statistics. Vector data is held apart from partitions in per-field vector indexes; see [vector-index.md](vector-index.md).
 
 Partitioning never changes the caller's view. The API is the same whether an index has one partition or sixteen.
 
@@ -36,7 +36,7 @@ To fetch a document by ID, compute its partition with the same hash and query th
 
 ## Capacity
 
-An index starts with `maxPartitions` partitions, numbered from 0, and the option defaults to one. The partition count changes only through an explicit rebalance. The engine never splits a partition on its own.
+An index starts with `maxPartitions` partitions, numbered from 0, and the option defaults to one. The partition count changes only through an explicit rebalance. The engine never splits a partition automatically.
 
 ### Configuration
 
@@ -76,7 +76,7 @@ The engine emits the event once per crossing. The event arms again when the docu
 
 ### Capacity in a Cluster
 
-In a cluster, a node can hold only some of an index's partitions, so the capacity applies to each partition on its own:
+In a cluster, a node can hold only some of an index's partitions, so the capacity applies separately to each partition:
 
 - The primary of a partition must fail an insert with `PARTITION_CAPACITY_EXCEEDED` once that partition holds `maxDocsPerPartition` documents, counting the documents that it admits earlier in the same batch.
 - A replica must apply every replicated write without a capacity check, so that it never refuses a write that its primary acknowledged.
@@ -86,11 +86,11 @@ In a cluster, a node can hold only some of an index's partitions, so the capacit
 
 An engine that holds its indexes in one process must refuse an insert or an update before the write can take the process past its memory limit, because the operating system ends a process at that limit, and on a phone it ends the app without warning. The engine follows the rules of the cluster's [Memory Write Block](distribution/cluster.md#memory-write-block) with the changes below, and it refuses with `MEMORY_WRITE_BLOCKED` where a cluster node uses `CLUSTER_WRITE_BLOCKED`.
 
-- The engine judges only its own memory, so while it is full it refuses every insert and update to every index that it holds, and it accepts them again once both figures fall below the resume fraction.
+- The engine judges only the memory of its process, so while it is full it refuses every insert and update to every index that it holds, and it accepts them again once both figures fall below the resume fraction.
 - The engine applies the bound on the memory that indexing can take, the rule for a batch that runs short of memory part of the way through, and the rule for a document that cannot fit even on an idle engine, as a cluster node does.
 - The engine leaves out the bound on the bytes of writes in progress, because the caller already holds those documents in the same process.
 - The engine must measure its memory before each group of a write whose latest measurement is more than 10 ms old, because within one second a run of writes can carry a small heap from the block fraction past its limit.
-- The engine must accept every remove, search, and document read, and every write that recovery replays, that a worker copy applies, or that a restore loads. A restore keeps its own check and refuses with `RESTORE_MEMORY_EXCEEDED`.
+- The engine must accept every remove, search, and document read, and every write that recovery replays, that a worker copy applies, or that a restore loads. A restore keeps a separate check and refuses with `RESTORE_MEMORY_EXCEEDED`.
 - Where the runtime reports no process limit, the engine compares its heap alone, and where the runtime reports neither limit, the engine admits every write.
 - A cluster node applies the cluster's block alone, so a node refuses a write under one code.
 
@@ -149,7 +149,7 @@ With durability configured, the engine appends a buffered write to the write-ahe
        insert it into that new partition
    Process in chunks of 1,000 documents and yield to the
    host scheduler between chunks, so the rebalance never
-   holds the processor for long. Each runtime picks its own
+   holds the processor for long. Each runtime picks a separate
    yielding mechanism.
    Vector data needs no redistribution, because vector
    indexes hold no partition assignment.
@@ -210,7 +210,7 @@ A search against a multi-partition index runs on a coordinator that queries ever
 
 ```text
 1. Send the query to every partition in parallel.
-2. Each partition searches its own index:
+2. Each partition searches its index:
      tokenise the query terms
      look the tokens up in the inverted index
      score the matching documents with BM25
@@ -258,7 +258,7 @@ That costs O(N log K), where N is the number of results collected and K is the p
 
 The scoring mode decides how many round trips the fan-out takes.
 
-**Local**, the default, takes one round trip, and each partition scores with its own statistics.
+**Local**, the default, takes one round trip, and each partition scores with its local statistics.
 
 **DFS**, for distributed frequency statistics, takes two round trips. The first collects `totalDocs`, `docFrequencies`, and `avgFieldLengths` from each partition. The coordinator then sums `totalDocs` and `docFrequencies` and computes weighted `avgFieldLengths`. The second sends the query together with those global statistics, and each partition rescores against globally correct inverse document frequencies. The `docFrequencies` cover each [synonym](algorithms.md#synonyms) that the query adds, as well as each query term.
 
@@ -342,7 +342,7 @@ A reader must reject a cursor, raising `SEARCH_INVALID_CURSOR`, when any rule be
 - A version 5 cursor lacks `s`, has an `s` other than the three exact non-finite score strings, or has `k` or `o`.
 - `d` is present and is not a whole number of at least 1.
 - `k` holds more than 8 values, or a value that is not a string of at most 512 code points, a finite number, a boolean, or null.
-- `o` and `k` do not arrive together, or `o` differs from the request's own sort.
+- `o` and `k` do not arrive together, or `o` differs from the request's sort.
 - `q` is missing, is not 8 lowercase hex digits, or differs from the binding of the request that carried the cursor.
 
 A sort names at most 8 fields, because the cursor carries one value per field. More raises `SEARCH_INVALID_FIELD`. A sort field name holds at most 255 characters, and a longer name raises `SEARCH_INVALID_FIELD` as well.
@@ -351,7 +351,7 @@ A sort names at most 8 fields, because the cursor carries one value per field. M
 
 `q` is the [FNV-1a hash](algorithms.md#fnv-1a-hash) of the binding stream, written as 8 lowercase hex digits. A reader recomputes the binding from the request and rejects a mismatch, so a cursor pages only the request that produced it.
 
-A writer serialises into the binding stream, in this order, the request values that decide which documents a page holds: `term`, `fields`, `filters`, `boost`, `minScore`, `termMatch`, `tolerance`, `prefixLength`, `prefix`, `partialWords`, `exact`, `pinned`, `mode`, `hybrid`, `vector`, and `scoring`. An absent `scoring` binds as the string `local`, its default, so an explicit default and an omission carry one binding. A request that carries `rerank` writes it after `scoring` as the map of its present members, while a request without `rerank` writes nothing in that position, so its binding matches the binding that an earlier release wrote. A request whose `bm25` sets at least one value writes it after `rerank`, or after `scoring` where the request has no `rerank`, as the map of its present members, leaving out any entry of `fields` that sets no value. A request whose `bm25` sets no value writes nothing in that position, so its binding matches the binding that an earlier release wrote. The index's own setting never enters the stream, so a cursor stays valid across a [live change](algorithms.md#parameter-levels). A listing's stream carries `filters` in that position and every other value absent. The sort binds through `o`, so the stream omits it.
+A writer serialises into the binding stream, in this order, the request values that decide which documents a page holds: `term`, `fields`, `filters`, `boost`, `minScore`, `termMatch`, `tolerance`, `prefixLength`, `prefix`, `partialWords`, `exact`, `pinned`, `mode`, `hybrid`, `vector`, and `scoring`. An absent `scoring` binds as the string `local`, its default, so an explicit default and an omission carry one binding. A request that carries `rerank` writes it after `scoring` as the map of its present members, while a request without `rerank` writes nothing in that position, so its binding matches the binding that an earlier release wrote. A request whose `bm25` sets at least one value writes it after `rerank`, or after `scoring` where the request has no `rerank`, as the map of its present members, leaving out any entry of `fields` that sets no value. A request whose `bm25` sets no value writes nothing in that position, so its binding matches the binding that an earlier release wrote. The index's BM25 setting never enters the stream, so a cursor stays valid across a [live change](algorithms.md#parameter-levels). A listing's stream carries `filters` in that position and every other value absent. The sort binds through `o`, so the stream omits it.
 
 ```text
 write(stream, value):
@@ -398,7 +398,7 @@ Next query, with the cursor:
     then document ID for a sorted one
   each partition returns up to `limit` results
   merge the results and take the top `limit`
-  encode a new cursor, storing as `d` the cursor's own `d`
+  encode a new cursor, storing as `d` the decoded cursor's `d`
     plus the number of results on this page
   return the results and the cursor
 ```
@@ -477,7 +477,7 @@ A write may return before it reaches every worker copy, but the copies must rece
 
 An implementation that receives a query on the main thread must send the whole query to the worker copy with the fewest queries in flight, except that it may answer on the main copy a query it receives while every copy holds a query, or while no copy holds one and the index holds at most 50,000 documents, unless the workers configuration directs every query to a copy.
 
-The implementation may split a query that names several partitions across idle worker copies, each answering its own partitions, before it merges the answers as [Query Fan-Out and Merge](#query-fan-out-and-merge) describes.
+The implementation may split a query that names several partitions across idle worker copies, each answering a separate set of those partitions, before it merges the answers as [Query Fan-Out and Merge](#query-fan-out-and-merge) describes.
 
 The implementation must drop the worker copies of an index that receives no read or write for the copy idle interval. The copy idle interval defaults to 5 minutes. The implementation must load the copies again on the next read or write that names the index, while the main copy answers that request.
 
@@ -497,32 +497,32 @@ The copy threshold, the routing to the copy with the fewest queries, the copy id
 
 ### Request Threads
 
-A server built on the engine may receive requests on the workers that hold its copies, in which case each such worker is a request thread. A request thread must answer a query on an index whose copy it holds from that copy, after the main thread embeds any `vector.text` in the query. It must send to the main thread, which answers as it does for its own callers, a write, a query on an index whose copy it lacks, a query naming a vector field whose graph is not yet built, and every query while a plugin hooks searches.
+A server built on the engine may receive requests on the workers that hold its copies, in which case each such worker is a request thread. A request thread must answer a query on an index whose copy it holds from that copy, after the main thread embeds any `vector.text` in the query. It must send to the main thread, which answers as it does for its direct callers, a write, a query on an index whose copy it lacks, a query naming a vector field whose graph is not yet built, and every query while a plugin hooks searches.
 
 A request thread must move a query off itself once that query has run on it for longer than the move threshold, so that one costly query delays no other request on the thread. The request thread abandons that search attempt, releases every state and vector pin that the attempt holds, discards its partial work, and sends the original request to the long-query thread, a worker that holds a copy of every scaled-out index and accepts no connections. The long-query thread must first apply every write that returned before the query moved, then start a new attempt under the same pattern work cap and take its copy's current state once. A write applied between the two attempts may therefore appear in the answer, and no result from the abandoned attempt may contribute to it. The new attempt must return the answer, or the `SEARCH_WORK_CAP_EXCEEDED` error, that a query started on that destination state returns. Where the long-query thread is lost before its response starts, the request thread starts a new attempt on its current state. Where the response has started, the server closes it.
 
 The long-query thread answers moved queries in the order they arrive. While it holds as many moved queries as its queue allows, a server must refuse with `TOO_MANY_REQUESTS` a further query that runs past the threshold, and a moved query leaves that queue once it answers, fails, loses its caller, or loses the long-query thread. A request thread must answer a query itself while no long-query thread runs. The move threshold and the queue length are implementation constants.
 
-A request thread holds a vector field's vectors once the main thread has sent it that field. Until then it must send every request whose answer would include that field to the main thread, so that a caller receives each document whole. Meanwhile it may answer from its own copy both a count and a query whose `document` projection keeps no vector field, since neither answer includes a vector.
+A request thread holds a vector field's vectors once the main thread has sent it that field. Until then it must send every request whose answer would include that field to the main thread, so that a caller receives each document whole. Meanwhile it may answer from the copy that it holds both a count and a query whose `document` projection keeps no vector field, since neither answer includes a vector.
 
 A server must hold a worker copy of every scaled-out index on every worker, so that it can start as many request threads as the worker count, except that a machine with fewer than three cores gets one. It starts the long-query thread on one more worker. The requests in flight on every request thread must count against one `maxConcurrentRequests` limit.
 
 A server must keep listening when a request thread fails. It must route the requests that thread would have taken to the threads that remain, or to the main thread where none remains.
 
-A server that stops serving must keep the workers that hold its copies running. Those workers are the engine's own, so the engine ends them when it shuts down.
+A server that stops serving must keep the workers that hold its copies running. The engine owns those workers, so the engine ends them when it shuts down.
 
 ### What Crosses into a Worker
 
-A worker runs in its own memory with its own registries, and the engine reaches it by passing messages, so data crosses and code does not. A schema, a stop word set given as a set, a synonym set, a `foldMarks` setting, and a pair of BM25 parameters all cross. A tokeniser instance, a stop word function, a stemmer, and a language module are code, and none of them crosses.
+A worker runs in separate memory with separate registries, and the engine reaches it by passing messages, so data crosses and code does not. A schema, a stop word set given as a set, a synonym set, a `foldMarks` setting, and a pair of BM25 parameters all cross. A tokeniser instance, a stop word function, a stemmer, and a language module are code, and none of them crosses.
 
 An index therefore reaches a worker only when its configuration gives a name for each part of its analysis:
 
-- The `language` setting names a language, and the worker resolves that name against its own language registry.
-- The `tokenizer` and `stopWords` settings name registry entries, and the worker resolves each name against its own analysis registry, as [Analysis Registry](adapters.md#analysis-registry) describes.
+- The `language` setting names a language, and the worker resolves that name against the language registry in that worker.
+- The `tokenizer` and `stopWords` settings name registry entries, and the worker resolves each name against the analysis registry in that worker, as [Analysis Registry](adapters.md#analysis-registry) describes.
 
 ### Worker Bootstrap
 
-A worker starts with the engine's own registrations alone, which cover English and nothing further. The caller names a module that every worker imports before it builds any index, and that module registers whatever the caller's indexes name:
+A worker starts with the engine's built-in registrations alone, which cover English and nothing further. The caller names a module that every worker imports before it builds any index, and that module registers whatever the caller's indexes name:
 
 ```text
 workers {
@@ -567,7 +567,7 @@ An explicit rebalance call changes the partition count, following the rebalancin
 
 ### Persistence
 
-Each partition serialises on its own into a `.nrsl` envelope. The flush manager tracks which partitions are dirty and persists only those that changed since the last flush.
+Each partition serialises into a separate `.nrsl` envelope. The flush manager tracks which partitions are dirty and persists only those that changed since the last flush.
 
 The persistence key is `<indexName>/partition_<N>`, so the partitions of an index named `products` are stored under `products/partition_0`, `products/partition_1`, and so on.
 

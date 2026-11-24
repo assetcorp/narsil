@@ -173,6 +173,7 @@ impl DataRole {
                 | message_types::CLUSTER_RESHARD_FORWARD
                 | message_types::CLUSTER_RESHARD_CUTOVER
                 | message_types::CLUSTER_RESHARD_PURGE
+                | message_types::CLUSTER_LEAD_HANDOFF
                 | message_types::CLUSTER_BACKUP_PARTITION
                 | message_types::CLUSTER_RESTORE_PARTITION
                 | message_types::CLUSTER_INDEX_SETTINGS
@@ -227,6 +228,10 @@ impl DataRole {
             | message_types::CLUSTER_RESHARD_CUTOVER
             | message_types::CLUSTER_RESHARD_PURGE => match self.primary_writes() {
                 Ok(writes) => writes.answer_reshard(&message).await,
+                Err(error) => refusal(&message, &self.node_id, &error),
+            },
+            message_types::CLUSTER_LEAD_HANDOFF => match self.primary_writes() {
+                Ok(writes) => writes.answer_lead_handoff(&message).await,
                 Err(error) => refusal(&message, &self.node_id, &error),
             },
             message_types::CLUSTER_INDEX_SETTINGS => self

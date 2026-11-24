@@ -60,7 +60,7 @@ def measure_latency(
     and hybrid tracks all measure the same way and the vector closure runs at the
     matched-recall operating point.
 
-    Client wall-clock and the engine's own reported query time come from the SAME
+    Client wall-clock and the query time that the engine reports come from the SAME
     single call per sample, so the two are directly comparable. The engine-reported
     time is the headline; the client round-trip is kept alongside. An engine that
     exposes no server-side query time records the server set as absent (distinct

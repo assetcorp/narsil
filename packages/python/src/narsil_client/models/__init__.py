@@ -219,10 +219,10 @@ class BM25FieldParams(ApiModel):
 
 class BM25Params(ApiModel):
     """BM25 tuning for an index or for one search. Both parameters default to the values the
-    literature settles on, so change them only once you have measured relevance on your own
-    corpus. For each field, the engine takes the first value that is set among the search's
-    value for the field, the search's value, the index's value for the field, the index's value,
-    and the default.
+    literature settles on, so change them only once you have measured relevance on your corpus.
+    For each field, the engine takes the first value that is set among the search's value for
+    the field, the search's value, the index's value for the field, the index's value, and the
+    default.
     """
 
     k1: int | float | None = None
@@ -631,9 +631,9 @@ class FacetResult(ApiModel):
     leaves out of `values` because of `limit` has a true count of at most this figure too. Where
     the engine counts a field on one thread, it counts every value exactly, so this figure is
     the largest count that it leaves out. Where it splits the count across worker copies or
-    cluster nodes, each of them returns only its own top values, so the merged count of a value
-    that is common overall but rare on one of them can lack the matches on that one. A bound of
-    0 means that `values` holds every matching value, each with its exact count.
+    cluster nodes, each of them returns only the top values that it counted, so the merged count
+    of a value that is common overall but rare on one of them can lack the matches on that one.
+    A bound of 0 means that `values` holds every matching value, each with its exact count.
     """
 
 
@@ -727,7 +727,7 @@ class PresenceFilter(ApiModel):
 class StringFilter(ApiModel):
     """The engine tests a text field against this filter for equality, for a text range, or with
     the set, prefix, and pattern tests. On a `string[]`, `verbatim[]`, or `enum[]` field, the
-    engine tests each element of the list on its own. A document passes `eq`, `in`,
+    engine tests each element of the list separately. A document passes `eq`, `in`,
     `startsWith`, `endsWith`, `contains`, `wildcard`, or `regex` when one element passes the
     test. However, a document passes `ne` or `nin` only when every element differs from the
     values. The engine applies the range tests `gt`, `gte`, `lt`, `lte`, and `between` to a
@@ -809,8 +809,8 @@ class StringFilter(ApiModel):
     the case fold of the text, so a test for `error` matches `ERROR`. It applies to `eq`, `ne`,
     `in`, `nin`, `startsWith`, `endsWith`, `contains`, `wildcard`, and `regex`. Under
     `caseFold`, a set that does not open with `^` can also match a sequence of code points. When
-    a member that the set holds on its own folds to several code points, the set matches that
-    whole fold, so `[ß]` matches `ss`.
+    a single member of the set folds to several code points, the set matches that whole fold, so
+    `[ß]` matches `ss`.
     """
     tolerance: Annotated[Literal["auto"], OPEN_ENUM] | Literal[0, 2, 1] | None = None
     """This lets the `eq` test of a pattern field match a value within this many edits of the text,
@@ -994,8 +994,8 @@ class HighlightMatch(ApiModel):
 class PartitionConfig(ApiModel):
     """How many partitions an index opens with, and how many documents it accepts. An index opens
     with `maxPartitions` partitions and keeps that count until Narsil.rebalance changes it,
-    because the engine adds no partition on its own. Set `watermark` to learn through the
-    `partitionWatermark` event when an index fills its capacity.
+    because the engine adds no partition unless you ask for one. Set `watermark` to learn
+    through the `partitionWatermark` event when an index fills its capacity.
     """
 
     max_docs_per_partition: int | float | None = Field(default=None, alias="maxDocsPerPartition")
@@ -1065,7 +1065,7 @@ class VectorIndexConfig(ApiModel):
     """Controls when a vector field moves from a brute-force scan to an HNSW graph, and how that
     graph is built. A small field answers faster from a brute-force scan, so the engine builds a
     graph only once the field holds enough vectors to earn one. Leave every field unset to
-    accept the engine's own values.
+    accept the engine defaults.
     """
 
     threshold: int | float | None = None
@@ -1106,7 +1106,7 @@ class HttpIndexBody(ApiModel):
     """A query scores this way unless it asks for another mode."""
     tokenizer: str | None = None
     """This is the name of a tokeniser registered on the server, which then splits text in place of
-    the language's own rules.
+    the tokeniser of the language.
     """
     stop_words: str | list[str] | None = Field(default=None, alias="stopWords")
     """This name of a stop word set registered on the server, or this list, replaces the language's
@@ -1300,7 +1300,7 @@ class RerankConfig(ApiModel):
     """
     fields: list[str]
     """The engine sends the adapter the values of these text fields, in this order and joined with
-    newlines, as the text of each hit. Each member of a list field takes a line of its own. The
+    newlines, as the text of each hit. Each member of a list field takes a separate line. The
     engine throws `RERANK_CONFIG_INVALID` for an empty list, for a field that the schema does
     not declare as text, and for a field that the list gives twice.
     """

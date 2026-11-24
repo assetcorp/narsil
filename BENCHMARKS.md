@@ -8,7 +8,8 @@ the same engine that answers queries behind an HTTP API.
 
 Every number and every chart on this page comes from a recorded run. A script
 reads the latest run of each suite and fills the tables below from the raw results,
-while a second script draws each figure into the run's own directory. A
+while a second script draws each figure into the directory of the run that it
+comes from. A
 continuous-integration check fails the build if the page or a figure ever differs
 from those recordings. Each section links to the run it came from so you can read
 the per-engine detail and reproduce the figures yourself.
@@ -51,7 +52,8 @@ Each track below opens with two bar charts per dataset, ranking quality and peak
 throughput, followed by the table behind them. Where a run measured more than one
 concurrency level, a line chart then follows each engine across those levels, and
 the setup block above says which levels a run measured. A latency profile at the
-end of the track shows how far each engine's tail stretches at its own peak. That
+end of the track shows how far each engine's tail stretches at the peak
+throughput of that engine. That
 under-load latency comes from the throughput passes, because their five-second
 windows hold several times more samples than the serial track, so p99.9 rests on
 more than the slowest one or two requests.
@@ -59,8 +61,8 @@ more than the slowest one or two requests.
 ### Keyword track
 
 Narsil's BM25 is calibrated to the Anserini reference, so it ranks with the
-Lucene engines on these graded judgements. Typesense and Meilisearch apply their
-own documented ranking models in place of BM25, which places them lower here.
+Lucene engines on these graded judgements. Typesense and Meilisearch each rank
+with a documented model that differs from BM25, which places them lower here.
 
 The nDCG@10 rank in each table that lists nDCG@10 is one more than the number
 of engines that score significantly higher. A two-sided paired randomization
@@ -82,7 +84,7 @@ a 5% error rate, so engines that share a rank are statistically tied.
 | Typesense | 0.5503 | 5 | 0.7508 | 0.5164 | 0.5280 | 333 (330 to 334) |
 | Meilisearch | 0.5019 | 5 | 0.5982 | 0.4823 | 0.4903 | 2,124 (2,114 to 2,174) |
 
-<img src="benchmarks/server/results/runs/20261119T135007Z/charts/equal-precision-keyword-scifact-sweep.svg" alt="Line panels for the keyword track on SciFact against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
+<img src="benchmarks/server/results/runs/20261119T135007Z/charts/equal-precision-keyword-scifact-sweep.svg" alt="Line panels for the keyword track on SciFact against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report a server-side query time, and the engine container's busy cores where the harness recorded them." width="820">
 
 #### NFCorpus
 
@@ -97,7 +99,7 @@ a 5% error rate, so engines that share a rank are statistically tied.
 | Meilisearch | 0.2654 | 5 | 0.1554 | 0.1214 | 0.4415 | 4,166 (4,156 to 4,196) |
 | Typesense | 0.2420 | 5 | 0.2089 | 0.1171 | 0.4242 | 4,355 (4,333 to 4,364) |
 
-<img src="benchmarks/server/results/runs/20261119T135007Z/charts/equal-precision-keyword-nfcorpus-sweep.svg" alt="Line panels for the keyword track on NFCorpus against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
+<img src="benchmarks/server/results/runs/20261119T135007Z/charts/equal-precision-keyword-nfcorpus-sweep.svg" alt="Line panels for the keyword track on NFCorpus against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report a server-side query time, and the engine container's busy cores where the harness recorded them." width="820">
 
 #### DBpedia entities 100K
 
@@ -112,7 +114,7 @@ a 5% error rate, so engines that share a rank are statistically tied.
 | Typesense | 3,429 (3,426 to 3,438) |
 | Meilisearch | 3,206 (3,205 to 3,237) |
 
-<img src="benchmarks/server/results/runs/20261119T135007Z/charts/equal-precision-keyword-dbpedia-entities-openai-100k-sweep.svg" alt="Line panels for the keyword track on DBpedia entities 100K against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
+<img src="benchmarks/server/results/runs/20261119T135007Z/charts/equal-precision-keyword-dbpedia-entities-openai-100k-sweep.svg" alt="Line panels for the keyword track on DBpedia entities 100K against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report a server-side query time, and the engine container's busy cores where the harness recorded them." width="820">
 
 #### DBpedia entities 1M
 
@@ -127,7 +129,7 @@ a 5% error rate, so engines that share a rank are statistically tied.
 | Meilisearch | 1,387 (1,383 to 1,414) |
 | Typesense | 1,052 (1,048 to 1,067) |
 
-<img src="benchmarks/server/results/runs/20261119T135007Z/charts/equal-precision-keyword-dbpedia-entities-openai-1m-sweep.svg" alt="Line panels for the keyword track on DBpedia entities 1M against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
+<img src="benchmarks/server/results/runs/20261119T135007Z/charts/equal-precision-keyword-dbpedia-entities-openai-1m-sweep.svg" alt="Line panels for the keyword track on DBpedia entities 1M against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report a server-side query time, and the engine container's busy cores where the harness recorded them." width="820">
 
 <img src="benchmarks/server/results/runs/20261119T135007Z/charts/equal-precision-keyword-latency-profile.svg" alt="Server-side latency at p50, p95, p99, p99.9, and the maximum for each engine on the keyword track at its peak concurrency level, one panel per dataset, on a logarithmic scale. An engine that reports no server-side time is absent, and a whole-millisecond timer leaves out the points it floors to zero." width="820">
 <!-- BENCH:server-keyword END -->
@@ -166,7 +168,7 @@ On SciFact, every engine tunes its search effort to reach ann_recall@10 of at le
 | OpenSearch | ef_search 64 | 0.9973 | 7,957 (7,946 to 7,980) |
 | Weaviate | ef 64 | 0.9967 | 1,788 (1,788 to 1,791) |
 
-<img src="benchmarks/server/results/runs/20261119T135007Z/charts/equal-precision-vector-scifact-sweep.svg" alt="Line panels for the vector track on SciFact against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
+<img src="benchmarks/server/results/runs/20261119T135007Z/charts/equal-precision-vector-scifact-sweep.svg" alt="Line panels for the vector track on SciFact against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report a server-side query time, and the engine container's busy cores where the harness recorded them." width="820">
 
 <img src="benchmarks/server/results/runs/20261119T135007Z/charts/vector-scifact-throughput-against-recall.svg" alt="Queries per second against ANN recall@10 on SciFact, one point per search-effort level per engine, with equal precision drawn solid and recommended production settings dashed." width="820">
 
@@ -183,7 +185,7 @@ On SciFact, every engine tunes its search effort to reach ann_recall@10 of at le
 | Elasticsearch | num_candidates 192 | 0.9901 | 7,288 (7,138 to 7,290) |
 | Weaviate | ef 160 | 0.9932 | 1,684 (1,681 to 1,689) |
 
-<img src="benchmarks/server/results/runs/20261119T135007Z/charts/equal-precision-vector-nfcorpus-sweep.svg" alt="Line panels for the vector track on NFCorpus against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
+<img src="benchmarks/server/results/runs/20261119T135007Z/charts/equal-precision-vector-nfcorpus-sweep.svg" alt="Line panels for the vector track on NFCorpus against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report a server-side query time, and the engine container's busy cores where the harness recorded them." width="820">
 
 <img src="benchmarks/server/results/runs/20261119T135007Z/charts/vector-nfcorpus-throughput-against-recall.svg" alt="Queries per second against ANN recall@10 on NFCorpus, one point per search-effort level per engine, with equal precision drawn solid and recommended production settings dashed." width="820">
 
@@ -200,7 +202,7 @@ On SciFact, every engine tunes its search effort to reach ann_recall@10 of at le
 | Qdrant | hnsw_ef 128 | 0.9946 | 1,525 (1,517 to 1,536) |
 | Weaviate | ef 160 | 0.9917 | 616 (615 to 617) |
 
-<img src="benchmarks/server/results/runs/20261119T135007Z/charts/equal-precision-vector-dbpedia-entities-openai-100k-sweep.svg" alt="Line panels for the vector track on DBpedia entities 100K against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
+<img src="benchmarks/server/results/runs/20261119T135007Z/charts/equal-precision-vector-dbpedia-entities-openai-100k-sweep.svg" alt="Line panels for the vector track on DBpedia entities 100K against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report a server-side query time, and the engine container's busy cores where the harness recorded them." width="820">
 
 <img src="benchmarks/server/results/runs/20261119T135007Z/charts/vector-dbpedia-entities-openai-100k-throughput-against-recall.svg" alt="Queries per second against ANN recall@10 on DBpedia entities 100K, one point per search-effort level per engine, with equal precision drawn solid and recommended production settings dashed." width="820">
 
@@ -217,7 +219,7 @@ On SciFact, every engine tunes its search effort to reach ann_recall@10 of at le
 | Qdrant | hnsw_ef 192 | 0.9927 | 647 (643 to 661) |
 | Weaviate | ef 416 | 0.9927 | 476 (476 to 480) |
 
-<img src="benchmarks/server/results/runs/20261119T135007Z/charts/equal-precision-vector-dbpedia-entities-openai-1m-sweep.svg" alt="Line panels for the vector track on DBpedia entities 1M against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
+<img src="benchmarks/server/results/runs/20261119T135007Z/charts/equal-precision-vector-dbpedia-entities-openai-1m-sweep.svg" alt="Line panels for the vector track on DBpedia entities 1M against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report a server-side query time, and the engine container's busy cores where the harness recorded them." width="820">
 
 <img src="benchmarks/server/results/runs/20261119T135007Z/charts/vector-dbpedia-entities-openai-1m-throughput-against-recall.svg" alt="Queries per second against ANN recall@10 on DBpedia entities 1M, one point per search-effort level per engine, with equal precision drawn solid and recommended production settings dashed." width="820">
 
@@ -243,7 +245,7 @@ differs per engine, so ranking quality varies again.
 | Narsil Rust | 0.7054 | 1 | **0.9643**\* | 0.6581 | 0.6648 | **19,998**\* (19,936 to 20,005) |
 | Weaviate | 0.6840 | 1 | 0.9577 | 0.6366 | 0.6460 | 842 (840 to 843) |
 
-<img src="benchmarks/server/results/runs/20261119T135007Z/charts/equal-precision-hybrid-scifact-sweep.svg" alt="Line panels for the hybrid track on SciFact against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
+<img src="benchmarks/server/results/runs/20261119T135007Z/charts/equal-precision-hybrid-scifact-sweep.svg" alt="Line panels for the hybrid track on SciFact against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report a server-side query time, and the engine container's busy cores where the harness recorded them." width="820">
 
 #### NFCorpus
 
@@ -258,7 +260,7 @@ differs per engine, so ranking quality varies again.
 | Qdrant | 0.3504 | 1 | 0.3236 | 0.1826 | 0.5703 | 7,866 (7,854 to 7,870) |
 | Weaviate | 0.3428 | 3 | 0.3195 | 0.1810 | 0.5548 | 1,019 (1,018 to 1,020) |
 
-<img src="benchmarks/server/results/runs/20261119T135007Z/charts/equal-precision-hybrid-nfcorpus-sweep.svg" alt="Line panels for the hybrid track on NFCorpus against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
+<img src="benchmarks/server/results/runs/20261119T135007Z/charts/equal-precision-hybrid-nfcorpus-sweep.svg" alt="Line panels for the hybrid track on NFCorpus against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report a server-side query time, and the engine container's busy cores where the harness recorded them." width="820">
 
 #### DBpedia entities 100K
 
@@ -273,7 +275,7 @@ differs per engine, so ranking quality varies again.
 | Qdrant | 1,404 (1,389 to 1,410) |
 | Weaviate | 513 (509 to 520) |
 
-<img src="benchmarks/server/results/runs/20261119T135007Z/charts/equal-precision-hybrid-dbpedia-entities-openai-100k-sweep.svg" alt="Line panels for the hybrid track on DBpedia entities 100K against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
+<img src="benchmarks/server/results/runs/20261119T135007Z/charts/equal-precision-hybrid-dbpedia-entities-openai-100k-sweep.svg" alt="Line panels for the hybrid track on DBpedia entities 100K against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report a server-side query time, and the engine container's busy cores where the harness recorded them." width="820">
 
 #### DBpedia entities 1M
 
@@ -288,7 +290,7 @@ differs per engine, so ranking quality varies again.
 | Qdrant | 599 (592 to 599) |
 | Weaviate | 380 (372 to 381) |
 
-<img src="benchmarks/server/results/runs/20261119T135007Z/charts/equal-precision-hybrid-dbpedia-entities-openai-1m-sweep.svg" alt="Line panels for the hybrid track on DBpedia entities 1M against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
+<img src="benchmarks/server/results/runs/20261119T135007Z/charts/equal-precision-hybrid-dbpedia-entities-openai-1m-sweep.svg" alt="Line panels for the hybrid track on DBpedia entities 1M against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report a server-side query time, and the engine container's busy cores where the harness recorded them." width="820">
 
 <img src="benchmarks/server/results/runs/20261119T135007Z/charts/equal-precision-hybrid-latency-profile.svg" alt="Server-side latency at p50, p95, p99, p99.9, and the maximum for each engine on the hybrid track at its peak concurrency level, one panel per dataset, on a logarithmic scale. An engine that reports no server-side time is absent, and a whole-millisecond timer leaves out the points it floors to zero." width="820">
 <!-- BENCH:server-hybrid END -->
@@ -319,7 +321,7 @@ remain the headline.
 | Elasticsearch (BBQ) | num_candidates 16 | 0.9907 | 7,656 (7,553 to 7,680) |
 | Weaviate (8-bit RQ) | ef 64 | 0.9970 | 1,663 (1,653 to 1,667) |
 
-<img src="benchmarks/server/results/runs/20261119T135007Z/charts/best-config-vector-scifact-sweep.svg" alt="Line panels for the vector track on SciFact against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
+<img src="benchmarks/server/results/runs/20261119T135007Z/charts/best-config-vector-scifact-sweep.svg" alt="Line panels for the vector track on SciFact against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report a server-side query time, and the engine container's busy cores where the harness recorded them." width="820">
 
 #### NFCorpus
 
@@ -334,7 +336,7 @@ remain the headline.
 | Elasticsearch (BBQ) | num_candidates 8192 | 0.9848 | 5,917 (5,892 to 5,918) |
 | Weaviate (8-bit RQ) | ef 160 | 0.9929 | 1,606 (1,605 to 1,606) |
 
-<img src="benchmarks/server/results/runs/20261119T135007Z/charts/best-config-vector-nfcorpus-sweep.svg" alt="Line panels for the vector track on NFCorpus against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
+<img src="benchmarks/server/results/runs/20261119T135007Z/charts/best-config-vector-nfcorpus-sweep.svg" alt="Line panels for the vector track on NFCorpus against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report a server-side query time, and the engine container's busy cores where the harness recorded them." width="820">
 
 #### DBpedia entities 100K
 
@@ -349,7 +351,7 @@ remain the headline.
 | Elasticsearch (BBQ) | num_candidates 1536 | 0.9922 | 3,010 (3,009 to 3,046) |
 | Weaviate (8-bit RQ) | ef 160 | 0.9917 | 609 (608 to 609) |
 
-<img src="benchmarks/server/results/runs/20261119T135007Z/charts/best-config-vector-dbpedia-entities-openai-100k-sweep.svg" alt="Line panels for the vector track on DBpedia entities 100K against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
+<img src="benchmarks/server/results/runs/20261119T135007Z/charts/best-config-vector-dbpedia-entities-openai-100k-sweep.svg" alt="Line panels for the vector track on DBpedia entities 100K against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report a server-side query time, and the engine container's busy cores where the harness recorded them." width="820">
 
 #### DBpedia entities 1M
 
@@ -364,7 +366,7 @@ remain the headline.
 | Elasticsearch (BBQ) | num_candidates 4096 | 0.9937 | 1,479 (1,476 to 1,491) |
 | Weaviate (8-bit RQ) | ef 384 | 0.9921 | 534 (531 to 537) |
 
-<img src="benchmarks/server/results/runs/20261119T135007Z/charts/best-config-vector-dbpedia-entities-openai-1m-sweep.svg" alt="Line panels for the vector track on DBpedia entities 1M against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
+<img src="benchmarks/server/results/runs/20261119T135007Z/charts/best-config-vector-dbpedia-entities-openai-1m-sweep.svg" alt="Line panels for the vector track on DBpedia entities 1M against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report a server-side query time, and the engine container's busy cores where the harness recorded them." width="820">
 
 <img src="benchmarks/server/results/runs/20261119T135007Z/charts/best-config-vector-latency-profile.svg" alt="Server-side latency at p50, p95, p99, p99.9, and the maximum for each engine on the vector track at its peak concurrency level, one panel per dataset, on a logarithmic scale. An engine that reports no server-side time is absent, and a whole-millisecond timer leaves out the points it floors to zero." width="820">
 <!-- BENCH:server-vector-best-config END -->
@@ -385,7 +387,7 @@ remain the headline.
 | Narsil Rust (OSQ 4-bit) | 0.7054 | 1 | **0.9643**\* | 0.6581 | 0.6648 | **21,782**\* (21,769 to 21,888) |
 | Weaviate (8-bit RQ) | 0.6840 | 1 | 0.9577 | 0.6366 | 0.6460 | 781 (779 to 792) |
 
-<img src="benchmarks/server/results/runs/20261119T135007Z/charts/best-config-hybrid-scifact-sweep.svg" alt="Line panels for the hybrid track on SciFact against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
+<img src="benchmarks/server/results/runs/20261119T135007Z/charts/best-config-hybrid-scifact-sweep.svg" alt="Line panels for the hybrid track on SciFact against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report a server-side query time, and the engine container's busy cores where the harness recorded them." width="820">
 
 #### NFCorpus
 
@@ -400,7 +402,7 @@ remain the headline.
 | Qdrant (TurboQuant 4-bit) | 0.3504 | 1 | 0.3236 | 0.1824 | 0.5662 | 8,783 (8,782 to 8,784) |
 | Weaviate (8-bit RQ) | 0.3431 | 3 | 0.3194 | 0.1809 | 0.5562 | 953 (952 to 955) |
 
-<img src="benchmarks/server/results/runs/20261119T135007Z/charts/best-config-hybrid-nfcorpus-sweep.svg" alt="Line panels for the hybrid track on NFCorpus against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
+<img src="benchmarks/server/results/runs/20261119T135007Z/charts/best-config-hybrid-nfcorpus-sweep.svg" alt="Line panels for the hybrid track on NFCorpus against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report a server-side query time, and the engine container's busy cores where the harness recorded them." width="820">
 
 #### DBpedia entities 100K
 
@@ -415,7 +417,7 @@ remain the headline.
 | Elasticsearch (BBQ) | 2,367 (2,353 to 2,377) |
 | Weaviate (8-bit RQ) | 478 (477 to 479) |
 
-<img src="benchmarks/server/results/runs/20261119T135007Z/charts/best-config-hybrid-dbpedia-entities-openai-100k-sweep.svg" alt="Line panels for the hybrid track on DBpedia entities 100K against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
+<img src="benchmarks/server/results/runs/20261119T135007Z/charts/best-config-hybrid-dbpedia-entities-openai-100k-sweep.svg" alt="Line panels for the hybrid track on DBpedia entities 100K against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report a server-side query time, and the engine container's busy cores where the harness recorded them." width="820">
 
 #### DBpedia entities 1M
 
@@ -430,7 +432,7 @@ remain the headline.
 | Elasticsearch (BBQ) | 1,208 (1,200 to 1,214) |
 | Weaviate (8-bit RQ) | 371 (369 to 374) |
 
-<img src="benchmarks/server/results/runs/20261119T135007Z/charts/best-config-hybrid-dbpedia-entities-openai-1m-sweep.svg" alt="Line panels for the hybrid track on DBpedia entities 1M against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
+<img src="benchmarks/server/results/runs/20261119T135007Z/charts/best-config-hybrid-dbpedia-entities-openai-1m-sweep.svg" alt="Line panels for the hybrid track on DBpedia entities 1M against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report a server-side query time, and the engine container's busy cores where the harness recorded them." width="820">
 
 <img src="benchmarks/server/results/runs/20261119T135007Z/charts/best-config-hybrid-latency-profile.svg" alt="Server-side latency at p50, p95, p99, p99.9, and the maximum for each engine on the hybrid track at its peak concurrency level, one panel per dataset, on a logarithmic scale. An engine that reports no server-side time is absent, and a whole-millisecond timer leaves out the points it floors to zero." width="820">
 <!-- BENCH:server-hybrid-best-config END -->
@@ -442,7 +444,7 @@ single-query latency cannot separate these engines at a few thousand documents.
 Narsil reports its server-side query time in floating milliseconds, so its
 sub-millisecond searches are recorded exactly. Elasticsearch, OpenSearch,
 Meilisearch, and Typesense report whole milliseconds, so their sub-millisecond
-searches fall below what their own timers can resolve, and the latency charts leave
+searches fall below what the timers of those engines can resolve, and the latency charts leave
 out the points those timers floor to zero. Weaviate exposes no server-side query
 time, so only its client round-trip is recorded and it is absent from the
 server-side latency charts. The linked run report carries the full latency tables,
@@ -455,7 +457,7 @@ and no network, against Orama and MiniSearch. This is the embedded class, where
 Narsil indexes and queries in the same process as your application code. The speed
 tiers run on a BEIR corpus, and ranking quality is scored on BEIR SciFact with its
 human relevance judgements. All three engines use the same Lucene English stop
-words and default BM25 parameters. Each one stems English with its own
+words and default BM25 parameters. Each one stems English with a separate
 implementation, which no shared setting overrides, so a ranking gap between them
 carries both the ranking and the stemmer.
 
@@ -579,7 +581,7 @@ code with any engine checks every answer before the suite records a run.
 <!-- BENCH:languages-speed START -->
 Embedded TypeScript sends every search through the one JavaScript main thread, which caps its throughput when several callers query at once, while the HTTP server answers requests on separate request threads.
 
-On 8 threads TypeScript answers through worker copies. Its 8 callers share the one Node.js main thread, which copies a query into a message to a free worker thread and copies the answer back out of its reply, and which answers on its own copy only while every worker is busy. Rust answers on each caller's thread, and Go hands each query to a free goroutine of its query pool over a channel, so both search the one index in shared memory and copy neither the query nor the answer. On 1 thread a TypeScript keyword query takes 58.9 µs at the median. On 8 threads each query also waits for those two copies and for its turn on the shared main thread, and TypeScript's keyword p50 reaches 368.8 µs while its queries per second go from 14,653 to 20,417. A worker copy runs the query itself off the main thread, so the application's own code on that thread keeps running while a search is under way.
+On 8 threads TypeScript answers through worker copies. Its 8 callers share the one Node.js main thread, which copies a query into a message to a free worker thread and copies the answer back out of its reply, and which answers on the main copy only while every worker is busy. Rust answers on each caller's thread, and Go hands each query to a free goroutine of its query pool over a channel, so both search the one index in shared memory and copy neither the query nor the answer. On 1 thread a TypeScript keyword query takes 58.9 µs at the median. On 8 threads each query also waits for those two copies and for its turn on the shared main thread, and TypeScript's keyword p50 reaches 368.8 µs while its queries per second go from 14,653 to 20,417. A worker copy runs the query itself off the main thread, so the application code on that thread keeps running while a search is under way.
 
 <img src="benchmarks/engine-languages/results/runs/20261119T143653Z-142-22a057f1-a9b9-4415-b672-7555e19a8888/charts/languages-keyword-bars.svg" alt="Keyword search in TypeScript, Rust, and Go on 1 and 8 threads: bars for the median queries per second, with the range across repetitions, beside bars for the p50 latency in microseconds." width="820">
 
@@ -671,7 +673,7 @@ The widest gap between two engines is 0.0022 in mean recall@10, between Go and R
   [language benchmark README](benchmarks/engine-languages/README.md) lists the
   versions that it needs.
 - **This page.** After a run, `python3 benchmarks/writeup/charts.py` draws every
-  figure into the run's own `charts/` directory, and
+  figure into the `charts/` directory of the run that it comes from, and
   `python3 benchmarks/writeup/generate.py` rewrites the tables above from the
   latest recorded run of each suite. `python3 benchmarks/writeup/generate.py
   --check` verifies that the page and its figures match those runs, and

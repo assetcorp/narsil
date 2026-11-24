@@ -3,7 +3,8 @@ package engine
 import "github.com/assetcorp/narsil/packages/go/engine/internal/model"
 
 // Optional holds a setting that a caller may leave out, so that the engine
-// tells an absent value apart from a zero one and applies its own default.
+// tells an absent value apart from a zero one and applies the default for
+// that setting.
 // It encodes to JSON as its value, or as null when unset, and decoding null
 // leaves it unset, so a config read from JSON keeps an absent field apart
 // from 0.
@@ -74,7 +75,7 @@ func VectorFieldType(dimension int) FieldType {
 type ScoringMode = model.ScoringMode
 
 const (
-	// ScoringLocal scores each partition with its own term statistics.
+	// ScoringLocal scores each partition with the term statistics that it holds.
 	ScoringLocal = model.ScoringLocal
 	// ScoringDFS scores with term statistics gathered from every partition first.
 	ScoringDFS = model.ScoringDFS

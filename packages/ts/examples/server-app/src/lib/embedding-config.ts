@@ -35,7 +35,7 @@ export interface EmbeddingChoice {
 /**
  * Wikipedia articles run up to ~190k characters, far past the ~8k-token
  * per-input limit of OpenAI embedding models, so the load pipeline stores the
- * article lead in its own field and embeds that instead of the full text.
+ * article lead in a separate field and embeds only that field.
  */
 export const WIKIPEDIA_LEAD_FIELD = 'lead'
 export const WIKIPEDIA_LEAD_MAX_CHARS = 1500

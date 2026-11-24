@@ -4,7 +4,7 @@ The blocks carry every number, ranking, and figure, so the surrounding prose in
 BENCHMARKS.md can stay qualitative and stays in step with the run. Quality metrics
 come from `metrics`, throughput from the peak concurrency level the suite records,
 the matched-recall operating point from `operating_point`, and every figure from
-the charts drawn into the run's own directory.
+the charts drawn into the directory of the run.
 """
 
 from __future__ import annotations
@@ -166,7 +166,7 @@ def _sweep_figure(chart_dir: str, profile: str, name: str, dataset_id: str, rows
         sweep_chart(chart_dir, profile, name, dataset_id),
         f"Line panels for the {name} track on {dataset} against concurrent clients: queries per second with a "
         "confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report "
-        "their own query time, and the engine container's busy cores where the harness recorded them.",
+        "a server-side query time, and the engine container's busy cores where the harness recorded them.",
     )
 
 

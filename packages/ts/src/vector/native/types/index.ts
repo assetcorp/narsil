@@ -159,7 +159,7 @@ export interface NativeCore
   ): number
   /**
    * Finds the nodes nearest to a query on a native thread, so the calling thread stays free while the core walks
-   * the graph. A core without its own threads leaves this out.
+   * the graph. A core that starts no threads leaves this out.
    *
    * @param graph - The graph to walk.
    * @param store - The store that holds the graph's vectors.
@@ -182,7 +182,7 @@ export interface NativeCore
     accepted: Uint8Array | null,
   ): Promise<NativeSearchResult>
   /**
-   * Measures the distance from a query to each of the given ordinals on a native thread. A core without its own
+   * Measures the distance from a query to each of the given ordinals on a native thread. A core that starts no
    * threads leaves this out.
    *
    * @param store - The store that holds the vectors.
@@ -276,7 +276,7 @@ export interface NativeCore
    * Links the nodes that no other node points at to nearby nodes on a native thread, so the calling thread stays free
    * while the core walks the graph. The call takes the graph lock alone before it returns, and the native thread
    * releases it once the pass ends. Where another thread holds the lock, the call runs no pass and settles with the
-   * status that reports the graph as held elsewhere. A core without its own threads leaves this out.
+   * status that reports the graph as held elsewhere. A core that starts no threads leaves this out.
    *
    * @param graph - The graph to change.
    * @param store - The store that holds the graph's vectors.
