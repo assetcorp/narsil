@@ -4,17 +4,31 @@ import type { BatchWrite, WriteFailure } from './batch-write'
 
 export const WINDOW_ENDED: unique symbol = Symbol('forward window ended')
 
-export async function beforeWindowEnds<T>(work: Promise<T>, deadline: number): Promise<T | typeof WINDOW_ENDED> {
+export async function beforeWindowEnds<T>(
+  work: Promise<T>,
+  deadline: number,
+  shutdownSignal?: AbortSignal,
+): Promise<T | typeof WINDOW_ENDED> {
   work.catch(() => undefined)
+  if (shutdownSignal?.aborted === true) return WINDOW_ENDED
   let timer: ReturnType<typeof setTimeout> | undefined
+  const waiters = shutdownSignal === undefined ? undefined : shutdownWaitersOf(shutdownSignal)
+  let wake: (() => void) | undefined
   const ended = new Promise<typeof WINDOW_ENDED>(resolve => {
-    timer = setTimeout(() => resolve(WINDOW_ENDED), Math.max(0, deadline - Date.now()))
+    wake = () => resolve(WINDOW_ENDED)
+    waiters?.add(wake)
+    timer = setTimeout(wake, Math.max(0, deadline - Date.now()))
   })
   try {
     return await Promise.race([work, ended])
   } finally {
     clearTimeout(timer)
+    if (wake !== undefined) waiters?.delete(wake)
   }
+}
+
+export async function pauseBeforeShutdown(delayMs: number, shutdownSignal?: AbortSignal): Promise<void> {
+  await beforeWindowEnds(new Promise<never>(() => undefined), Date.now() + delayMs, shutdownSignal)
 }
 
 const waitersBySignal = new WeakMap<AbortSignal, Set<() => void>>()

@@ -39,7 +39,7 @@ export async function retryOnPrimaryChange<T, V>(
     } catch (error) {
       if (history.mayHaveApplied) {
         const settling = settleRetried([{ write, error }], NONE_ACKNOWLEDGED)
-        const settlement = await settledBeforeWindowEnds(settling, deadline)
+        const settlement = await settledBeforeWindowEnds(settling, deadline, deps.shutdownSignal)
         if (settlement.settled.has(write)) return settledValue()
         if (settlement.unverified.has(write) && history.abandonedAttempt !== undefined) {
           throw finalError(history, indexName, docId, history.abandonedAttempt)

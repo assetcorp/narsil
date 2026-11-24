@@ -81,7 +81,10 @@ impl WriteRouter {
             return HashSet::new();
         }
         let settling = self.settle_equal_inserts(serving_name, &uncertain, acknowledged);
-        timeout_at(deadline, settling).await.unwrap_or_default()
+        self.until_stopped(timeout_at(deadline, settling))
+            .await
+            .and_then(Result::ok)
+            .unwrap_or_default()
     }
 
     pub(super) async fn retry_group(
@@ -98,8 +101,13 @@ impl WriteRouter {
         let mut last_refusals: HashMap<usize, ClusterError> = HashMap::new();
         let mut delay = Duration::from_millis(FORWARD_RETRY_INITIAL_DELAY_MS);
         while !pending.is_empty() {
-            let read = timeout_at(deadline, self.view.read(&serving_name)).await;
-            let Some(read) = read.ok().filter(|_| Instant::now() < deadline) else {
+            let read = self
+                .until_stopped(timeout_at(deadline, self.view.read(&serving_name)))
+                .await;
+            let Some(read) = read
+                .and_then(Result::ok)
+                .filter(|_| Instant::now() < deadline)
+            else {
                 for write in &pending {
                     let error = last_answer(
                         &serving_name,

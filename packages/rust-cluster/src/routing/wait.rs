@@ -1,3 +1,4 @@
+use std::future::Future;
 use std::time::Duration;
 
 use tokio::time::{Instant, sleep, timeout_at};
@@ -48,6 +49,15 @@ pub(super) fn next_retry_delay(delay: Duration) -> Duration {
 }
 
 impl WriteRouter {
+    pub(super) async fn until_stopped<T>(&self, work: impl Future<Output = T>) -> Option<T> {
+        let mut stopping = self.stopping.subscribe();
+        tokio::select! {
+            biased;
+            _ = stopping.wait_for(|stopped| *stopped) => None,
+            value = work => Some(value),
+        }
+    }
+
     pub(super) async fn pause_and_reread(
         &self,
         serving_name: &str,
@@ -58,19 +68,25 @@ impl WriteRouter {
         if now >= deadline {
             return false;
         }
-        sleep(delay.min(deadline - now)).await;
-        if self.is_stopping() {
+        if self
+            .until_stopped(sleep(delay.min(deadline - now)))
+            .await
+            .is_none()
+        {
             return false;
         }
-        match timeout_at(deadline, self.view.refresh(serving_name)).await {
-            Err(_) | Ok(Ok(None)) => return false,
-            Ok(_) => {}
+        match self
+            .until_stopped(timeout_at(deadline, self.view.refresh(serving_name)))
+            .await
+        {
+            None | Some(Err(_) | Ok(Ok(None))) => return false,
+            Some(Ok(_)) => {}
         }
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining >= Duration::from_millis(FORWARD_RETRY_LAST_ATTEMPT_ROOM_MS) {
             return true;
         }
-        sleep(remaining).await;
+        self.until_stopped(sleep(remaining)).await;
         false
     }
 
@@ -84,15 +100,23 @@ impl WriteRouter {
             if self.is_stopping() {
                 return false;
             }
-            match timeout_at(deadline, self.view.refresh(serving_name)).await {
-                Err(_) | Ok(Ok(None)) => return false,
-                Ok(Ok(Some(table))) if refusing.iter().any(|primary| moved_on(&table, primary)) => {
+            match self
+                .until_stopped(timeout_at(deadline, self.view.refresh(serving_name)))
+                .await
+            {
+                None | Some(Err(_) | Ok(Ok(None))) => return false,
+                Some(Ok(Ok(Some(table))))
+                    if refusing.iter().any(|primary| moved_on(&table, primary)) =>
+                {
                     return true;
                 }
                 _ => {}
             }
             let remaining = deadline.saturating_duration_since(Instant::now());
-            sleep(remaining.min(Duration::from_millis(PRIMARY_CHANGE_POLL_INTERVAL_MS))).await;
+            self.until_stopped(sleep(
+                remaining.min(Duration::from_millis(PRIMARY_CHANGE_POLL_INTERVAL_MS)),
+            ))
+            .await;
         }
         false
     }

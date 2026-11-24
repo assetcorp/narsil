@@ -28,8 +28,9 @@ export const settleNothing: SettleRetried<unknown> = async () => NOTHING_SETTLED
 export async function settledBeforeWindowEnds(
   settling: Promise<RetrySettlement>,
   deadline: number,
+  shutdownSignal?: AbortSignal,
 ): Promise<RetrySettlement> {
-  const settlement = await beforeWindowEnds(settling, deadline)
+  const settlement = await beforeWindowEnds(settling, deadline, shutdownSignal)
   return settlement === WINDOW_ENDED ? NOTHING_SETTLED : settlement
 }
 

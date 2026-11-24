@@ -100,7 +100,7 @@ async function retryBatchOnPrimaryChange<V>(
     }
     for (const write of result.succeeded) succeeded.push(write)
     const settling = settleInSentOrder(pending, result, succeeded, histories, settleRetried)
-    const settlement = await settledBeforeWindowEnds(settling, deadline)
+    const settlement = await settledBeforeWindowEnds(settling, deadline, deps.shutdownSignal)
     const refused = new Map<BatchWrite<V>, RefusedWrite<V>>()
     for (const failure of result.failed) {
       const { write, error, withheld } = failure
