@@ -312,6 +312,18 @@ pub(crate) fn whole_of(value: &Bound<'_, PyAny>, path: &str) -> Result<u64, Nars
     Err(refused())
 }
 
+pub(crate) fn boolean_of(value: &Bound<'_, PyAny>, path: &str) -> Result<bool, NarsilError> {
+    value
+        .cast::<PyBool>()
+        .map(|flag| flag.is_true())
+        .map_err(|_| {
+            config_invalid(format!(
+                "{path} must be a bool, and it is a {}",
+                kind_of(value)
+            ))
+        })
+}
+
 pub(crate) fn string_of(value: &Bound<'_, PyAny>, path: &str) -> Result<String, NarsilError> {
     value
         .cast::<PyString>()
