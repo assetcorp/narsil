@@ -36,10 +36,7 @@ export const YORUBA_WORDS = [
 
 export const YORUBA_QUERY_WORDS = ['oko', 'ile', 'ilu', 'omo', 'eja', 'oja', 'agba', 'segun', 'kekere', 'ore', 'iwe']
 
-export interface WordDocument {
-  id: string
-  body: string
-}
+export type WordDocument = { id: string; body: string }
 
 export function foldOracle(word: string, letters: Readonly<Record<string, string>> = {}): string {
   let folded = ''
