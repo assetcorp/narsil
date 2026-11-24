@@ -1,7 +1,7 @@
 import type { DurabilityConfig, NarsilConfig } from '@delali/narsil'
 
 /**
- * The engine settings that an app passes to the engine on its own Worklets
+ * The engine settings that an app passes to the engine on a separate Worklets
  * runtime. Each value has to cross to that runtime as data, so the settings
  * that hold a function, such as an embedding adapter or a plugin, go in an
  * {@link EngineSetup} worklet instead.

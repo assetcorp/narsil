@@ -160,10 +160,10 @@ function spawnDemoNarsilServer(onExitAfterReady: (detail: string) => void): Prom
 
 /**
  * Starts the local Narsil HTTP server that backs the demo when no external
- * server is configured. It runs in its own process so recovery never blocks
- * the dev server, and the promise is cached on globalThis so Vite config
- * reloads within one dev process reuse the running server instead of
- * competing for the port. Indexes persist under `.narsil-data` (override with
+ * server is configured. It runs in a separate process so that recovery never
+ * blocks the dev server. The function caches the promise on globalThis, so a
+ * Vite config reload within one dev process reuses the running server and
+ * never competes with it for the port. Indexes persist under `.narsil-data` (override with
  * NARSIL_DATA_DIR) and are recovered on the next start, so loaded datasets
  * survive dev-server restarts. The directory has no cross-process lock; run
  * one dev server per data directory.

@@ -104,7 +104,7 @@ export function createForwardBatchResultMessage(
  *
  * @param payload - The request, which names the replica and states both its applied position and the primary's
  *   commit point.
- * @param sourceId - The primary's own node id, which the controller compares with the assignment's primary.
+ * @param sourceId - The node id of the primary, which the controller compares with the assignment's primary.
  * @returns The message, which holds a fresh request id that the confirmation repeats.
  */
 export function createInsyncAddMessage(payload: InsyncAddPayload, sourceId: string): TransportMessage {

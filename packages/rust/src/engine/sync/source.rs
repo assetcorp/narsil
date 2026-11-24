@@ -67,7 +67,7 @@ pub struct ChangesIndexState {
     pub previous_document: bool,
 }
 
-/// Where a device feed reads a synced index: the engine's own log, or a cluster node that reads each partition
+/// Where a device feed reads a synced index: the log of the local engine, or a cluster node that reads each partition
 /// from the node that leads it. Each call can block, so an async caller makes it off its executor.
 pub trait FeedSource: Send + Sync {
     /// Returns the epoch, the partition count, and the device settings of a synced index, or `None` while device

@@ -104,7 +104,7 @@ error_codes! {
     CHANGES_INVALID_POSITIONS,
     /// Popular query suggestions are off for the index.
     QUERY_SUGGESTIONS_NOT_ENABLED,
-    /// A partition's in-memory state broke one of the engine's own rules.
+    /// A partition's in-memory state broke an invariant of the engine.
     PARTITION_CORRUPTED,
     /// The text analysis generation that a file names is missing from the index.
     ANALYSIS_GENERATION_MISSING,

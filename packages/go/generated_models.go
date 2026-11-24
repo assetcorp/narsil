@@ -115,8 +115,8 @@ type BM25FieldParams struct {
 }
 
 // BM25Params: BM25 tuning for an index or for one search. Both parameters default to the values the
-// literature settles on, so change them only once you have measured relevance on your own corpus. For
-// each field, the engine takes the first value that is set among the search's value for the field, the
+// literature settles on, so change them only once you have measured relevance on your corpus. For each
+// field, the engine takes the first value that is set among the search's value for the field, the
 // search's value, the index's value for the field, the index's value, and the default.
 type BM25Params struct {
 	// This saturates term frequency, so a higher value lets a repeated term keep raising a score. It
@@ -417,9 +417,9 @@ type FacetResult struct {
 	// of `values` because of `limit` has a true count of at most this figure too. Where the engine counts
 	// a field on one thread, it counts every value exactly, so this figure is the largest count that it
 	// leaves out. Where it splits the count across worker copies or cluster nodes, each of them returns
-	// only its own top values, so the merged count of a value that is common overall but rare on one of
-	// them can lack the matches on that one. A bound of 0 means that `values` holds every matching value,
-	// each with its exact count.
+	// only the top values that it counted, so the merged count of a value that is common overall but rare
+	// on one of them can lack the matches on that one. A bound of 0 means that `values` holds every
+	// matching value, each with its exact count.
 	ErrorBound float64 `json:"errorBound"`
 }
 
@@ -687,7 +687,7 @@ type HTTPIndexBody struct {
 	// A query scores this way unless it asks for another mode. One of `local`, `dfs`, `broadcast`.
 	DefaultScoring *string `json:"defaultScoring,omitempty"`
 	// This is the name of a tokeniser registered on the server, which then splits text in place of the
-	// language's own rules.
+	// tokeniser of the language.
 	Tokenizer *string `json:"tokenizer,omitempty"`
 	// This name of a stop word set registered on the server, or this list, replaces the language's stop
 	// words.
@@ -1351,7 +1351,7 @@ type PartitionAllocationReport struct {
 
 // PartitionConfig: How many partitions an index opens with, and how many documents it accepts. An
 // index opens with `maxPartitions` partitions and keeps that count until Narsil.rebalance changes it,
-// because the engine adds no partition on its own. Set `watermark` to learn through the
+// because the engine adds no partition unless you ask for one. Set `watermark` to learn through the
 // `partitionWatermark` event when an index fills its capacity.
 type PartitionConfig struct {
 	// The index accepts this many documents for each of its partitions, so its capacity is this number
@@ -1647,7 +1647,7 @@ type RerankConfig struct {
 	// `RERANK_CONFIG_INVALID` for a key that it has not registered.
 	Adapter string `json:"adapter"`
 	// The engine sends the adapter the values of these text fields, in this order and joined with
-	// newlines, as the text of each hit. Each member of a list field takes a line of its own. The engine
+	// newlines, as the text of each hit. Each member of a list field takes a separate line. The engine
 	// throws `RERANK_CONFIG_INVALID` for an empty list, for a field that the schema does not declare as
 	// text, and for a field that the list gives twice.
 	Fields []string `json:"fields"`
@@ -1711,7 +1711,7 @@ type SortField struct {
 
 // StringFilter: The engine tests a text field against this filter for equality, for a text range, or
 // with the set, prefix, and pattern tests. On a `string[]`, `verbatim[]`, or `enum[]` field, the
-// engine tests each element of the list on its own. A document passes `eq`, `in`, `startsWith`,
+// engine tests each element of the list separately. A document passes `eq`, `in`, `startsWith`,
 // `endsWith`, `contains`, `wildcard`, or `regex` when one element passes the test. However, a document
 // passes `ne` or `nin` only when every element differs from the values. The engine applies the range
 // tests `gt`, `gte`, `lt`, `lte`, and `between` to a single `string` or `verbatim` field whose type
@@ -1783,8 +1783,8 @@ type StringFilter struct {
 	// When this is true, the engine compares the case fold of each value of a pattern field with the case
 	// fold of the text, so a test for `error` matches `ERROR`. It applies to `eq`, `ne`, `in`, `nin`,
 	// `startsWith`, `endsWith`, `contains`, `wildcard`, and `regex`. Under `caseFold`, a set that does not
-	// open with `^` can also match a sequence of code points. When a member that the set holds on its own
-	// folds to several code points, the set matches that whole fold, so `[ß]` matches `ss`.
+	// open with `^` can also match a sequence of code points. When a single member of the set folds to
+	// several code points, the set matches that whole fold, so `[ß]` matches `ss`.
 	CaseFold *bool `json:"caseFold,omitempty"`
 	// This lets the `eq` test of a pattern field match a value within this many edits of the text, so a
 	// test for `INV-2O24` with a tolerance of 1 matches `INV-2024`. An edit inserts, deletes, or replaces
@@ -1998,7 +1998,7 @@ type VectorFieldBody struct {
 // VectorIndexConfig: Controls when a vector field moves from a brute-force scan to an HNSW graph, and
 // how that graph is built. A small field answers faster from a brute-force scan, so the engine builds
 // a graph only once the field holds enough vectors to earn one. Leave every field unset to accept the
-// engine's own values.
+// engine defaults.
 type VectorIndexConfig struct {
 	// The engine promotes the field to an HNSW graph once it holds this many vectors.
 	Threshold *float64 `json:"threshold,omitempty"`

@@ -191,7 +191,7 @@ def _worker(
     barrier,
     outbox,
 ) -> None:
-    """One load-generator process. It builds its own driver, warms its connections
+    """One load-generator process. It builds a separate driver, warms its connections
     and whatever the driver loads lazily on the client side, then waits at the
     barrier so every process opens its measured window together. A failure aborts the
     barrier, which frees the parent to report it at once."""

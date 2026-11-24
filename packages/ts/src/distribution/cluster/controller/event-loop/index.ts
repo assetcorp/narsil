@@ -31,7 +31,7 @@ export { clearEventLoopWatchers, createEventLoopState, type EventLoopState } fro
  * @param state - The event loop state that holds the watchers, the debounce timer, and the in-sync queue.
  * @param coordinator - The cluster coordinator this controller reads the topology from and writes allocations to.
  * @param transport - The node transport that delivers messages from the data nodes.
- * @param nodeId - The controller's own node id, which names the sender of every response.
+ * @param nodeId - The node id of the controller, which names the sender of every response.
  * @param isActive - Reports whether this node still holds the controller lease.
  * @param onError - Called with the index name and the error whenever an allocation run fails.
  * @param extraMessages - Answers the controller messages that the node defines outside the controller, such as the

@@ -94,9 +94,9 @@ export interface VectorSearchRequest {
   minSimilarity: number
   /** The worker returns only ordinals this filter holds, when present. */
   filter?: OrdinalFilter
-  /** The worker explores this many candidates, or its own default when absent. */
+  /** The worker explores this many candidates, or the worker default when absent. */
   efSearch?: number
-  /** The worker re-scores this many times the requested count against full precision, or its own default when absent. */
+  /** The worker re-scores this many times the requested count against full precision, or the worker default when absent. */
   oversample?: number
   /** When present, the worker re-scores only this many times the oversample of the nearest candidates against full precision and keeps the estimated score of the rest, or returns the re-scored candidates alone under a similarity floor. */
   rescoreWindow?: number
@@ -125,9 +125,9 @@ export interface VectorOrdinalSearchRequest {
   minSimilarity: number
   /** The worker returns only ordinals this filter holds, when present. */
   filter?: OrdinalFilter
-  /** The worker explores this many candidates, or its own default when absent. */
+  /** The worker explores this many candidates, or the worker default when absent. */
   efSearch?: number
-  /** The worker re-scores this many times the requested count against full precision, or its own default when absent. */
+  /** The worker re-scores this many times the requested count against full precision, or the worker default when absent. */
   oversample?: number
   /** When present, the worker re-scores only this many times the oversample of the nearest candidates against full precision and keeps the estimated score of the rest, or returns the re-scored candidates alone under a similarity floor. */
   rescoreWindow?: number

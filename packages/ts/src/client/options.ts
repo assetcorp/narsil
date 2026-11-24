@@ -20,7 +20,7 @@ export interface NarsilClientOptions {
   /**
    * The server answers at this address. Pass an absolute URL such as
    * `https://search.example.com`, or a path such as `/search-api` when a
-   * browser reaches the server through its own origin. Pass a list of them,
+   * browser reaches the server through the page's origin. Pass a list of them,
    * such as the address of every node in a cluster, so that the client moves
    * on when one of them fails. An empty list, or one that holds an address the
    * client cannot read, fails with `CONFIG_INVALID`.
@@ -90,7 +90,7 @@ export interface NarsilClientOptions {
    * Pass 0 so that it waits for as long as the server takes. Three routes carry a
    * corpus or a whole index, so {@link BulkOperations.importDocuments},
    * {@link AdminOperations.snapshot}, and {@link AdminOperations.restore} set no
-   * deadline of their own until this one arrives.
+   * separate deadline, so this one alone limits how long they wait.
    */
   timeoutMs?: number
   /** The client sends every request through this instead of the global `fetch`. */
@@ -100,7 +100,7 @@ export interface NarsilClientOptions {
    * fails with `CLIENT_INVALID_RESPONSE` rather than holding the rest. Set it
    * where the client runs somewhere a runaway answer would matter, such as a
    * browser tab, and leave it out to read whatever the server sends. A
-   * snapshot download reads the whole index, so give it its own ceiling
+   * snapshot download reads the whole index, so give it a separate ceiling
    * through {@link RequestOptions.maxResponseBytes} or none at all.
    */
   maxResponseBytes?: number

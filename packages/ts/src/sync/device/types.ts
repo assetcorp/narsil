@@ -97,7 +97,7 @@ export interface DeviceSyncStore {
 }
 
 /**
- * What became of one queued write that a developer's own backend received.
+ * What became of one queued write that the app's backend received.
  *
  * @public
  */
@@ -114,7 +114,7 @@ export type UploadOutcome =
     }
 
 /**
- * A local write that the server refused, which the device reports once it has replaced its own copy with the
+ * A local write that the server refused, which the device reports once it has replaced the local copy with the
  * server's.
  *
  * @public
@@ -179,7 +179,7 @@ export interface DeviceSyncOptions {
    */
   credential?: () => string | null | Promise<string | null>
   /**
-   * Sends queued writes through the developer's own backend, which then decides each conflict. The device sends
+   * Sends queued writes through the app's backend, which then decides each conflict. The device sends
    * them through the server's document routes where this is absent.
    */
   upload?: (writes: readonly QueuedWrite[]) => Promise<UploadOutcome[]>
@@ -225,7 +225,7 @@ export interface DeviceSync {
   remove(documentId: string): Promise<void>
   /** Connects to the server and keeps reconnecting until {@link DeviceSync.stop}. */
   start(): Promise<void>
-  /** Closes the feed, waits for the device's own work, and leaves the store open. */
+  /** Closes the feed, waits for the work that the device has started, and leaves the store open. */
   stop(): Promise<void>
   /** Loads a new snapshot that the app deferred through {@link DeviceSyncOptions.chooseSnapshotLoad}. */
   loadSnapshot(): Promise<void>

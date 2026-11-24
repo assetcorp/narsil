@@ -6,7 +6,7 @@ import type { NarsilError } from '../errors'
  * client.
  *
  * These settings include no signal, because each hook controls the lifetime of
- * its own request. The provider stops waiting for a request once `keepAliveMs`
+ * the request that it sends. The provider stops waiting for a request once `keepAliveMs`
  * passes with no component reading the answer. Under an engine, the hooks pass
  * neither setting to the engine, because the engine computes its results in the
  * same page.

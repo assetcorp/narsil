@@ -1,12 +1,12 @@
 # Language support
 
-Narsil includes a language module for tokenization, stemming, and stop word removal in each language that the tables below list. This guide lists what each one covers, what the engine does when that analysis changes, and how to register analysis of your own.
+Narsil includes a language module for tokenization, stemming, and stop word removal in each language that the tables below list. This guide lists what each one covers, what the engine does when that analysis changes, and how to register custom analysis.
 
 ## Full support (tokenizer + stemmer + stop words)
 
 Arabic, Armenian, Basque, Bulgarian, Catalan, Czech, Danish, Dutch, English, Esperanto, Estonian, Finnish, French, German, Greek, Hindi, Hungarian, Indonesian, Irish, Italian, Lithuanian, Nepali, Norwegian, Persian, Polish, Portuguese, Romanian, Russian, Sanskrit, Serbian, Slovenian, Spanish, Swahili, Swedish, Tamil, Turkish, Ukrainian
 
-Thirty-two of these stemmers come from the Snowball reference sources, and each one matches Snowball's own output on every word pair Snowball publishes, 11.4 million in all. The `NOTICE` file in this package reproduces the Snowball BSD-3-Clause licence that covers them. Bulgarian, Sanskrit, Slovenian, Swahili, and Ukrainian use stemmers written for Narsil, because Snowball publishes none for them.
+Thirty-two of these stemmers come from the Snowball reference sources, and each one matches the output of the Snowball reference on every word pair Snowball publishes, 11.4 million in all. The `NOTICE` file in this package reproduces the Snowball BSD-3-Clause licence that covers them. Bulgarian, Sanskrit, Slovenian, Swahili, and Ukrainian use stemmers written for Narsil, because Snowball publishes none for them.
 
 ## Character n-gram support (n-gram tokenizer + stop words)
 
@@ -38,7 +38,7 @@ await narsil.createIndex('articles', { schema: { title: 'string' }, language: 'f
 
 English is registered by default, so it needs no import. Naming a language you have not registered fails with `LANGUAGE_NOT_SUPPORTED`.
 
-`registerLanguage(module)` also adds a language of your own. A module declares a `name`, a `revision`, a `stemmer` or `null`, a `stopWords` set, an optional `normalizer` that folds token spellings before stemming, and an optional `tokenizer` that overrides the splitting defaults. Any of the built-in modules serves as a reference.
+`registerLanguage(module)` also adds a language module that you write. A module declares a `name`, a `revision`, a `stemmer` or `null`, a `stopWords` set, an optional `normalizer` that folds token spellings before stemming, and an optional `tokenizer` that overrides the splitting defaults. Any of the built-in modules serves as a reference.
 
 ```ts
 import { registerLanguage } from '@delali/narsil'
@@ -132,6 +132,6 @@ await narsil.createIndex('products', {
 })
 ```
 
-A named binding works where an inline one cannot: persisted metadata cannot store a function, and a worker thread cannot receive one. Durability recovery rebinds a named tokenizer or stop word set from the registry, so register the names before calling `createNarsil` on a durable engine; an inline tokenizer or stop word function cannot persist. A worker thread resolves names from its own registry, filled by `workers.bootstrapModule`, so only an index using the named forms can gain worker copies; see [Worker copies](partitions-and-workers.md#worker-copies).
+A named binding works where an inline one cannot: persisted metadata cannot store a function, and a worker thread cannot receive one. Durability recovery rebinds a named tokenizer or stop word set from the registry, so register the names before calling `createNarsil` on a durable engine; an inline tokenizer or stop word function cannot persist. A worker thread resolves names from a separate registry, filled by `workers.bootstrapModule`, so only an index using the named forms can gain worker copies; see [Worker copies](partitions-and-workers.md#worker-copies).
 
 Naming a tokenizer or stop word set you have not registered fails with `CONFIG_INVALID`, and the error's `details` list the registered names. `hasTokenizer(name)` and `hasStopWords(name)` report whether a name is registered, and `getTokenizer(name)` and `getStopWords(name)` return the registered implementation.

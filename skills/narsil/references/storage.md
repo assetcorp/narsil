@@ -14,14 +14,14 @@ if (!narsil.listIndexes().some(index => index.name === 'orders')) {
 ```
 
 - A filesystem adapter puts the engine on the write-ahead log, which records every insert, update, and removal before the call resolves. With `durability: { mode: 'async' }`, each write resolves sooner, and a crash can lose the writes of the last flush interval, 1 second by default. The adapter creates its directory.
-- The engine locks its directory, so `createNarsil` fails with `CONFIG_INVALID` for a second engine on the same directory until the first one shuts down. Give each process its own directory.
+- The engine locks its directory, so `createNarsil` fails with `CONFIG_INVALID` for a second engine on the same directory until the first one shuts down. Give each process a separate directory.
 - To share one store between processes, pass `durability: { tier: 'snapshot' }` and an invalidation adapter from `@delali/narsil/invalidation/filesystem` to every process. `createNarsil` refuses an invalidation adapter on the write-ahead log with `CONFIG_INVALID`.
 - Subscribe with `narsil.on('durabilityError', handler)`, because the engine reports a failed background save there and rejects no promise that the app holds.
 - For an index whose keyword index and documents can outgrow memory, pass `textStorage: 'disk'` to `createIndex`, so that the engine answers queries from segment files on disk once a checkpoint saves them. The setting needs filesystem durability, so `createIndex` throws `CONFIG_INVALID` for it on any other engine.
 
 ## Close the indexes that nobody is using
 
-With durability, `narsil.close(indexName)` releases an index from memory and `narsil.open(indexName)` loads it again, and a query or a write on a closed index reopens it on its own. `lifecycle: { idleTimeoutMs, maxOpenIndexes, maxOpenBytes }` makes the engine close indexes for you, which lets one process hold an index per tenant or per AI agent. `close` throws `CONFIG_INVALID` on an engine without durability.
+With durability, `narsil.close(indexName)` releases an index from memory and `narsil.open(indexName)` loads it again, and a query or a write on a closed index reopens it without a call to `open`. `lifecycle: { idleTimeoutMs, maxOpenIndexes, maxOpenBytes }` makes the engine close indexes for you, which lets one process hold an index per tenant or per AI agent. `close` throws `CONFIG_INVALID` on an engine without durability.
 
 ## Move an index as one snapshot
 
@@ -33,4 +33,4 @@ With durability, `narsil.close(indexName)` releases an index from memory and `na
 
 ## Partitions
 
-An index opens with one partition, or with `partitions: { maxPartitions }`, and it adds none on its own. `partitions.maxDocsPerPartition` caps the documents that each partition accepts, and the engine refuses a write past that cap with `PARTITION_CAPACITY_EXCEEDED`. `await narsil.rebalance(indexName, count)` changes the partition count, up to `maxPartitions`, while the index keeps answering queries. A rebalance above that limit fails with `PARTITION_CAPACITY_EXCEEDED`, so raise it first with `await narsil.updatePartitionConfig(indexName, { maxPartitions: count })`.
+An index opens with one partition, or with `partitions: { maxPartitions }`, and the engine adds none until you rebalance it. `partitions.maxDocsPerPartition` caps the documents that each partition accepts, and the engine refuses a write past that cap with `PARTITION_CAPACITY_EXCEEDED`. `await narsil.rebalance(indexName, count)` changes the partition count, up to `maxPartitions`, while the index keeps answering queries. A rebalance above that limit fails with `PARTITION_CAPACITY_EXCEEDED`, so raise it first with `await narsil.updatePartitionConfig(indexName, { maxPartitions: count })`.

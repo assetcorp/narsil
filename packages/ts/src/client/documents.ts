@@ -47,7 +47,7 @@ export interface DocumentOperations {
    * Adds one document to an index and returns the id it is stored under.
    *
    * The id comes from the `docId` argument when you pass one, otherwise from
-   * the document's own `id` field, and otherwise the server generates it.
+   * the `id` field of the document, and otherwise the server generates it.
    *
    * @param indexName - This names the index that receives the document.
    * @param document - Its fields must match the types the schema declares.
@@ -92,7 +92,7 @@ export interface DocumentOperations {
   has(indexName: string, docId: string, options?: RequestOptions): Promise<boolean>
   /**
    * Writes a document at an id, whether or not one is already there, which
-   * suits an application that assigns its own identifiers.
+   * suits an application that assigns the identifiers itself.
    *
    * @param indexName - This names the index that receives the document.
    * @param docId - This is the id to write at.

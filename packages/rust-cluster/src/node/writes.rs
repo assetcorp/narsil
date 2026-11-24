@@ -198,14 +198,14 @@ impl ClusterNode {
     /// Adds one document to a cluster index, routing it to the primary of the partition that its id hashes to, and
     /// returns the id that the cluster stores it under.
     ///
-    /// The id is `document_id` where the caller gives one, else the document's own non-empty string `id` field,
-    /// else a new UUID version 7. The node routes the write from the allocation table that it holds, and it reads
+    /// The id is `document_id` where the caller gives one, else the non-empty string in the `id` field of the
+    /// document, else a new UUID version 7. The node routes the write from the allocation table that it holds, and it reads
     /// the table again only before it retries a write that a primary change refused, as `transport.md` defines.
     ///
     /// # Errors
     ///
     /// Fails with `NODE_NOT_JOINED` before the node joins, with `DOC_VALIDATION_FAILED` where the id is empty,
-    /// holds more than 512 UTF-16 code units or a null byte, or differs from the document's own `id` field, with
+    /// holds more than 512 UTF-16 code units or a null byte, or differs from the `id` field of the document, with
     /// `INDEX_ORPHANED` where this node keeps an orphaned copy under that name, with `INDEX_NOT_FOUND` where the
     /// cluster holds no such index, with `QUERY_ROUTING_FAILED` where the cluster has yet to allocate it, with
     /// `REPLICATION_OUTCOME_UNKNOWN` where the write may or may not have taken effect, and with the primary's refusal
@@ -228,18 +228,18 @@ impl ClusterNode {
     /// Adds many documents to a cluster index, routing each to the primary of its partition, and reports each
     /// document's outcome in the order of `documents`.
     ///
-    /// Each document takes its own non-empty string `id` field as its id, or a new UUID version 7. The node sends
-    /// the documents of each partition to that partition's primary in messages of their own, at most 1,000
+    /// Each document takes the non-empty string in its `id` field as its id, or a new UUID version 7. The node sends
+    /// the documents of each partition to that partition's primary in separate messages, at most 1,000
     /// documents and about 8 MiB of documents to a message, so a primary of several partitions receives at least
-    /// one message for each of them. The node retries each refused document on its own, and each partition's
+    /// one message for each of them. The node retries each refused document separately, and each partition's
     /// documents wait at most 30 seconds from their first attempt.
     ///
     /// # Errors
     ///
     /// Fails with `NODE_NOT_JOINED` before the node joins, with `INDEX_ORPHANED` where this node keeps an orphaned
     /// copy under that name, with `INDEX_NOT_FOUND` where the cluster holds no such index, and with
-    /// `QUERY_ROUTING_FAILED` where the cluster has yet to allocate it. Every other failure is a document's own, in
-    /// [`WriteBatchResult::failed`], which holds `QUERY_ROUTING_FAILED` for the documents of a partition whose
+    /// `QUERY_ROUTING_FAILED` where the cluster has yet to allocate it. The result lists every other failure against
+    /// its document in [`WriteBatchResult::failed`], which holds `QUERY_ROUTING_FAILED` for the documents of a partition whose
     /// index the node finds gone when it routes them again after a primary change.
     pub async fn insert_batch(
         &self,

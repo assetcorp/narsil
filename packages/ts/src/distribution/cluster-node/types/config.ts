@@ -60,7 +60,7 @@ export interface ClusterNodeConfig {
    * transfer ends.
    */
   engine?: NarsilConfig
-  /** These replication settings override the engine's own, and anything you leave out keeps its value. */
+  /** These replication settings override the ones that the engine sets, and anything you leave out keeps its value. */
   replication?: Partial<ReplicationConfig>
   /** These settings govern how this node gathers each search from the cluster, and anything you leave out keeps its default. */
   query?: ClusterQueryConfig
@@ -73,7 +73,7 @@ export interface ClusterNodeConfig {
    * call with `BACKUP_STORE_NOT_CONFIGURED`.
    */
   backups?: ClusterBackupConfig
-  /** This receives the failures the node reports while running on its own, away from any call you made. */
+  /** This receives the failures that the node reports from background work, away from any call that you made. */
   onError?: (error: Error) => void
 }
 

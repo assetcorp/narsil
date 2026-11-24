@@ -6,7 +6,7 @@ import type { AllocationTable, ClusterCoordinator } from '../coordinator/types'
  * Gives the allocation table a read or a write must route through, and refuses where the cluster owns the index
  * and has yet to allocate it.
  *
- * A node answers from its own copy only for an index the coordinator holds no metadata for. The node serves an index
+ * A node answers from its local copy only for an index the coordinator holds no metadata for. The node serves an index
  * the cluster owns through its allocation table alone, so it refuses a request that arrives before the controller
  * has allocated the index. That refusal keeps one node's copy from taking a write no reader would find.
  *

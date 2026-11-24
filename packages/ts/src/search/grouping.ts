@@ -127,7 +127,7 @@ function reducedGroup(
 /**
  * Folds a group reducer over one group's kept rows, skipping a row whose
  * document is missing, and captures a thrown reducer error as a message in
- * place of failing the query. The engine folds its own groups through this,
+ * place of failing the query. The engine folds the groups of a local search through this,
  * and the cluster coordinator folds merged groups through it too, so the two
  * paths reduce identically.
  *

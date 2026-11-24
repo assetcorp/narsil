@@ -68,7 +68,7 @@ A distributed query runs in two phases so that the cluster moves as few bytes as
 6. The coordinator returns the response to the client.
 ```
 
-A data node returns the hit count of its own partitions alone, so the coordinator derives `countExact` from the request and the coverage. It must set `countExact` false where any partition times out or returns an error, or where it queries fewer partitions than the index holds, because a count without the matches of some partition is a floor under the total. It must otherwise apply the rule in [Deep Pagination](../partitioning.md#deep-pagination) to the request. Every node applies that rule to the same request, so the sum of the nodes' counts is exact wherever that rule sets `countExact` true.
+A data node returns only the hit count of the partitions that it holds, so the coordinator derives `countExact` from the request and the coverage. It must set `countExact` false where any partition times out or returns an error, or where it queries fewer partitions than the index holds, because a count without the matches of some partition is a floor under the total. It must otherwise apply the rule in [Deep Pagination](../partitioning.md#deep-pagination) to the request. Every node applies that rule to the same request, so the sum of the nodes' counts is exact wherever that rule sets `countExact` true.
 
 ### Search Contexts
 
@@ -93,7 +93,7 @@ The coordinator reads the members of each group, the reranked fields of a [reran
 
 A coordinator must send `analysisGeneration` on every search, count, suggest, statistics, and hybrid request, including a value of 0, so that a coordinator that has yet to see a first change asks for the old terms from every copy. It must read the generation once for a query and use that value for every request of that query, its statistics phase included. It must leave the generation out of the [cursor binding](../partitioning.md#cursor-binding), so a cursor stays valid across a switch and pages can repeat or skip documents across that switch.
 
-A data node must compare the requested generation with its own. It must answer where they are equal. It must switch and answer where it has finished building the requested generation. Otherwise it must refuse with `ANALYSIS_GENERATION_MISSING`, with `heldGeneration` and `requestedGeneration`, the generation that the request carried, in the details. A node below specification version 1.1 ignores the member, and the [flow](cluster.md#analysis-change-flow) refuses a change while any registered node has that version, so such a node holds generation 0.
+A data node must compare the requested generation with the generation that it holds. It must answer where they are equal. It must switch and answer where it has finished building the requested generation. Otherwise it must refuse with `ANALYSIS_GENERATION_MISSING`, with `heldGeneration` and `requestedGeneration`, the generation that the request carried, in the details. A node below specification version 1.1 ignores the member, and the [flow](cluster.md#analysis-change-flow) refuses a change while any registered node has that version, so such a node holds generation 0.
 
 A coordinator that receives this refusal with a `heldGeneration` above the requested generation is behind, so it must read the metadata again and run the whole query once more. A refusal with a lower `heldGeneration` means that the node is behind, so the coordinator must ask the next copy, and a partition with no copy left at that generation counts as failed under `allowPartialResults`. A second run that is refused again must fail with `ANALYSIS_GENERATION_MISSING`, which a client can retry.
 
@@ -101,11 +101,11 @@ A coordinator that receives this refusal with a `heldGeneration` above the reque
 
 A node on a specification version below 1.1 splits text at every double quote, so it searches a [phrase](../algorithms.md#phrase-search)'s words as ordinary words and returns documents that the phrase excludes. A coordinator must therefore refuse a search or a count with `SEARCH_PHRASE_NOT_READY` while the term holds a pair of quotes, or an unclosed quote, around any character other than white space, and any registered node that the allocation table lists as a primary, a replica, or a replica on its way out of the partition has a version below 1.1. It must read a version as its major number and then its minor number, each compared as a whole number, and it must treat a version that it cannot parse as below 1.1. A copy on a node with no registration does not refuse the query, so a dead node blocks nothing. For a query with a phrase, however, the coordinator must skip every copy on a node with no registration and ask the next copy, because a coordinator can still reach a node on an older version whose lease has lapsed. A partition left with no copy counts as unavailable under `allowPartialResults`. The coordinator reads the quotes alone at this step, because the analysis that drops a phrase of stop words belongs to the data nodes, so during an upgrade it can refuse a phrase that a data node would drop.
 
-A data node must apply the [limits](../algorithms.md#limits), the `trackPositions` check, and the [stale check](../algorithms.md#array-position-gap) to its own copy, and it must answer a refusal with the code that those rules name. Whatever `allowPartialResults` holds, a coordinator must fail the whole query with `SEARCH_INVALID_PHRASE` or `SEARCH_PHRASE_NOT_READY` when a data node raises that code, because a partial answer can leave out documents that hold the phrase.
+A data node must apply the [limits](../algorithms.md#limits), the `trackPositions` check, and the [stale check](../algorithms.md#array-position-gap) to the copy that it holds, and it must answer a refusal with the code that those rules name. Whatever `allowPartialResults` holds, a coordinator must fail the whole query with `SEARCH_INVALID_PHRASE` or `SEARCH_PHRASE_NOT_READY` when a data node raises that code, because a partial answer can leave out documents that hold the phrase.
 
 ### BM25 Parameters
 
-A coordinator must send its own value of the index's [BM25 setting](../algorithms.md#parameter-levels) in `indexBm25` on every search, count, and hybrid leg, and it must send an empty map where the index sets nothing. A data node must score a query that carries `indexBm25` under that value, ignoring the value that it stores with its copy, so that one query never mixes settings while a change spreads across the nodes. A data node must fall back to the value that it stores where `indexBm25` is absent, because the sender predates this rule or holds no metadata for the index. Two coordinators can use different values while a change spreads, so two queries can rank differently during that time. Cursors stay valid across a change, because only a search's own `bm25` enters the [cursor binding](../partitioning.md#cursor-binding), so pages can repeat or skip documents across that change.
+A coordinator must send the value that it holds for the index's [BM25 setting](../algorithms.md#parameter-levels) in `indexBm25` on every search, count, and hybrid leg, and it must send an empty map where the index sets nothing. A data node must score a query that carries `indexBm25` under that value, ignoring the value that it stores with its copy, so that one query never mixes settings while a change spreads across the nodes. A data node must fall back to the value that it stores where `indexBm25` is absent, because the sender predates this rule or holds no metadata for the index. Two coordinators can use different values while a change spreads, so two queries can rank differently during that time. Cursors stay valid across a change, because only the `bm25` of the search itself enters the [cursor binding](../partitioning.md#cursor-binding), so pages can repeat or skip documents across that change.
 
 A node below specification version 1.1 ignores `bm25` and `indexBm25`, so it scores under the value that it stores. A query carries parameters where its `bm25` sets a value or where the index's `settings.bm25Revision` is present. A coordinator must refuse a search or a count that carries parameters with `BM25_NOT_READY` while any registered node that the allocation table lists as a primary, a replica, or a replica on its way out of the partition has a version below 1.1. It must read a version as its major number and then its minor number, each compared as a whole number, and it must treat a version that it cannot parse as below 1.1. A copy on a node with no registration does not refuse the query, so a dead node blocks nothing. For a query that carries parameters, however, the coordinator must skip every copy on a node with no registration and ask the next copy, because a coordinator can still reach a node on an older version whose lease has lapsed. A partition left with no copy counts as unavailable under `allowPartialResults`. Whatever `allowPartialResults` holds, a coordinator must fail the whole query with `BM25_NOT_READY`, `CONFIG_INVALID`, or `SEARCH_INVALID_FIELD` when a data node raises that code.
 
@@ -115,7 +115,7 @@ A query that targets one partition, such as fetching a document by ID, goes out 
 
 ### Local Partitions
 
-A coordinator that is also a data node runs the query against its own partitions in-process and takes no round trip for them. Only partitions on other nodes go through the node transport.
+A coordinator that is also a data node runs the query in-process against the partitions that it holds and takes no round trip for them. Only partitions on other nodes go through the node transport.
 
 ```text
 Coordinator, also data node A, holding partitions 0-4.
@@ -163,13 +163,13 @@ Phase 0, statistics collection:
 
 Phase 1, query with global statistics:
   As above, except that each data node scores against the
-  supplied global statistics in place of its own.
+  supplied global statistics in place of its local statistics.
 
 Phase 2, fetch:
   As above.
 ```
 
-DFS costs one extra round trip, and a second one where a prefix completion or a partial-word search reaches a token that some node did not count, because each partition caps those expansions on its own. Use it when partition sizes or term distributions differ enough between partitions to move the ranking.
+DFS costs one extra round trip, and a second one where a prefix completion or a partial-word search reaches a token that some node did not count, because each partition caps those expansions separately. Use it when partition sizes or term distributions differ enough between partitions to move the ranking.
 
 ---
 
@@ -188,7 +188,7 @@ weight(query, partitionId, nodeId) -> uint32
   )
 ```
 
-A tie goes to the node ID that orders first in [code point order](../algorithms.md#code-point-order). Because the [cursor binding](../partitioning.md#cursor-binding) leaves out the page, every coordinator sends a repeated query, and each of its pages, to the same copies while the eligible copies stay the same. That matters because each node builds its own HNSW graph for its copy, and two such graphs can return different approximate neighbours for one query vector. When a copy joins or leaves, the coordinator changes its choice only for the queries whose highest weight falls on that copy.
+A tie goes to the node ID that orders first in [code point order](../algorithms.md#code-point-order). Because the [cursor binding](../partitioning.md#cursor-binding) leaves out the page, every coordinator sends a repeated query, and each of its pages, to the same copies while the eligible copies stay the same. That matters because each node builds a separate HNSW graph for its copy, and two such graphs can return different approximate neighbours for one query vector. When a copy joins or leaves, the coordinator changes its choice only for the queries whose highest weight falls on that copy.
 
 **Random selection** picks a replica at random from the eligible copies of the partition, the primary included. Load spreads evenly when the replicas are alike, although a repeated vector query can then return different hits.
 
@@ -243,7 +243,7 @@ Whatever `allowPartialResults` holds, a coordinator must fail the whole query wi
 
 ## Distributed Facets
 
-Each data node counts facets over its own partitions, and the coordinator merges those counts. A count covers every document the query matches rather than the documents the page returns.
+Each data node counts facets over the partitions that it holds, and the coordinator merges those counts. A count covers every document the query matches rather than the documents the page returns.
 
 ```text
 1. The coordinator computes the oversampled bucket count:
@@ -274,13 +274,13 @@ Distributed facet counts are approximate. A value that is frequent across the wh
 
 The coordinator cannot find the lowest counts, or every range, among each node's top values, so step 3 changes for a field whose [`FacetField`](transport.md#queryparams) carries `ranges` or the sort `'asc'`: a data node must return up to 10,000 buckets of that field in place of `shardSize`, ordered by the field's sort. The merged counts of such a field are then exact wherever no node leaves a bucket out. A data node counts a range from `from`, inclusive, to `to`, exclusive, and names its bucket by `from`, a hyphen, and `to`, each written the way ECMAScript converts a number to a string. Where a query sets `ranges` on a field and no limit, the coordinator must return every range of that field, and a query may carry at most 1,000 ranges on one field.
 
-A response must carry one error bound per field it counts, and that figure is the largest undercount any value of the field can have, where a value that the response leaves out counts as 0. A node sets its own bound to the largest count it excludes from the field, and to 0 where it excludes nothing, so a bound of 0 on every node proves the field's counts exact. The coordinator sums the nodes' bounds, because each node undercounts a value independently of the rest. It then adds the largest merged count that its own truncation drops, because the true count of a dropped value can exceed its merged count by the whole sum.
+A response must carry one error bound per field it counts, and that figure is the largest undercount any value of the field can have, where a value that the response leaves out counts as 0. A node sets its bound to the largest count it excludes from the field, and to 0 where it excludes nothing, so a bound of 0 on every node proves the field's counts exact. The coordinator sums the nodes' bounds, because each node undercounts a value independently of the rest. It then adds the largest merged count that its truncation drops, because the true count of a dropped value can exceed its merged count by the whole sum.
 
 ---
 
 ## Distributed Grouping
 
-Each data node groups its own matches and returns, per group, the group's field values and its best `maxPerGroup` entries, in the order the query orders hits. The coordinator merges groups whose field values are equal in field order, merges each merged group's entries with the K-way merge, truncates them to `maxPerGroup`, orders the groups by their first entry, score then document ID, and truncates the list to `group.limit` where the query sets one.
+Each data node groups its matches and returns, per group, the group's field values and its best `maxPerGroup` entries, in the order the query orders hits. The coordinator merges groups whose field values are equal in field order, merges each merged group's entries with the K-way merge, truncates them to `maxPerGroup`, orders the groups by their first entry, score then document ID, and truncates the list to `group.limit` where the query sets one.
 
 Each data node and the coordinator must compare group field values by the same equality rules as [Groups](../native-core.md#groups), including the equality of NaN numbers and the distinction between a number and null.
 
@@ -288,7 +288,7 @@ A sorted query must order entries within each group by sort values and then docu
 
 With no `group.limit`, every node returns every group and the merged groups are exact. With one, each node returns its top `ceiling(limit * 1.5) + 10` groups, oversampling the way [Distributed Facets](#distributed-facets) do, so a merged group's entries can miss members held by a node where the group fell below that bound.
 
-A group reducer is a function, so only the coordinator's own process calls it. Where a query sets a reducer, the coordinator must request up to 10,000 entries of each group from every data node, and it must fold the reducer over every entry of each merged group before it truncates the entries to the caller's `maxPerGroup`. The HTTP server must reject `group.reduce`. For a hybrid query, the coordinator groups the results of the text fan-out alone, as it does when it counts facets.
+A group reducer is a function, so only the coordinator's process calls it. Where a query sets a reducer, the coordinator must request up to 10,000 entries of each group from every data node, and it must fold the reducer over every entry of each merged group before it truncates the entries to the caller's `maxPerGroup`. The HTTP server must reject `group.reduce`. For a hybrid query, the coordinator groups the results of the text fan-out alone, as it does when it counts facets.
 
 ---
 
@@ -325,10 +325,10 @@ Next query, with the cursor:
   it fans out to every data node with the same cursor in the
     searchAfter parameter
   each data node passes the cursor down to its partitions, and
-    each partition seeks past the cursor point on its own
+    each partition separately seeks past the cursor point
   the coordinator merges the results and takes the top `limit`
   it encodes a new cursor from the last result, storing as `d`
-    the cursor's own `d` plus the number of results on this page
+    the decoded cursor's `d` plus the number of results on this page
 ```
 
 ### Tiebreaker
@@ -361,7 +361,7 @@ A data node must select and order each ranked hybrid leg by [Score Order](../alg
 
 A request routes as hybrid when it carries a vector and either a term or `mode: 'hybrid'`; an absent `hybrid` config fuses with RRF and its defaults. A hybrid request that leaves `hybrid.depth` out, carries no `rerank`, and carries a cursor is rejected with `SEARCH_INVALID_CURSOR`, because fused ranks do not seek. A reranked request pages by the cursor that [Reranking](../algorithms.md#reranking) defines, because its coordinator ranks the first stage without the cursor. A hybrid request that sets `hybrid.depth` may carry a cursor, because the coordinator finds each page by its position d + offset in the fused list, as [Hybrid Search](../vector-index.md#hybrid-search) defines.
 
-A hybrid query runs two separate fan-outs so that the coordinator fuses two globally merged lists. Fusing on each node instead degrades as the partition count grows, because a node fuses only what its own partitions matched.
+A hybrid query runs two separate fan-outs so that the coordinator fuses two globally merged lists. Fusing on each node instead degrades as the partition count grows, because a node fuses only what the partitions on that node matched.
 
 ```text
 1. The coordinator sends two search requests to each data node
@@ -399,7 +399,7 @@ A hybrid query runs two separate fan-outs so that the coordinator fuses two glob
 
 ### Distributed Reranking
 
-The coordinator that receives a query carrying `rerank` must rerank it with its own registered adapter, as [Reranking](../algorithms.md#reranking) defines. It must send the data nodes the query without `rerank`, `pinned`, or `searchAfter`, with offset 0 and a limit equal to the depth from step 1 of that section. It then merges and fuses their results as it does without `rerank`, and it fetches the reranked fields of the window's documents so that it can rerank them. Last, it places the pinned documents, slices the page from position d + offset, and fetches the page's documents. The data nodes count, facet, and group the first-stage request as they do without `rerank`, so they need no rerank adapter, and `QueryParams` carries no rerank member.
+The coordinator that receives a query carrying `rerank` must rerank it with the rerank adapter that it has registered, as [Reranking](../algorithms.md#reranking) defines. It must send the data nodes the query without `rerank`, `pinned`, or `searchAfter`, with offset 0 and a limit equal to the depth from step 1 of that section. It then merges and fuses their results as it does without `rerank`, and it fetches the reranked fields of the window's documents so that it can rerank them. Last, it places the pinned documents, slices the page from position d + offset, and fetches the page's documents. The data nodes count, facet, and group the first-stage request as they do without `rerank`, so they need no rerank adapter, and `QueryParams` carries no rerank member.
 
 ---
 

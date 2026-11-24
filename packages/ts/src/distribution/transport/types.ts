@@ -23,7 +23,7 @@ export interface TransportMessage {
  * How long a transport waits before giving up on each kind of exchange.
  *
  * Every value is in milliseconds. Replication and snapshot transfers carry
- * their own timeouts because they move far more than a search does.
+ * separate timeouts because they move far more than a search does.
  *
  * @public
  */
@@ -49,8 +49,8 @@ export const DEFAULT_TRANSPORT_CONFIG: TransportConfig = {
  * How one cluster node reaches the others.
  *
  * The package includes a TCP transport for real deployments and an in-process
- * one for tests, and this is the contract either satisfies. Write your own to
- * run a cluster over something else.
+ * one for tests, and this is the contract either satisfies. Write another
+ * implementation to run a cluster over a different network layer.
  *
  * @public
  */

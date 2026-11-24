@@ -149,7 +149,7 @@ async function listDirectoryRecursive(
 }
 
 /**
- * Builds a persistence adapter that writes each partition to its own file, so
+ * Builds a persistence adapter that writes each partition to a separate file, so
  * an index comes back after a restart.
  *
  * The adapter writes each partition to a temporary file, flushes it to the

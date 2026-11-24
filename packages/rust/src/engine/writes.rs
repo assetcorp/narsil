@@ -74,8 +74,8 @@ pub(crate) fn require_matching_doc_id(doc_id: &str, document: &Map) -> Result<()
     }
 }
 
-/// Gives the ID that an insert stores the document under, which is the one that the call gives, then the document's
-/// own `id` field, then a generated one.
+/// Gives the ID that an insert stores the document under, which is the one that the call gives, then the `id` field
+/// of the document, then a generated one.
 pub(crate) fn insert_doc_id(
     doc_id: Option<&str>,
     document: &Map,

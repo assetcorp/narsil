@@ -61,7 +61,7 @@ def _class_name(index: str) -> str:
 
 class WeaviateDriver:
     """Dedicated vector database. Indexes the shared dense vectors in HNSW with
-    `vectorizer: none`. Hybrid combines Weaviate's own BM25 over the text property
+    `vectorizer: none`. Hybrid combines the BM25 that Weaviate runs over the text property
     with the dense vector through the `hybrid` operator (rankedFusion, the
     reciprocal-rank family, alpha 0.5). Weaviate's HNSW exploration factor `ef` is
     a class-level setting, so the harness's per-query value is applied by updating

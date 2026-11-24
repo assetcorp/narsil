@@ -16,7 +16,7 @@ export interface RequestThreadSettings {
   closeAtExit: SharedArrayBuffer
   /** The requests in flight on every thread count in this shared memory, one slot per thread. */
   gate: SharedArrayBuffer
-  /** The slot of the shared memory this thread counts its own requests in. */
+  /** This thread counts the requests that it serves in this slot of the shared memory. */
   gateSlot: number
   /** The server accepts this many requests at once across every thread, or every request where zero. */
   maxConcurrentRequests: number

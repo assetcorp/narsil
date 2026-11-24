@@ -38,7 +38,7 @@ export interface AdminOperations {
    * the Narsil format can restore the archive.
    *
    * The download takes longer as the index grows, so this method sets no
-   * deadline of its own. It waits until the download ends, unless
+   * separate deadline. It waits until the download ends, unless
    * {@link NarsilClientOptions.timeoutMs} or a per-call `timeoutMs` sets a
    * deadline.
    *
@@ -84,7 +84,7 @@ export interface AdminOperations {
    * this release or a later one.
    *
    * The download takes longer as the index grows, so this method sets no
-   * deadline of its own. It waits until the download ends, unless
+   * separate deadline. It waits until the download ends, unless
    * {@link NarsilClientOptions.timeoutMs} or a per-call `timeoutMs` sets a
    * deadline.
    *

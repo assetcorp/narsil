@@ -65,7 +65,7 @@ const results = await narsil.query('products', {
 
 ## Highlighting
 
-With `highlight: { fields }`, each hit carries `highlights[field]`, which holds a `snippet` with each match wrapped in `<mark>` tags and the `positions` of each match as character offsets into the stored field. The snippet holds about 200 characters of the field around its densest run of matches, and `maxSnippetLength` sets that length. The engine leaves the field's own text unescaped, so escape the text between the tags, or build the markup yourself from `positions`, before you insert a snippet into HTML.
+With `highlight: { fields }`, each hit carries `highlights[field]`, which holds a `snippet` with each match wrapped in `<mark>` tags and the `positions` of each match as character offsets into the stored field. The snippet holds about 200 characters of the field around its densest run of matches, and `maxSnippetLength` sets that length. The engine leaves the text of the field unescaped, so escape the text between the tags, or build the markup yourself from `positions`, before you insert a snippet into HTML.
 
 ## Geosearch
 

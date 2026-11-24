@@ -305,9 +305,9 @@ def _run_conditions(comparison: dict) -> list[str]:
     if profile == BEST_CONFIG:
         applied = _quantization_by_engine(comparison)
         lines.append(
-            "- Vector and hybrid tracks use each engine's own recommended production quantization"
+            "- Vector and hybrid tracks use the production quantization that each engine recommends"
             f"{f' ({applied})' if applied else ''}. Every engine meets the "
-            "same recall target through its own search-effort knob, so compression differs by engine by design."
+            "same recall target through the search-effort setting of that engine, so compression differs by engine by design."
         )
     else:
         lines.append("- Vector and hybrid tracks hold every engine at full float (no quantization) for an equal-precision comparison.")
@@ -335,7 +335,7 @@ def _run_conditions(comparison: dict) -> list[str]:
         if identity.get("md5"):
             lines.append(f"- Dataset {dataset_id}: content md5 {identity['md5']} (ir_datasets-verified archive)")
     lines.append(
-        "- Headline latency is each engine's own reported query time, read from the same response the client "
+        "- Headline latency is the query time that each engine reports, read from the same response the client "
         "round-trip wraps. Resolution differs by engine and is disclosed below; an engine that exposes no "
         "server-side time is marked not-available and compared on client round-trip only."
     )
@@ -368,7 +368,7 @@ def _dataset_section(track: str, dataset: dict) -> list[str]:
         lines.append("")
     lines.append(
         "Ingest throughput (higher is better) and query latency (lower is better). The headline latency "
-        "is each engine's own server-side query time; a star marks the best in each column:"
+        "is the server-side query time that each engine reports; a star marks the best in each column:"
     )
     lines.append("")
     lines.extend(_operational_table(rows))

@@ -21,7 +21,7 @@ function phoneNarsil(narsil: Narsil, host: ReactNativeHost): PhoneNarsil {
 }
 
 /**
- * Starts a Narsil engine on the app's own JS runtime and resolves with a
+ * Starts a Narsil engine on the app's JS runtime and resolves with a
  * client whose methods each return a promise. The engine takes the same
  * settings as on Node.js, function settings such as embedding adapters,
  * plugins, and an id generator included. File reads, file writes, file

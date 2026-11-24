@@ -27,7 +27,7 @@ impl QueryStats {
 }
 
 /// Returns the tokens that a query term reaches in one segment through typos, in code point order, leaving out the
-/// group's own token and its synonyms, which the group scores itself.
+/// group's token and its synonyms, which the group scores itself.
 pub(crate) fn typo_tokens_for<'a>(
     entry: &'a SegmentEntry,
     token: &'a str,

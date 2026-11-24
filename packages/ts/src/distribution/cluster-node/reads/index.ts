@@ -46,7 +46,7 @@ const clusterRerankHost: ClusterRerankHost = {
 /**
  * Reads a set of documents by id from wherever the cluster holds them, and returns the ones it found.
  *
- * The node sends each id to the node that serves its partition, and it reads its own copy only for an index the
+ * The node sends each id to the node that serves its partition, and it reads the local copy only for an index the
  * coordinator holds no metadata for.
  *
  * @param deps - The cluster configuration, this node's id, the local engine, and the node target resolver.

@@ -7,7 +7,7 @@ use crate::error::Result;
 use crate::format::envelope::ENVELOPE_VERSION_BYTE;
 use crate::format::manifest_refs::FileRef;
 
-/// Where a checkpoint's files come from while an index loads them: the engine's own store, or a store that holds
+/// Where a checkpoint's files come from while an index loads them: the store of the engine, or a store that holds
 /// a restore's files before they belong to the index.
 pub(crate) trait CheckpointSource {
     /// Returns the payload of a listed file, checked against its envelope and the manifest.

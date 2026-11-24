@@ -4,7 +4,7 @@ status: accepted
 
 # A cluster node closes idle indexes locally, and the controller keeps no record of it
 
-Every index a node holds stays whole in the JS heap whether or not anyone queries it, so under one index per tenant the heap sets how many tenants a node can hold. We have decided that each node closes its own idle indexes by checkpointing them and freeing their memory, that any routed request, replication entry, or explicit open reopens a closed index before it answers, and that the controller, the partition assignments, and the routing tables record nothing about any of it, because a node that reopens on demand still serves every partition the controller believes it serves.
+Every index a node holds stays whole in the JS heap whether or not anyone queries it, so under one index per tenant the heap sets how many tenants a node can hold. We have decided that each node closes the idle indexes that it holds by checkpointing them and freeing their memory, that any routed request, replication entry, or explicit open reopens a closed index before it answers, and that the controller, the partition assignments, and the routing tables record nothing about any of it, because a node that reopens on demand still serves every partition the controller believes it serves.
 
 ## Considered options
 

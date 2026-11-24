@@ -18,7 +18,7 @@ export interface IndexOperations {
   /**
    * Creates an index you can insert documents into and query.
    *
-   * The configuration covers whatever JSON can express of the engine's own. A
+   * The configuration covers every engine setting that JSON can express. A
    * custom tokeniser, a stop-word function, and an embedding adapter are all
    * functions, so name a language and a server-registered adapter instead.
    *

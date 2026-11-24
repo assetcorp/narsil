@@ -25,7 +25,7 @@ export interface PrimaryPartitionDeps {
  *
  * The node creates the index where it holds no copy, and it checks a copy it already holds against the schema the
  * cluster keeps. A node the controller promoted back after every copy of the partition was lost numbers its next
- * entry above both the commit point the controller stored and everything its own write-ahead log holds, so a
+ * entry above both the commit point the controller stored and everything that the node's write-ahead log holds, so a
  * replica that returns can still reach that commit point. Where that node lacks the copy, it fails the copy and
  * creates nothing, so that the other last holders stay on record.
  *

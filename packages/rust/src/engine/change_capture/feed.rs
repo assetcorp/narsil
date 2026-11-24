@@ -87,7 +87,7 @@ pub struct ChangeFeed {
 
 impl ChangeFeed {
     /// Returns the changes of an index of `source` above the request's positions, as [`Narsil::changes`] does for
-    /// the engine's own log, so that a cluster node follows an index whose partitions other nodes lead.
+    /// the log of the local engine, so that a cluster node follows an index whose partitions other nodes lead.
     ///
     /// # Errors
     ///
@@ -170,7 +170,7 @@ impl ChangeFeed {
 
     /// Moves the feed back to `position` in its partition, so that its next read of the partition returns the
     /// changes above that position again, as a server does with a group that its window had no room to send. A
-    /// position at or above the feed's own leaves the feed as it stands.
+    /// position at or above the current position of the feed leaves the feed as it stands.
     pub fn rewind(&mut self, position: ChangePosition) {
         if let Some(following) = self.following.as_mut() {
             following.rewind(position.partition_id as usize, position.seq_no);

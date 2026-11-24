@@ -7,7 +7,7 @@ use crate::index::partition::PartitionSnapshot;
 use crate::search::stats::QueryStats;
 
 /// The BM25 statistics of a whole index that a cluster coordinator sums across every data node under DFS scoring,
-/// which a partition-scoped query scores against in place of the statistics of its own partitions.
+/// which a partition-scoped query scores against in place of the statistics of the partitions that it reads.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct SuppliedStatistics {
     /// The live documents of every partition of the index.

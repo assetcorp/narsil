@@ -97,7 +97,7 @@ async function readBootstrapCompleteOrRefuse(
  *
  * @param message - The report the node sent.
  * @param respond - The function that returns the result to the reporting node.
- * @param controllerNodeId - This node's own id, which names the sender of the result.
+ * @param controllerNodeId - The id of this node, which names the sender of the result.
  * @returns A promise that settles once the rejection has been sent.
  */
 export async function rejectBootstrapComplete(
@@ -113,7 +113,7 @@ export async function rejectBootstrapComplete(
 /**
  * Moves a partition to `ACTIVE` on its primary's report that its copy is ready, and answers the reporting node.
  *
- * The controller rejects the report unless the sender's own id matches the `nodeId` in the payload, the node is the
+ * The controller rejects the report unless the id of the sender matches the `nodeId` in the payload, the node is the
  * partition's primary, the term matches the assignment's term, and the partition is still `INITIALISING`. A report
  * from a replica, which a node of an earlier release still sends, gets `false`, because the partition serves only once
  * its primary holds a copy, and the primary admits each replica to the in-sync set through the catch-up feed.
@@ -121,7 +121,7 @@ export async function rejectBootstrapComplete(
  * @param message - The report the node sent.
  * @param respond - The function that returns the result to the reporting node.
  * @param coordinator - The cluster coordinator that stores the allocation table.
- * @param controllerNodeId - The controller's own node id, which names the sender of the result.
+ * @param controllerNodeId - The node id of the controller, which names the sender of the result.
  * @returns A promise that settles once the result has been sent.
  */
 export async function handleBootstrapCompleteMessage(

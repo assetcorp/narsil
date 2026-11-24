@@ -15,7 +15,7 @@ export interface BM25FieldParams {
  * BM25 tuning for an index or for one search.
  *
  * Both parameters default to the values the literature settles on, so change
- * them only once you have measured relevance on your own corpus. For each
+ * them only once you have measured relevance on your corpus. For each
  * field, the engine takes the first value that is set among the search's value
  * for the field, the search's value, the index's value for the field, the
  * index's value, and the default.

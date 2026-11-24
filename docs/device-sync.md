@@ -1,6 +1,6 @@
 # Device sync
 
-Device sync keeps a copy of one index on a phone, a laptop, or a browser tab, so the app searches and writes locally while it is offline. The device downloads a snapshot of the server's index once, reads every later change from a feed, and uploads its own writes when it can reach the server.
+Device sync keeps a copy of one index on a phone, a laptop, or a browser tab, so the app searches and writes locally while it is offline. The device downloads a snapshot of the server's index once, reads every later change from a feed, and uploads its local writes when it can reach the server.
 
 Turn sync on only for an index whose documents all belong to one user, because every device that syncs an index receives the whole index. Create one index for each user, such as `user-41`, and leave sync off for a public index and for any index that holds the data of several users or tenants.
 
@@ -51,7 +51,7 @@ In a cluster, any node serves the routes. The cluster needs a backup store, beca
 
 ## Sync a device
 
-`@delali/narsil/sync` exports `createDeviceSync`, which works with an engine on the device and a store for the device's own state. `@delali/narsil/sync/filesystem` provides a store for Node.js and Electron, and `@delali/narsil/sync/indexeddb` provides one for a browser.
+`@delali/narsil/sync` exports `createDeviceSync`, which works with an engine on the device and a store for the sync state of the device. `@delali/narsil/sync/filesystem` provides a store for Node.js and Electron, and `@delali/narsil/sync/indexeddb` provides one for a browser.
 
 <!-- example setup
 declare function currentAccessToken(): string | null

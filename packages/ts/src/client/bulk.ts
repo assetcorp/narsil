@@ -47,7 +47,7 @@ export interface BulkOperations {
    * rejected it, while every other document is still written.
    *
    * @param indexName - This names the index that receives the documents.
-   * @param documents - Each document carries its own id, or leaves the server
+   * @param documents - Each document carries an id, or leaves the server
    * to generate one.
    * @param insertOptions - These per-write settings reach the server, and apply
    * to every document.
@@ -140,7 +140,7 @@ export interface BulkOperations {
    * reach for {@link BulkOperations.startImport}, which answers straight away
    * and reports progress through a task.
    *
-   * This call sets no deadline of its own, so it waits for as long as the load
+   * This call sets no separate deadline, so it waits for as long as the load
    * takes until {@link NarsilClientOptions.timeoutMs} or a per-call `timeoutMs`
    * sets one.
    *
@@ -162,7 +162,7 @@ export interface BulkOperations {
    * reports the bytes read as the load runs. Stop the load with
    * {@link TaskOperations.cancelTask}.
    *
-   * This call sets no deadline of its own, so it waits for the server to read
+   * This call sets no separate deadline, so it waits for the server to read
    * the body until {@link NarsilClientOptions.timeoutMs} or a per-call
    * `timeoutMs` sets one.
    *

@@ -67,7 +67,7 @@ const results = await client.query('movies', { term: 'matrix' }, { signal: contr
 
 `maxResponseBytes` applies only to an error answer from `snapshot` and `exportDocuments`, because both methods return the server's body to you as a stream.
 
-Six methods send or receive a corpus or a whole index, so `importDocuments`, `startImport`, `snapshot`, `restore`, `exportDocuments`, and `importDocumentExport` set no deadline of their own. Each of them waits for as long as the server takes, until you set `timeoutMs` on the client or on the call.
+Six methods send or receive a corpus or a whole index, so `importDocuments`, `startImport`, `snapshot`, `restore`, `exportDocuments`, and `importDocumentExport` set no separate deadline. Each of them waits for as long as the server takes, until you set `timeoutMs` on the client or on the call.
 
 ## Errors
 
@@ -89,7 +89,7 @@ try {
 }
 ```
 
-A server's `onRequest` hook rejects a request under a code of its own, such as `UNAUTHORIZED`, and the client passes that code through unchanged.
+A server's `onRequest` hook rejects a request under a code that the hook chooses, such as `UNAUTHORIZED`, and the client passes that code through unchanged.
 
 Seven codes come from the client side, and no server sends one. They are exported as `ClientErrorCodes`.
 
@@ -183,7 +183,7 @@ const client = createNarsilClient({ url: 'http://localhost:9876' })
 const page = await client.listTasks({ indexName: 'movies', status: ['running'], limit: 50 })
 ```
 
-A page holds 20 records unless `limit` sets another size. `next` holds the offset the following page starts at, and it comes back null on the last page. The server's default store keeps 1,000 records and drops the oldest finished ones first, counting a cancelled task as finished, so `getTask` answers `null` once a record has gone. A [`taskStore`](http-server.md#tasks) of your own receives a time to live with every write: 24 hours for a running record, and an hour for a finished one.
+A page holds 20 records unless `limit` sets another size. `next` holds the offset the following page starts at, and it comes back null on the last page. The server's default store keeps 1,000 records and drops the oldest finished ones first, counting a cancelled task as finished, so `getTask` answers `null` once a record has gone. A [`taskStore`](http-server.md#tasks) that you supply receives a time to live with every write: 24 hours for a running record, and an hour for a finished one.
 
 ## Asking what a server serves
 

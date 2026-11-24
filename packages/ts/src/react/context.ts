@@ -179,7 +179,7 @@ export function useServerClient(hookName: string): NarsilClient {
 
 /**
  * This hook returns the client that the nearest {@link NarsilProvider} holds,
- * which serves every call that has no hook of its own, such as a write.
+ * which serves every call that no hook covers, such as a write.
  *
  * @returns This is the client that the provider holds.
  * @throws A `NarsilError` with `CONFIG_INVALID` when no provider wraps the

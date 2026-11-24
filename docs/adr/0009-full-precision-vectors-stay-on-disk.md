@@ -10,7 +10,7 @@ We have decided that every index has a storage setting with the values `memory` 
 
 ## Considered options
 
-Keeping the floats in memory and shrinking only the codes can save at most a fifth of the memory, because with 8-bit codes the floats make up four fifths of it. A graph built from floats read off disk will need the vector of every neighbour that the engine compares a new vector against, which can come to thousands of positional reads per insert at the default `efConstruction` of 200, on top of the thirty that a query makes. A setting that the engine chooses on its own, with no override, takes the choice away from a deployment that needs to pin a small index in memory for speed or to push a large one to disk. Splitting the vector files by byte size, in place of a vector count, will make the position of a vector depend on the file that holds it.
+Keeping the floats in memory and shrinking only the codes can save at most a fifth of the memory, because with 8-bit codes the floats make up four fifths of it. A graph built from floats read off disk will need the vector of every neighbour that the engine compares a new vector against, which can come to thousands of positional reads per insert at the default `efConstruction` of 200, on top of the thirty that a query makes. A setting that the engine chooses with no override takes the choice away from a deployment that needs to pin a small index in memory for speed or to push a large one to disk. Splitting the vector files by byte size, in place of a vector count, will make the position of a vector depend on the file that holds it.
 
 ## Consequences
 

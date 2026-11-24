@@ -28,13 +28,13 @@ export interface ThreadReadEngine extends ReadEngine {
   holdsCopyOf(indexName: string): boolean
   /** Reports whether the thread holds every vector field of the index, so that a document it reads comes back whole. */
   holdsDocumentsOf(indexName: string): boolean
-  /** Reports whether the thread answers a query from its own copy, which it does once it holds every vector field the response includes. */
+  /** Reports whether the thread answers a query from the copy that it holds, which it does once it holds every vector field the response includes. */
   canAnswer(indexName: string, params: QueryParams): boolean
-  /** Reports whether the thread counts a query's matches from its own copy, which it does while it holds no vector field, since a count includes no document. */
+  /** Reports whether the thread counts a query's matches from the copy that it holds, which it does while it holds no vector field, since a count includes no document. */
   canCount(indexName: string, params: QueryParams): boolean
-  /** Answers a query from the thread's own copy however long it runs. */
+  /** Answers a query from the copy that the thread holds, however long it runs. */
   queryHere<T = AnyDocument>(indexName: string, params: QueryParams, signal?: AbortSignal): Promise<QueryResult<T>>
-  /** Counts a query's matches from the thread's own copy however long it runs. */
+  /** Counts a query's matches from the copy that the thread holds, however long it runs. */
   preflightHere(indexName: string, params: QueryParams, signal?: AbortSignal): Promise<PreflightResult>
 }
 
