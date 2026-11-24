@@ -148,6 +148,9 @@ type ChangeAnalysisBody struct {
 	Tokenizer Nullable[string] `json:"tokenizer,omitzero"`
 	// This is a name registered on the server, a list of words, or `null` for the language default.
 	StopWords Nullable[ChangeAnalysisBodyStopWords] `json:"stopWords,omitzero"`
+	// This turns folded matching on or off, or `null` returns it to the language default, and a change to
+	// it alone needs no rebuild.
+	FoldMarks Nullable[bool] `json:"foldMarks,omitzero"`
 }
 
 // ChangesSetting: The change capture setting of one index, which ChangesOperations.updateChanges
@@ -692,6 +695,9 @@ type HTTPIndexBody struct {
 	// This name of a stop word set registered on the server, or this list, replaces the language's stop
 	// words.
 	StopWords *HTTPIndexBodyStopWords `json:"stopWords,omitempty"`
+	// Setting this to true lets a query typed without marks match the words of a document that carry
+	// marks, and false turns that off. Where it is unset, the language decides.
+	FoldMarks *bool `json:"foldMarks,omitempty"`
 	// Setting this records term positions in each posting, which the `.nrsl` format carries for readers
 	// that match phrases. Highlighting works without it.
 	TrackPositions *bool `json:"trackPositions,omitempty"`

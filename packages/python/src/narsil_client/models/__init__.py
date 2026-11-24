@@ -264,6 +264,10 @@ class ChangeAnalysisBody(ApiModel):
     """This is a name registered on the server, a list of words, or `null` for the language
     default.
     """
+    fold_marks: bool | None = Field(default=None, alias="foldMarks")
+    """This turns folded matching on or off, or `null` returns it to the language default, and a
+    change to it alone needs no rebuild.
+    """
 
 
 class ChangesSetting(ApiModel):
@@ -1107,6 +1111,10 @@ class HttpIndexBody(ApiModel):
     stop_words: str | list[str] | None = Field(default=None, alias="stopWords")
     """This name of a stop word set registered on the server, or this list, replaces the language's
     stop words.
+    """
+    fold_marks: bool | None = Field(default=None, alias="foldMarks")
+    """Setting this to true lets a query typed without marks match the words of a document that
+    carry marks, and false turns that off. Where it is unset, the language decides.
     """
     track_positions: bool | None = Field(default=None, alias="trackPositions")
     """Setting this records term positions in each posting, which the `.nrsl` format carries for
