@@ -253,7 +253,7 @@ function normalize(token: string): string {
  */
 export const romanian: LanguageModule = {
   name: 'romanian',
-  revision: '43c3e27c002a61eb',
+  revision: '88dd5b4d44fe0f0d',
   stemmer: stem,
   stopWords: withNormalisedSpellings(stopWords, normalize),
   normalizer: normalize,
