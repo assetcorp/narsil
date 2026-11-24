@@ -1,3 +1,17 @@
+## 0.2.1 (2026-11-24)
+
+### 🚀 Features
+
+- **clients:** let the Python and Go clients ask for vector fields on a document read ([3841b148](https://github.com/assetcorp/narsil/commit/3841b148))
+
+### 🩹 Fixes
+
+- **release:** rewrite every Cargo.lock that pins a released crate by path ([254b8c63](https://github.com/assetcorp/narsil/commit/254b8c63))
+
+### ❤️ Thank You
+
+- assetcorp @assetcorp
+
 ## 0.2.0 (2026-11-14)
 
 ### 🚀 Features
