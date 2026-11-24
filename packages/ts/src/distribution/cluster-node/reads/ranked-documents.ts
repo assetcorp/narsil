@@ -41,7 +41,8 @@ function contextLost(context: RankingContext, indexName: string, cause?: NarsilE
 
 function lostContextOf(error: unknown, context: RankingContext, indexName: string): NarsilError | null {
   if (!(error instanceof NarsilError)) return null
-  if (error.code === ErrorCodes.SEARCH_CONTEXT_MISSING) return contextLost(context, indexName, error)
+  if (error.code === ErrorCodes.SEARCH_CONTEXT_MISSING || error.code === ErrorCodes.NODE_NOT_READY)
+    return contextLost(context, indexName, error)
   if (NODE_LOSS_CODES.has(error.details.transportCode)) return contextLost(context, indexName, error)
   return null
 }

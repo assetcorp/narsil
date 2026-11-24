@@ -52,6 +52,7 @@ fn lost_context_of(failure: Failure, context: &RankingContext, index_name: &str)
         .and_then(Value::as_str)
         .map(str::to_string);
     let lost = error.code() == codes::SEARCH_CONTEXT_MISSING
+        || error.code() == codes::NODE_NOT_READY
         || transport_code
             .as_deref()
             .is_some_and(|code| NODE_LOSS_CODES.contains(&code));
