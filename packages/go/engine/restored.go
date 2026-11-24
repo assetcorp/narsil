@@ -132,6 +132,7 @@ func storedFromConfiguration(config indexconfig.Configuration) storedIndex {
 		ReturnVectors:     config.ReturnVectors.Or(false),
 		Embedding:         embeddingFromSettings(config.Embedding),
 		SurfaceForms:      config.SurfaceForms,
+		FoldMarks:         config.FoldMarks,
 		PatternValueLimit: fromUint32(config.PatternValueLimit),
 		Synonyms:          synonymsFromSettings(config.Synonyms),
 	}
@@ -167,6 +168,7 @@ func configurationOfMetadata(meta metadata.Metadata) indexconfig.Configuration {
 		Tokenizer:          meta.Tokenizer,
 		StopWords:          meta.StopWords,
 		StopWordList:       meta.StopWordList,
+		FoldMarks:          meta.FoldMarks,
 		AnalysisGeneration: meta.AnalysisGeneration,
 		BM25:               &bm25,
 		SurfaceForms:       meta.SurfaceFormsEnabled,

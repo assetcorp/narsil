@@ -1,6 +1,7 @@
 package partition
 
 import (
+	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/fields"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/growing"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/query"
@@ -53,6 +54,7 @@ type side struct {
 	viewFields int
 	fieldCount int
 	growing    *growing.Segment
+	folds      *core.FoldTable
 	fields     *fields.Set
 	ids        map[string]uint32
 	live       []uint32
@@ -71,7 +73,8 @@ func (p *Partition) newSide(index int, gen *generation) (*side, error) {
 		segment.Release()
 		return nil, err
 	}
-	return &side{index: index, gen: gen, names: p.names, growing: segment, fields: set, ids: map[string]uint32{}}, nil
+	return &side{index: index, gen: gen, names: p.names, growing: segment, folds: core.NewFoldTable(), fields: set,
+		ids: map[string]uint32{}}, nil
 }
 
 func (s *side) release() {

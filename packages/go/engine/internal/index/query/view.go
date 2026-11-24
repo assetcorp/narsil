@@ -44,6 +44,7 @@ type Segment struct {
 	FrozenFieldTotals []float64
 	Live              []uint32
 	Fields            FieldIndexes
+	Folds             *core.FoldTable
 }
 
 type View struct {

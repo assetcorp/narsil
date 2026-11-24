@@ -4,6 +4,7 @@ import (
 	"slices"
 	"sync/atomic"
 
+	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
 	"github.com/assetcorp/narsil/packages/go/engine/internal/index/segments"
 )
 
@@ -18,6 +19,7 @@ type frozenSegment struct {
 	documents [][]byte
 	source    documentSource
 	columns   atomic.Pointer[frozenColumns]
+	folds     *core.FoldTable
 }
 
 func (f *frozenSegment) release() {
@@ -28,11 +30,12 @@ func (f *frozenSegment) release() {
 }
 
 func newFrozenSegment(frozen *segments.Frozen, ids []string, documents [][]byte) *frozenSegment {
-	return &frozenSegment{frozen: frozen, ids: newResidentIDs(ids), documents: documents}
+	return &frozenSegment{frozen: frozen, ids: newResidentIDs(ids), documents: documents, folds: core.NewFoldTable()}
 }
 
 func newPagedFrozenSegment(paged *segments.Paged) *frozenSegment {
-	return &frozenSegment{frozen: &paged.Frozen, paged: paged, ids: pagedIDs{paged: paged}, source: paged}
+	return &frozenSegment{frozen: &paged.Frozen, paged: paged, ids: pagedIDs{paged: paged}, source: paged,
+		folds: core.NewFoldTable()}
 }
 
 func (f *frozenSegment) keyword() *segments.Keyword {

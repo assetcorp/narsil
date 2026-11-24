@@ -194,10 +194,36 @@ func (c StopWordsChange) Words() ([]string, bool) {
 	return append([]string(nil), c.words...), c.kind == analysisChangeList
 }
 
+type FoldMarksChange struct {
+	kind analysisChangeKind
+	on   bool
+}
+
+func ResetFoldMarks() FoldMarksChange {
+	return FoldMarksChange{kind: analysisChangeReset}
+}
+
+func ChangeFoldMarks(on bool) FoldMarksChange {
+	return FoldMarksChange{kind: analysisChangeRegistered, on: on}
+}
+
+func (c FoldMarksChange) KeepsCurrent() bool {
+	return c.kind == analysisChangeKeep
+}
+
+func (c FoldMarksChange) ResetsToLanguage() bool {
+	return c.kind == analysisChangeReset
+}
+
+func (c FoldMarksChange) Value() (bool, bool) {
+	return c.on, c.kind == analysisChangeRegistered
+}
+
 type AnalysisChange struct {
 	Language  Optional[string]
 	Tokenizer TokenizerChange
 	StopWords StopWordsChange
+	FoldMarks FoldMarksChange
 }
 
 type synonymRuleKind uint8

@@ -128,6 +128,7 @@ func (n *Narsil) buildEntry(request buildRequest) (*indexEntry, error) {
 		Slots:           slots,
 		PatternLimit:    uint32(entry.patternLimit),
 		TextOnDisk:      config.TextStorage == model.TextStorageDisk,
+		FoldMarks:       config.FoldMarks,
 	}
 	if bm25IsSet(config.BM25) {
 		params := config.BM25

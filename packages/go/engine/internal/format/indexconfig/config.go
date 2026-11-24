@@ -24,6 +24,7 @@ type Configuration struct {
 	Tokenizer          model.Optional[string]
 	StopWords          model.Optional[string]
 	StopWordList       model.Optional[[]string]
+	FoldMarks          model.Optional[bool]
 	AnalysisGeneration model.Optional[uint64]
 	BM25               *is.BM25
 	SurfaceForms       model.Optional[bool]
@@ -170,6 +171,9 @@ func readStorage(record map[string]any, config *Configuration, reject is.Reject)
 func readFlags(record map[string]any, config *Configuration, reject is.Reject) error {
 	var err error
 	if config.SurfaceForms, err = readBoolean(record, "surfaceForms", reject); err != nil {
+		return err
+	}
+	if config.FoldMarks, err = readBoolean(record, "foldMarks", reject); err != nil {
 		return err
 	}
 	if config.TrackPositions, err = readBoolean(record, "trackPositions", reject); err != nil {

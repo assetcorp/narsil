@@ -79,9 +79,49 @@ func addReachedTokens(tokens *tokenSet, views []*query.View, plan *searchPlan) e
 	return nil
 }
 
+func addFoldedTokens(tokens *tokenSet, views []*query.View, plan *searchPlan) error {
+	if plan.folding == nil {
+		return nil
+	}
+	groupsNeeded := len(plan.term.tokens) > 0 && (plan.term.usesPrefix || plan.expansion != nil || len(plan.partialFields) > 0)
+	for _, view := range views {
+		var groups []query.TermGroup
+		if groupsNeeded {
+			found, err := termGroupsFor(view, plan, plan.expansion)
+			if err != nil {
+				return err
+			}
+			groups = found
+		}
+		folded, phrases, err := resolveFolding(view, plan.folding, groups, plan.term.phrases())
+		if err != nil {
+			return err
+		}
+		for _, term := range folded {
+			for _, token := range term.Variants {
+				tokens.add(token)
+			}
+			for _, token := range term.TypoMatches {
+				tokens.add(token)
+			}
+		}
+		for _, phrase := range phrases {
+			for _, variants := range phrase.Variants {
+				for _, token := range variants {
+					tokens.add(token)
+				}
+			}
+		}
+	}
+	return nil
+}
+
 func (ix *Index) collectQueryTermStats(views []*query.View, plan *searchPlan) (*query.Statistics, error) {
 	tokens := ix.statsTokensOf(plan)
 	if err := addReachedTokens(tokens, views, plan); err != nil {
+		return nil, err
+	}
+	if err := addFoldedTokens(tokens, views, plan); err != nil {
 		return nil, err
 	}
 	return query.CollectStatistics(views, tokens.order)

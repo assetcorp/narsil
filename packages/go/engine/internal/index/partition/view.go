@@ -107,6 +107,7 @@ func (f *frozenSide) querySegment() query.Segment {
 		FrozenFieldTotals: f.totals,
 		Live:              f.liveBits(),
 		Fields:            frozenIndexes(f.segment),
+		Folds:             f.segment.folds,
 	}
 	if f.segment.paged != nil {
 		built.Paged = f.segment.paged
@@ -151,6 +152,7 @@ func (s *side) refreshView(p *Partition) {
 		Growing: s.growing.View(),
 		Live:    s.growingLive(),
 		Fields:  growingIndexes(s.fields, p.settings.ValueFields),
+		Folds:   s.folds,
 	})
 	s.view = view
 }

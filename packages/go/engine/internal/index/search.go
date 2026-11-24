@@ -27,6 +27,7 @@ type searchPlan struct {
 	tolerance     int
 	prefixLength  int
 	partialFields []string
+	folding       *foldedWords
 }
 
 func (p *searchPlan) partialWords() partialWordOptions {
@@ -128,17 +129,32 @@ func (ix *Index) planSearch(prepared *preparedQuery, pass *analysis.Pass, analys
 		return plan, nil
 	}
 	plan.searches = true
+	language, folds := prepared.foldLanguage, prepared.folds
 	if len(plan.term.tokens) == 0 || params.Exact {
+		if folds {
+			folding, err := planFolding(language, &plan.term, nil, plan)
+			if err != nil {
+				return nil, err
+			}
+			plan.folding = folding
+		}
 		return plan, nil
 	}
 	plan.expansion = ix.Synonyms().Expand(uniqueTokenTerms(plan.term.unique))
 	plan.partialFields = ix.partialFieldsFor(&prepared.params)
-	if plan.term.usesPrefix || len(plan.partialFields) > 0 {
+	if plan.term.usesPrefix || len(plan.partialFields) > 0 || folds {
 		written, err := writtenWordsByPosition(plan.term.words, pass)
 		if err != nil {
 			return nil, err
 		}
 		plan.written = written
+	}
+	if folds {
+		folding, err := planFolding(language, &plan.term, plan.written, plan)
+		if err != nil {
+			return nil, err
+		}
+		plan.folding = folding
 	}
 	return plan, nil
 }
@@ -157,7 +173,14 @@ func groupFor(groups *[]query.TermGroup, token string, typoMatches bool) *query.
 	return &(*groups)[len(*groups)-1]
 }
 
-func addPrefixCompletions(groups *[]query.TermGroup, view *query.View, term *analysedTerm, written map[int]string) error {
+func prefixCompletionsOf(view *query.View, typed, token string, folding *foldedWords) ([]query.PrefixCompletion, error) {
+	if folding != nil && folding.hasPrefix {
+		return query.ExpandFoldedPrefix(view, folding.language, typed, token, folding.prefixFold, prefixMaxExpansions)
+	}
+	return query.ExpandPrefix(view, typed, token, prefixMaxExpansions)
+}
+
+func addPrefixCompletions(groups *[]query.TermGroup, view *query.View, term *analysedTerm, written map[int]string, folding *foldedWords) error {
 	last, hasLast := term.lastToken()
 	if !hasLast {
 		return nil
@@ -167,7 +190,7 @@ func addPrefixCompletions(groups *[]query.TermGroup, view *query.View, term *ana
 		return nil
 	}
 	group := groupFor(groups, last.Token, false)
-	completions, err := query.ExpandPrefix(view, typed, last.Token, prefixMaxExpansions)
+	completions, err := prefixCompletionsOf(view, typed, last.Token, folding)
 	if err != nil {
 		return err
 	}
@@ -183,12 +206,12 @@ func addPrefixCompletions(groups *[]query.TermGroup, view *query.View, term *ana
 func termGroupsFor(view *query.View, plan *searchPlan, expansion *synonyms.Expansion) ([]query.TermGroup, error) {
 	var groups []query.TermGroup
 	if plan.term.usesPrefix {
-		if err := addPrefixCompletions(&groups, view, &plan.term, plan.written); err != nil {
+		if err := addPrefixCompletions(&groups, view, &plan.term, plan.written, plan.folding); err != nil {
 			return nil, err
 		}
 	}
 	if len(plan.partialFields) > 0 {
-		if err := addPartialWordMembers(&groups, view, &plan.term, plan.written, plan.partialWords()); err != nil {
+		if err := addPartialWordMembers(&groups, view, &plan.term, plan.written, plan.partialWords(), plan.folding); err != nil {
 			return nil, err
 		}
 	}
@@ -266,6 +289,16 @@ func (ix *Index) searchPartition(snapshot partition.Snapshot, view *query.View, 
 		keyword.Groups = groups
 		if len(groups) > 0 && len(plan.partialFields) > 0 {
 			keyword.PartialFields = plan.partialFields
+		}
+	}
+	if plan.folding != nil {
+		folded, phrases, err := resolveFolding(view, plan.folding, keyword.Groups, keyword.Phrases)
+		if err != nil {
+			return partitionOutcome{}, err
+		}
+		keyword.Folded = folded
+		if phrases != nil {
+			keyword.Phrases = phrases
 		}
 	}
 	found, err := query.Search(view, keyword)

@@ -12,6 +12,7 @@ import (
 
 type sideRebuild struct {
 	analyzer     *analysis.Analyzer
+	foldMarks    func() model.Optional[bool]
 	proceed      func() error
 	adopt        func(rules []model.SynonymRule, settings index.Settings) func()
 	committed    func(listed manifest.Manifest) bool
@@ -26,7 +27,7 @@ func (entry *indexEntry) adoptSettings(analyzer *analysis.Analyzer, described an
 	analyzerBefore, analysisBefore, configBefore := entry.analyzer, entry.analysis, entry.config
 	entry.analyzer, entry.analysis = analyzer, described
 	entry.config.Language, entry.config.Tokenizer, entry.config.StopWords = described.language, tokenizer, stopWords
-	entry.config.Synonyms = rules
+	entry.config.Synonyms, entry.config.FoldMarks = rules, settings.FoldMarks
 	entry.settingsMu.Unlock()
 	entry.swap.mu.Lock()
 	pendingBefore, staleBefore := entry.swap.pending, entry.swap.stale
@@ -39,7 +40,7 @@ func (entry *indexEntry) adoptSettings(analyzer *analysis.Analyzer, described an
 		entry.analyzer, entry.analysis = analyzerBefore, analysisBefore
 		entry.config.Language, entry.config.Tokenizer, entry.config.StopWords =
 			configBefore.Language, configBefore.Tokenizer, configBefore.StopWords
-		entry.config.Synonyms = configBefore.Synonyms
+		entry.config.Synonyms, entry.config.FoldMarks = configBefore.Synonyms, configBefore.FoldMarks
 		entry.settingsMu.Unlock()
 		entry.swap.mu.Lock()
 		entry.swap.pending, entry.swap.stale = pendingBefore, staleBefore
@@ -79,7 +80,8 @@ func (entry *indexEntry) switchTerms(ctx context.Context, built *index.Index, se
 		}
 		built.SetSynonyms(lookup)
 		built.SetBM25(previous.BM25())
-		settings.Synonyms = lookup
+		settings.Synonyms, settings.FoldMarks = lookup, side.foldMarks()
+		built.SetFoldMarks(settings.FoldMarks)
 		undo := side.adopt(rules, settings)
 		entry.swap.current.Store(built)
 		return persist.IndexSwap{Index: built, NewDetachedIndex: detachedBuilder(settings, built), Committed: side.committed,
@@ -144,7 +146,8 @@ func (n *Narsil) buildAndSwitch(entry *indexEntry, run *changeRun, generation ui
 	n.emitRebuild(entry, model.ProgressStarted, 0, count, nil)
 	target := run.target
 	side := sideRebuild{
-		analyzer: target.analyzer,
+		analyzer:  target.analyzer,
+		foldMarks: func() model.Optional[bool] { return target.foldMarks },
 		proceed: func() error {
 			if stopped := run.stopReason(); stopped != nil {
 				return stopped

@@ -100,6 +100,9 @@ func (s *searcher) candidateTerms(view *View, query *KeywordQuery) ([]string, er
 			add(token)
 		}
 	}
+	for _, token := range query.foldedTokens() {
+		add(token)
+	}
 	for _, token := range query.Tokens {
 		group := query.groupOf(token)
 		if group != nil {

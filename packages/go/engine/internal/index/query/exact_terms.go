@@ -65,6 +65,9 @@ func (e *exactTerms) addQuery(query *KeywordQuery) {
 			e.add(token)
 		}
 	}
+	for _, token := range query.foldedTokens() {
+		e.add(token)
+	}
 }
 
 func (e *exactTerms) resolve(workspace *core.Workspace, segment *Segment) (int, error) {

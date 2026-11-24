@@ -74,21 +74,17 @@ func (s *searcher) matchPhrases(segment *Segment, query *KeywordQuery, searchabl
 		request.Starts[phrase] = uint32(len(request.Tokens))
 		analysed := &query.Phrases[phrase]
 		for entry, token := range analysed.Tokens {
-			at, found := seen[token]
+			variants := analysed.variantsAt(entry)
+			key := phrasePositionKey(token, variants)
+			at, found := seen[key]
 			if !found {
 				at = uint32(len(request.Postings))
-				seen[token] = at
-				term, exists, err := s.exact(segment, token)
+				seen[key] = at
+				postings, exists, err := s.positionPostings(segment, token, variants)
 				if err != nil {
 					return nil, err
 				}
 				held = append(held, exists)
-				postings := core.PhrasePostings{}
-				if segment.Paged == nil {
-					postings = segment.phrasePostings(term, exists)
-				} else if postings, err = s.pagedPhrasePostings(segment, term, exists); err != nil {
-					return nil, err
-				}
 				request.Postings = append(request.Postings, postings)
 			}
 			request.Tokens = append(request.Tokens, at)
