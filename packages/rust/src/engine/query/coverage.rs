@@ -4,7 +4,7 @@ use super::params::TermMatch;
 use crate::search::components::ScoreComponents;
 use crate::search::fuzzy::fuzzy_term_matches;
 use crate::search::keyword::KeywordHit;
-use crate::search::query::TermGroup;
+use crate::search::query::{FoldedQueryTerm, TermGroup};
 
 /// The settings that decide whether an index term stands for a query term.
 pub(crate) struct CoverageRules<'a> {
@@ -14,6 +14,7 @@ pub(crate) struct CoverageRules<'a> {
     pub(crate) prefix_length: u32,
     pub(crate) exact: bool,
     pub(crate) groups: &'a [TermGroup],
+    pub(crate) folded: &'a [FoldedQueryTerm],
     pub(crate) partial_fields: &'a [String],
     pub(crate) phrase_keys: Option<&'a HashSet<String>>,
 }
@@ -25,6 +26,19 @@ fn term_satisfied(rules: &CoverageRules<'_>, token: &str, index_tokens: &[&str])
     index_tokens
         .iter()
         .any(|candidate| fuzzy_term_matches(token, candidate, rules.tolerance, rules.prefix_length))
+}
+
+fn folded_satisfied(rules: &CoverageRules<'_>, token: &str, index_tokens: &[&str]) -> bool {
+    rules
+        .folded
+        .iter()
+        .find(|folded| folded.token == token)
+        .is_some_and(|folded| {
+            index_tokens.iter().any(|candidate| {
+                folded.is_variant(candidate)
+                    || folded.typo_matches.iter().any(|typo| typo == candidate)
+            })
+        })
 }
 
 fn matched_in_partial_field(
@@ -78,15 +92,16 @@ fn matched_terms(rules: &CoverageRules<'_>, components: &ScoreComponents) -> usi
     rules
         .tokens
         .iter()
-        .filter(
-            |token| match rules.groups.iter().find(|group| group.token == **token) {
-                None => term_satisfied(rules, token, &index_tokens),
-                Some(group) => {
-                    group_satisfied(group, components, &index_tokens, rules.partial_fields)
-                        || (group.typo_matches && term_satisfied(rules, token, &index_tokens))
+        .filter(|token| {
+            folded_satisfied(rules, token, &index_tokens)
+                || match rules.groups.iter().find(|group| group.token == **token) {
+                    None => term_satisfied(rules, token, &index_tokens),
+                    Some(group) => {
+                        group_satisfied(group, components, &index_tokens, rules.partial_fields)
+                            || (group.typo_matches && term_satisfied(rules, token, &index_tokens))
+                    }
                 }
-            },
-        )
+        })
         .count()
 }
 

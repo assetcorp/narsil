@@ -11,16 +11,26 @@ use crate::keyword::dictionary::Dictionary;
 use crate::native::status::core_refused;
 use crate::native::workspace::with_workspace;
 use crate::pattern::WorkMeter;
-use rows::{TokenPostings, token_postings};
+use rows::{TokenPostings, combined_postings, token_postings};
 
 const BITS_PER_WORD: u32 = 32;
 
-/// A quoted phrase after analysis: its tokens in position order, each with its distance from the first token.
+/// A quoted phrase after analysis: its tokens in position order, each with its distance from the first token and
+/// its word as written. In an index that folds, `variants` holds the other tokens that each position matches in one
+/// partition, and it is empty everywhere else.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct AnalysedPhrase {
     pub(crate) key: String,
     pub(crate) tokens: Vec<String>,
     pub(crate) offsets: Vec<u32>,
+    pub(crate) written: Vec<String>,
+    pub(crate) variants: Vec<Vec<String>>,
+}
+
+impl AnalysedPhrase {
+    fn variants_at(&self, at: usize) -> &[String] {
+        self.variants.get(at).map_or(&[], Vec::as_slice)
+    }
 }
 
 /// Gives the meter that a phrase match counts its work into, failing the query once the work passes the cap.
@@ -64,18 +74,34 @@ fn phrase_entries<'a>(
         tokens: Vec::new(),
         offsets: Vec::new(),
     };
-    let mut seen: HashMap<&str, u32> = HashMap::new();
+    let mut seen: HashMap<String, u32> = HashMap::new();
     for phrase in phrases {
         entries.starts.push(entries.tokens.len() as u32);
-        for (token, &offset) in phrase.tokens.iter().zip(&phrase.offsets) {
-            let at = match seen.get(token.as_str()) {
+        for (position, (token, &offset)) in phrase.tokens.iter().zip(&phrase.offsets).enumerate() {
+            let variants = phrase.variants_at(position);
+            let key = match variants.is_empty() {
+                true => token.clone(),
+                false => std::iter::once(token.as_str())
+                    .chain(variants.iter().map(String::as_str))
+                    .collect::<Vec<_>>()
+                    .join("\u{0}"),
+            };
+            let at = match seen.get(&key) {
                 Some(&at) => at,
                 None => {
                     let at = entries.postings.len() as u32;
-                    entries
-                        .postings
-                        .push(token_postings(entry, &dictionary, token)?);
-                    seen.insert(token, at);
+                    let postings = match variants.is_empty() {
+                        true => token_postings(entry, &dictionary, token)?,
+                        false => {
+                            let mut parts = vec![token_postings(entry, &dictionary, token)?];
+                            for variant in variants {
+                                parts.push(token_postings(entry, &dictionary, variant)?);
+                            }
+                            combined_postings(parts)
+                        }
+                    };
+                    entries.postings.push(postings);
+                    seen.insert(key, at);
                     at
                 }
             };
@@ -171,6 +197,7 @@ pub(crate) fn match_phrases(
         .map(|(at, phrase)| PhraseRows {
             key: phrase.key.clone(),
             tokens: phrase.tokens.clone(),
+            variants: phrase.variants.clone(),
             rows: (starts[at] as usize..starts[at + 1] as usize)
                 .map(|row| Row {
                     document: documents[row],

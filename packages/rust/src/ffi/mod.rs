@@ -3,6 +3,7 @@
 mod analysis;
 mod expansion;
 mod fields;
+mod folding;
 mod frozen;
 mod keyword;
 pub(crate) mod layout;
@@ -16,6 +17,7 @@ mod vector;
 pub use analysis::*;
 pub use expansion::*;
 pub use fields::*;
+pub use folding::*;
 pub use frozen::*;
 pub use keyword::*;
 pub use math::*;

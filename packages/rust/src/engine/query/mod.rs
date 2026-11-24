@@ -7,6 +7,7 @@ pub(crate) mod cursor;
 pub(crate) mod documents;
 mod embedded;
 pub(crate) mod facets;
+mod folding;
 mod fulltext;
 pub(crate) mod fusion;
 mod gather;

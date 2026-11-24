@@ -9,10 +9,28 @@ pub(crate) struct PartialWordRequest {
     pub(crate) prefix_length: u32,
 }
 
+type PartialCall<'c> = dyn FnMut(
+        *mut ffi::narsil_workspace,
+        &ffi::narsil_partial_request,
+        &ffi::narsil_partial_output,
+        &mut u32,
+    ) -> ffi::narsil_status
+    + 'c;
+
 impl ExpansionSources<'_> {
     pub(crate) fn partial_additions(
         &self,
         requests: &[PartialWordRequest],
+    ) -> Result<Vec<Vec<(String, f64)>>> {
+        self.expand_partial(requests, &mut |workspace, request, output, count| unsafe {
+            ffi::narsil_expand_partial_words(workspace, request, output, count)
+        })
+    }
+
+    pub(super) fn expand_partial(
+        &self,
+        requests: &[PartialWordRequest],
+        call: &mut PartialCall<'_>,
     ) -> Result<Vec<Vec<(String, f64)>>> {
         let texts: Vec<(Vec<u16>, Vec<u16>)> = requests
             .iter()
@@ -45,7 +63,7 @@ impl ExpansionSources<'_> {
                 starts: starts.as_mut_ptr(),
                 start_capacity: starts.len(),
             };
-            unsafe { ffi::narsil_expand_partial_words(workspace, &request, &output, count) }
+            call(workspace, &request, &output, count)
         })?;
         starts
             .windows(2)

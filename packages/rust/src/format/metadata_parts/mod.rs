@@ -11,7 +11,7 @@ use crate::format::fields::non_negative_safe_integer;
 use crate::value::Value;
 
 pub(crate) use analysis::{
-    NamedAnalysis, PendingAnalysis, named_analysis_to_wire, pending_from_wire,
+    NamedAnalysis, PendingAnalysis, fold_marks_from_wire, named_analysis_to_wire, pending_from_wire,
 };
 pub(crate) use bm25::{
     Bm25Params, DEFAULT_BM25_B, DEFAULT_BM25_K1, FieldBm25, bm25_from_wire, bm25_to_wire,

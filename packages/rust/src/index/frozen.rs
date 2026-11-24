@@ -10,6 +10,7 @@ use super::stored_values::StoredValues;
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::ffi;
 use crate::format::keyword_segment::KeywordSegment;
+use crate::keyword::fold_table::FoldTableCell;
 use crate::keyword::frozen::FrozenView;
 use crate::util::bytes::{offset_entry, offset_range};
 use crate::value::{Map, decode_document};
@@ -28,6 +29,7 @@ pub(crate) struct FrozenSegment {
     term_totals: Vec<f64>,
     paged_totals: Published<Vec<f64>>,
     pub(crate) stored_values: StoredValues,
+    pub(crate) folds: FoldTableCell,
 }
 
 fn term_totals(payload: &KeywordSegment) -> Vec<f64> {
@@ -76,6 +78,7 @@ impl FrozenSegment {
             term_totals,
             paged_totals: Published::default(),
             stored_values: StoredValues::default(),
+            folds: FoldTableCell::default(),
         }
     }
 

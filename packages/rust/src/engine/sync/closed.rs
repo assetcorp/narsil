@@ -8,11 +8,12 @@ use crate::format::metadata::IndexMetadata;
 use crate::synonyms::wire::synonym_rules_of;
 use crate::value::Map;
 
-const SYNC_SETTINGS_KEYS: [&str; 7] = [
+const SYNC_SETTINGS_KEYS: [&str; 8] = [
     "language",
     "tokenizer",
     "stopWords",
     "stopWordList",
+    "foldMarks",
     "analysisRevision",
     "bm25",
     "synonyms",

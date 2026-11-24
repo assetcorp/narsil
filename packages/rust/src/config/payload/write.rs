@@ -215,6 +215,9 @@ pub(crate) fn configuration_payload(config: &IndexConfig, facts: &PayloadFacts<'
         "surfaceForms",
         Value::Bool(config.surface_forms != Some(false)),
     );
+    if let Some(fold_marks) = config.fold_marks {
+        payload.insert("foldMarks", Value::Bool(fold_marks));
+    }
     if let Some(partitions) = &config.partitions {
         payload.insert(
             "partitionConfig",

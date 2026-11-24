@@ -127,6 +127,86 @@ fn tail_postings(tail: &TailSegment, token: usize) -> TokenPostings<'_> {
     }
 }
 
+fn row_order(part: &TokenPostings<'_>) -> Vec<usize> {
+    let mut order: Vec<usize> = (0..part.count()).collect();
+    if !part.ordered {
+        order.sort_by_key(|&row| (part.documents[row], row));
+    }
+    order
+}
+
+fn row_positions<'p>(part: &'p TokenPostings<'_>, row: usize) -> &'p [u32] {
+    let start = part.starts.get(row).copied().unwrap_or(0) as usize;
+    let count = part.counts.get(row).copied().unwrap_or(0) as usize;
+    part.positions.get(start..start + count).unwrap_or(&[])
+}
+
+/// Merges the postings of the tokens that one phrase position matches into one list in document order, which holds
+/// one row for each document and field with the positions of every token in that field, in ascending order.
+pub(super) fn combined_postings(parts: Vec<TokenPostings<'_>>) -> TokenPostings<'static> {
+    let parts: Vec<TokenPostings<'_>> = parts.into_iter().filter(|part| part.count() > 0).collect();
+    if parts.len() == 1 {
+        let part = &parts[0];
+        return TokenPostings {
+            documents: Cow::Owned(part.documents.to_vec()),
+            fields: Cow::Owned(part.fields.to_vec()),
+            starts: part.starts.clone(),
+            counts: part.counts.clone(),
+            positions: Cow::Owned(part.positions.to_vec()),
+            ordered: part.ordered,
+        };
+    }
+    let orders: Vec<Vec<usize>> = parts.iter().map(row_order).collect();
+    let mut cursors = vec![0usize; parts.len()];
+    let mut merged = TokenPostings::default();
+    let (mut documents, mut fields, mut positions) = (Vec::new(), Vec::new(), Vec::new());
+    loop {
+        let lowest = parts
+            .iter()
+            .zip(&orders)
+            .zip(&cursors)
+            .filter_map(|((part, order), &at)| order.get(at).map(|&row| part.documents[row]))
+            .min();
+        let Some(document) = lowest else {
+            break;
+        };
+        let mut same: Vec<(usize, usize)> = Vec::new();
+        for (index, (part, order)) in parts.iter().zip(&orders).enumerate() {
+            while let Some(&row) = order.get(cursors[index]) {
+                if part.documents[row] != document {
+                    break;
+                }
+                same.push((index, row));
+                cursors[index] += 1;
+            }
+        }
+        same.sort_by_key(|&(index, row)| parts[index].fields[row]);
+        let mut first = 0;
+        while first < same.len() {
+            let field = parts[same[first].0].fields[same[first].1];
+            let start = positions.len();
+            let mut last = first;
+            while last < same.len() && parts[same[last].0].fields[same[last].1] == field {
+                positions.extend_from_slice(row_positions(&parts[same[last].0], same[last].1));
+                last += 1;
+            }
+            if last - first > 1 {
+                positions[start..].sort_unstable();
+            }
+            documents.push(document);
+            fields.push(field);
+            merged.starts.push(start as u32);
+            merged.counts.push((positions.len() - start) as u32);
+            first = last;
+        }
+    }
+    merged.documents = Cow::Owned(documents);
+    merged.fields = Cow::Owned(fields);
+    merged.positions = Cow::Owned(positions);
+    merged.ordered = true;
+    merged
+}
+
 pub(super) fn token_postings<'a>(
     entry: &'a SegmentEntry,
     dictionary: &Dictionary,

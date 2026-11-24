@@ -1,8 +1,8 @@
 use super::lookup::{TermList, lookup};
 use super::phrase::{PhraseWork, match_phrases};
 use super::plan::{field_names, segment_pool};
-use super::query::{GroupMember, KeywordQuery, TermGroup};
-use super::stats::typo_tokens_for;
+use super::query::{FoldedQueryTerm, GroupMember, KeywordQuery, TermGroup};
+use super::stats::term_matches_for;
 use crate::error::Result;
 use crate::index::partition::PartitionSnapshot;
 use crate::index::segment::{SegmentEntry, bit_is_set};
@@ -142,12 +142,17 @@ pub(crate) fn match_partition(
         };
         for token in query.tokens {
             let group = query.group_of(token);
-            for found in typo_tokens_for(entry, token, group, query)? {
+            for found in term_matches_for(entry, token, group, query)? {
                 marker.mark_list(found.list, any_field)?;
             }
             if let Some(group) = group {
                 for member in &group.members {
                     marker.mark_member(group, member)?;
+                }
+            }
+            if let Some(group) = query.folded_of(token).and_then(FoldedQueryTerm::group) {
+                for member in &group.members {
+                    marker.mark_member(&group, member)?;
                 }
             }
         }
