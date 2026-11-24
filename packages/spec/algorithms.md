@@ -314,7 +314,7 @@ It must sum `tf` within each field, as [Expanded Terms](#expanded-terms) require
 
 Where a term takes typo matches with a `tolerance` above 0, its typo matches must also hold each token that [Bounded Levenshtein Distance](#bounded-levenshtein-distance) accepts for `k`, and the token of each folded spelling whose key that distance accepts for `k`, under the same `tolerance` and `prefixLength`. A typo match that two of these rules add counts once.
 
-For the last term of a prefix query, with `typed` as [Prefix Completion](#prefix-completion) defines it, an implementation must also collect each token that starts with `fold(typed)` and occurs at least once as written, together with the token of each folded spelling whose fold starts with `fold(typed)`. It must choose the 50 completions from every token that it collects. With `partialWords` set, [Partial-Word Search](#partial-word-search) must also add each word whose written spelling has a fold that holds the fold of the query word, and it must take both lengths of the added word's factor from those folds.
+For the last term of a prefix query, with `typed` as [Prefix Completion](#prefix-completion) defines it, an implementation must also collect the completions that Prefix Completion collects for `fold(typed)` where it differs from `typed`, together with the token of each folded spelling whose fold starts with `fold(typed)`. It must choose the 50 completions from every token that it collects. With `partialWords` set, [Partial-Word Search](#partial-word-search) must also add each word whose written spelling has a fold that holds the fold of the query word, and it must take both lengths of the added word's factor from those folds.
 
 ### Phrases and Highlights
 
