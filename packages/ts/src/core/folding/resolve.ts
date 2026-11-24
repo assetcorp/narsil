@@ -4,7 +4,7 @@ import {
   compareCodePoints,
   partitionDocumentFrequency,
 } from '../../engine/optional-reads-host-bindings'
-import type { ExpandedTermGroup, FoldedQueryTerm, PostingListView } from '../../types/internal'
+import type { AnalysedPhrase, ExpandedTermGroup, FoldedQueryTerm, PostingListView } from '../../types/internal'
 import type { LanguageModule } from '../../types/language'
 import type { PrefixCompletion } from '../expansion/host'
 import type { PartitionIndex } from '../partition/partition-index'
@@ -112,6 +112,22 @@ function foldedGroupOf(token: string, variants: readonly string[]): ExpandedTerm
   }
 }
 
+function variantsOf(
+  states: readonly PartitionReadState[],
+  rules: FoldingRules,
+  key: string,
+  excluded: (token: string) => boolean,
+): string[] {
+  const found = heldTokens(states, rules, (index, visit) => index.refsWithKey(key, visit))
+  found.add(key)
+  const kept = rankedTokens(
+    states,
+    [...found].filter(token => !excluded(token)),
+    MAX_FOLDED_VARIANTS,
+  )
+  return kept.map(entry => entry.token).sort(compareCodePoints)
+}
+
 function resolveTerm(
   request: FoldedTermRequest,
   rules: FoldingRules,
@@ -123,15 +139,7 @@ function resolveTerm(
   const own = queryToken.token
   const key = foldedSpelling(request.written.get(queryToken.position) ?? own, rules).key
   const excluded = (token: string): boolean => token === own || group?.synonyms?.has(token) === true
-
-  const found = heldTokens(states, rules, (index, visit) => index.refsWithKey(key, visit))
-  found.add(key)
-  const kept = rankedTokens(
-    states,
-    [...found].filter(token => !excluded(token)),
-    MAX_FOLDED_VARIANTS,
-  )
-  const variants = kept.map(entry => entry.token).sort(compareCodePoints)
+  const variants = variantsOf(states, rules, key, excluded)
 
   const typoMatches: string[] = []
   if (tolerance > 0 && (group === undefined || group.typoMatches)) {
@@ -151,6 +159,21 @@ function resolveTerm(
     group.members = group.members.filter(member => member.token === own || !variants.includes(member.token))
   }
   return { token: own, variants, typoMatches, group: variants.length === 0 ? null : foldedGroupOf(own, variants) }
+}
+
+export function resolveFoldedPhrases(
+  partition: PartitionIndex,
+  language: LanguageModule,
+  phrases: readonly AnalysedPhrase[],
+): AnalysedPhrase[] {
+  const rules = foldingRulesOf(language)
+  const states = partition.readStates()
+  return phrases.map(phrase => {
+    const variants = phrase.tokens.map((own, at) =>
+      variantsOf(states, rules, foldedSpelling(phrase.written?.[at] ?? own, rules).key, token => token === own),
+    )
+    return variants.some(found => found.length > 0) ? { ...phrase, variants } : phrase
+  })
 }
 
 export function resolveFoldedTerms(request: FoldedTermRequest): FoldedQueryTerm[] | undefined {

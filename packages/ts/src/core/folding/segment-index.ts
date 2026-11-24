@@ -83,6 +83,13 @@ export class SegmentFoldIndex {
     }
   }
 
+  refsWithFoldHolding(text: string, visit: (ref: SpellingRef, fold: string) => void): void {
+    for (const [fold, spellings] of this.byFold) {
+      if (fold.length <= text.length || !fold.includes(text)) continue
+      for (const spelling of spellings) this.visitRefs(spelling, ref => visit(ref, fold))
+    }
+  }
+
   private visitRefs(spelling: string, visit: (ref: SpellingRef) => void): void {
     for (const token of this.entries.get(spelling)?.tokens ?? []) visit({ spelling, token })
   }

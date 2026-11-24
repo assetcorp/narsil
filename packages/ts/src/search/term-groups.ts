@@ -1,4 +1,4 @@
-import { mergeFoldedCompletions } from '../core/folding/code'
+import { expandFoldedPartialWords, mergeFoldedCompletions } from '../core/folding/code'
 import type { PartitionIndex } from '../core/partition'
 import { addPartialWordMembers } from '../core/partition/partial-words/registry'
 import type { PartialWordAnalysis } from '../core/partition/partial-words/spellings'
@@ -136,7 +136,10 @@ export function resolveTermGroups(
         prefixLength: params.prefixLength,
         analysis: partialWordAnalysisOf(partialFields, language, analysis),
       },
-      (partialAnalysis, requests) => partition.expandPartialWords(partialAnalysis, requests),
+      (partialAnalysis, requests) =>
+        foldingLanguage === null
+          ? partition.expandPartialWords(partialAnalysis, requests)
+          : expandFoldedPartialWords(partition, foldingLanguage, partialAnalysis, requests),
       (token, typoMatches) => groupFor(groups, token, typoMatches),
     )
   }

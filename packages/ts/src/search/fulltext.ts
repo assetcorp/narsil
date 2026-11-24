@@ -1,5 +1,5 @@
 import { bitsetIsEmpty } from '../core/bitset'
-import { resolveFoldedTerms } from '../core/folding/code'
+import { resolveFoldedPhrases, resolveFoldedTerms } from '../core/folding/code'
 import type { PartitionIndex, PartitionSearchMatches } from '../core/partition'
 import type { PatternWorkMeter } from '../core/pattern-index/types'
 import { createPatternWorkMeter } from '../core/pattern-index/work-meter'
@@ -76,12 +76,17 @@ function prepareFulltextQuery(
     validateSearchFields(params.fields, flatSchema)
   }
 
-  const quoted = analyseQueryPhrases(params.term, language, {
-    stopWords: options?.stopWords,
-    customTokenizer: options?.customTokenizer,
-  })
+  const folds = options?.folds === true && params.exact !== true
+  const quoted = analyseQueryPhrases(
+    params.term,
+    language,
+    { stopWords: options?.stopWords, customTokenizer: options?.customTokenizer },
+    folds,
+  )
   const wordParams = quoted === null ? params : requireLoadedPhraseCode().withWordsOnly(params, quoted)
-  const phrases = quoted !== null && quoted.phrases.length > 0 ? quoted.phrases : undefined
+  const quotedPhrases = quoted !== null && quoted.phrases.length > 0 ? quoted.phrases : undefined
+  const phrases =
+    folds && quotedPhrases !== undefined ? resolveFoldedPhrases(partition, language, quotedPhrases) : quotedPhrases
 
   const words = wordParams.term ?? ''
   const analysedTokens = quoted !== null && words.trim().length === 0 ? [] : analysedWords(words, language, options)
@@ -104,18 +109,17 @@ function prepareFulltextQuery(
   const lastToken = analysedTokens[analysedTokens.length - 1]
   const synonyms = params.exact === true ? undefined : options?.synonyms?.expand(queryTokens.map(qt => qt.token))
   const groups = resolveTermGroups(partition, wordParams, language, schema, queryTokens, lastToken, options, synonyms)
-  const foldedTerms =
-    options?.folds === true && params.exact !== true
-      ? resolveFoldedTerms({
-          partition,
-          language,
-          queryTokens,
-          written: writtenWordsByPosition(words, language, options),
-          tolerance: params.tolerance ?? 0,
-          prefixLength: params.prefixLength ?? DEFAULT_FUZZY_PREFIX_LENGTH,
-          termGroups: groups.termGroups,
-        })
-      : undefined
+  const foldedTerms = folds
+    ? resolveFoldedTerms({
+        partition,
+        language,
+        queryTokens,
+        written: writtenWordsByPosition(words, language, options),
+        tolerance: params.tolerance ?? 0,
+        prefixLength: params.prefixLength ?? DEFAULT_FUZZY_PREFIX_LENGTH,
+        termGroups: groups.termGroups,
+      })
+    : undefined
   return { queryTokens, phrases, ...groups, foldedTerms, filterBitset }
 }
 

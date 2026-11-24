@@ -41,6 +41,7 @@ export interface HighlightSettings {
   readonly analysis: ResolvedAnalysis
   readonly schema: SchemaDefinition
   readonly synonyms: SynonymLookup | null
+  readonly folds: boolean
 }
 
 export interface RankedFanOut extends FanOutResult {
@@ -182,6 +183,6 @@ export function fillHits<T>(
   const readStoredDocument = dropped
     ? (docId: string): Record<string, unknown> | undefined => reads.get(docId, { kind: 'full' })
     : undefined
-  const { language, analysis, schema, synonyms } = highlighting
-  applyHighlights(paginated, params, language, analysis, schema, readStoredDocument, synonyms)
+  const { language, analysis, schema, synonyms, folds } = highlighting
+  applyHighlights(paginated, params, language, analysis, schema, readStoredDocument, synonyms, folds)
 }

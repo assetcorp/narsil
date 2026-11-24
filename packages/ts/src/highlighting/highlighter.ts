@@ -15,6 +15,15 @@ export interface PartialWordHighlight {
   stopWordOverride?: StopWordOverride
 }
 
+export interface FoldedHighlight {
+  keyOf(spelling: string): string
+  foldOf(spelling: string): string
+  keys: ReadonlyArray<{ key: string; tolerance: number }>
+  phraseKeys: ReadonlySet<string>
+  prefix?: string
+  partialFolds?: readonly string[]
+}
+
 export interface HighlightOptions {
   preTag?: string
   postTag?: string
@@ -25,6 +34,17 @@ export interface HighlightOptions {
   prefixLength?: number
   partialWords?: PartialWordHighlight
   synonyms?: readonly string[]
+  folding?: FoldedHighlight
+}
+
+function matchesFolded(folding: FoldedHighlight, spelling: string, prefixLength: number): boolean {
+  const key = folding.keyOf(spelling)
+  if (folding.phraseKeys.has(key)) return true
+  if (folding.keys.some(entry => fuzzyTermMatches(entry.key, key, entry.tolerance, prefixLength))) return true
+  if (folding.prefix === undefined && folding.partialFolds === undefined) return false
+  const fold = folding.foldOf(spelling)
+  if (folding.prefix !== undefined && fold.startsWith(folding.prefix)) return true
+  return folding.partialFolds?.some(partial => fold.includes(partial)) === true
 }
 
 export function highlightField(
@@ -43,12 +63,16 @@ export function highlightField(
   const prefixLength = options?.prefixLength ?? 0
   const completedToken = options?.completedToken
   const queryTolerances = queryTokens.map(query => (query.token === completedToken ? 0 : tolerance))
-  const native = nativeHighlight(
-    text,
-    stemmedQueryTokens.map((token, index) => ({ token, tolerance: queryTolerances[index] })),
-    language,
-    options,
-  )
+  const folding = options?.folding
+  const native =
+    folding === undefined
+      ? nativeHighlight(
+          text,
+          stemmedQueryTokens.map((token, index) => ({ token, tolerance: queryTolerances[index] })),
+          language,
+          options,
+        )
+      : null
   if (native !== null) return native
   const fieldResult = tokenize(text, language, { stem: false, removeStopWords: false })
   const charOffsets = originalTokenOffsets(text, language)
@@ -62,7 +86,8 @@ export function highlightField(
       synonyms?.includes(stemmedField) === true ||
       stemmedQueryTokens.some((query, index) =>
         fuzzyTermMatches(query, stemmedField, queryTolerances[index], prefixLength),
-      )
+      ) ||
+      (folding !== undefined && matchesFolded(folding, fieldToken, prefixLength))
     matchByFieldToken.set(fieldToken, matches)
     return matches
   }

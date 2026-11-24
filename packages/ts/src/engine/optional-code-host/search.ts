@@ -1,4 +1,5 @@
 import { turnIsSpent, yieldTurn } from '#platform/turn-budget'
+import { indexFolds } from '../../core/folding/code'
 import { partitionsIn } from '../../partitioning/partition-selection'
 import {
   DEFAULT_MAX_RERANK_WINDOW,
@@ -38,6 +39,7 @@ import { clampLimit, now } from '../validation'
 export function searchHostPart() {
   return {
     applyHighlights,
+    indexFolds,
     clampLimit,
     clampRowCount,
     decodePageCursor,

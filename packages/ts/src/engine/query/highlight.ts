@@ -1,10 +1,12 @@
 import type { ResolvedAnalysis } from '../../analysis/registry'
+import { spellingFoldsOf } from '../../core/folding/code'
 import { partialWordsToHighlight } from '../../core/partition/partial-words/registry'
 import type { SynonymLookup } from '../../core/synonyms/types'
 import { tokenize } from '../../core/tokenizer'
-import { highlightField, type PartialWordHighlight } from '../../highlighting/highlighter'
+import { type FoldedHighlight, highlightField, type PartialWordHighlight } from '../../highlighting/highlighter'
 import { partialFieldsOf } from '../../schema/validator'
 import { DEFAULT_FUZZY_PREFIX_LENGTH } from '../../search/constants'
+import type { QueryPhrases } from '../../search/phrase-analysis'
 import { analyseQueryPhrases, requireLoadedPhraseCode } from '../../search/phrase-code'
 import type { LanguageModule } from '../../types/language'
 import type { HighlightMatch, Hit } from '../../types/results'
@@ -47,6 +49,35 @@ function partialWordTagging(
   }
 }
 
+function foldedHighlightOf(
+  language: LanguageModule,
+  queryTokens: readonly QueryToken[],
+  written: readonly QueryToken[],
+  quoted: QueryPhrases | null,
+  tolerance: number,
+  completedToken: string | undefined,
+  prefixToken: string | undefined,
+): FoldedHighlight {
+  const folds = spellingFoldsOf(language)
+  const writtenAt = new Map(written.map(entry => [entry.position, entry.token]))
+  const phraseKeys = new Set<string>()
+  for (const phrase of quoted?.phrases ?? []) {
+    for (let at = 0; at < phrase.tokens.length; at++) {
+      phraseKeys.add(folds.keyOf(phrase.written?.[at] ?? phrase.tokens[at]))
+    }
+  }
+  return {
+    keyOf: folds.keyOf,
+    foldOf: folds.foldOf,
+    keys: queryTokens.map(query => ({
+      key: folds.keyOf(writtenAt.get(query.position) ?? query.token),
+      tolerance: query.token === completedToken ? 0 : tolerance,
+    })),
+    phraseKeys,
+    ...(prefixToken !== undefined ? { prefix: folds.foldOf(prefixToken) } : {}),
+  }
+}
+
 export function applyHighlights<T>(
   hits: Array<Hit<T>>,
   request: QueryParams,
@@ -55,10 +86,12 @@ export function applyHighlights<T>(
   schema: SchemaDefinition,
   readStoredDocument?: (docId: string) => Record<string, unknown> | undefined,
   synonymLookup?: SynonymLookup | null,
+  foldsIndex = false,
 ): void {
   if (!request.highlight) return
 
-  const quoted = analyseQueryPhrases(request.term ?? '', language, analysis)
+  const folds = foldsIndex && request.exact !== true
+  const quoted = analyseQueryPhrases(request.term ?? '', language, analysis, folds)
   const params = quoted === null ? request : requireLoadedPhraseCode().withWordsOnly(request, quoted)
   const words = params.term ?? ''
   const highlightConfig = request.highlight
@@ -73,7 +106,7 @@ export function applyHighlights<T>(
         }).tokens
   const usesPrefix = params.prefix === true && params.exact !== true && queryTokens.length > 0
   const usesPartialWords = params.partialWords === true && params.exact !== true && queryTokens.length > 0
-  const written = usesPrefix || usesPartialWords ? writtenWordsOf(words, language, analysis) : []
+  const written = usesPrefix || usesPartialWords || folds ? writtenWordsOf(words, language, analysis) : []
 
   let prefixToken: string | undefined
   let completedToken: string | undefined
@@ -94,6 +127,12 @@ export function applyHighlights<T>(
       : synonymLookup?.expand(queryTokens.map(qt => qt.token))?.tokens
   const phraseTokens = quoted?.phrases.flatMap(phrase => phrase.tokens) ?? []
   const synonyms = phraseTokens.length === 0 ? wordSynonyms : [...(wordSynonyms ?? []), ...phraseTokens]
+  const tolerance = params.exact === true ? 0 : (params.tolerance ?? 0)
+  const folding =
+    folds && (queryTokens.length > 0 || phraseTokens.length > 0)
+      ? foldedHighlightOf(language, queryTokens, written, quoted, tolerance, completedToken, prefixToken)
+      : undefined
+  const partialFolds = partialWords?.highlight.words.map(word => folding?.foldOf(word) ?? word)
 
   for (const hit of hits) {
     const highlights: Record<string, HighlightMatch> = {}
@@ -112,10 +151,12 @@ export function applyHighlights<T>(
           maxSnippetLength: highlightConfig.maxSnippetLength,
           prefixToken,
           completedToken,
-          tolerance: params.exact === true ? 0 : (params.tolerance ?? 0),
+          tolerance,
           prefixLength: params.prefixLength ?? DEFAULT_FUZZY_PREFIX_LENGTH,
           partialWords: partialWords?.fields.has(field) === true ? partialWords.highlight : undefined,
           synonyms,
+          folding:
+            folding !== undefined && partialWords?.fields.has(field) === true ? { ...folding, partialFolds } : folding,
         })
       }
     }

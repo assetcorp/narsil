@@ -23,6 +23,7 @@ export type PartialWordVisitor = (token: string, spellingLength: number) => void
 
 export interface PartialWordReader {
   forEachContaining(probe: PartialWordProbe, visit: PartialWordVisitor): void
+  holdsSpelling(spelling: string, token: string): boolean
   bytes(): number
 }
 

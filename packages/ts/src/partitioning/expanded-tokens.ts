@@ -1,10 +1,11 @@
-import { resolveFoldedTerms } from '../core/folding/code'
+import { resolveFoldedPhrases, resolveFoldedTerms } from '../core/folding/code'
 import type { PartitionIndex } from '../core/partition'
 import { partitionStateOf } from '../core/partition'
 import { isCompositePartition } from '../core/partition/composite'
 import type { PartitionReadState } from '../core/partition/read-state'
 import { tokenize } from '../core/tokenizer'
 import { DEFAULT_FUZZY_PREFIX_LENGTH } from '../search/constants'
+import type { QueryPhrases } from '../search/phrase-analysis'
 import { analyseQueryPhrases } from '../search/phrase-code'
 import { resolveTermGroups, type TermGroupAnalysis, writtenWordsByPosition } from '../search/term-groups'
 import type { LanguageModule } from '../types/language'
@@ -105,6 +106,21 @@ function addPartitionTokens(
   }
 }
 
+function foldedPhraseVariants(
+  partitions: readonly PartitionIndex[],
+  language: LanguageModule,
+  quoted: QueryPhrases | null,
+): string[] {
+  if (quoted === null || quoted.phrases.length === 0) return []
+  const found = new Set<string>()
+  for (const partition of partitions) {
+    for (const phrase of resolveFoldedPhrases(partition, language, quoted.phrases)) {
+      for (const variants of phrase.variants ?? []) for (const variant of variants) found.add(variant)
+    }
+  }
+  return [...found]
+}
+
 export function addReachedTokens(
   tokens: Set<string>,
   partitions: readonly PartitionIndex[],
@@ -114,9 +130,11 @@ export function addReachedTokens(
   analysis: TermGroupAnalysis,
 ): string[] {
   if (requested.options.exact === true) return []
-  const quoted = analyseQueryPhrases(term, language, analysis)
+  const quoted = analyseQueryPhrases(term, language, analysis, analysis.folds === true)
   const words = quoted?.words ?? term
-  if (quoted !== null && words.trim().length === 0) return []
+  const phraseVariants = analysis.folds === true ? foldedPhraseVariants(partitions, language, quoted) : []
+  for (const token of phraseVariants) tokens.add(token)
+  if (quoted !== null && words.trim().length === 0) return phraseVariants
   const expansion =
     quoted?.endsWithPhrase === true
       ? { schema: requested.schema, options: { ...requested.options, prefix: false } }
@@ -125,8 +143,8 @@ export function addReachedTokens(
   const expands = (options.tolerance ?? 0) > 0 || options.prefix === true || options.partialWords === true
   if (!expands && analysis.folds !== true) return []
   const analysed = queryTokensOf(words, language, analysis)
-  if (analysed === null) return []
-  const addedMembers = new Set<string>()
+  if (analysed === null) return phraseVariants
+  const addedMembers = new Set<string>(phraseVariants)
   for (const partition of partitions) {
     addPartitionTokens(tokens, addedMembers, partition, words, analysed, expansion, language, analysis)
   }

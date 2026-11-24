@@ -287,6 +287,7 @@ export interface AnalysedPhrase {
   key: string
   tokens: readonly string[]
   offsets: readonly number[]
+  written?: readonly string[]
   variants?: ReadonlyArray<readonly string[]>
 }
 

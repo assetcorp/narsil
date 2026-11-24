@@ -96,7 +96,13 @@ function planPhrases(
   phraseMatches: PhraseMatches,
 ): void {
   for (const rows of phraseMatches.rows) {
-    const frequencies = rows.phrase.tokens.map((token, at) => frequencyOf(state, params, token, rows.lists[at]))
+    const frequencies = rows.phrase.tokens.map((token, at) => {
+      let most = frequencyOf(state, params, token, rows.lists[at])
+      for (const variant of rows.phrase.variants?.[at] ?? []) {
+        most = Math.max(most, frequencyOf(state, params, variant, undefined))
+      }
+      return most
+    })
     builder.phraseSlot(frequencies, {
       docIds: rows.docIds.values,
       fields: rows.fieldIndices.values,

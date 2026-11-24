@@ -4,6 +4,7 @@ import type { AnalysedPhrase, PostingListView } from '../../types/internal'
 import type { NativePhrasePostings, NativePhraseRequest } from '../../vector/native/types/phrases'
 import type { InvertedIndexReader } from '../inverted-index'
 import type { PatternWorkMeter } from '../pattern-index/types'
+import { combinedPhrasePostings } from '../phrases/combined'
 import { NANOSECONDS_PER_MILLISECOND } from '../phrases/constants'
 import { markRemoved, phrasePostings } from '../phrases/postings'
 import { bitmapWords, phraseRowCapacity } from '../phrases/regions'
@@ -54,14 +55,20 @@ export function matchPhrases(
     const analysed = phrases[phrase]
     for (let entry = 0; entry < analysed.tokens.length; entry++) {
       const token = analysed.tokens[entry]
-      let at = seen.get(token)
+      const variants = analysed.variants?.[entry] ?? []
+      const key = variants.length === 0 ? token : [token, ...variants].join('\u0000')
+      let at = seen.get(key)
       if (at === undefined) {
         at = postings.length
-        seen.set(token, at)
-        const list = index.lookup(token)
-        lists.push(list)
-        postings.push(phrasePostings(list))
-        if (list !== undefined) markRemoved(list, removed)
+        seen.set(key, at)
+        const held: PostingListView[] = []
+        for (const candidate of [token, ...variants]) {
+          const list = index.lookup(candidate)
+          if (list !== undefined) held.push(list)
+        }
+        lists.push(held[0])
+        postings.push(held.length > 1 ? combinedPhrasePostings(held) : phrasePostings(held[0]))
+        for (const list of held) markRemoved(list, removed)
       }
       tokens.push(at)
       offsets.push(analysed.offsets[entry])

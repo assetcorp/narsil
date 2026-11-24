@@ -1,3 +1,4 @@
 export const WORK_FLUSH_UNITS = 65536
 export const NANOSECONDS_PER_MILLISECOND = 1_000_000
 export const RADIX_BITS = 8
+export const MAX_HELD_FOLDED_PHRASE_POSTINGS = 4

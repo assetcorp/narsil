@@ -1,4 +1,4 @@
-import { loadFoldingForQuery } from '../core/folding/code'
+import { indexFolds, loadFoldingForQuery } from '../core/folding/code'
 import { loadPrefixFor } from '../core/partition/suggestion-code'
 import { joinPatternWorkMeter } from '../core/pattern-index/work-meter'
 import { fillHits, rankPage } from '../engine/query/assemble'
@@ -52,6 +52,7 @@ function withCopyReads(
     analysis: manager.analysis,
     schema: manager.schema,
     synonyms: manager.synonyms,
+    folds: indexFolds(manager.config.foldMarks, manager.language),
   })
   const answer: FanOutResult = {
     scored: [],

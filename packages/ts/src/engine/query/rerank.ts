@@ -2,7 +2,7 @@ import type { HitReads } from '../../partitioning/manager/state-pins'
 import type { RuntimeHost } from '../../rerank/host'
 import { rerankTextOf } from '../../rerank/params'
 import { runRerankedQuery } from '../../rerank/pipeline'
-import { applyHighlights, ErrorCodes, NarsilError } from '../../rerank/rerank-host-bindings'
+import { applyHighlights, ErrorCodes, indexFolds, NarsilError } from '../../rerank/rerank-host-bindings'
 import type { QueryResult } from '../../types/results'
 import type { AnyDocument } from '../../types/schema'
 import type { QueryParams } from '../../types/search'
@@ -59,7 +59,8 @@ export async function executeRerankedQuery<T = AnyDocument>(
       const readStoredDocument = dropped
         ? (docId: string): Record<string, unknown> | undefined => reads.get(docId, { kind: 'full' })
         : undefined
-      applyHighlights(page, request, context.language, analysis, schema, readStoredDocument, synonyms)
+      const folds = indexFolds(manager.config.foldMarks, manager.language)
+      applyHighlights(page, request, context.language, analysis, schema, readStoredDocument, synonyms, folds)
     },
   })
   result.elapsed = host.now() - startTime

@@ -49,6 +49,19 @@ export function foldText(text: string, rules: FoldingRules): string {
   return rules.letters === null ? stripped : replaceLetters(stripped, rules.letters)
 }
 
+export interface SpellingFolds {
+  keyOf(spelling: string): string
+  foldOf(spelling: string): string
+}
+
+export function spellingFoldsOf(language: LanguageModule): SpellingFolds {
+  const rules = foldingRulesOf(language)
+  return {
+    keyOf: spelling => foldedSpelling(spelling, rules).key,
+    foldOf: spelling => foldedSpelling(spelling, rules).fold,
+  }
+}
+
 export function foldedSpelling(spelling: string, rules: FoldingRules): FoldedSpelling {
   const held = rules.cache.get(spelling)
   if (held !== undefined) return held
