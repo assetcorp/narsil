@@ -45,6 +45,7 @@ import { type Authorizer, authorizerFor, createRouteRunner } from '../request'
 import { type RequestThreadHost, startRequestThreads } from '../request-threads/host'
 import { registerServerRoutes } from '../routes'
 import { loadUWebSockets, type UWebSockets } from '../runtime'
+import { shutdownStartOf } from '../shutdown-start'
 import type { FeedHost } from '../sync/feed-host'
 import { CHANGES_FEED_ROUTE, registerFeedRoute, SYNC_FEED_ROUTE } from '../sync/feed-route'
 import { assertFeedHasAuthentication, type ResolvedFeedOptions, resolveFeedOptions } from '../sync/options'
@@ -231,15 +232,7 @@ class NarsilHttpServer implements NarsilServer {
   }
 
   async shutdown(): Promise<void> {
-    if (this.deps.cluster !== undefined) {
-      const [closed, shutDown] = await Promise.allSettled([
-        this.close(),
-        this.deps.tasks.shutdown().then(() => this.engine.shutdown()),
-      ])
-      if (closed.status === 'rejected') throw closed.reason
-      if (shutDown.status === 'rejected') throw shutDown.reason
-      return
-    }
+    shutdownStartOf(this.engine)?.()
     await this.close()
     await this.deps.tasks.shutdown()
     await this.engine.shutdown()

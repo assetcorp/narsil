@@ -119,6 +119,7 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
   const searchContexts = hasDataRole ? createSearchContextRegistry() : undefined
   let serving = false
   const shuttingDown = new AbortController()
+  let shutDown = false
 
   const localCopies = createNodeCopies({
     ...cleanupDeps,
@@ -338,9 +339,8 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
     },
 
     async shutdown() {
-      if (shuttingDown.signal.aborted) {
-        return
-      }
+      if (shutDown) return
+      shutDown = true
       shuttingDown.abort()
       serving = false
       stopEveryReshardJob(reshard)
@@ -362,9 +362,7 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
       await lifecycle.shutdown()
       memoryReporting.stop()
 
-      if (controller !== null) {
-        await controller.shutdown()
-      }
+      await controller?.shutdown()
 
       await heldPartitionWrites.settled()
       await localCopies.failures.settled()
@@ -380,6 +378,7 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
     memoryView: memoryReporting.view,
     syncServing: deviceSync.serving,
     changesServing: deviceSync.changesServing,
+    startShutdown: () => shuttingDown.abort(),
   })
   suggestions.bind(node, { engine: clusterNodeEngine(node), dropIndex: name => node.dropIndex(name) })
   return node

@@ -3,7 +3,7 @@ import { createClusterNode } from '../../distribution/cluster-node'
 import { clusterNodeEngine } from '../../distribution/cluster-node/server-engine'
 import type { ClusterNode } from '../../distribution/cluster-node/types'
 import { createInMemoryCoordinator } from '../../distribution/coordinator'
-import type { ClusterCoordinator } from '../../distribution/coordinator/types'
+import type { ClusterCoordinator, NodeRole } from '../../distribution/coordinator/types'
 import { createInMemoryNetwork, createInMemoryTransport, type InMemoryNetwork } from '../../distribution/transport'
 import type { NodeTransport, RespondFn, TransportMessage } from '../../distribution/transport/types'
 import type { NarsilServer } from '../../server'
@@ -129,6 +129,122 @@ describe('a server fronting a cluster node that shuts down while a write waits o
       expect(gateway.cluster.getReadiness()).toBe('LEAVING')
       silence.active = false
       expect(await primary.get(INDEX_NAME, 'manifest-7')).toBeUndefined()
+    },
+    TEST_TIMEOUT_MS,
+  )
+})
+
+const DATA_NODES = ['quay-keeper', 'tide-keeper']
+const REPLY_TYPES = new Set(['replication.entry', 'replication.entry_batch'])
+const REPLICATION_TIMEOUT_MS = 1_500
+const STALL_ARRIVAL_WAIT_MS = 10_000
+
+describe('a server fronting a primary that shuts down while its local write waits on a stalled replica', () => {
+  let coordinator: ClusterCoordinator
+  let network: InMemoryNetwork
+  const nodes = new Map<string, ClusterNode>()
+  const transports: NodeTransport[] = []
+  let server: NarsilServer | null = null
+  const stall = { replica: '', active: false, held: [] as (() => Promise<void>)[] }
+
+  function stallableTransport(nodeId: string): NodeTransport {
+    const inner = createInMemoryTransport(nodeId, network, { replicationTimeout: REPLICATION_TIMEOUT_MS })
+    transports.push(inner)
+    return {
+      ...inner,
+      listen: handler =>
+        inner.listen((message: TransportMessage, respond: RespondFn) => {
+          if (stall.replica !== nodeId || !REPLY_TYPES.has(message.type)) return handler(message, respond)
+          return handler(message, async reply => {
+            if (stall.active) stall.held.push(() => respond(reply))
+            else await respond(reply)
+          })
+        }),
+    }
+  }
+
+  async function startNode(nodeId: string, roles: NodeRole[]): Promise<ClusterNode> {
+    const node = await createClusterNode({
+      coordinator,
+      transport: stallableTransport(nodeId),
+      address: `${nodeId}:9200`,
+      nodeId,
+      roles,
+      ...(roles.includes('data') ? { engine: { workers: { enabled: false } } } : {}),
+    })
+    nodes.set(nodeId, node)
+    await node.start()
+    return node
+  }
+
+  beforeEach(async () => {
+    coordinator = createInMemoryCoordinator()
+    network = createInMemoryNetwork()
+    stall.replica = ''
+    stall.active = false
+    stall.held = []
+    for (const nodeId of DATA_NODES) await startNode(nodeId, ['data'])
+    const gateway = await startNode(GATEWAY_NODE, ['coordinator', 'controller'])
+    await gateway.createIndex(INDEX_NAME, { schema: { vessel: 'string' } }, { partitionCount: 1, replicationFactor: 1 })
+  })
+
+  afterEach(async () => {
+    stall.active = false
+    for (const release of stall.held.splice(0)) await release().catch(() => {})
+    await server?.shutdown().catch(() => {})
+    server = null
+    for (const node of nodes.values()) await node.shutdown().catch(() => {})
+    nodes.clear()
+    for (const transport of transports.splice(0)) await transport.shutdown()
+    await coordinator.shutdown()
+  })
+
+  it(
+    'acknowledges the write before the server shuts the engine down',
+    async () => {
+      let primaryNodeId = ''
+      await until(
+        async () => {
+          const assignment = (await coordinator.getAllocation(INDEX_NAME))?.assignments.get(0)
+          const replica = assignment?.replicas[0]
+          if (assignment?.state !== 'ACTIVE' || assignment.primary === null || replica === undefined) return false
+          if (!assignment.inSyncSet.includes(replica)) return false
+          primaryNodeId = assignment.primary
+          stall.replica = replica
+          return true
+        },
+        ALLOCATION_WAIT_MS,
+        'partition 0 never became ACTIVE with an in-sync replica',
+      )
+      const primary = nodes.get(primaryNodeId)
+      if (primary === undefined) throw new Error(`no running node is called ${primaryNodeId}`)
+      const fronting = createServer(clusterNodeEngine(primary), {
+        host: '127.0.0.1',
+        port: 0,
+        cluster: primary.cluster,
+      })
+      server = fronting
+      await fronting.listen()
+
+      stall.active = true
+      const answer = postJson<{ id: string }>(
+        `http://127.0.0.1:${fronting.listeningPort}`,
+        `/indexes/${INDEX_NAME}/documents`,
+        {
+          document: { vessel: 'Southern Petrel' },
+          id: 'manifest-11',
+        },
+      )
+      await until(() => stall.held.length > 0, STALL_ARRIVAL_WAIT_MS, 'the replica never received the write')
+
+      const started = performance.now()
+      await fronting.shutdown()
+      const shutdownMs = performance.now() - started
+
+      expect(shutdownMs).toBeLessThan(SHUTDOWN_BOUND_MS)
+      const acknowledged = await answer
+      expect(acknowledged.status).toBe(201)
+      expect(acknowledged.body.id).toBe('manifest-11')
     },
     TEST_TIMEOUT_MS,
   )
