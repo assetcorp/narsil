@@ -14,6 +14,7 @@ pub const DEFAULT_TCP_PORT: u16 = 9300;
 pub const DEFAULT_GRPC_PORT: u16 = 9301;
 pub const DEFAULT_MAX_CONNECTIONS: usize = 256;
 pub const ACCEPT_RETRY_DELAY_MS: u64 = 10;
+pub const ACCEPT_QUEUE_LENGTH: u32 = 2_147_483_647;
 
 pub const LENGTH_PREFIX_BYTES: usize = 4;
 pub const FRAME_READ_CHUNK_BYTES: usize = 65_536;

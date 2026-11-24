@@ -9,7 +9,7 @@ use crate::constants::{
     DEFAULT_MAX_IMPORT_BYTES, DEFAULT_MAX_IMPORT_ERRORS, DEFAULT_MAX_LINE_BYTES,
     DEFAULT_MAX_RERANK_WINDOW, DEFAULT_MAX_RESTORE_BYTES, DEFAULT_MAX_RESULT_WINDOW,
     DEFAULT_MAX_TASK_PAGE_SIZE, MAX_BODY_BYTES_IN_FLIGHT_FRACTION, MAX_ENGINE_RERANK_WINDOW,
-    MIN_COUNTED_SERVER_LIMIT,
+    MIN_ACCEPT_QUEUE_LENGTH, MIN_COUNTED_SERVER_LIMIT,
 };
 use crate::errors::config_invalid_error;
 use crate::feeds::Feeds;
@@ -91,6 +91,15 @@ impl ServerState {
     #[cfg(not(feature = "cluster"))]
     pub(crate) fn feed_source(&self) -> Arc<dyn ChangeSource> {
         self.engine.feed_source()
+    }
+}
+
+pub(crate) fn check_accept_queue_length(length: Option<u32>) -> Result<(), NarsilError> {
+    match length {
+        Some(length) if length < MIN_ACCEPT_QUEUE_LENGTH => Err(config_invalid_error(format!(
+            "acceptQueueLength must be a whole number of at least {MIN_ACCEPT_QUEUE_LENGTH}; however, this configuration sets it to {length}"
+        ))),
+        _ => Ok(()),
     }
 }
 

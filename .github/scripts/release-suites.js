@@ -195,6 +195,7 @@ const SUITES = {
     jobs: [
       'Rust server / Format and Clippy',
       ...['linux-x64', 'win32-x64'].map(label => `Rust server / Test on ${label}`),
+      'Rust server / Test with the cluster feature on linux-x64',
       'Rust server / Python and Go clients on the Rust server',
     ],
     paths: [
