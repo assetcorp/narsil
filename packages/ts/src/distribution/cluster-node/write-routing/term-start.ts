@@ -117,6 +117,29 @@ async function settleCopies(
   return settled.filter(copy => copy !== null)
 }
 
+export interface CopyEnd {
+  lastSeqNo: number
+  lastPrimaryTerm: number
+}
+
+export async function bringCopyToEnd(scope: PrimaryWriteScope, copy: string): Promise<CopyEnd | null> {
+  const { deps, indexName, partitionId, assignment } = scope
+  const log = deps.getReplicationLog(indexName, partitionId)
+  const lastSeqNo = log.localLogEnd
+  const lastPrimaryTerm = lastSeqNo === 0 ? 0 : log.termAt(lastSeqNo)
+  if (lastPrimaryTerm === undefined) return null
+  const request: TermStartPayload = {
+    indexName,
+    partitionId,
+    primaryTerm: assignment.primaryTerm,
+    lastSeqNo,
+    lastPrimaryTerm,
+  }
+  if (scope.indexUuid !== undefined) request.indexUuid = scope.indexUuid
+  const inStep = await settleCopy(scope, log, request, copy).catch(() => false)
+  return inStep ? { lastSeqNo, lastPrimaryTerm } : null
+}
+
 async function settleCopy(
   scope: PrimaryWriteScope,
   log: ReplicationLog,

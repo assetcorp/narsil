@@ -19,21 +19,7 @@ export function recordLeaseRenewal(lease: Lease, sentAt: number, ttlSeconds: num
   validities.set(lease, { heldUntil, ttlMs })
 }
 
-export function followLeaseRenewals(lease: Lease): void {
-  const unanswered: number[] = []
-  lease.on('keepaliveFired', () => {
-    unanswered.push(performance.now())
-  })
-  lease.on('keepaliveSucceeded', response => {
-    const sentAt = unanswered.shift()
-    if (sentAt !== undefined) recordLeaseRenewal(lease, sentAt, Number(response.TTL))
-  })
-  lease.on('keepaliveEstablished', () => {
-    unanswered.length = 0
-  })
-  lease.on('keepaliveFailed', () => {
-    unanswered.length = 0
-  })
+export function forgetValidityOnLoss(lease: Lease): void {
   lease.once('lost', () => {
     validities.delete(lease)
   })

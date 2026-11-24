@@ -85,7 +85,7 @@ A data node frees a context in four cases:
 
 The coordinator must free every context that it opened. Where a context covers none of the documents that the coordinator fetches, the coordinator sends that node a fetch with no document IDs and `releaseContext` true, and it sends that fetch without waiting for an answer, so that freeing the context adds no time to the response. The coordinator sends the same fetch to every node that returned a context when the query fails or the coordinator abandons it, and to a node whose phase 1 answer arrives after `partitionTimeout`.
 
-A data node that holds no context with the requested ID must answer `SEARCH_CONTEXT_MISSING`, unless the fetch names no document IDs, which the node answers with no documents. The coordinator that receives `SEARCH_CONTEXT_MISSING`, or that cannot reach the node holding a context, must run the whole query once more from phase 1. Where that second run loses a context as well, the coordinator must raise `SEARCH_CONTEXT_MISSING` to the client, which can retry the query.
+A data node that holds no context with the requested ID must answer `SEARCH_CONTEXT_MISSING`, unless the fetch names no document IDs, which the node answers with no documents. The coordinator that receives `SEARCH_CONTEXT_MISSING`, that receives `NODE_NOT_READY` from the node holding a context, or that cannot reach that node, must run the whole query once more from phase 1. Where that second run loses a context as well, the coordinator must raise `SEARCH_CONTEXT_MISSING` to the client, which can retry the query.
 
 The coordinator reads the members of each group, the reranked fields of a [reranked query](#distributed-reranking), and the documents of the page from the same contexts, so a single query reads every document as its node ranked it. A pinned document placed from outside the ranked results has no context, so the coordinator fetches its current version. A data node that predates search contexts ignores `keepAliveMs` and returns no `contextId`, so the coordinator fetches the current version of the documents that node ranked. A coordinator that predates search contexts sends no `keepAliveMs`, so no data node opens a context for its queries.
 
@@ -411,5 +411,5 @@ The coordinator that receives a query carrying `rerank` must rerank it with the 
 | `QUERY_NODE_TIMEOUT` | A data node did not answer within `partitionTimeout`. |
 | `QUERY_ROUTING_FAILED` | The allocation table holds no entry for the target index. |
 | `QUERY_NO_ACTIVE_REPLICA` | One or more partitions have no `ACTIVE` replica, or a node refused a read under [Read Path](replication.md#read-path). |
-| `SEARCH_CONTEXT_MISSING` | A data node no longer held the search context of a query, or the coordinator could not reach it, in the first run of the query and again in its one rerun. |
+| `SEARCH_CONTEXT_MISSING` | A data node no longer held the search context of a query, answered `NODE_NOT_READY`, or was out of the coordinator's reach, in the first run of the query and again in its one rerun. |
 | `ANALYSIS_GENERATION_MISSING` | A data node held another analysis generation in the first run of a query and again in its one rerun. |

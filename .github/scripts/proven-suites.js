@@ -2,6 +2,7 @@ const { appendFileSync } = require('node:fs')
 const { SUITES, SUITES_BY_PACKAGE } = require('./release-suites.js')
 const { createInputHasher, resolvedHead } = require('./suite-inputs.js')
 const { createRunLookup } = require('./proven-suite-runs.js')
+const { requireCampaignPassed } = require('./fault-campaign-proof.js')
 
 const SUCCESS_OR_SKIPPED = new Set(['success', 'skipped'])
 const CANCELLED = 'cancelled'
@@ -181,6 +182,7 @@ async function gate(packageName) {
   }
   if (failures.length > 0) throw new Error(`This release publishes nothing, because ${failures.join('; ')}`)
   await requireProofs(reusedSuites.join(','))
+  await requireCampaignPassed(packageName)
 }
 
 async function main() {

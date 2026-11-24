@@ -81,6 +81,8 @@ pub const CLUSTER_RESHARD_FORWARD: &str = "cluster.reshard_forward";
 pub const CLUSTER_RESHARD_CUTOVER: &str = "cluster.reshard_cutover";
 /// A primary's request that another remove one old partition's documents from a new generation.
 pub const CLUSTER_RESHARD_PURGE: &str = "cluster.reshard_purge";
+/// The controller's request that a primary hold or lift a partition's writes while its lead moves to an in-sync replica.
+pub const CLUSTER_LEAD_HANDOFF: &str = "cluster.lead_handoff";
 /// A request that the controller take a backup of an index.
 pub const CLUSTER_BACKUP: &str = "cluster.backup";
 /// A request that the controller restore an index from a backup.
@@ -100,7 +102,7 @@ pub const SUGGESTIONS_COUNTS: &str = "suggestions.counts";
 /// A request that the controller build the query suggestions of an index.
 pub const SUGGESTIONS_BUILD: &str = "suggestions.build";
 
-const SPECIFIED: [&str; 50] = [
+const SPECIFIED: [&str; 51] = [
     CLUSTER_PING,
     CLUSTER_PONG,
     REPLICATION_FORWARD,
@@ -142,6 +144,7 @@ const SPECIFIED: [&str; 50] = [
     CLUSTER_RESHARD_FORWARD,
     CLUSTER_RESHARD_CUTOVER,
     CLUSTER_RESHARD_PURGE,
+    CLUSTER_LEAD_HANDOFF,
     CLUSTER_BACKUP,
     CLUSTER_BACKUP_RESTORE,
     CLUSTER_BACKUP_DELETE,

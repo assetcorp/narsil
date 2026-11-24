@@ -161,6 +161,28 @@ describe('a new primary that starts its term on every in-sync copy', () => {
     return { assignment, at: Date.now() }
   }
 
+  async function drainLeadership(
+    running: TestCluster,
+    settled: PartitionAssignment,
+  ): Promise<{ assignment: PartitionAssignment; at: number }> {
+    const drainCalledOff = new AbortController()
+    const drain = running
+      .node(settled.primary ?? '')
+      .decommission({ signal: drainCalledOff.signal })
+      .catch(() => undefined)
+    const assignment = await waitUntil('the controller to move the lead off the draining primary', async () => {
+      const current = partitionAssignment(await running.coordinator.getAllocation(INDEX))
+      return current !== undefined && current.primary !== settled.primary && current.primaryTerm > settled.primaryTerm
+        ? current
+        : null
+    })
+    const at = Date.now()
+    drainCalledOff.abort()
+    await drain
+    expect(settled.inSyncSet).toContain(assignment.primary)
+    return { assignment, at }
+  }
+
   async function expectEveryCopyHolds(running: TestCluster, ledger: Ledger, rejoining: string[]): Promise<void> {
     const expected = Object.fromEntries(ledger)
     const healed = await waitUntil(
@@ -217,7 +239,7 @@ describe('a new primary that starts its term on every in-sync copy', () => {
     await waitUntil('the stranded write to wait on its removal request', () => removal.count() > 0)
     const oldPrimaryWatch = await watchInSync(running, oldPrimary)
 
-    const handover = await swapLeadership(running, settled)
+    const handover = await drainLeadership(running, settled)
     removal.release()
     expect(await stranded).toEqual({ state: 'acknowledged' })
     ledger.set('stranded', fields('stranded', 999))
@@ -676,7 +698,7 @@ describe('a new primary that starts its term on every in-sync copy', () => {
     await waitUntil('the late write to wait on both replicas', () => lateEntries.count() >= settled.inSyncSet.length)
     const oldPrimaryWatch = await watchInSync(running, oldPrimary)
 
-    await swapLeadership(running, settled)
+    await drainLeadership(running, settled)
     await waitUntil('the old primary to leave the in-sync set', () => oldPrimaryWatch.leftAt())
     lateEntries.release()
     expect(await late).toEqual({ state: 'acknowledged' })

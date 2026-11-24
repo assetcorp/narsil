@@ -15,7 +15,7 @@ use crate::constants::{
 use crate::controller::lock;
 use crate::error::ClusterResult;
 use crate::message::message_types;
-use crate::payload::term_start::{TermStart, encode_term_start, term_start_ack_of};
+use crate::payload::term_start::{HeldEnd, TermStart, encode_term_start, term_start_ack_of};
 
 fn claim_term(partition: &Partition, primary_term: u64) -> Option<(u64, bool)> {
     let mut terms = lock(&partition.terms);
@@ -160,6 +160,34 @@ impl PrimaryWrites {
             }
         }
         out_of_step
+    }
+
+    pub(super) async fn bring_copy_to_end(
+        self: &Arc<Self>,
+        scope: &Scope,
+        copy: &str,
+    ) -> Option<HeldEnd> {
+        let (name, partition_id) = (scope.index_name.clone(), scope.partition_id);
+        let last_seq_no = self
+            .on_copies(move |copies| copies.position(&name, partition_id))
+            .await
+            .ok()?
+            .seq_no;
+        let last_primary_term = self.term_at(scope, last_seq_no).await?;
+        let request = TermStart {
+            index_name: scope.index_name.clone(),
+            partition_id: scope.partition_id,
+            primary_term: scope.primary_term,
+            last_seq_no,
+            last_primary_term,
+            index_uuid: scope.index_uuid.clone(),
+        };
+        self.settle_copy(scope, &request, copy)
+            .await
+            .then_some(HeldEnd {
+                last_seq_no,
+                last_primary_term,
+            })
     }
 
     async fn settle_copy(self: &Arc<Self>, scope: &Scope, request: &TermStart, copy: &str) -> bool {

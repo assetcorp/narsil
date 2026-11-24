@@ -157,6 +157,7 @@ When a primary refuses a forwarded mutation, the node that forwarded it must pas
 | `cluster.reshard_forward` | primary to primary | Copies documents and removals into the new generation |
 | `cluster.reshard_cutover` | controller to primary | Blocks or lifts writes for the cutover |
 | `cluster.reshard_purge` | primary to primary | Removes one old partition's documents from the new generation |
+| `cluster.lead_handoff` | controller to primary | Holds a partition's writes while its lead moves to an in-sync replica, or lifts that hold |
 | `cluster.backup` | any node to controller | Backs up an index to the store |
 | `cluster.backup_restore` | any node to controller | Restores a backup as a new index |
 | `cluster.backup_delete` | any node to controller | Deletes a backup and the files that no other backup lists |
@@ -717,6 +718,32 @@ The receiving primary must refuse the request with `ALLOCATION_FAILED` where no 
   removed: uint32
 }
 ```
+
+### cluster.lead_handoff
+
+The controller sends this to the primary of one partition before it writes a table that moves that partition's lead, as [Handing Over the Lead](replication.md#handing-over-the-lead) defines.
+
+```text
+{
+  indexName:    string
+  partitionId:  uint32
+  primaryTerm:  uint64   (the term under which the receiver leads the partition)
+  targetNodeId: string   (the in-sync replica that is to lead)
+  action:       'block' or 'lift'
+}
+```
+
+After a `block`, the primary answers once the replica holds its highest `seqNo`. After a `lift`, it answers at once, including where it holds no matching handover:
+
+```text
+{
+  partitionId:     uint32
+  lastSeqNo:       uint64   (the primary's highest seqNo after a block, and 0 after a lift)
+  lastPrimaryTerm: uint64   (the term that the primary's term history gives for lastSeqNo, and 0 for an empty log or after a lift)
+}
+```
+
+A primary must refuse a `block` with `ALLOCATION_FAILED` in the cases that [Handing Over the Lead](replication.md#handing-over-the-lead) lists.
 
 ### cluster.backup
 
@@ -1368,7 +1395,7 @@ TransportConfig {
 | Parameter | Default | Meaning |
 |-----------|---------|---------|
 | `connectTimeout` | 5,000 ms | The longest wait to open a connection to a peer node |
-| `requestTimeout` | 30,000 ms | The longest wait for the answer to every `send` that `replicationTimeout` does not cover, `replication.forward` and every `cluster.*` message included |
+| `requestTimeout` | 30,000 ms | The longest wait for the answer to every `send` that `replicationTimeout` does not cover, `replication.forward` and every `cluster.*` message included, except a `cluster.lead_handoff` with `block`, whose answer the controller waits for during half of `replicationTimeout` |
 | `replicationTimeout` | 10,000 ms | The longest wait for the answer to a `replication.entry`, a `replication.entry_batch`, or a `replication.term_start` |
 | `snapshotTimeout` | 300,000 ms | The longest wait for the next chunk of a snapshot transfer, so that a transfer of any size can finish while the sender keeps sending chunks |
 

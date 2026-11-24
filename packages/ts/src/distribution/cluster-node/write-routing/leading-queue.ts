@@ -119,6 +119,10 @@ async function currentScope(scope: PrimaryWriteScope): Promise<PrimaryWriteScope
   return { ...scope, assignment, indexUuid: table?.indexUuid }
 }
 
+export async function scopeInLeadingQueue(scope: PrimaryWriteScope): Promise<PrimaryWriteScope> {
+  return currentScope(scope)
+}
+
 export async function inLeadingPartitionQueue<T>(
   scope: PrimaryWriteScope,
   task: (current: PrimaryWriteScope) => Promise<T>,

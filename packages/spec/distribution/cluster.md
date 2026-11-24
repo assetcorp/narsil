@@ -258,7 +258,7 @@ A node that an operator removes from the cluster writes its registration again w
 
 - The controller must place no new copy on a draining node.
 - The controller moves each replica on the node as [removingReplicas](#removingreplicas) describes.
-- For each partition that the node leads, the controller first gives the lead to an in-sync replica on another node and raises the `primaryTerm`, and it then moves the node's copy in the same way.
+- For each partition that the node leads, the controller first gives the lead to an in-sync replica on another node and raises the `primaryTerm`, as [Handing Over the Lead](replication.md#handing-over-the-lead) defines, and it then moves the node's copy in the same way. Where the handover fails, the controller moves the lead without it, because the node has to give up every lead that it holds.
 - A node that writes `draining` back to false stops the drain, and the controller then treats it as it treats any other node.
 
 ### Heartbeat

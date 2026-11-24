@@ -117,6 +117,43 @@ The primary also removes a copy that does not answer within its `replicationTime
 
 Comparing the highest `seqNo` and its term is enough, because [Log Matching](#log-matching) guards every append: where two copies give the same term for one `seqNo`, they hold the same entries up to it. A port must keep both rules together, because either one alone lets a copy that diverged stay in the in-sync set.
 
+### Handing Over the Lead
+
+Before the controller writes a table that moves the lead of a partition to another copy, the current primary must stop deciding writes and bring that copy to its highest `seqNo`, so that the old primary holds no entry that the new primary lacks. The controller hands over the lead wherever the allocator moves the primary of an `ACTIVE` partition from a node that is registered to a replica in the in-sync set, which covers a move that balances primaries across nodes and a move off a draining node. A failover, in which the controller promotes a replica because the primary's node left, has no primary that could hand anything over, so [Starting a Term](#starting-a-term) decides it alone.
+
+```text
+1. The controller sends cluster.lead_handoff with block to the
+   current primary, with the primary's current primaryTerm and the
+   replica that is to lead.
+2. The primary decides the block inside the partition's write queue,
+   so that every write that it accepted earlier has finished first,
+   whether the primary acknowledged that write or rolled it back.
+3. The primary sends replication.term_start under its current term
+   to the replica, and it applies rules 1 and 2 of Starting a Term to
+   the answer, so that the replica holds the primary's highest seqNo.
+4. The primary answers the controller with that seqNo and the term
+   that its term history gives for it. From then on, the primary holds
+   the write queue, so that every later write waits behind the
+   handover.
+5. The controller writes the table that moves the lead with
+   compareAndSet, as it writes every table.
+6. The primary releases the write queue once its allocation table
+   gives another primary or a higher primaryTerm for the partition.
+   It then refuses each write that waited with PARTITION_NOT_PRIMARY,
+   so that the node that forwarded the write sends it to the new
+   primary.
+```
+
+A write waits in the queue during the handover, because a forwarding node retries `PARTITION_NOT_PRIMARY` only once the table changes, as [transport.md](transport.md#replication-messages) defines, so a refusal during a handover that the controller gives up can fail the write. Seven rules keep the handover safe through faults:
+
+- The primary must refuse a `block` with `ALLOCATION_FAILED` where its allocation table no longer gives it the lead under the request's `primaryTerm`, where the replica is outside its in-sync set, and where the replica's answer fails or falls under rule 3 of Starting a Term. A refused handover leaves the in-sync set as it was, because a handover changes no membership.
+- The primary must bound each handover by its `replicationTimeout`, counted from the moment that it takes the write queue. Once a `lift` arrives, the primary releases the queue and goes on deciding writes under its current term. Once that time passes, the primary must first read the allocation table from the cluster coordinator, because the event that the table changed can reach its watch late, and it goes on deciding writes only where that table gives it the lead under its current term. Where the read fails, the primary keeps holding the queue and reads again. A controller that stops after a `block` therefore delays writes by `replicationTimeout` at most while the cluster coordinator answers, and the next controller computes the allocation again.
+- The controller must wait for the answer to a `block` for half of `replicationTimeout` at most, so that the primary holds the queue for the other half while the compareAndSet completes. Where the primary refuses the `block`, or where its answer fails to arrive in that time, the controller sends `lift`, and it writes the table with the lead on the current primary under the current `primaryTerm`, with the replica back among the replicas and in the in-sync set.
+- A node from before this message sends no reply to it, so the controller leaves the lead on that node when it balances primaries, and a rolling upgrade can move no lead for balance until the primary's node is upgraded.
+- A draining node has to give up every lead that it holds, so where the handover of a draining primary fails, the controller moves the lead without a handover, as [draining](cluster.md#draining) defines. The new primary's term start then decides the old primary's copy by rule 3 of Starting a Term.
+- A `block` with the term and the replica of the handover that the primary holds extends that hold by `replicationTimeout` and answers with the same `seqNo`, because no entry passes the held queue. The primary must refuse with `ALLOCATION_FAILED` a `block` for another replica while it holds a handover.
+- Where the compareAndSet completes after the primary has read a table that still gives it the lead, the primary can append entries under its old term that the new primary lacks. The new primary's term start then removes the old primary's copy by rule 3 of Starting a Term. That removal loses no acknowledged write, because the old primary acknowledges an entry only once every copy in its in-sync set holds it, and the new primary belongs to that set.
+
 ### Read Path
 
 The primary and each in-sync replica of an `ACTIVE` partition can serve reads. The coordinator picks one of those copies per partition for each query; see [Replica Selection](query-routing.md#replica-selection).

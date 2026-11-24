@@ -1,8 +1,8 @@
 import type { Etcd3, Lease } from 'etcd3'
 import type { NodeRegistration } from '../types'
 import { RECONNECT_FIRST_DELAY_MS, RECONNECT_LONGEST_DELAY_MS } from './constants'
-import { followLeaseRenewals, recordLeaseRenewal } from './lease-validity'
-import type { LeaseManager } from './leases'
+import { forgetValidityOnLoss, recordLeaseRenewal } from './lease-validity'
+import { grantedLease, keepLeaseAlive, type LeaseManager, renewLeaseOnce, revokeLease } from './leases'
 import type { EtcdWriteGuard } from './request-size'
 import { deserializeNodeRegistration, serializeNodeRegistration } from './serialization'
 
@@ -48,7 +48,7 @@ async function writeUnderLease(context: RegistrationWriteContext, registration: 
   if (tracked !== undefined) {
     try {
       const sentAt = performance.now()
-      const renewal = await tracked.lease.keepaliveOnce()
+      const renewal = await renewLeaseOnce(tracked.lease)
       recordLeaseRenewal(tracked.lease, sentAt, Number(renewal.TTL))
       if (context.leaseManager.holdsPayload(context.key, payload)) {
         return
@@ -56,16 +56,14 @@ async function writeUnderLease(context: RegistrationWriteContext, registration: 
       await putUnderLease(context, tracked.lease, registration.startedAt, data)
       context.leaseManager.track(context.key, tracked.lease, registration.nodeId, payload)
       return
-    } catch (_) {
-      context.leaseManager.remove(context.key)
-    }
+    } catch (_) {}
   }
 
   const lease = await grantFollowedLease(context)
   try {
     await context.guard.send(write, () => putUnderLease(context, lease, registration.startedAt, data))
   } catch (error) {
-    await lease.revoke().catch(() => {})
+    await revokeLease(lease).catch(() => {})
     throw error
   }
 
@@ -73,7 +71,7 @@ async function writeUnderLease(context: RegistrationWriteContext, registration: 
   context.leaseManager.track(context.key, lease, registration.nodeId, payload)
   registerAgainOnLoss(context, lease, registration.nodeId)
   if (existing !== undefined && existing.lease !== lease) {
-    await existing.lease.revoke().catch(() => {})
+    await revokeLease(existing.lease).catch(() => {})
   }
 }
 
@@ -91,10 +89,11 @@ async function putUnderLease(
 
 async function grantFollowedLease(context: RegistrationWriteContext): Promise<Lease> {
   const sentAt = performance.now()
-  const lease = context.client.lease(context.ttlSeconds)
-  followLeaseRenewals(lease)
+  const lease = grantedLease(context.client, context.ttlSeconds)
+  forgetValidityOnLoss(lease)
   await lease.grant()
   recordLeaseRenewal(lease, sentAt, context.ttlSeconds)
+  keepLeaseAlive(lease, context.ttlSeconds)
   return lease
 }
 
@@ -121,7 +120,7 @@ async function restoreLostRegistration(
       lease = await grantFollowedLease(context)
       await putUnderLease(context, lease, startedAt, Buffer.from(tracked.payload))
     } catch (_) {
-      await lease?.revoke().catch(() => {})
+      if (lease !== null) await revokeLease(lease).catch(() => {})
       return false
     }
     context.leaseManager.track(context.key, lease, nodeId, tracked.payload)
