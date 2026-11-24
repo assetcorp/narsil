@@ -1,3 +1,71 @@
+## 0.2.3 (2026-11-24)
+
+### 🚀 Features
+
+- **rust-cluster:** port cluster query suggestions with builds on the controller and backed-up query history ([1a1aca33](https://github.com/assetcorp/narsil/commit/1a1aca33))
+- **rust-cluster:** rerank on any coordinator through node-level adapters and refuse decoding a read answer that would fill memory ([62d5a415](https://github.com/assetcorp/narsil/commit/62d5a415))
+- **rust:** merge a backup's partitions into a device snapshot archive and a document export ([0fd0bbd8](https://github.com/assetcorp/narsil/commit/0fd0bbd8))
+- **rust:** give a cluster node the history store and suggestions index config of its host ([9a100952](https://github.com/assetcorp/narsil/commit/9a100952))
+- **rust-cluster:** rerank a cluster search through the coordinator's rerank adapter ([4ae8678d](https://github.com/assetcorp/narsil/commit/4ae8678d))
+- **rust-cluster:** run backup, restore, and backup deletion jobs on a Rust controller ([2138f6ea](https://github.com/assetcorp/narsil/commit/2138f6ea))
+- **rust-cluster:** refuse a device or change feed while a registered node runs an older specification version ([88e2c36c](https://github.com/assetcorp/narsil/commit/88e2c36c))
+- **rust-cluster:** check an analysis change against the data node's engine before recording it as pending ([73e850af](https://github.com/assetcorp/narsil/commit/73e850af))
+- **rust-cluster:** search across the cluster with cluster-wide scoring, facets, pins, groups, and hybrid fusion ([d4e29557](https://github.com/assetcorp/narsil/commit/d4e29557))
+- **rust-cluster:** serve the device and change feeds of a cluster index through the node's feed source ([a13066fc](https://github.com/assetcorp/narsil/commit/a13066fc))
+- **rust:** run popular query suggestions through a host that a cluster node can supply ([98efebbe](https://github.com/assetcorp/narsil/commit/98efebbe))
+- **rust-cluster:** answer each query at the analysis generation that it names and refuse a search context that would fill memory ([f0c8c107](https://github.com/assetcorp/narsil/commit/f0c8c107))
+- **rust-server:** serve the allocation, replication factor, analysis change, and partition count routes through a cluster node ([e3ed3712](https://github.com/assetcorp/narsil/commit/e3ed3712))
+- **rust-cluster:** count a query's matches across the cluster with preflight ([9d43e15b](https://github.com/assetcorp/narsil/commit/9d43e15b))
+- **rust:** read the device and change feeds through a feed source that the engine implements ([6bd3e1fd](https://github.com/assetcorp/narsil/commit/6bd3e1fd))
+- **rust-server:** front a cluster node behind the cluster feature, with readiness, writes, and the sync and changes settings ([d6bb1b14](https://github.com/assetcorp/narsil/commit/d6bb1b14))
+- **rust-cluster:** take a backup store in the node config and open it as the node starts ([44b73949](https://github.com/assetcorp/narsil/commit/44b73949))
+- **rust:** merge scores, facet buckets, and pins for a cluster coordinator ([c25f3d81](https://github.com/assetcorp/narsil/commit/c25f3d81))
+- **rust:** expose the wire form of a backup partition entry and a stored file ([51e22390](https://github.com/assetcorp/narsil/commit/51e22390))
+- **rust-cluster:** read documents, counts, stats, listings, completions, and the index list across the cluster ([6e5055c0](https://github.com/assetcorp/narsil/commit/6e5055c0))
+- **rust-cluster:** adopt device sync state on copies, answer sync.read, and change sync settings ([362992d8](https://github.com/assetcorp/narsil/commit/362992d8))
+- **rust:** back up and restore one partition of a cluster copy as stored backup files ([32a44b92](https://github.com/assetcorp/narsil/commit/32a44b92))
+- **rust:** read a document's sort values and widen the partition-scoped suggest limit to the scatter ceiling ([8e188ba1](https://github.com/assetcorp/narsil/commit/8e188ba1))
+- **rust:** build an analysis change held aside until the controller releases its generation ([6524bd31](https://github.com/assetcorp/narsil/commit/6524bd31))
+- **rust-cluster:** report node memory and block writes when a copy holder is full ([ae518c91](https://github.com/assetcorp/narsil/commit/ae518c91))
+- **rust:** collect query statistics and answer suggest, preflight, and list from chosen partitions ([a8d08700](https://github.com/assetcorp/narsil/commit/a8d08700))
+- **rust:** search chosen partitions of an index against supplied global statistics ([ac1ea28b](https://github.com/assetcorp/narsil/commit/ac1ea28b))
+- **rust:** write and restore the snapshot archive of one partition of a cluster copy ([ec8bd675](https://github.com/assetcorp/narsil/commit/ec8bd675))
+- **rust-cluster:** bootstrap primary copies from the allocation table and hold a node with a lost copy out until it fails over ([9837393b](https://github.com/assetcorp/narsil/commit/9837393b))
+- **rust:** keep a cluster copy's assigned sequence numbers, terms, and write records ([a5078cca](https://github.com/assetcorp/narsil/commit/a5078cca))
+- **rust-cluster:** join a cluster and stand for controller election as a TypeScript node does ([c06befc0](https://github.com/assetcorp/narsil/commit/c06befc0))
+- **rust-cluster:** join a Rust process to a cluster over the TCP and gRPC transports and etcd ([64753df9](https://github.com/assetcorp/narsil/commit/64753df9))
+- **rust:** leave vector fields out of read results unless the read or the index asks for them ([d811a5e7](https://github.com/assetcorp/narsil/commit/d811a5e7))
+
+### 🩹 Fixes
+
+- **rust-server:** refuse an embedding adapter on a cluster server with CLUSTER_OPERATION_UNSUPPORTED ([e11d8b10](https://github.com/assetcorp/narsil/commit/e11d8b10))
+- **rust-cluster:** keep history of an earlier index out of a backup and test suggestions in a mixed cluster ([a8552b91](https://github.com/assetcorp/narsil/commit/a8552b91))
+- **rust:** keep the analysis generation of an index without a write-ahead log in memory so a cluster copy answers after a change ([7619b140](https://github.com/assetcorp/narsil/commit/7619b140))
+- **rust:** start one held analysis change per pending change and stop a held change that has not claimed the index ([e791659b](https://github.com/assetcorp/narsil/commit/e791659b))
+- **cluster-node:** check and reserve process memory before a failed copy's reload decodes its document segments ([8b949206](https://github.com/assetcorp/narsil/commit/8b949206))
+- **rust:** fail a cluster copy's log alone when it fails to close, and check memory before a reload decodes vectors and reread a moved checkpoint outside the write lock ([a5930309](https://github.com/assetcorp/narsil/commit/a5930309))
+- **rust:** reload a partition from only its own segments and vectors, read before the index's write lock with the checkpoint's files pinned ([ba5f5e3c](https://github.com/assetcorp/narsil/commit/ba5f5e3c))
+- **rust:** read a copy's saved write records from their segments, and keep in memory only the records written since the last checkpoint ([9bc58e78](https://github.com/assetcorp/narsil/commit/9bc58e78))
+- **rust:** fail a copy that cannot apply an entry, read nil stored settings as absent, and reload one partition's segments alone ([c00e5e95](https://github.com/assetcorp/narsil/commit/c00e5e95))
+- **rust:** take a forwarded vector as float32 bytes, write entry vectors as bytes, and refuse every write of a failed put-back as an unknown outcome ([99f648c7](https://github.com/assetcorp/narsil/commit/99f648c7))
+- **rust:** fail a cluster copy's log one partition at a time, and repair a torn log tail before a reload resumes it ([1f8a1633](https://github.com/assetcorp/narsil/commit/1f8a1633))
+- **cluster:** hold a node that lost its copy out of the cluster until the controller fails that copy over ([c546cab3](https://github.com/assetcorp/narsil/commit/c546cab3))
+- **rust:** build the benchmark vector graph before measuring so every run counts the same instructions ([879f30de](https://github.com/assetcorp/narsil/commit/879f30de))
+- refuse malformed read projections and boolean index settings, and keep null vector fields ([8c14be83](https://github.com/assetcorp/narsil/commit/8c14be83))
+- **rust:** omit vectors addressed through array elements ([a6a40d24](https://github.com/assetcorp/narsil/commit/a6a40d24))
+
+### 🔥 Performance
+
+- **rust:** batch a primary's writes as a standalone batch does ([00b40368](https://github.com/assetcorp/narsil/commit/00b40368))
+- **rust:** measure get, get of several IDs, and search on the vector index with vectors asked for ([4eb49674](https://github.com/assetcorp/narsil/commit/4eb49674))
+- **rust:** hold the vector choice of a read without a per-read allocation when every vector field gets one answer ([4175f560](https://github.com/assetcorp/narsil/commit/4175f560))
+- **rust:** resolve the vector switch without splitting field paths when a read lists no fields ([31e7e685](https://github.com/assetcorp/narsil/commit/31e7e685))
+- **rust:** measure search, get, and insert of the Rust engine under CodSpeed ([af7b19ab](https://github.com/assetcorp/narsil/commit/af7b19ab))
+
+### ❤️ Thank You
+
+- assetcorp
+
 ## 0.2.2 (2026-11-19)
 
 ### 🩹 Fixes
