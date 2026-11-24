@@ -149,7 +149,7 @@ describe.skipIf(process.env[RUST_NODE_VARIABLE] === undefined).each(['tcp', 'grp
       expect(registration).toMatchObject({
         nodeId: rustNodeId(),
         roles: ['coordinator'],
-        version: '1.5',
+        version: '1.6',
         capacity: { memoryBytes: 8_000_000_000, cpuCores: 4 },
       })
       expect(registration?.address).toMatch(/^127\.0\.0\.1:\d+$/)
