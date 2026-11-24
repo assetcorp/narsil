@@ -10,7 +10,7 @@ An implementation must perform every operation in this document through the core
 
 The implementation must allocate every region that this document defines, and the core must read and write each region in place, as [Shared Memory](vector-index.md#shared-memory) requires of a graph. Every value must be little-endian. An operation that finds too little room in a region must return `needsRoom` and leave every region unchanged, so that the implementation can grow the region at the same address and call the operation again.
 
-The core may hold per-query scratch, such as a score buffer and the bounds of posting blocks, in a workspace that the core allocates and grows, and it may hold the scratch of analysis, such as the state of each stemmer, in an analyser of the same kind. A workspace and an analyser must each serve one thread at a time, and neither may hold index state, so that no copy of an index depends on scratch that another copy uses.
+The core may hold per-query scratch, such as a score buffer and the bounds of posting blocks, in a workspace that the core allocates and grows, and it may hold the scratch of analysis, such as the state of each stemmer, in an analyser of the same kind. A workspace and an analyser must each serve one thread at a time, and neither may hold index state, so that no copy of an index depends on scratch that another copy uses. The core also allocates and grows each fold table of [Query Expansion](#query-expansion), which holds the folds and the keys of one segment's spellings. The implementation must keep one fold table beside each segment that it searches with folding, and it must keep every update of a table apart from every query that reads that table, for example with a read-write lock.
 
 ### One Writer per Copy
 
@@ -381,7 +381,39 @@ The implementation must analyse the words of a [synonym set](algorithms.md#synon
 
 The implementation must build the slots of [Keyword Score](#keyword-score) from these results. A query term's group holds the term's token with a factor of 1, its completions, and its added words, and a token that two of these add takes the larger factor. A synonym joins the term's combined term, and the implementation must take it out of the group's other members, so that a token that is both a synonym and a member counts as a synonym alone.
 
-The implementation must find the [variants](algorithms.md#variants) of each term, and the matches that [folded matching](algorithms.md#typos-and-completions) adds, from the spellings of `segments`, and it must take each variant out of the term's typo matches and out of its group. A term's folded term takes one more GroupSlot after the term's other slots. That slot holds one member with a `factor` and a `partialFactor` of 1, whose float64 rows sum the frequencies of the term's token and of its variants within each field, and its `documentFrequency` is the largest n over those tokens.
+```text
+createFoldTable() -> FoldTable
+updateFoldTable(table: FoldTable, segment: segment, language: uint32)
+foldTableCurrent(table: FoldTable, segment: segment, language: uint32) -> boolean
+expandFoldedTerms(segments: List<segment>, tables: List<FoldTable>, words: List<FoldedWord>) -> List<FoldedTerm>
+expandFoldedPrefix(segments: List<segment>, tables: List<FoldTable>, typed: List<uint16>, stemmed: List<uint16>,
+                   own: List<uint16>, folded: List<uint16>) -> List<Member>
+expandFoldedPartialWords(segments: List<segment>, tables: List<FoldTable>, requests: List<PartialRequest>,
+                         folded: List<List<uint16>>) -> List<List<Member>>
+
+FoldedWord {
+  key:          List<uint16>
+  own:          List<uint16>
+  excluded:     List<List<uint16>>
+  tolerance:    uint32
+  prefixLength: uint32
+}
+
+FoldedTerm {
+  variants:    List<List<uint16>>
+  typoMatches: List<List<uint16>>
+}
+```
+
+A fold table holds the fold and the key that [Keys](algorithms.md#keys) gives each folded spelling of one segment under one language, together with the fold of each folded spelling of the segment's [partial words](#partial-words). `updateFoldTable` must leave a table that matches its segment and its language unchanged. It must extend the table of a growing segment with the strings that the segment added since the last update, and it must build the table again where the segment has compacted its strings or where the language differs. It must leave the table empty where it fails. `foldTableCurrent` must return whether a table matches its segment and its language. Each folded operation must refuse a table that does not match its segment, so the implementation must update the table of each segment before a query, at a time when no write can change that segment.
+
+`expandFoldedTerms` must return, for each word in order, the [variants](algorithms.md#variants) of `key` with `own` as `e`, and, where `tolerance` is above 0, the typo matches that [Typos and Completions](algorithms.md#typos-and-completions) adds for `key` under `tolerance` and `prefixLength`. It must leave `own` and each token of `excluded` out of both lists, and it must leave each variant out of the typo matches. It must keep only the typo matches that a document of the partition holds, and it must return both lists in code point order. The implementation must compute `key` with `foldSpelling` from the term as written, and it must pass the term's synonyms as `excluded`.
+
+`expandFoldedPrefix` must return the completions that `expandPrefix` collects for `typed`, `stemmed`, and `own`, together with the completions that Typos and Completions adds for `folded`, and it must choose the 50 from every token that it collects, as `expandPrefix` chooses them. It must add no completion for a `folded` that holds no code point. The implementation must pass `fold(typed)` as `folded`.
+
+`expandFoldedPartialWords` must answer each request as `expandPartialWords` does, matching the request's entry of `folded` in place of `written` and counting the code points of that entry for the factor. It must also add each word that holds a partial-word spelling whose fold holds that entry and is longer than it, and it must count the code points of that fold for the factor. It must add no word for an entry that holds no code point, and it must give each request the share that `expandPartialWords` gives it. The implementation must pass `fold(written)` for each request.
+
+The implementation must find the [variants](algorithms.md#variants) of each term and the typo matches that [folded matching](algorithms.md#typos-and-completions) adds with `expandFoldedTerms`, the completions with `expandFoldedPrefix`, and the added words with `expandFoldedPartialWords`, and it must take each variant out of the term's other typo matches and out of its group. A term's folded term takes one more GroupSlot after the term's other slots. That slot holds one member with a `factor` and a `partialFactor` of 1, whose float64 rows sum the frequencies of the term's token and of its variants within each field, and its `documentFrequency` is the largest n over those tokens.
 
 ---
 
