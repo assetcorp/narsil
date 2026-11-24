@@ -1,22 +1,23 @@
 import { ErrorCodes, NarsilError } from '../../errors'
-import type { ClusterNode } from './types'
 
-export function bindNodeLifecycle(
-  node: ClusterNode,
+export interface NodeLifecycleCalls {
+  start(run: () => Promise<void>): Promise<void>
+  shutdown(run: () => Promise<void>): Promise<void>
+  begin(): void
+}
+
+export function createNodeLifecycleCalls(
+  nodeId: string,
   stopping: AbortController,
   cancelStart: () => Promise<void>,
-): () => void {
-  const start = node.start.bind(node)
-  const shutdown = node.shutdown.bind(node)
+): NodeLifecycleCalls {
   let starting: Promise<void> | undefined
   let shuttingDown: Promise<void> | undefined
   let cancelling: Promise<void> | undefined
 
   function requireOpen(): void {
     if (stopping.signal.aborted) {
-      throw new NarsilError(ErrorCodes.NODE_NOT_JOINED, `Cluster node '${node.nodeId}' has been shut down`, {
-        nodeId: node.nodeId,
-      })
+      throw new NarsilError(ErrorCodes.NODE_NOT_JOINED, `Cluster node '${nodeId}' has been shut down`, { nodeId })
     }
   }
 
@@ -29,31 +30,31 @@ export function bindNodeLifecycle(
     }
   }
 
-  node.start = async () => {
-    requireOpen()
-    if (starting !== undefined) return starting
-    const pending = Promise.resolve().then(start).then(requireOpen)
-    starting = pending
-    try {
-      await pending
-    } finally {
-      starting = undefined
-    }
+  return {
+    async start(run) {
+      requireOpen()
+      if (starting !== undefined) return starting
+      const pending = Promise.resolve().then(run).then(requireOpen)
+      starting = pending
+      try {
+        await pending
+      } finally {
+        starting = undefined
+      }
+    },
+    shutdown(run) {
+      if (shuttingDown !== undefined) return shuttingDown
+      const completion = Promise.withResolvers<void>()
+      shuttingDown = completion.promise
+      begin()
+      const finish = async (): Promise<void> => {
+        await starting?.catch(() => undefined)
+        await cancelling
+        await run()
+      }
+      void finish().then(completion.resolve, completion.reject)
+      return shuttingDown
+    },
+    begin,
   }
-
-  node.shutdown = () => {
-    if (shuttingDown !== undefined) return shuttingDown
-    const completion = Promise.withResolvers<void>()
-    shuttingDown = completion.promise
-    begin()
-    const finish = async (): Promise<void> => {
-      await starting?.catch(() => undefined)
-      await cancelling
-      await shutdown()
-    }
-    void finish().then(completion.resolve, completion.reject)
-    return shuttingDown
-  }
-
-  return begin
 }
