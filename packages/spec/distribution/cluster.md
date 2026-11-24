@@ -812,7 +812,8 @@ A caller rebuilds the terms of a cluster index through any node, which sends [cl
    the pending settings as current, the generation as
    analysisGeneration, and no pendingAnalysis, with one compareAndSet.
    For an index with sync or change capture on, that compareAndSet
-   also writes a new syncEpoch and clears syncActive.
+   also writes a new syncEpoch and clears syncActive, unless the
+   change alters foldMarks alone.
 
 5. Where a node refuses with ANALYSIS_REBUILD_MEMORY_EXCEEDED,
    LANGUAGE_NOT_SUPPORTED, or CONFIG_INVALID, the controller writes no
