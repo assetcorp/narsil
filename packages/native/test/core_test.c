@@ -739,6 +739,8 @@ int main(int argc, char **argv) {
   highlight_checks(workspace);
   folded_highlight_checks(workspace);
   folding_checks();
+  folded_expansion_checks(workspace);
+  folded_frozen_checks(workspace);
   paged_vector_checks(workspace);
   paged_posting_checks(workspace);
   segment_write_checks(workspace);

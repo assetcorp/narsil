@@ -263,6 +263,7 @@ void allocation_failure_checks(const char *part, const char *parts) {
   pattern_allocation_failures();
   segment_allocation_failures();
   frozen_allocation_failures();
+  folded_allocation_failures();
   paged_posting_allocation_failures();
   paged_vector_allocation_failures();
   report_refused_sites();

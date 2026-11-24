@@ -2,8 +2,10 @@
 
 #include "../../include/narsil_core.h"
 #include "../../include/narsil_expansion.h"
+#include "../../include/narsil_folding.h"
 #include "../../include/narsil_terms.h"
 #include "../analysis/text.h"
+#include "../folding/table.h"
 #include "../terms/dictionary.h"
 #include "../terms/matching.h"
 
@@ -67,12 +69,41 @@ static narsil_status collect_source(expansion_scratch *scratch, const narsil_exp
   return NARSIL_OK;
 }
 
+static narsil_status collect_folded(expansion_scratch *scratch, const narsil_fold_table *table,
+                                    const narsil_expansion_segment *source, const narsil_partial_word *word,
+                                    uint32_t segment) {
+  narsil_term_dictionary dictionary;
+  if (!expansion_dictionary(source, &dictionary)) { return NARSIL_INVALID_ARGUMENT; }
+  narsil_term_lookup exclusion = {.dictionary = &dictionary,
+                                  .operation = NARSIL_LOOKUP_TYPO,
+                                  .tolerance = word->tolerance,
+                                  .prefix_length = word->prefix_length};
+  for (size_t at = 0; at < table->count; at++) {
+    const fold_entry *entry = table->entries + at;
+    if (entry->kind != FOLD_SPELLING || entry->fold_points <= scratch->written.length) { continue; }
+    fold_text fold = fold_entry_fold(table, entry);
+    if (!contains(scratch, (term_cursor){fold.units, NULL, 0, fold.length}) || !fold_entry_held(table, entry, source)) {
+      continue;
+    }
+    int excluded = term_matches(&exclusion, &scratch->typo, entry->token);
+    if (excluded < 0) { return (narsil_status)-excluded; }
+    if (excluded) { continue; }
+    narsil_status status = expansion_add(scratch, source, segment, entry->token, entry->fold_points);
+    if (status != NARSIL_OK) { return status; }
+  }
+  return NARSIL_OK;
+}
+
 narsil_status partial_collect(narsil_workspace *workspace, expansion_scratch *scratch,
-                              const narsil_partial_request *request, const narsil_partial_word *word) {
+                              const narsil_partial_request *request, const narsil_fold_table *const *tables,
+                              const narsil_partial_word *word) {
   scratch->count = 0;
   narsil_status status = prepare_word(scratch, word);
   for (size_t at = 0; status == NARSIL_OK && at < request->segment_count; at++) {
     status = collect_source(scratch, request->segments + at, request->runs + at, word, (uint32_t)at);
+    if (status == NARSIL_OK && tables != NULL) {
+      status = collect_folded(scratch, tables[at], request->segments + at, word, (uint32_t)at);
+    }
   }
   narsil_prefix_request ranked = {.segments = request->segments, .segment_count = request->segment_count};
   return status == NARSIL_OK ? expansion_rank(workspace, scratch, &ranked) : status;

@@ -31,6 +31,8 @@ void sort_order_allocation_failures(void);
 void pattern_allocation_failures(void);
 void segment_allocation_failures(void);
 void frozen_allocation_failures(void);
+void folded_allocation_failures(void);
+void folded_frozen_allocation_failures(void);
 void paged_posting_allocation_failures(void);
 void paged_vector_allocation_failures(void);
 

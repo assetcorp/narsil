@@ -124,9 +124,14 @@ static narsil_status collect_tokens(narsil_workspace *workspace, expansion_scrat
 
 narsil_status expansion_collect(narsil_workspace *workspace, expansion_scratch *scratch,
                                 const narsil_prefix_request *request) {
+  scratch->count = 0;
+  return expansion_collect_more(workspace, scratch, request);
+}
+
+narsil_status expansion_collect_more(narsil_workspace *workspace, expansion_scratch *scratch,
+                                     const narsil_prefix_request *request) {
   int fallback = !holds_surfaces(request) && request->stemmed_length > 0 &&
                  !narsil_units_equal(request->typed, request->typed_length, request->stemmed, request->stemmed_length);
-  scratch->count = 0;
   for (size_t at = 0; at < request->segment_count; at++) {
     narsil_status status = collect_surfaces(workspace, scratch, request, (uint32_t)at);
     if (status == NARSIL_OK) {
