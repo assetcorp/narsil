@@ -44,4 +44,5 @@ mod replica_entries;
 mod replication_factor_change;
 mod rollback;
 mod shared_connect;
+mod shutdown;
 mod term_start;

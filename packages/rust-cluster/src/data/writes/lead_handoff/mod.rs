@@ -107,7 +107,13 @@ impl PrimaryWrites {
     }
 
     async fn block_for_handoff(self: &Arc<Self>, handoff: &LeadHandoff) -> ClusterResult<HeldEnd> {
-        let table = self.view.refresh(&handoff.index_name).await?;
+        let mut shutting_down = self.shutting_down.subscribe();
+        let stopped = || refused(handoff, &self.node_id, "the node is shutting down");
+        let table = tokio::select! {
+            biased;
+            _ = shutting_down.wait_for(|stopping| *stopping) => return Err(stopped()),
+            table = self.view.refresh(&handoff.index_name) => table?,
+        };
         let assignment = table
             .as_ref()
             .and_then(|table| table.assignments.get(f64::from(handoff.partition_id)));
@@ -122,9 +128,11 @@ impl PrimaryWrites {
             Claim::Extended(end) => return Ok(end),
             Claim::Started(number) => number,
         };
-        let confirmed = self
-            .confirm_handoff_target(&partition, handoff, number, hold_for)
-            .await;
+        let confirmed = tokio::select! {
+            biased;
+            _ = shutting_down.wait_for(|stopping| *stopping) => Err(stopped()),
+            confirmed = self.confirm_handoff_target(&partition, handoff, number, hold_for) => confirmed,
+        };
         if confirmed.is_err() {
             partition.end_lead_hold(number);
         }
