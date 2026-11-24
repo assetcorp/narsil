@@ -44,6 +44,7 @@ pub(crate) fn index_config_of(http: &Map) -> Outcome<IndexConfig> {
     config.strict = flag_of("strict", http.get("strict"))?;
     config.surface_forms = flag_of("surfaceForms", http.get("surfaceForms"))?;
     config.track_positions = flag_of("trackPositions", http.get("trackPositions"))?;
+    config.fold_marks = flag_of("foldMarks", http.get("foldMarks"))?;
     config.tokenizer = analysis::tokenizer_of(http.get("tokenizer"))?;
     config.stop_words = analysis::stop_words_of(http.get("stopWords"))?;
     config.embedding = analysis::embedding_of(http.get("embedding"))?;
