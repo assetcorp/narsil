@@ -12,6 +12,7 @@ import { decommissionNode } from './decommission'
 import { createClusterDeviceSync } from './device-sync'
 import { createAllocationErrorForwarder, createErrorForwarder } from './error-forwarding'
 import { servingNameOf } from './generation-routing'
+import { bindNodeLifecycle } from './lifecycle-operations'
 import { forgetClosedCopy, forgetDroppedCopy } from './local-copy-state'
 import { type ClusterLocalEngine, createClusterLocalEngine } from './local-engine'
 import { seedReopenedPrimaryLogs } from './local-replication'
@@ -119,7 +120,6 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
   const searchContexts = hasDataRole ? createSearchContextRegistry() : undefined
   let serving = false
   const shuttingDown = new AbortController()
-  let shutDown = false
 
   const localCopies = createNodeCopies({
     ...cleanupDeps,
@@ -339,9 +339,6 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
     },
 
     async shutdown() {
-      if (shutDown) return
-      shutDown = true
-      shuttingDown.abort()
       serving = false
       stopEveryReshardJob(reshard)
       await stopCatchUpPump(writeDeps.catchUp)
@@ -372,13 +369,14 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
     },
   }
 
+  const startShutdown = bindNodeLifecycle(node, shuttingDown, () => lifecycle.shutdown())
   bindNodeSources(node, {
     coordinator: writeDeps.coordinator,
     engine,
     memoryView: memoryReporting.view,
     syncServing: deviceSync.serving,
     changesServing: deviceSync.changesServing,
-    startShutdown: () => shuttingDown.abort(),
+    startShutdown,
   })
   suggestions.bind(node, { engine: clusterNodeEngine(node), dropIndex: name => node.dropIndex(name) })
   return node

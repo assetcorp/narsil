@@ -109,6 +109,7 @@ class NarsilHttpServer implements NarsilServer {
   private stopIdleHeapCleanup: () => void = () => undefined
   private listening: Promise<void> | null = null
   private closing: Promise<void> | null = null
+  private shuttingDown: Promise<void> | null = null
   private cancelListen: (() => void) | null = null
 
   constructor(engine: Narsil, options: ServerOptions = {}) {
@@ -231,11 +232,15 @@ class NarsilHttpServer implements NarsilServer {
     }
   }
 
-  async shutdown(): Promise<void> {
-    shutdownStartOf(this.engine)?.()
-    await this.close()
-    await this.deps.tasks.shutdown()
-    await this.engine.shutdown()
+  shutdown(): Promise<void> {
+    if (this.shuttingDown !== null) return this.shuttingDown
+    this.shuttingDown = Promise.resolve().then(async () => {
+      shutdownStartOf(this.engine)?.()
+      await this.close()
+      await this.deps.tasks.shutdown()
+      await this.engine.shutdown()
+    })
+    return this.shuttingDown
   }
 
   get listeningPort(): number {

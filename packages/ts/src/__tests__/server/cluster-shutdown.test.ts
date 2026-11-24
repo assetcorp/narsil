@@ -1,3 +1,4 @@
+import { encode } from '@msgpack/msgpack'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createClusterNode } from '../../distribution/cluster-node'
 import { clusterNodeEngine } from '../../distribution/cluster-node/server-engine'
@@ -8,7 +9,7 @@ import { createInMemoryNetwork, createInMemoryTransport, type InMemoryNetwork } 
 import type { NodeTransport, RespondFn, TransportMessage } from '../../distribution/transport/types'
 import type { NarsilServer } from '../../server'
 import { createServer } from '../../server'
-import { postJson } from './helpers'
+import { postJson, postRaw } from './helpers'
 
 const INDEX_NAME = 'harbour-manifests'
 const PRIMARY_NODE = 'quay-keeper'
@@ -43,6 +44,9 @@ describe('a server fronting a cluster node that shuts down while a write waits o
   let server: NarsilServer
   let base: string
   const silence = { active: false, swallowed: 0 }
+  let refuseForward = false
+  let allocationRead: PromiseWithResolvers<void> | undefined
+  let readingAllocation = false
 
   function silentWhenAsked(nodeId: string): NodeTransport {
     const inner = createInMemoryTransport(nodeId, network)
@@ -50,6 +54,16 @@ describe('a server fronting a cluster node that shuts down while a write waits o
       ...inner,
       listen: handler =>
         inner.listen((message: TransportMessage, respond: RespondFn) => {
+          if (refuseForward && FORWARD_TYPES.has(message.type)) {
+            allocationRead = Promise.withResolvers<void>()
+            respond({
+              ...message,
+              type: `${message.type}.error`,
+              sourceId: nodeId,
+              payload: encode({ code: 'NODE_NOT_READY', message: 'The primary has not joined yet' }),
+            })
+            return
+          }
           if (silence.active && FORWARD_TYPES.has(message.type)) {
             silence.swallowed += 1
             return
@@ -62,6 +76,9 @@ describe('a server fronting a cluster node that shuts down while a write waits o
   beforeEach(async () => {
     silence.active = false
     silence.swallowed = 0
+    refuseForward = false
+    allocationRead = undefined
+    readingAllocation = false
     coordinator = createInMemoryCoordinator()
     network = createInMemoryNetwork()
     primaryTransport = silentWhenAsked(PRIMARY_NODE)
@@ -76,7 +93,16 @@ describe('a server fronting a cluster node that shuts down while a write waits o
     await primary.start()
     gatewayTransport = createInMemoryTransport(GATEWAY_NODE, network)
     gateway = await createClusterNode({
-      coordinator,
+      coordinator: {
+        ...coordinator,
+        async getAllocation(indexName) {
+          if (allocationRead !== undefined) {
+            readingAllocation = true
+            await allocationRead.promise
+          }
+          return coordinator.getAllocation(indexName)
+        },
+      },
       transport: gatewayTransport,
       address: `${GATEWAY_NODE}:9200`,
       nodeId: GATEWAY_NODE,
@@ -99,6 +125,7 @@ describe('a server fronting a cluster node that shuts down while a write waits o
 
   afterEach(async () => {
     silence.active = false
+    allocationRead?.resolve()
     await server.shutdown().catch(() => {})
     await gateway.shutdown().catch(() => {})
     await primary.shutdown().catch(() => {})
@@ -106,6 +133,58 @@ describe('a server fronting a cluster node that shuts down while a write waits o
     await primaryTransport.shutdown()
     await coordinator.shutdown()
   })
+
+  it(
+    'stops a background import waiting for its primary before draining its task',
+    async () => {
+      silence.active = true
+      const accepted = await postRaw(
+        base,
+        `/indexes/${INDEX_NAME}/documents/_import?async=true`,
+        JSON.stringify({ id: 'imported-manifest', vessel: 'Northern Tern' }),
+        'application/x-ndjson',
+      )
+      expect(accepted.status).toBe(202)
+      await until(() => silence.swallowed > 0, FORWARD_ARRIVAL_WAIT_MS, 'the imported write never reached the primary')
+      const started = performance.now()
+      await Promise.all([server.shutdown(), server.shutdown()])
+      expect(performance.now() - started).toBeLessThan(SHUTDOWN_BOUND_MS)
+      expect(await primary.get(INDEX_NAME, 'imported-manifest')).toBeUndefined()
+    },
+    TEST_TIMEOUT_MS,
+  )
+
+  it(
+    'returns the last refusal when shutdown interrupts the coordinator reread between attempts',
+    async () => {
+      refuseForward = true
+      const answer = postJson<RefusalBody>(base, `/indexes/${INDEX_NAME}/documents`, {
+        document: { vessel: 'Northern Tern' },
+        id: 'refused-manifest',
+      })
+      await until(() => readingAllocation, FORWARD_ARRIVAL_WAIT_MS, 'the retry never reread its allocation')
+      const stopping = server.shutdown()
+      let timer: ReturnType<typeof setTimeout> | undefined
+      try {
+        const drained = await Promise.race([
+          stopping.then(() => true),
+          new Promise<boolean>(resolve => {
+            timer = setTimeout(() => resolve(false), SHUTDOWN_BOUND_MS)
+          }),
+        ])
+        expect(drained).toBe(true)
+        const refused = await answer
+        expect(refused.body.error.code).toBe('NODE_NOT_READY')
+      } finally {
+        clearTimeout(timer)
+        allocationRead?.resolve()
+        await stopping
+        await answer
+      }
+      expect(await primary.get(INDEX_NAME, 'refused-manifest')).toBeUndefined()
+    },
+    TEST_TIMEOUT_MS,
+  )
 
   it(
     'finishes the shutdown at once and answers the waiting write with an unknown outcome',
