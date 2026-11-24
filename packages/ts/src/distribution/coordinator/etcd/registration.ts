@@ -2,7 +2,7 @@ import type { Etcd3, Lease } from 'etcd3'
 import type { NodeRegistration } from '../types'
 import { RECONNECT_FIRST_DELAY_MS, RECONNECT_LONGEST_DELAY_MS } from './constants'
 import { forgetValidityOnLoss, recordLeaseRenewal } from './lease-validity'
-import { grantedLease, keepLeaseAlive, type LeaseManager, renewLeaseOnce } from './leases'
+import { grantedLease, keepLeaseAlive, type LeaseManager, renewLeaseOnce, revokeLease } from './leases'
 import type { EtcdWriteGuard } from './request-size'
 import { deserializeNodeRegistration, serializeNodeRegistration } from './serialization'
 
@@ -63,7 +63,7 @@ async function writeUnderLease(context: RegistrationWriteContext, registration: 
   try {
     await context.guard.send(write, () => putUnderLease(context, lease, registration.startedAt, data))
   } catch (error) {
-    await lease.revoke().catch(() => {})
+    await revokeLease(lease).catch(() => {})
     throw error
   }
 
@@ -71,7 +71,7 @@ async function writeUnderLease(context: RegistrationWriteContext, registration: 
   context.leaseManager.track(context.key, lease, registration.nodeId, payload)
   registerAgainOnLoss(context, lease, registration.nodeId)
   if (existing !== undefined && existing.lease !== lease) {
-    await existing.lease.revoke().catch(() => {})
+    await revokeLease(existing.lease).catch(() => {})
   }
 }
 
@@ -120,7 +120,7 @@ async function restoreLostRegistration(
       lease = await grantFollowedLease(context)
       await putUnderLease(context, lease, startedAt, Buffer.from(tracked.payload))
     } catch (_) {
-      await lease?.revoke().catch(() => {})
+      if (lease !== null) await revokeLease(lease).catch(() => {})
       return false
     }
     context.leaseManager.track(context.key, lease, nodeId, tracked.payload)

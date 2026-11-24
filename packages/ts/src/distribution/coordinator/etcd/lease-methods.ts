@@ -1,7 +1,7 @@
 import type { ComparatorBuilder, Etcd3 as Etcd3Client } from 'etcd3'
 import type { ClusterCoordinator } from '../types'
 import type { CoordinatorKeys } from './keys'
-import { grantedLease, keepLeaseAlive, type LeaseManager, renewLeaseOnce } from './leases'
+import { grantedLease, keepLeaseAlive, type LeaseManager, renewLeaseOnce, revokeLease } from './leases'
 
 export interface LeaseMethodContext {
   client: Etcd3Client
@@ -36,12 +36,12 @@ export function leaseMethods(context: LeaseMethodContext): LeaseMethods {
         await lease.grant()
         txn = await client.if(etcdKey, 'Create', '==', 0).then(lease.put(etcdKey).value(nodeId)).commit()
       } catch (error) {
-        await lease.revoke().catch(() => {})
+        await revokeLease(lease).catch(() => {})
         throw error
       }
 
       if (!txn.succeeded) {
-        await lease.revoke().catch(() => {})
+        await revokeLease(lease).catch(() => {})
         const currentValue = await client.get(etcdKey).string()
         return currentValue === nodeId
       }
@@ -76,7 +76,7 @@ export function leaseMethods(context: LeaseMethodContext): LeaseMethods {
       if (entry === undefined) {
         return
       }
-      await entry.lease.revoke().catch(() => {})
+      await revokeLease(entry.lease).catch(() => {})
     },
 
     async getLeaseHolder(key: string): Promise<string | null> {

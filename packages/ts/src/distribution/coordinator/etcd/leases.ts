@@ -3,6 +3,7 @@ import { ETCD_CALL_TIMEOUT_MS, ETCD_LEASE_RENEWALS_PER_TTL } from './constants'
 import { recordLeaseRenewal } from './lease-validity'
 
 const MILLISECONDS_PER_SECOND = 1_000
+const stopRenewals = new WeakMap<Lease, () => void>()
 
 interface ManagedLease {
   lease: Lease
@@ -31,12 +32,24 @@ export function grantedLease(client: Etcd3, ttlSeconds: number): Lease {
   return client.lease(ttlSeconds, { autoKeepAlive: false })
 }
 
+export function revokeLease(lease: Lease): Promise<void> {
+  stopRenewals.get(lease)?.()
+  return lease.revoke()
+}
+
 export function keepLeaseAlive(lease: Lease, ttlSeconds: number): void {
+  stopRenewals.get(lease)?.()
+  if (lease.revoked()) return
   let renewing = false
+  function stop(): void {
+    clearInterval(timer)
+    lease.removeListener('lost', stop)
+    stopRenewals.delete(lease)
+  }
   const timer = setInterval(
     () => {
       if (lease.revoked()) {
-        clearInterval(timer)
+        stop()
         return
       }
       if (renewing) return
@@ -53,6 +66,8 @@ export function keepLeaseAlive(lease: Lease, ttlSeconds: number): void {
     },
     (ttlSeconds * MILLISECONDS_PER_SECOND) / ETCD_LEASE_RENEWALS_PER_TTL,
   )
+  stopRenewals.set(lease, stop)
+  lease.once('lost', stop)
   timer.unref?.()
 }
 
@@ -64,7 +79,7 @@ export class LeaseManager {
 
   track(key: string, lease: Lease, nodeId: string, payload: Uint8Array | null = null): void {
     if (this.closed) {
-      void lease.revoke().catch(() => {})
+      void revokeLease(lease).catch(() => {})
       return
     }
     this.leases.set(key, { lease, nodeId, key, payload })
@@ -106,7 +121,7 @@ export class LeaseManager {
 
   async discard(key: string, lease: Lease): Promise<void> {
     if (this.leases.get(key)?.lease === lease) this.leases.delete(key)
-    await lease.revoke().catch(() => {})
+    await revokeLease(lease).catch(() => {})
   }
 
   runExclusively<T>(key: string, work: () => Promise<T>): Promise<T> {
@@ -129,7 +144,7 @@ export class LeaseManager {
     this.closed = true
     const revokePromises: Promise<void>[] = []
     for (const [, entry] of this.leases) {
-      revokePromises.push(entry.lease.revoke().catch(() => {}))
+      revokePromises.push(revokeLease(entry.lease).catch(() => {}))
     }
     this.leases.clear()
     this.holders.clear()

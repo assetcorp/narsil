@@ -22,7 +22,7 @@ import { createEndpointBreaker } from './endpoint-breaker'
 import { coordinatorKeys, recordName } from './keys'
 import { leaseMethods } from './lease-methods'
 import { leaseHeldFor, recordLeaseRenewal } from './lease-validity'
-import { LeaseManager, renewLeaseOnce } from './leases'
+import { LeaseManager, renewLeaseOnce, revokeLease } from './leases'
 import { loadEtcd3Module } from './loader'
 import { watchPrefix } from './prefix-watch'
 import { writeNodeRegistration } from './registration'
@@ -148,7 +148,7 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
       const entry = leaseManager.remove(key)
       leaseManager.forgetHolder(key)
       if (entry !== undefined) {
-        await entry.lease.revoke().catch(() => {})
+        await revokeLease(entry.lease).catch(() => {})
       }
       await client
         .if(key, 'Create', '>', -1)
