@@ -33,7 +33,8 @@ static const narsil_unit_substitution hebrew_substitutions[] = {
 
 static const narsil_unit_substitution persian_substitutions[] = {
     REPLACE_UNIT(0x064A, 0x064A, 0x06CC), REPLACE_UNIT(0x0649, 0x0649, 0x06CC), REPLACE_UNIT(0x0643, 0x0643, 0x06A9),
-    DELETE_UNIT(0x0640, 0x0640),          DELETE_UNIT(0x064B, 0x0652),
+    REPLACE_UNIT(0x06C0, 0x06C0, 0x0647), DELETE_UNIT(0x0640, 0x0640),          DELETE_UNIT(0x064B, 0x0652),
+    DELETE_UNIT(0x0654, 0x0654),
 };
 
 static const narsil_unit_substitution romanian_substitutions[] = {

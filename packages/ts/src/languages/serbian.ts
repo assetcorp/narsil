@@ -180,7 +180,7 @@ const listedSpellings = [...cyrillicStopWords, ...[...cyrillicStopWords].map(nor
  */
 export const serbian: LanguageModule = {
   name: 'serbian',
-  revision: '64cda363a3210f23',
+  revision: 'eb9cc57e76637f37',
   stemmer: stem,
   stopWords: withNormalisedSpellings(listedSpellings, normalize),
   normalizer: normalize,

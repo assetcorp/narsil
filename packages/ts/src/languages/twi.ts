@@ -101,7 +101,7 @@ function normalize(token: string): string {
  */
 export const twi: LanguageModule = {
   name: 'twi',
-  revision: '1cb6b683c37edf35',
+  revision: '549c06d9121111ae',
   stemmer: null,
   stopWords: withNormalisedSpellings(stopWords, normalize),
   normalizer: normalize,
