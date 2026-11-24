@@ -487,6 +487,7 @@ Each index writes a metadata envelope under the key `<indexName>/meta`. It uses 
   tokenizer:             string               (optional; the registered tokeniser name)
   stop_words:            string               (optional; the registered stop word set name)
   stop_word_list:        List<string>         (optional; the words of a literal stop word set)
+  fold_marks:            boolean              (optional; the foldMarks setting, the language default where absent)
   analysis_generation:   uint64               (optional; an absent value means 0)
   pending_analysis:      PendingAnalysis      (optional; a change that has not reached a durable checkpoint)
   partition_limits:      PartitionLimits      (optional)
@@ -583,6 +584,7 @@ PendingAnalysis {
   tokenizer:       string          (optional)
   stop_words:      string          (optional)
   stop_word_list:  List<string>    (optional)
+  fold_marks:      boolean         (optional)
 }
 ```
 
@@ -601,6 +603,8 @@ The `analysis_revision` field records the [revision](adapters.md#revision) of th
 The `array_position_gap` field records the [array position gap](algorithms.md#array-position-gap) that produced the index's stored positions, and a writer must set it to 100 for the positions that it writes. A reader must treat the terms of an index that holds a `string[]` field and tracks positions as stale where the field is absent or holds any other value, and those terms then follow the rules for a stale `analysis_revision`. A reader must ignore the field for any other index, because such an index stores no position that the gap changes. A writer must leave the field absent where it knows no gap for the positions that it writes, such as for an index that it restores without the field and has yet to rebuild.
 
 The `tokenizer` and `stop_words` fields record the names the index resolved its analysis from, as described in [Analysis Registry](adapters.md#analysis-registry). A writer includes each field only when the index configuration gave a name, because a tokeniser instance and a stop word function are code and no payload carries code. An engine with durability configured refuses an index whose analysis is given as code, as [Analysis Registry](adapters.md#analysis-registry) requires, so an absent field means the index analyses with the language default. An index configured with a literal stop word set persists the words themselves in `stop_word_list`, and a payload carries at most one of `stop_words` and `stop_word_list`. Recovery resolves each name against the engine's analysis registry so that a recovered index analyses text the way the original did; see [Index Metadata](durability.md#index-metadata).
+
+The `fold_marks` field records the `foldMarks` setting of [Folded Matching](algorithms.md#folded-matching). A writer must include it only where the index sets that setting, and a reader must treat an absent field as the default of the index's language, as it must for every payload written before the field existed.
 
 The `analysis_generation` field counts the changes that a caller has made to the index's analysis, and `pending_analysis` holds a change that recovery must finish. [Index Metadata](durability.md#index-metadata) gives the rules for both. A payload carries at most one of `stop_words` and `stop_word_list` inside `pending_analysis`, as it does at the top level.
 
@@ -639,6 +643,7 @@ The payload is a MessagePack map:
   tokenizer:         string                       (optional; the registered tokeniser name)
   stopWords:         string                       (optional; the registered stop word set name)
   stopWordList:      List<string>                 (optional; the words of a literal stop word set)
+  foldMarks:         boolean                      (optional; the language default where absent)
   analysisGeneration: uint64                      (optional; an absent value means 0)
   bm25:              BM25Params                   (optional; see Parameter Levels in algorithms.md)
   surfaceForms:      boolean                      (a reader treats an absent value as true)

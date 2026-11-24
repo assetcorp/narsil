@@ -234,6 +234,11 @@ LanguageModule {
   stopWords:  Set<string>
   normalizer: ((token: string) -> string) or absent
   tokenizer:  TokenizerConfig or absent
+  folding:    FoldingConfig or absent
+}
+
+FoldingConfig {
+  letters: Map<string, string> or absent   (each key and each value one code point)
 }
 
 TokenizerConfig {
@@ -276,6 +281,10 @@ An optional configuration that overrides the tokenisation defaults for this lang
 | `minTokenLength` | Narsil discards a token shorter than this length. It defaults to 1. |
 | `stripPossessive` | Narsil removes a trailing apostrophe, and a trailing apostrophe followed by `s`. It defaults to off, and English turns it on. |
 | `ngramSize` | Narsil replaces each run of Han, Hiragana, Katakana, Hangul, Thai, Lao, Khmer, or Myanmar characters with its overlapping character n-grams of this size. It defaults to absent, which leaves every run whole, and every language that sets it uses 2. |
+
+### folding
+
+An optional setting that lets a query typed without marks match the words of a document that carry marks, as [Folded Matching](algorithms.md#folded-matching) defines. An index of a language that sets it applies folded matching unless the index turns it off. `letters` maps a letter onto the letter that a writer types in its place on a keyboard that lacks it, such as Twi `ɛ` onto `e`, and a language that needs no such letter leaves `letters` absent. Folded matching changes no stored token, so a change to this setting leaves `revision` as it is.
 
 ### Stop Word Override
 
@@ -343,9 +352,9 @@ The index metadata records the revision of the language module that produced the
 
 ### Changing Analysis
 
-An implementation must offer an operation that takes an index name and any of `language`, `tokenizer`, and `stopWords`. A key left out keeps its current value, and `null` on `tokenizer` or `stopWords` returns that key to the language default. `tokenizer` must be a registered name. `stopWords` must be a registered name or a literal list of words. The operation must raise `CONFIG_INVALID`, naming the registry, for a tokeniser instance or a stop word function, because an instance survives neither a worker boundary nor a restart. It must raise `LANGUAGE_NOT_SUPPORTED` for an unregistered language and `CONFIG_INVALID` for an unregistered name. A change to the values that the index already holds must complete with no rebuild.
+An implementation must offer an operation that takes an index name and any of `language`, `tokenizer`, `stopWords`, and `foldMarks`. A key left out keeps its current value, and `null` on `tokenizer`, `stopWords`, or `foldMarks` returns that key to the language default. `tokenizer` must be a registered name. `stopWords` must be a registered name or a literal list of words. `foldMarks` must be a boolean, which sets [folded matching](algorithms.md#folded-matching) on or off. The operation must raise `CONFIG_INVALID`, naming the registry, for a tokeniser instance or a stop word function, because an instance survives neither a worker boundary nor a restart. It must raise `LANGUAGE_NOT_SUPPORTED` for an unregistered language, and `CONFIG_INVALID` for an unregistered name and for a `foldMarks` that is neither a boolean nor `null`. A change to the values that the index already holds must complete with no rebuild, and so must a change that alters `foldMarks` alone, because folded matching changes no stored token.
 
-An implementation must keep answering queries and accepting writes under the old settings while it builds the new terms beside the old ones, and every write that it accepts during that time must reach the new terms. Once every partition holds its new terms, it must replace the partitions, the language, the tokeniser, the stop words, the prepared synonyms, and the [analysis generation](envelope.md#index-metadata-payload) in one step that no query can observe halfway. A query must answer under one set of settings, so a query that spans the switch must run again under the new settings. A change must leave vector data as it is.
+An implementation must keep answering queries and accepting writes under the old settings while it builds the new terms beside the old ones, and every write that it accepts during that time must reach the new terms. Once every partition holds its new terms, it must replace the partitions, the language, the tokeniser, the stop words, the `foldMarks` setting, the prepared synonyms, and the [analysis generation](envelope.md#index-metadata-payload) in one step that no query can observe halfway. A query must answer under one set of settings, so a query that spans the switch must run again under the new settings. A change must leave vector data as it is.
 
 A later change must replace a change whose terms are still building, and the earlier caller must receive `ANALYSIS_CHANGE_REPLACED`. An implementation must refuse a change to an index while a restore of that index runs, both when the caller asks for the change and when the change reaches its switch, because the restore replaces the settings and the terms that the change starts from. The caller must receive `ANALYSIS_CHANGE_REPLACED`, which is the code that a restore also raises when it abandons a pending change. A change that the implementation refuses in this way must leave no pending change in the [index metadata](durability.md#index-metadata). A rebuild that a revision difference calls for must join a running change. A change must wait for a durable checkpoint where the previous change has switched and its generation has no durable checkpoint yet, as [Index Metadata](durability.md#index-metadata) requires.
 

@@ -1216,7 +1216,7 @@ A coordinator must fill `terms` with the non-empty pieces of the query's `term`,
   totalDocuments:    uint32
   docFrequencies:    Map<string, uint32>
   totalFieldLengths: Map<string, uint64>
-  expanded:          List<string> or absent   (each token that a prefix completion or a partial-word search reached)
+  expanded:          List<string> or absent   (each token that a prefix completion, a partial-word search, or folded matching reached)
 }
 ```
 

@@ -57,6 +57,8 @@ languageLookup(name: string) -> uint32 or 'unknown'
 languageName(language: uint32) -> string
 languageRevision(language: uint32) -> string
 analyse(language: uint32, text: List<uint16>, flags, stopWords: StopWordSet or nil) -> List<Token>
+foldSpelling(language: uint32, spelling: List<uint16>, stem: boolean) -> List<uint16>
+languageFolds(language: uint32) -> boolean
 
 flags: stem, removeStopWords, removeDiacritics, collectSurfaces
 
@@ -78,6 +80,8 @@ The core holds every [LanguageModule](adapters.md#languagemodule) that the refer
 `start` and `end` give the code units of `text` that the token came from, so that a highlighter can mark the token in the text as the caller wrote it. `start` is the place in `text` of the first code unit that steps 2 to 7 turned into the token's first code unit, and `end` is the place after the last code unit that they turned into its last code unit. Steps 2 to 5 can change the length of the text, so the core must carry the place of each code unit through those steps.
 
 The implementation must call a stop word function where [Analysis Registry](adapters.md#analysis-registry) calls it, and pass the set that the function returns as `stopWords`. The core never calls back into the implementation.
+
+`foldSpelling` must return the fold of `spelling` that [Keys](algorithms.md#keys) defines, and the key where `stem` is set. `languageFolds` must return whether the language's module sets [folding](adapters.md#folding), so that an implementation that reads its languages from the core can find the default of an index's `foldMarks` setting.
 
 ---
 
@@ -377,6 +381,8 @@ The implementation must analyse the words of a [synonym set](algorithms.md#synon
 
 The implementation must build the slots of [Keyword Score](#keyword-score) from these results. A query term's group holds the term's token with a factor of 1, its completions, and its added words, and a token that two of these add takes the larger factor. A synonym joins the term's combined term, and the implementation must take it out of the group's other members, so that a token that is both a synonym and a member counts as a synonym alone.
 
+The implementation must find the [variants](algorithms.md#variants) of each term, and the matches that [folded matching](algorithms.md#typos-and-completions) adds, from the spellings of `segments`, and it must take each variant out of the term's typo matches and out of its group. A term's folded term takes one more GroupSlot after the term's other slots. That slot holds one member with a `factor` and a `partialFactor` of 1, whose float64 rows sum the frequencies of the term's token and of its variants within each field, and its `documentFrequency` is the largest n over those tokens.
+
 ---
 
 ## Phrases
@@ -402,6 +408,8 @@ PhraseResult {
 3. For each phrase, it must visit each posting of the lead token in order, counting one unit for each, and skip a posting in an unsearchable field, a document that `removed` holds, and a document outside the set that the previous phrase matched, or outside `filter` for the first phrase. For a posting that it keeps, it must find the posting of every other token in the same document and field, counting no unit, and move to the next posting of the lead token where one token lacks it.
 4. For each position `p` of the lead token, in ascending order, with `a = p - leadOffset`, where `leadOffset` is the offset of the lead token in the phrase, and with `a` not below 0, it must advance a cursor through the positions of each token in phrase order to the first position not below `a + offset`, counting one unit for each position that it passes plus one for the position where it stops. It must stop counting starts for that posting once a cursor reaches the end of its positions, and it must count a start where every token holds the position that it needs.
 5. It must stop after a phrase that matches no document.
+
+Where a phrase token has [variants](algorithms.md#variants), the implementation must pass one entry of postings for the token and its variants together, which merges their live postings in document order and then in field order, with the positions of each document and field in ascending order. It must count one unit into `meter` for each posting of a variant that it merges, before it calls `matchPhrases`.
 
 `matched` holds the documents that match every phrase, and the implementation must pass it as the filter of [Keyword Score](#keyword-score), so that every hit holds every phrase. Where `collect` is set, `rows` holds for each phrase a row for each document and field where the phrase starts at least once, in the order of step 3.
 
@@ -738,10 +746,17 @@ HighlightQuery {
   prefix:       List<uint16> or nil    (the unstemmed last word of a prefix query)
   synonyms:     List<List<uint16>>     (the synonyms of the query, plus every phrase token)
   partialWords: List<List<uint16>> or nil
+  folded:       FoldedHighlight or nil   (nil where the index does not fold)
+}
+
+FoldedHighlight {
+  keys:         List<{ key: List<uint16>, tolerance: uint32 }>   (the key of each query word, then of each phrase token's word with a tolerance of 0)
+  prefix:       List<uint16> or nil      (the fold of the last word of a prefix query)
+  partialWords: List<List<uint16>> or nil   (the fold of each query word that partial-word search applies to)
 }
 ```
 
-`highlight` must analyse `text` with the language, with stemming off and with every stop word kept, whatever tokeniser the index sets. It must mark a token where `prefix` is set and the token starts with it, where `partialWords` is set and the [written spelling](algorithms.md#partial-word-search) at the token's position is longer than one of those words and holds it, or where the stem of the token is one of `synonyms` or matches a term as [Bounded Levenshtein Distance](algorithms.md#bounded-levenshtein-distance) accepts under the term's `tolerance` and `prefixLength`. The implementation must give the last word of a prefix query a tolerance of 0. A marked token covers the code units from its `start` to its `end`, and the core must join every two marked spans that overlap or touch.
+`highlight` must analyse `text` with the language, with stemming off and with every stop word kept, whatever tokeniser the index sets. It must mark a token where `prefix` is set and the token starts with it, where `partialWords` is set and the [written spelling](algorithms.md#partial-word-search) at the token's position is longer than one of those words and holds it, or where the stem of the token is one of `synonyms` or matches a term as [Bounded Levenshtein Distance](algorithms.md#bounded-levenshtein-distance) accepts under the term's `tolerance` and `prefixLength`. The implementation must give the last word of a prefix query a tolerance of 0. Where `folded` is set, the core must also mark a token whose [key](algorithms.md#keys) is one of `folded.keys` or matches one of them under that key's `tolerance` and `prefixLength`, a token whose fold starts with `folded.prefix`, and a token whose written spelling has a fold that is longer than one of `folded.partialWords` and holds it. A marked token covers the code units from its `start` to its `end`, and the core must join every two marked spans that overlap or touch.
 
 Where no span is marked, `snippet` holds `text`, cut to its first `maxSnippetLength` code units and followed by `...` where `maxSnippetLength` is above 0 and `text` is longer. Where `maxSnippetLength` is 0 or `text` is no longer, `snippet` holds `text` with `preTag` before each span and `postTag` after it, and `positions` holds every span. Otherwise the core must choose a window of `maxSnippetLength` code units. For each span in order, a candidate window starts at `max(0, start - floor(maxSnippetLength / 2))`, ends `maxSnippetLength` units later or at the end of `text`, and moves back to start `maxSnippetLength` units before its end where it can. The core must take the first candidate that holds the most spans whole, or the window at the start of `text` where no candidate holds a span whole. `snippet` then holds the window with tags around each span inside it, starting with `...` where the window starts after the start of `text` and ending with `...` where the window ends before the end of `text`, and `positions` holds the spans inside the window, counted from the start of `text`. Wherever the core cuts `text`, it must move an edge that falls between the two units of a surrogate pair outwards to the edge of the pair, so that a snippet holds no lone surrogate.
 

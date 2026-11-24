@@ -237,7 +237,7 @@ The ISO 8601 timestamp of when the node started. It serves diagnostics, and it b
 
 ### version
 
-The specification version the node follows, which is 1.5 for this specification. A version must match `^[0-9]+\.[0-9]+$`, a major number and a minor number that compare as integers, and a node must register the version that it follows, because a minor version can add a capability that a coordinator has to check before it sends a query, as [Phrase Queries](query-routing.md#phrase-queries) and [BM25 Parameters](query-routing.md#bm25-parameters) do. Nodes on incompatible versions must not share a cluster, so the controller places no partition on a node whose major version differs from its own, and it treats a version that it cannot parse as a different major version. The controller must also place no partition of an index with [previousDocument](../changes.md#previous-document) on, or of a generation that it builds for such an index, on a node whose version lies below 1.5, because such a node computes the [checksum](replication.md#checksum) of every entry over seven fields. A node that finds an active controller on a different major version as it joins must fail its start with `NODE_VERSION_INCOMPATIBLE`. A node that finds no active controller joins, and the controller that a later election chooses keeps it out of allocation where the major versions differ.
+The specification version the node follows, which is 1.6 for this specification. A version must match `^[0-9]+\.[0-9]+$`, a major number and a minor number that compare as integers, and a node must register the version that it follows, because a minor version can add a capability that a coordinator has to check before it sends a query, as [Phrase Queries](query-routing.md#phrase-queries) and [BM25 Parameters](query-routing.md#bm25-parameters) do. Nodes on incompatible versions must not share a cluster, so the controller places no partition on a node whose major version differs from its own, and it treats a version that it cannot parse as a different major version. The controller must also place no partition of an index with [previousDocument](../changes.md#previous-document) on, or of a generation that it builds for such an index, on a node whose version lies below 1.5, because such a node computes the [checksum](replication.md#checksum) of every entry over seven fields. A node that finds an active controller on a different major version as it joins must fail its start with `NODE_VERSION_INCOMPATIBLE`. A node that finds no active controller joins, and the controller that a later election chooses keeps it out of allocation where the major versions differ.
 
 ### memory
 
@@ -627,6 +627,7 @@ IndexSettings {
   tokenizer:         string                       (optional; the registered tokeniser name)
   stopWords:         string                       (optional; the registered stop word set name)
   stopWordList:      List<string>                 (optional; the words of a literal stop word set)
+  foldMarks:         boolean                      (optional; the language default where absent)
   analysisGeneration: uint64                      (optional; an absent value means 0)
   pendingAnalysis:    PendingClusterAnalysis      (optional)
   analysisFailure:    AnalysisFailure             (optional; the outcome of the latest change that failed)
@@ -674,6 +675,7 @@ PendingClusterAnalysis {
   tokenizer:     string          (optional)
   stopWords:     string          (optional)
   stopWordList:  List<string>    (optional)
+  foldMarks:     boolean         (optional)
 }
 
 AnalysisFailure {
@@ -781,7 +783,8 @@ A caller rebuilds the terms of a cluster index through any node, which sends [cl
 1. The node that receives the change request:
    a. raises the errors that Changing Analysis in adapters.md lists
    b. raises ANALYSIS_CHANGE_NOT_READY where any registered node has
-      a specification version below 1.1
+      a specification version below 1.1, or below 1.6 where the
+      change carries foldMarks
    c. writes pendingAnalysis with a new changeId through compareAndSet,
       returning to a fresh read when that compareAndSet fails, until
       its retry budget of 5 attempts runs out, and then raises
@@ -799,7 +802,9 @@ A caller rebuilds the terms of a cluster index through any node, which sends [cl
 
 3. Each node builds beside its old terms under the pending settings,
    keeps the new terms current with every write that it applies, holds
-   both copies, and answers once it is ready.
+   both copies, and answers once it is ready. Where the pending
+   settings differ from the current ones in foldMarks alone, a node
+   builds no terms and answers at once.
 
 4. The controller reads the allocation table again and repeats step 2
    for any registered holder that has not answered. It waits only for

@@ -513,7 +513,7 @@ A server that stops serving must keep the workers that hold its copies running. 
 
 ### What Crosses into a Worker
 
-A worker runs in its own memory with its own registries, and the engine reaches it by passing messages, so data crosses and code does not. A schema, a stop word set given as a set, a synonym set, and a pair of BM25 parameters all cross. A tokeniser instance, a stop word function, a stemmer, and a language module are code, and none of them crosses.
+A worker runs in its own memory with its own registries, and the engine reaches it by passing messages, so data crosses and code does not. A schema, a stop word set given as a set, a synonym set, a `foldMarks` setting, and a pair of BM25 parameters all cross. A tokeniser instance, a stop word function, a stemmer, and a language module are code, and none of them crosses.
 
 An index therefore reaches a worker only when its configuration gives a name for each part of its analysis:
 
