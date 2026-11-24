@@ -33,6 +33,11 @@ async fn shutdown_releases_a_write_while_a_handover_waits_for_its_replica() {
         is_served_by(&coordinator, INDEX, UUID, 1, PRIMARY).await
     })
     .await;
+    primary
+        .node
+        .remove(INDEX, "never-stored")
+        .await
+        .expect_err("the empty partition starts its term");
     controller.stop().await;
 
     let replica = TcpTransport::new(
