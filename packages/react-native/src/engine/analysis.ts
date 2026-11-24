@@ -1,4 +1,4 @@
-import type { NativeAnalysisCore, NativeStopWordSetHandle } from '@delali/narsil'
+import type { NativeAnalysisCore, NativeFoldingCore } from '@delali/narsil'
 import type { NarsilCore } from '../specs/core.nitro'
 import { withNativeCode } from './native-error'
 
@@ -11,6 +11,8 @@ const ANALYSIS_METHODS = [
   'analyse',
   'analysePacked',
   'transform',
+  'foldSpelling',
+  'createFoldTable',
 ] as const
 
 type AnalysisMethod = (typeof ANALYSIS_METHODS)[number]
@@ -48,9 +50,9 @@ function textListOf(value: unknown, name: AnalysisMethod): string[] {
   return value
 }
 
-function handleOf(value: unknown): NativeStopWordSetHandle {
+function handleOf(value: unknown, name: AnalysisMethod): object {
   if (typeof value !== 'object' || value === null) {
-    throw new Error('The native search core returned no stop word set from createStopWordSet.')
+    throw new Error(`The native search core returned no handle from ${name}.`)
   }
   return value
 }
@@ -60,12 +62,19 @@ function analysisResultOf(value: unknown, name: AnalysisMethod): string | number
   throw new Error(`The native search core returned an unexpected value from ${name}.`)
 }
 
+function textOrStatusOf(value: unknown, name: AnalysisMethod): string | number {
+  if (typeof value === 'string' || typeof value === 'number') return value
+  throw new Error(`The native search core returned an unexpected value from ${name}.`)
+}
+
 function packedResultOf(value: unknown): number | null {
   if (value === null || typeof value === 'number') return value
   throw new Error('The native search core returned an unexpected value from analysePacked.')
 }
 
-export function adaptAnalysis(core: NarsilCore): NativeAnalysisCore {
+export function adaptAnalysis(
+  core: NarsilCore,
+): NativeAnalysisCore & Pick<NativeFoldingCore, 'foldSpelling' | 'createFoldTable'> {
   const languageCount = rawMethodOf(core, 'languageCount')
   const languageName = rawMethodOf(core, 'languageName')
   const languageRevision = rawMethodOf(core, 'languageRevision')
@@ -74,12 +83,14 @@ export function adaptAnalysis(core: NarsilCore): NativeAnalysisCore {
   const analyse = rawMethodOf(core, 'analyse')
   const analysePacked = rawMethodOf(core, 'analysePacked')
   const transform = rawMethodOf(core, 'transform')
+  const foldSpelling = rawMethodOf(core, 'foldSpelling')
+  const createFoldTable = rawMethodOf(core, 'createFoldTable')
   return {
     languageCount: () => numberOf(languageCount(), 'languageCount'),
     languageName: language => textOf(languageName(language), 'languageName'),
     languageRevision: language => textOf(languageRevision(language), 'languageRevision'),
     languageStopWords: language => textListOf(languageStopWords(language), 'languageStopWords'),
-    createStopWordSet: words => handleOf(createStopWordSet(words)),
+    createStopWordSet: words => handleOf(createStopWordSet(words), 'createStopWordSet'),
     analyse: (language, flags, text, stopWords, records) =>
       analysisResultOf(
         analyse(language, flags, text, stopWords, records.buffer, records.byteOffset, records.length),
@@ -100,10 +111,9 @@ export function adaptAnalysis(core: NarsilCore): NativeAnalysisCore {
           units.length,
         ),
       ),
-    transform(language, flags, token) {
-      const result = transform(language, flags, token)
-      if (typeof result === 'string' || typeof result === 'number') return result
-      throw new Error('The native search core returned an unexpected value from transform.')
-    },
+    transform: (language, flags, token) => textOrStatusOf(transform(language, flags, token), 'transform'),
+    foldSpelling: (language, flags, spelling) =>
+      textOrStatusOf(foldSpelling(language, flags, spelling), 'foldSpelling'),
+    createFoldTable: () => handleOf(createFoldTable(), 'createFoldTable'),
   }
 }

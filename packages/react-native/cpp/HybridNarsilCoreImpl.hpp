@@ -3,6 +3,7 @@
 #include "HybridNarsilCoreSpec.hpp"
 #include "narsil_analysis.h"
 #include "narsil_core.h"
+#include "narsil_folding.h"
 #include "narsil_keyword.h"
 
 #include <cstdint>
@@ -57,6 +58,10 @@ inline constexpr size_t KEYWORD_BATCH_ARGUMENT_COUNT = 2;
 inline constexpr size_t REMOVE_FROZEN_ARGUMENT_COUNT = 33;
 inline constexpr size_t PREPARE_FROZEN_ARGUMENT_COUNT = 35;
 inline constexpr size_t SETTLE_FROZEN_ARGUMENT_COUNT = 31;
+inline constexpr size_t FOLD_SPELLING_ARGUMENT_COUNT = 3;
+inline constexpr size_t EXPAND_FOLDED_TERMS_ARGUMENT_COUNT = 7;
+inline constexpr size_t EXPAND_FOLDED_PREFIX_ARGUMENT_COUNT = 10;
+inline constexpr size_t EXPAND_FOLDED_PARTIAL_ARGUMENT_COUNT = 9;
 
 struct WorkspaceRelease {
   void operator()(narsil_workspace* workspace) const { narsil_workspace_destroy(workspace); }
@@ -134,6 +139,12 @@ public:
   jsi::Value expandSynonyms(jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count);
   jsi::Value expandPrefix(jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count);
   jsi::Value expandPartialWords(jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count);
+  jsi::Value foldSpelling(jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count);
+  jsi::Value createFoldTable(jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count);
+  jsi::Value expandFoldedTerms(jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count);
+  jsi::Value expandFoldedPrefix(jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count);
+  jsi::Value expandFoldedPartialWords(jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments,
+                                      size_t count);
   jsi::Value suggestTerms(jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count);
   jsi::Value highlight(jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count);
   jsi::Value openPagedFile(jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count);
@@ -209,6 +220,9 @@ public:
 
 private:
   narsil_workspace* pagedWorkspace(jsi::Runtime& runtime);
+  narsil_status updateFoldTables(jsi::Runtime& runtime, narsil_fold_table* const* tables,
+                                 const narsil_expansion_segment* segments, size_t count, uint32_t language,
+                                 narsil_workspace** workspace);
   jsi::Value pagedVectors(jsi::Runtime& runtime, const jsi::Value* arguments, size_t count, bool asynchronous);
   jsi::Value fieldMerge(jsi::Runtime& runtime, const jsi::Value* arguments, size_t count, bool writing);
   jsi::Value keywordMerge(jsi::Runtime& runtime, const jsi::Value* arguments, size_t count, bool writing);

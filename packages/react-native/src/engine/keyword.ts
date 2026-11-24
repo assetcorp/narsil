@@ -55,6 +55,9 @@ export function adaptKeyword(
   | 'expandSynonyms'
   | 'expandPrefix'
   | 'expandPartialWords'
+  | 'expandFoldedTerms'
+  | 'expandFoldedPrefix'
+  | 'expandFoldedPartialWords'
   | 'suggestTerms'
   | 'highlight'
   | 'matchPhrases'
@@ -102,6 +105,9 @@ export function adaptKeyword(
     expandSynonyms: methodOf(core, 'expandSynonyms'),
     expandPrefix: methodOf(core, 'expandPrefix'),
     expandPartialWords: methodOf(core, 'expandPartialWords'),
+    expandFoldedTerms: methodOf(core, 'expandFoldedTerms'),
+    expandFoldedPrefix: methodOf(core, 'expandFoldedPrefix'),
+    expandFoldedPartialWords: methodOf(core, 'expandFoldedPartialWords'),
     suggestTerms: methodOf(core, 'suggestTerms'),
     highlight: methodOf(core, 'highlight'),
     matchPhrases: methodOf(core, 'matchPhrases'),
