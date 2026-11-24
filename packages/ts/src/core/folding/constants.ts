@@ -1,2 +1,4 @@
 export const MAX_FOLDED_VARIANTS = 50
 export const FOLD_KEY_CACHE_MAX_ENTRIES = 65_536
+export const FOLDED_FIRST_TOKEN_ROOM = 50
+export const FOLDED_MAX_ROOM_ATTEMPTS = 16

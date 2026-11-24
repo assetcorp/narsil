@@ -175,6 +175,11 @@ export type {
 } from './vector/native/types/field-merge'
 export type { NativeFilterCore, NativeFilterRegion } from './vector/native/types/filters'
 export type {
+  NativeFoldedWord,
+  NativeFoldingCore,
+  NativeFoldTableHandle,
+} from './vector/native/types/folding'
+export type {
   NativeFrozenPagedRemovals,
   NativeFrozenRegionArguments,
   NativeFrozenRemovalIndex,

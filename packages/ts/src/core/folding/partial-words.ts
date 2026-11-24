@@ -1,3 +1,4 @@
+import { platformFoldedExpansion } from '#platform/folded-expansion'
 import {
   codePointCount,
   compareCodePoints,
@@ -74,8 +75,10 @@ export function expandFoldedPartialWords(
   analysis: PartialWordAnalysis,
   requests: readonly PartialWordRequest[],
 ): AddedWord[][] {
-  const rules = foldingRulesOf(language)
   const states = partition.readStates()
+  const native = platformFoldedExpansion()?.partialWords(states, language, analysis, requests)
+  if (native !== undefined && native !== null) return native
+  const rules = foldingRulesOf(language)
   const readers: HeldReader[] = []
   for (const state of states) {
     const reader = state.partialWords.readerFor(analysis)

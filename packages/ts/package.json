@@ -249,6 +249,11 @@
       "browser": "./src/core/expansion/portable.ts",
       "default": "./src/core/expansion/native.ts"
     },
+    "#platform/folded-expansion": {
+      "react-native": "./src/core/folding/native-expansion.ts",
+      "browser": "./src/core/folding/native-expansion.browser.ts",
+      "default": "./src/core/folding/native-expansion.ts"
+    },
     "#platform/partial-expansion": {
       "browser": "./src/core/expansion/partial.ts",
       "default": "./src/core/expansion/partial-native.ts"

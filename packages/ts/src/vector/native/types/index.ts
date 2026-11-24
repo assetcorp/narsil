@@ -4,6 +4,7 @@ import type { NativeExpansionCore } from './expansion'
 import type { NativeFacetCore } from './facets'
 import type { NativeFieldMergeCore } from './field-merge'
 import type { NativeFilterCore } from './filters'
+import type { NativeFoldingCore } from './folding'
 import type { NativeFrozenSegmentCore } from './frozen-segments'
 import type { NativeGroupCore } from './groups'
 import type { NativeHighlightCore } from './highlight'
@@ -55,6 +56,7 @@ export interface NativeCore
     NativeFacetCore,
     NativeFieldMergeCore,
     NativeFilterCore,
+    NativeFoldingCore,
     NativeFrozenSegmentCore,
     NativeGroupCore,
     NativeHighlightCore,

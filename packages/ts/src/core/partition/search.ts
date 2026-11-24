@@ -121,10 +121,18 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
     return globalStats ? globalDocFreqFor(globalStats.docFrequencies, token, list.docIdSet.size) : list.docIdSet.size
   }
 
+  function phraseFrequency(rows: PhraseRows, entry: number): number {
+    let most = documentFrequency(rows.phrase.tokens[entry], rows.lists[entry])
+    const shared = globalStats?.docFrequencies ?? {}
+    for (const variant of rows.phrase.variants?.[entry] ?? [])
+      most = Math.max(most, globalDocFreqFor(shared, variant, state.invertedIdx.documentFrequency(variant)))
+    return most
+  }
+
   function scorePhraseRows(rows: PhraseRows, matched: Uint32Array): void {
     let idf = 0
     for (let entry = 0; entry < rows.phrase.tokens.length; entry++) {
-      idf += computeIDF(documentFrequency(rows.phrase.tokens[entry], rows.lists[entry]), totalDocs)
+      idf += computeIDF(phraseFrequency(rows, entry), totalDocs)
     }
     for (let start = 0; start < rows.docIds.length; start += fieldRun.length) {
       const entries = orderRunByFieldName(

@@ -1,3 +1,4 @@
+import { platformFoldedExpansion } from '#platform/folded-expansion'
 import {
   codePointCount,
   combinePostingLists,
@@ -70,6 +71,8 @@ function rankedTokens(states: readonly PartitionReadState[], tokens: Iterable<st
 
 export function mergeFoldedCompletions(request: FoldedCompletionRequest): PrefixCompletion[] {
   const { partition, typed, own, completions, limit } = request
+  const native = platformFoldedExpansion()?.completions(partition.readStates(), request.language, typed, own, limit)
+  if (native !== undefined && native !== null) return native
   const rules = foldingRulesOf(request.language)
   const folded = foldText(typed, rules)
   if (folded.length === 0) return [...completions]
@@ -155,6 +158,15 @@ function resolveTerm(
     }
     typoMatches.sort(compareCodePoints)
   }
+  return foldedTermOf(own, group, variants, typoMatches)
+}
+
+function foldedTermOf(
+  own: string,
+  group: ExpandedTermGroup | undefined,
+  variants: string[],
+  typoMatches: string[],
+): FoldedQueryTerm | null {
   if (variants.length === 0 && typoMatches.length === 0) return null
   if (group !== undefined && variants.length > 0) {
     group.members = group.members.filter(member => member.token === own || !variants.includes(member.token))
@@ -162,11 +174,66 @@ function resolveTerm(
   return { token: own, variants, typoMatches, group: variants.length === 0 ? null : foldedGroupOf(own, variants) }
 }
 
+function nativeFoldedTerms(request: FoldedTermRequest): FoldedQueryTerm[] | undefined | null {
+  const expansion = platformFoldedExpansion()
+  if (expansion === null) return null
+  const groups = request.queryTokens.map(queryToken =>
+    request.termGroups?.find(candidate => candidate.token === queryToken.token),
+  )
+  const words = request.queryTokens.map((queryToken, at) => {
+    const group = groups[at]
+    const typos = request.tolerance > 0 && (group === undefined || group.typoMatches)
+    return {
+      written: request.written.get(queryToken.position) ?? queryToken.token,
+      own: queryToken.token,
+      excluded: group?.synonyms?.tokens ?? [],
+      tolerance: typos ? request.tolerance : 0,
+      prefixLength: request.prefixLength,
+    }
+  })
+  const found = expansion.terms(request.partition.readStates(), request.language, words)
+  if (found === null) return null
+  const foldedTerms: FoldedQueryTerm[] = []
+  for (let at = 0; at < found.length; at++) {
+    const folded = foldedTermOf(request.queryTokens[at].token, groups[at], found[at].variants, found[at].typoMatches)
+    if (folded !== null) foldedTerms.push(folded)
+  }
+  return foldedTerms.length === 0 ? undefined : foldedTerms
+}
+
+function nativePhraseVariants(
+  partition: PartitionIndex,
+  language: LanguageModule,
+  phrases: readonly AnalysedPhrase[],
+): string[][][] | null {
+  const expansion = platformFoldedExpansion()
+  if (expansion === null) return null
+  const words = phrases.flatMap(phrase =>
+    phrase.tokens.map((own, at) => ({
+      written: phrase.written?.[at] ?? own,
+      own,
+      excluded: [],
+      tolerance: 0,
+      prefixLength: 0,
+    })),
+  )
+  const found = expansion.terms(partition.readStates(), language, words)
+  if (found === null) return null
+  let next = 0
+  return phrases.map(phrase => phrase.tokens.map(() => found[next++].variants))
+}
+
 export function resolveFoldedPhrases(
   partition: PartitionIndex,
   language: LanguageModule,
   phrases: readonly AnalysedPhrase[],
 ): AnalysedPhrase[] {
+  const native = nativePhraseVariants(partition, language, phrases)
+  if (native !== null) {
+    return phrases.map((phrase, at) =>
+      native[at].some(found => found.length > 0) ? { ...phrase, variants: native[at] } : phrase,
+    )
+  }
   const rules = foldingRulesOf(language)
   const states = partition.readStates()
   return phrases.map(phrase => {
@@ -178,6 +245,8 @@ export function resolveFoldedPhrases(
 }
 
 export function resolveFoldedTerms(request: FoldedTermRequest): FoldedQueryTerm[] | undefined {
+  const native = nativeFoldedTerms(request)
+  if (native !== null) return native
   const rules = foldingRulesOf(request.language)
   const foldedTerms: FoldedQueryTerm[] = []
   for (const queryToken of request.queryTokens) {
