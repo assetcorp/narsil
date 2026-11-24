@@ -1,13 +1,13 @@
-import { ErrorCodes, NarsilError } from '../../../../errors'
-import type { AllocationTable, ClusterCoordinator, NodeRegistration, SchemaEvent } from '../../../coordinator/types'
+import type { ClusterCoordinator, NodeRegistration, SchemaEvent } from '../../../coordinator/types'
 import { allocate } from '../../allocator/index'
-import { ALLOCATION_CAS_ATTEMPTS, ALLOCATION_RETRY_DELAY_MS } from '../../constants'
+import { ALLOCATION_RETRY_DELAY_MS } from '../../constants'
 import { putAllocationOver } from '../../in-sync-version'
 import { getIndexMetadata } from '../../index-metadata'
 import { belongsToAnotherIndex, stampedWith } from '../../table-identity'
 import { sharesMajorVersion } from '../../version'
 import { finishDepartureRun, retainedNodesFor, startDepartureRun } from './departures'
 import { scheduleHolderRetry } from './holder-retry'
+import { type RetainedNodes, runAllocatorForIndex } from './index-allocation'
 import { nodesForEachIndex } from './previous-document-placement'
 import type { EventLoopState } from './state'
 import { tearDownAllocation } from './teardown'
@@ -24,72 +24,6 @@ function compatibleNodes(nodes: NodeRegistration[]): NodeRegistration[] {
 
 async function listCompatibleNodes(coordinator: ClusterCoordinator): Promise<NodeRegistration[]> {
   return compatibleNodes(await coordinator.listNodes())
-}
-
-type RetainedNodes = (table: AllocationTable) => ReadonlySet<string>
-
-const RETAIN_NONE: RetainedNodes = () => new Set()
-
-async function runAllocatorForIndex(
-  coordinator: ClusterCoordinator,
-  writerNodeId: string,
-  indexName: string,
-  nodes: NodeRegistration[],
-  isActive: () => boolean,
-  retainedFor: RetainedNodes = RETAIN_NONE,
-  attempt = 0,
-): Promise<void> {
-  if (!isActive()) {
-    return
-  }
-
-  const storedTable = await coordinator.getAllocation(indexName)
-  if (!isActive()) {
-    return
-  }
-
-  const metadata = await getIndexMetadata(coordinator, indexName)
-  if (metadata === null || !isActive()) {
-    return
-  }
-  const currentTable =
-    storedTable !== null && belongsToAnotherIndex(storedTable, metadata.indexUuid) ? null : storedTable
-  if (currentTable?.generation !== undefined) {
-    return
-  }
-  if (currentTable === null && ((await coordinator.getSchema(indexName)) === null || !isActive())) {
-    return
-  }
-
-  const result = allocate(
-    nodes,
-    currentTable,
-    indexName,
-    metadata.partitionCount,
-    metadata.replicationFactor,
-    metadata.constraints,
-    currentTable === null ? undefined : retainedFor(currentTable),
-  )
-
-  if (!isActive()) {
-    return
-  }
-
-  const table = stampedWith(result.table, metadata.indexUuid)
-  if (await putAllocationOver(coordinator, indexName, storedTable, table, writerNodeId)) {
-    return
-  }
-
-  if (attempt + 1 < ALLOCATION_CAS_ATTEMPTS) {
-    await runAllocatorForIndex(coordinator, writerNodeId, indexName, nodes, isActive, retainedFor, attempt + 1)
-    return
-  }
-
-  throw new NarsilError(
-    ErrorCodes.ALLOCATION_FAILED,
-    `Allocation for index '${indexName}' lost ${ALLOCATION_CAS_ATTEMPTS} compare-and-set attempts`,
-    { indexName, attempts: ALLOCATION_CAS_ATTEMPTS },
-  )
 }
 
 async function recoverIndexPartitions(
@@ -115,7 +49,15 @@ async function recoverIndexPartitions(
   if (askAgain) state.indexesAwaitingHolders.add(indexName)
   else state.indexesAwaitingHolders.delete(indexName)
   if (promoted && holdsDataNode(nodes)) {
-    await runAllocatorForIndex(coordinator, controllerNodeId, indexName, nodes, isActive, retainedFor)
+    await runAllocatorForIndex({
+      coordinator,
+      writerNodeId: controllerNodeId,
+      transport,
+      indexName,
+      nodes,
+      isActive,
+      retainedFor,
+    })
   }
 }
 
@@ -173,7 +115,15 @@ async function runAllocatorForAllIndexes(
     try {
       const placeable = nodesFor(indexName)
       if (holdsDataNode(placeable)) {
-        await runAllocatorForIndex(coordinator, writerNodeId, indexName, placeable, isActive, retainedFor)
+        await runAllocatorForIndex({
+          coordinator,
+          writerNodeId,
+          transport: state.transport,
+          indexName,
+          nodes: placeable,
+          isActive,
+          retainedFor,
+        })
       } else {
         await failOverWithoutPlacement(coordinator, writerNodeId, indexName, registeredNodeIds, isActive, retainedFor)
       }
@@ -259,7 +209,15 @@ export async function allocateIndexNow(
       const retainedFor: RetainedNodes = table => retainedNodesFor(state, departures, table)
       const placeable = (await nodesForEachIndex(coordinator, nodes, state.knownIndexes))(indexName)
       if (holdsDataNode(placeable)) {
-        await runAllocatorForIndex(coordinator, writerNodeId, indexName, placeable, isActive, retainedFor)
+        await runAllocatorForIndex({
+          coordinator,
+          writerNodeId,
+          transport: state.transport,
+          indexName,
+          nodes: placeable,
+          isActive,
+          retainedFor,
+        })
       }
     }
   } finally {
@@ -273,9 +231,10 @@ async function handleSchemaCreated(
   indexName: string,
   coordinator: ClusterCoordinator,
   writerNodeId: string,
-  knownIndexes: Set<string>,
+  state: EventLoopState,
   isActive: () => boolean,
 ): Promise<void> {
+  const knownIndexes = state.knownIndexes
   knownIndexes.add(indexName)
 
   if (!isActive()) {
@@ -308,6 +267,11 @@ async function handleSchemaCreated(
   if (!holdsDataNode(placeable) || !isActive()) {
     return
   }
+  const run = { coordinator, writerNodeId, transport: state.transport, indexName, nodes: placeable, isActive }
+  if (currentTable !== null) {
+    await runAllocatorForIndex(run)
+    return
+  }
 
   const result = allocate(
     placeable,
@@ -334,7 +298,7 @@ async function handleSchemaCreated(
     return
   }
 
-  await runAllocatorForIndex(coordinator, writerNodeId, indexName, placeable, isActive)
+  await runAllocatorForIndex(run)
 }
 
 /**
@@ -364,7 +328,7 @@ export async function handleSchemaEvent(
       state.knownIndexes.add(event.indexName)
       return
     }
-    await handleSchemaCreated(event.indexName, coordinator, state.controllerNodeId, state.knownIndexes, isActive)
+    await handleSchemaCreated(event.indexName, coordinator, state.controllerNodeId, state, isActive)
     return
   }
 

@@ -158,7 +158,7 @@ impl PrimaryWrites {
             .map(|position| position.seq_no)
     }
 
-    async fn scope_in_queue(
+    pub(super) async fn scope_in_queue(
         self: &Arc<Self>,
         partition: &Partition,
         index_name: &str,

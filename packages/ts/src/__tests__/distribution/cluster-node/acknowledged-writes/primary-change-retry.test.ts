@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { DEFAULT_CAPACITY } from '../../../../distribution'
 import type { PartitionAssignment } from '../../../../distribution/coordinator/types'
 import { NarsilError } from '../../../../errors'
 import {
@@ -18,8 +17,6 @@ import {
 
 const ROUTER = 'router'
 const DATA_NODES = ['node-a', 'node-b', 'node-c']
-const LARGE_NODE = 'node-d'
-const LARGE_NODE_MEMORY_MULTIPLE = 40
 const SETTLED_DOCUMENTS = 20
 const BATCH_DOCUMENTS = 10
 const SETTLE_TIMEOUT_MS = 30_000
@@ -53,16 +50,19 @@ async function startHandoverCluster(): Promise<{ cluster: TestCluster; settled: 
 }
 
 async function handOverLeadership(cluster: TestCluster, settled: PartitionAssignment): Promise<string> {
-  await cluster.start(LARGE_NODE, {
-    durable: false,
-    capacity: { ...DEFAULT_CAPACITY, memoryBytes: DEFAULT_CAPACITY.memoryBytes * LARGE_NODE_MEMORY_MULTIPLE },
-  })
+  const drainCalledOff = new AbortController()
+  const drain = cluster
+    .node(settled.primary ?? '')
+    .decommission({ signal: drainCalledOff.signal })
+    .catch(() => undefined)
   const handedOver = await waitUntil('the controller to hand leadership to an in-sync replica', async () => {
     const current = partitionAssignment(await cluster.coordinator.getAllocation(INDEX))
     return current?.primary != null && current.primary !== settled.primary && current.primaryTerm > settled.primaryTerm
       ? current.primary
       : null
   })
+  drainCalledOff.abort()
+  await drain
   return handedOver
 }
 

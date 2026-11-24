@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { DEFAULT_CAPACITY } from '../../../../distribution'
 import {
   createTestCluster,
   entryForDocument,
@@ -15,7 +14,6 @@ import {
 } from './harness'
 
 const SETTLED_WRITES = 5
-const LARGE_NODE_MEMORY_MULTIPLE = 40
 const REJOIN_TIMEOUT_MS = 30_000
 const WRITES_AFTER_HANDOVER = 3
 const TABLE_EVENT_DELAY_MS = 2_000
@@ -60,16 +58,19 @@ describe('a primary that loses its role with a write in flight takes the new his
     )
     await waitUntil(`the stranded write to wait on ${strandedAt}`, () => inFlight.count() > 0)
 
-    await cluster.start('node-d', {
-      durable: false,
-      capacity: { ...DEFAULT_CAPACITY, memoryBytes: DEFAULT_CAPACITY.memoryBytes * LARGE_NODE_MEMORY_MULTIPLE },
-    })
+    const drainCalledOff = new AbortController()
+    const drain = cluster
+      .node(oldPrimary)
+      .decommission({ signal: drainCalledOff.signal })
+      .catch(() => undefined)
     const handedOver = await waitUntil('the controller to hand leadership to an in-sync replica', async () => {
       const current = partitionAssignment(await cluster.coordinator.getAllocation(INDEX))
       return current !== undefined && current.primary !== oldPrimary && current.primaryTerm > settled.primaryTerm
         ? current
         : null
     })
+    drainCalledOff.abort()
+    await drain
 
     inFlight.release()
     expect(await stranded).toEqual({ state: 'acknowledged' })

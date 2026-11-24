@@ -188,6 +188,7 @@ export const ClusterMessageTypes = {
   RESHARD_FORWARD: 'cluster.reshard_forward',
   RESHARD_CUTOVER: 'cluster.reshard_cutover',
   RESHARD_PURGE: 'cluster.reshard_purge',
+  LEAD_HANDOFF: 'cluster.lead_handoff',
   INDEX_SETTINGS: 'cluster.index_settings',
   BACKUP: 'cluster.backup',
   BACKUP_RESTORE: 'cluster.backup_restore',
