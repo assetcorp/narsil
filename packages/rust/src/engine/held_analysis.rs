@@ -182,7 +182,10 @@ fn drive_held(engine: &EngineInner, index: &IndexState, run: &HeldRun) -> Result
                 let outcome = run
                     .wait_for_release(&ticket, &index.name, &mut || Ok(()))
                     .map_err(SwitchFailure::into_error)
-                    .and_then(|()| switch_fold_marks(index, &target, run.pending.generation));
+                    .and_then(|()| {
+                        switch_fold_marks(index, &target, run.pending.generation)
+                            .map_err(SwitchFailure::into_error)
+                    });
                 if outcome.is_ok() {
                     announce_sync_settings(engine, &index.name);
                 }
