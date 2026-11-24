@@ -1,6 +1,6 @@
 # Embedding adapters
 
-An embedding adapter turns text into vectors, so a caller searches by meaning without producing a single vector by hand. This guide covers the bundled adapters, naming them, and writing one of your own.
+An embedding adapter turns text into vectors, so a caller searches by meaning without producing a single vector by hand. This guide covers the bundled adapters, naming them, and writing an adapter yourself.
 
 An adapter runs on insert and at query time. Configure a default adapter for the whole engine, register named adapters, or set one per index. Map each vector field to the text fields it embeds, and the engine joins several source fields into one input before it embeds them.
 

@@ -1,6 +1,6 @@
 # Narsil Vector Index Specification
 
-This document defines the vector index, which Narsil uses to answer approximate nearest-neighbour searches. A vector index is independent of partitioning, because a partition owns its inverted index, its field indexes, and its document store, while each vector field owns one vector index. Every implementation must follow the contracts here, and this document says where a runtime may choose its own strategy.
+This document defines the vector index, which Narsil uses to answer approximate nearest-neighbour searches. A vector index is independent of partitioning, because a partition owns its inverted index, its field indexes, and its document store, while each vector field owns one vector index. Every implementation must follow the contracts here, and this document says where a runtime may choose a strategy.
 
 Structure definitions use a language-neutral notation. `List<T>` is an ordered collection of `T`, `Map<K, V>` is a mapping from keys to values, `Set<T>` is a collection of distinct elements, and `T or absent` is a value that may be missing. Width-tagged names such as `float32` describe exact widths on disk and on the wire.
 
@@ -77,7 +77,7 @@ An implementation must raise `DOC_VALIDATION_FAILED` for a query vector that a c
 
 See [Filtered Search](#filtered-search) for what `filterDocIds` does, and [algorithms.md](algorithms.md) for the metric definitions.
 
-`efSearch` sets the HNSW exploration factor. When `efSearch` is absent, an implementation must use its own default. The recommended default is maximum(50, w + margin), where w is the search's `rescoreWindow` where it sets one and k otherwise, and the margin is 50 below 768 dimensions, 75 from 768 to 1,023 dimensions, and 0 from 1,024 dimensions. A higher value raises recall and lengthens the search. An implementation must raise `CONFIG_INVALID` for a query whose vector clause sets an `efSearch` that is not a whole number from 1 to 10,000, on every path that takes a query, so that one query can't make a walk keep an unbounded list of candidates. It must raise the error before it runs any part of the search, whatever the index holds, so that the same query fails whether or not its filter matches a document and whether or not the field holds a graph.
+`efSearch` sets the HNSW exploration factor. When `efSearch` is absent, an implementation must use a default that it chooses. The recommended default is maximum(50, w + margin), where w is the search's `rescoreWindow` where it sets one and k otherwise, and the margin is 50 below 768 dimensions, 75 from 768 to 1,023 dimensions, and 0 from 1,024 dimensions. A higher value raises recall and lengthens the search. An implementation must raise `CONFIG_INVALID` for a query whose vector clause sets an `efSearch` that is not a whole number from 1 to 10,000, on every path that takes a query, so that one query can't make a walk keep an unbounded list of candidates. It must raise the error before it runs any part of the search, whatever the index holds, so that the same query fails whether or not its filter matches a document and whether or not the field holds a graph.
 
 `oversample` sets how deep a [quantised](#quantisation) index re-scores against full-precision vectors:
 
@@ -91,7 +91,7 @@ return the best k of rescored, where the search sets no rescoreWindow or sets mi
 return the best k of rescored and the remaining candidates otherwise
 ```
 
-An implementation must accept an `oversample` that is a finite number of at least 1, and it must reject any other value with `CONFIG_INVALID`. It must cap the depth that `oversample` gives as the block above shows, so that a large `oversample` can't lift the walk past the bound that `efSearch` keeps. It must ignore `oversample` on an index whose quantisation is `none`. When `oversample` is absent, an implementation must use its own `defaultDepth(n)`, which must be at least n. The recommended default is maximum(c * n, ceiling(a * n + b * sqrt(n))), where c is 3 for `osq1` and `osq2` and 1 for `osq4` and `osq8`, and a and b depend on the quantisation and the dimensions:
+An implementation must accept an `oversample` that is a finite number of at least 1, and it must reject any other value with `CONFIG_INVALID`. It must cap the depth that `oversample` gives as the block above shows, so that a large `oversample` can't lift the walk past the bound that `efSearch` keeps. It must ignore `oversample` on an index whose quantisation is `none`. When `oversample` is absent, an implementation must use a `defaultDepth(n)` that it defines, which must be at least n. The recommended default is maximum(c * n, ceiling(a * n + b * sqrt(n))), where c is 3 for `osq1` and `osq2` and 1 for `osq4` and `osq8`, and a and b depend on the quantisation and the dimensions:
 
 | Quantisation | Below 768 dimensions | 768 to 1,023 dimensions | From 1,024 dimensions |
 | ------------ | -------------------- | ----------------------- | --------------------- |
@@ -167,7 +167,7 @@ A document insert is atomic. Every query must observe a document either as fully
 - When the partition insert succeeds and the vector insert fails, an implementation must roll the partition insert back before the error reaches the caller.
 - When the vector insert succeeds and the partition insert fails, an implementation must roll the vector insert back.
 - Schema validation and embedding generation must both finish before any write starts, so that a dimension mismatch or an adapter error fails before any write needs a rollback.
-- A batch operation processes each document on its own, so one document's failure leaves the rest of the batch alone.
+- A batch operation processes each document separately, so one document's failure leaves the rest of the batch alone.
 
 An implementation may choose its mechanism, provided that a document is fully indexed or absent. A single-threaded runtime may rely on synchronous execution inside one scheduler tick, because no query can observe a set of writes that completes without yielding. A runtime with threads may use write-ahead logging with version-gated visibility, segment-level atomic visibility, or any other mechanism that satisfies the contract.
 
@@ -276,7 +276,7 @@ else:
   traverse the HNSW graph, applying the filter during the walk
 ```
 
-The default `filterThreshold` is 0.03, and each index can set its own through the vector index configuration.
+The default `filterThreshold` is 0.03, and each index can set a separate value through the vector index configuration.
 
 At 3% selectivity on an index of 100,000 vectors, the filter admits 3,000 vectors, which a brute-force pass scores directly. An HNSW walk of the same index fails the filter on about 97% of the nodes that it reaches.
 
@@ -362,7 +362,7 @@ The conformance suite searches a fixed dataset of 10,000 vectors with a fixed se
 
 ## Native Search Core
 
-The native search core is the C library that every implementation uses as its standard to search vectors and to build graphs. [native-core.md](native-core.md) defines the core's operations for text, keyword, and hybrid search, from analysis and the matching of query words to scoring, filters, facets, sorting, groups, pages, highlights, suggestions, fusion, and merges. An implementation must perform every operation of [Interface](#interface) through the native search core wherever its platform can load native code. An implementation may perform those operations in its own code anywhere else, and wherever the deployment selects that code. That code must return the same documents with the same scores as the native search core returns for the same graph and the same query.
+The native search core is the C library that every implementation uses as its standard to search vectors and to build graphs. [native-core.md](native-core.md) defines the core's operations for text, keyword, and hybrid search, from analysis and the matching of query words to scoring, filters, facets, sorting, groups, pages, highlights, suggestions, fusion, and merges. An implementation must perform every operation of [Interface](#interface) through the native search core wherever its platform can load native code. An implementation may perform those operations in code that it provides anywhere else, and wherever the deployment selects that code. That code must return the same documents with the same scores as the native search core returns for the same graph and the same query.
 
 ### Interface
 
@@ -529,7 +529,7 @@ A writer must hold the lock of a node while it changes any list of that node.
 
 `graphLock` holds the number of threads that search or place, or -1 while one thread holds the graph alone. A thread must raise `graphLock` by 1 before it reads the graph and lower `graphLock` by 1 afterwards. That thread must wait while `graphLock` is -1 or `writersWaiting` is above 0. A thread that needs the graph alone must raise `writersWaiting` by 1, swap `graphLock` from 0 to -1, and lower `writersWaiting` by 1. That thread must store 0 in `graphLock` when it finishes, and wake the threads that sleep on `graphLock`. A thread must swap `entryLock` from 0 to -1 before it stores `entryPoint` and `topLayer`, then store 0 in `entryLock`.
 
-Every thread must record the locks that it holds in its own 32 words of `heldLocks`, so that the implementation can release the locks of a thread that dies.
+Every thread must record the locks that it holds in a separate set of 32 words of `heldLocks`, so that the implementation can release the locks of a thread that dies.
 
 ```text
 HeldLocks {
@@ -564,7 +564,7 @@ A vector index answers a search in one of two ways:
 - **Below the promotion threshold**, a brute-force linear scan answers every query. It is exact, deterministic, and free of graph overhead.
 - **At or above the threshold**, HNSW answers the query. An implementation builds the graph from every existing vector when the vector count reaches the threshold, and it places every later insert in that graph.
 
-The default promotion threshold is 1,024 vectors, and each index can set its own through the vector index configuration.
+The default promotion threshold is 1,024 vectors, and each index can set a separate value through the vector index configuration.
 
 When the vector count reaches the threshold, an implementation must take three steps in order:
 
@@ -600,7 +600,7 @@ Incremental insertion loses throughput as the index grows, because every insert 
 
 ### Insertion Order
 
-An application can insert its vectors in groups of close neighbours, such as the passages of one file followed by the passages of the next. When a builder places vectors in that order, it can link most of them only to vectors from their own group, so a search can miss a vector that a brute-force scan ranks first.
+An application can insert its vectors in groups of close neighbours, such as the passages of one file followed by the passages of the next. When a builder places vectors in that order, it can link most of them only to vectors from the same group, so a search can miss a vector that a brute-force scan ranks first.
 
 An implementation must therefore insert the vectors in a shuffled order whenever it builds a graph from every vector, which includes promotion and every rebuild that `optimize` performs. After that build, the implementation adds each new vector in the order that it arrives, through one of the ways in [Post-Promotion Insertion](#post-promotion-insertion). A quantised index must measure the drift of its vectors, as [Calibration Drift](#calibration-drift) defines, each time the vectors that remain after removals reach twice the count of its last calibration, and again at each further doubling. When the drift passes 2.5, the implementation must recalibrate its quantiser and rebuild the graph in a shuffled order.
 

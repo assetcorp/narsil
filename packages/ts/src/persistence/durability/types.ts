@@ -98,7 +98,7 @@ export interface DurabilityManager {
   recoverIndex(indexName: string): Promise<void>
   recordMutation(record: MutationRecord): Promise<number>
   recordMutations(records: readonly MutationRecord[]): Promise<MutationOutcome[]>
-  /** The highest sequence number this node's own write-ahead log holds for a partition, counting what recovery
+  /** The highest sequence number the write-ahead log of this node holds for a partition, counting what recovery
    * replayed. */
   highestPersistedSeqNo(indexName: string, partitionId: number): number
   readonly partitionRegistry?: PartitionRegistry

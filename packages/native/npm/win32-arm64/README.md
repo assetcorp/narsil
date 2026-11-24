@@ -13,7 +13,7 @@ When you install the library, npm installs this package with it:
 pnpm add -E @delali/narsil
 ```
 
-Every platform package is an optional dependency of [`@delali/narsil`](https://www.npmjs.com/package/@delali/narsil) at the library's own version, so npm installs only the one whose `os` and `cpu` match your host.
+Every platform package is an optional dependency of [`@delali/narsil`](https://www.npmjs.com/package/@delali/narsil) at the same version as the library, so npm installs only the one whose `os` and `cpu` match your host.
 
 ## What it does
 

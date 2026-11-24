@@ -190,9 +190,9 @@ export function decodePageCursor(cursor: string): PageCursor {
  *
  * @param cursor - The decoded cursor.
  * @param encoded - The encoded text, used in the error.
- * @param signature - The request's own sort signature, or null when it has no sort.
+ * @param signature - The sort signature of the request, or null when it has no sort.
  * @param scoreAnchored - True when an unsorted request anchors on the score, as a search does. False when it anchors on the document ID alone, as a listing does.
- * @param binding - The request's own cursor binding, from {@link queryBindingOf} or {@link listBindingOf}.
+ * @param binding - The cursor binding of the request, from {@link queryBindingOf} or {@link listBindingOf}.
  */
 export function requireMatchingCursor(
   cursor: PageCursor,

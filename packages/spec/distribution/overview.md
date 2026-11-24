@@ -86,7 +86,7 @@ Distribution extends the rest of the specification and changes none of it. Every
 
 ## Notation
 
-This specification uses the same language-neutral notation as the rest of the Narsil specification; see [Notation](../adapters.md#notation). Type definitions illustrate the contract, and each implementation expresses them in its own type system.
+This specification uses the same language-neutral notation as the rest of the Narsil specification; see [Notation](../adapters.md#notation). Type definitions illustrate the contract, and each implementation expresses them in the type system of its language.
 
 Every structure exchanged between nodes is serialised as MessagePack. That is the cross-language wire format for coordination data, replication log entries, and query request and response payloads alike.
 

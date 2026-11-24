@@ -26,7 +26,7 @@ export interface NarsilConfig {
   idGenerator?: () => string
   /** These settings control when an index gains worker copies, how many threads they share, and when an idle index gives them up. */
   workers?: WorkerConfig
-  /** Every index uses this adapter unless its own config names another. */
+  /** Every index uses this adapter unless the config of the index names another. */
   embedding?: EmbeddingAdapter
   /** Named adapters; names persist in index metadata so recovery can rebind. */
   embeddingAdapters?: Record<string, EmbeddingAdapter>
@@ -90,7 +90,7 @@ export interface NarsilConfig {
   /**
    * These fractions set the memory levels at which the engine stops and resumes
    * accepting inserts and updates, so that a write cannot take the process past
-   * its memory limit. Inside a cluster node, the node's own memory settings
+   * its memory limit. Inside a cluster node, the memory settings of the node
    * apply in place of these. For a fraction outside the range that
    * {@link MemoryConfig} describes, {@link createNarsil} throws `CONFIG_INVALID`
    * on Node.js and on a phone. A browser reports no memory limit, so the
@@ -304,7 +304,7 @@ export interface WorkerConfig {
    * keyword copies and 2 vector search workers. The HTTP server holds a copy
    * on every one of them and receives requests there. An embedded engine takes
    * the host's cores minus one by default, which leaves a core for the
-   * caller's own thread, while the HTTP server takes one thread for each core,
+   * thread that calls the engine, while the HTTP server takes one thread for each core,
    * because its main thread answers no searches. Both defaults stay between 2
    * and 8. The engine caps a value that you set at 31, which is how many
    * scratch slots the shared vector arena reserves.
@@ -322,7 +322,7 @@ export interface WorkerConfig {
   idleTimeoutMs?: number
   /**
    * Which queries the main copy answers, `lone` by default. Set `none` where
-   * the main thread also serves the host's own work, such as HTTP requests,
+   * the main thread also serves other work of the host, such as HTTP requests,
    * because a query answered on the main copy then delays every other request
    * waiting on that thread. A server created with `createServer` sets `none` on
    * an engine that leaves this unset.
@@ -332,7 +332,7 @@ export interface WorkerConfig {
    * Each worker imports this module on start-up, which is how a worker reaches
    * a custom tokeniser or language. Give an absolute path or a URL, such as
    * `new URL('./bootstrap.js', import.meta.url).href`, because a worker
-   * resolves a relative specifier against Narsil's own directory. A relative
+   * resolves a relative specifier against the directory of the Narsil package. A relative
    * value raises `CONFIG_INVALID`.
    */
   bootstrapModule?: string

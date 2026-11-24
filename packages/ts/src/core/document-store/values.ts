@@ -65,8 +65,8 @@ function withOwnBuffers(value: unknown): unknown {
 }
 
 /**
- * Gives a document its own memory where a field points into a buffer larger
- * than itself. Msgpack decodes a binary field as a window onto the buffer it
+ * Copies a document into separate memory where one of its fields points into a
+ * buffer larger than the field. Msgpack decodes a binary field as a window onto the buffer it
  * read, so a document recovered from a snapshot holds a vector that reports
  * six kilobytes and carries the whole partition behind it. Every copy of that
  * document, and every structured clone a worker boundary makes, would move the

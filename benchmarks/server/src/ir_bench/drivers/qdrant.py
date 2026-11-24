@@ -64,7 +64,7 @@ def _read_query_response(status: int, content: bytes, url: str) -> SearchRespons
 
 class QdrantDriver:
     """Dedicated vector database. The shared dense vectors are indexed in HNSW; the
-    keyword side of hybrid is Qdrant's own BM25 sparse vectors, which the server
+    keyword side of hybrid is the BM25 sparse vectors that Qdrant computes, which the server
     derives from the raw document and query text through its `qdrant/bm25` model
     and weights with server-side IDF, fused with the dense results by Reciprocal
     Rank Fusion through the Query API. HNSW is forced on (low full-scan threshold)

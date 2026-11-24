@@ -44,7 +44,7 @@ export interface SchemaEvent {
  *
  * The package includes an etcd-backed coordinator for real deployments and an
  * in-memory one for tests, and this is the contract either satisfies. Write
- * your own to run a cluster on another store, so long as
+ * another implementation to run a cluster on a different store, so long as
  * {@link ClusterCoordinator.compareAndSet} and the lease calls are atomic,
  * because the controller election depends on them.
  *
@@ -85,7 +85,7 @@ export interface ClusterCoordinator extends IndexMetadataWatch {
    *
    * A primary calls this before it refuses a write because
    * {@link ClusterCoordinator.registrationLease} reports too little time
-   * left, so that a node whose renewals ran late behind its own work keeps
+   * left, so that a node whose renewals ran late behind other work on the node keeps
    * serving. The coordinator cannot renew a lease that has already expired,
    * so an accepted renewal shows that the registration stayed held
    * throughout. A coordinator that leaves this member out leaves the

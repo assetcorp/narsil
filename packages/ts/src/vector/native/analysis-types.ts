@@ -1,6 +1,6 @@
 /**
  * A set of stop words that the native search core holds, which an analysis call takes in place of the
- * language's own list.
+ * stop word list of the language.
  *
  * @internal
  */
@@ -50,7 +50,7 @@ export interface NativeAnalysisCore {
    * @param language - The index of the language module to analyse with.
    * @param flags - The analysis steps to take, as bits from the core's header.
    * @param text - The text.
-   * @param stopWords - The stop words to remove, or `null` for the module's own list.
+   * @param stopWords - The stop words to remove, or `null` for the stop word list of the module.
    * @param records - The array that receives the token count in its first entry and then eight entries for
    * each token: its position, the offset and length of its term, the offset and length of its surface form
    * (an offset of 0xffffffff where it has none), the offset and length of its original spelling, and its cache slot.
@@ -71,7 +71,7 @@ export interface NativeAnalysisCore {
    * @param language - The index of the language module to analyse with.
    * @param flags - The analysis steps to take, as bits from the core's header.
    * @param text - The text.
-   * @param stopWords - The stop words to remove, or `null` for the module's own list.
+   * @param stopWords - The stop words to remove, or `null` for the stop word list of the module.
    * @param records - At least two entries, filled with the token count and then eight words for each token, laid
    * out as {@link NativeAnalysisCore.analyse} lays them out, with offsets into `units`, zero original-spelling
    * words, and a cache slot of 0xffffffff.

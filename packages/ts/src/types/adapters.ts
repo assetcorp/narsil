@@ -94,7 +94,7 @@ export interface IndexedDBLocation {
 /**
  * Carries partition changes between engine instances that share one store.
  *
- * Two processes reading the same persisted index each hold their own copy in
+ * Two processes reading the same persisted index each hold a separate copy in
  * memory, so a write in one has to reach the other. Publish an event on every
  * write and each subscriber reloads the partitions that event names.
  *
@@ -136,7 +136,7 @@ export type InvalidationEvent =
       partitions: number[]
       /** The publisher stamped the event at this many milliseconds since the epoch, which lets a subscriber drop a late one. */
       timestamp: number
-      /** This instance published the event, so a subscriber can skip its own. */
+      /** This instance published the event, so a subscriber can skip the events that it published. */
       sourceInstanceId: string
     }
   | {
@@ -151,8 +151,8 @@ export type InvalidationEvent =
     }
 
 /**
- * The term counts one instance holds, which the others fold into their own so
- * that BM25 scores stay comparable across a shared index.
+ * The term counts one instance holds, which the others fold into the counts
+ * that they hold, so that BM25 scores stay comparable across a shared index.
  *
  * @public
  */

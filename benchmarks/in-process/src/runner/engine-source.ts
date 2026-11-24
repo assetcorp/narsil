@@ -46,7 +46,7 @@ function readEngineVersion(repoRoot: string): string | null {
  * Compares the engine sources in this checkout with the tag that published the
  * version they declare, so a run records whether it measured that release or
  * something ahead of it. Whatever cannot change what the engine does takes no
- * part: the engine's own tests, the example apps, this harness, and generated
+ * part: the engine's tests, the example apps, this harness, and generated
  * results.
  *
  * @param cwd - A directory inside the repository.

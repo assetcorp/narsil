@@ -173,7 +173,7 @@ impl SuggestionsService {
         runtime.builds.start(runtime, host, index_name, trigger)
     }
 
-    /// Starts a build of `index_name` for a caller on another node on a thread of its own, and returns once the
+    /// Starts a build of `index_name` for a caller on another node on a separate thread, and returns once the
     /// host holds the record of the running build: the running build, or a skipped one where another build of the
     /// index is under way.
     ///

@@ -33,7 +33,7 @@ To serve, start the image `ghcr.io/assetcorp/narsil`, which holds the TypeScript
 
 ## 2. Read the language reference
 
-Read the reference file that the table names for the project's language. It says how to find the installed version and its API, how to install the package, and what that package does differently. Take every name and option from the installed package's own types or documentation, because each one lists its defaults and its error codes.
+Read the reference file that the table names for the project's language. It says how to find the installed version and its API, how to install the package, and what that package does differently. Take every name and option from the types or documentation of the installed package, because each one lists its defaults and its error codes.
 
 ## 3. Build what the user asked for
 

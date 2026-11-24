@@ -20,7 +20,8 @@ fn field_of<'a>(params: Option<&'a Bm25Params>, name: &str) -> Option<&'a Bm25Fi
         .map(|(_, pair)| pair)
 }
 
-/// Returns the BM25 parameters that a search scores with: the search's own values over the index's, field by field.
+/// Returns the BM25 parameters that a search scores with: the values that the search sets over those of the index,
+/// field by field.
 pub(crate) fn merged_bm25(search: Option<&Bm25Params>, index: Option<&Bm25Params>) -> Bm25Params {
     let Some(search) = search.filter(|search| sets_value(search)) else {
         return index.cloned().unwrap_or_default();

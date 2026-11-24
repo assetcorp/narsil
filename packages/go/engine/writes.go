@@ -52,9 +52,9 @@ func (n *Narsil) prepareOne(ctx context.Context, entry *indexEntry, working *mod
 }
 
 // Insert adds document to the index called indexName and returns its ID.
-// The ID is docID when it is not empty, the document's own "id" string
+// The ID is docID when it is not empty, the "id" string inside the document
 // otherwise, and a generated UUID version 7 when neither is set. The engine
-// reads the document once, before it embeds or normalises its own copy, so
+// reads the document once, before it embeds or normalises a separate copy, so
 // the caller's document keeps its contents and a later Set on it changes
 // nothing that the engine stored. A plugin receives that copy and may change
 // it, and a key that a plugin adds is stored after the others. It returns
@@ -160,7 +160,7 @@ func (n *Narsil) applyInsertLocked(ctx context.Context, entry *indexEntry, write
 // indexName with document, which it reads once as Insert does. A value that
 // came from Get and that the caller left alone keeps its stored bytes. It
 // returns CodeDocNotFound when no document holds that ID,
-// CodeDocValidationFailed when the document's own "id" names another ID, and
+// CodeDocValidationFailed when the "id" inside the document names another ID, and
 // the same validation and embedding codes as Insert.
 func (n *Narsil) Update(ctx context.Context, indexName string, docID string, document *Document, options WriteOptions) error {
 	entry, release, err := n.acquire(indexName)

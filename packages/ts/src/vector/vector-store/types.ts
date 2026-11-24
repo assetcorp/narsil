@@ -129,7 +129,7 @@ export interface VectorStore extends VectorBuildReader {
   relocateVectorFiles(rewrite: (path: string) => string): void
   /**
    * Reports the bytes this store's shared structures hold, read from each
-   * structure as it stands. The bookkeeping each thread keeps on its own heap
+   * structure as it stands. The bookkeeping that each thread keeps on its heap
    * falls outside this figure, because no runtime call measures it.
    */
   memoryBytes(): number

@@ -14,8 +14,8 @@ type TokenizerChange = model.TokenizerChange
 // keeps the current stop words.
 type StopWordsChange = model.StopWordsChange
 
-// ResetTokenizer returns a change that goes back to the language's own
-// tokeniser.
+// ResetTokenizer returns a change that goes back to the tokeniser that the
+// language of the index defines.
 func ResetTokenizer() TokenizerChange {
 	return model.ResetTokenizer()
 }
@@ -26,8 +26,8 @@ func ChangeToRegisteredTokenizer(name string) TokenizerChange {
 	return model.ChangeToRegisteredTokenizer(name)
 }
 
-// ResetStopWords returns a change that goes back to the language's own stop
-// words.
+// ResetStopWords returns a change that goes back to the stop words that the
+// language of the index defines.
 func ResetStopWords() StopWordsChange {
 	return model.ResetStopWords()
 }

@@ -29,7 +29,7 @@ A query reranks when it carries `rerank`, which takes four settings:
 | Setting | Description |
 | --- | --- |
 | `adapter` | The name under which you registered the rerank adapter. An unregistered name raises `RERANK_CONFIG_INVALID`. |
-| `fields` | The text fields whose values make up each document that the adapter scores, in that order and one line for each value. Each member of a list field takes a line of its own, and a document without a value in a field adds nothing for it. A field that the schema does not declare as `string`, `string[]`, `verbatim`, or `verbatim[]` raises `RERANK_CONFIG_INVALID`, and so does a field that the list gives twice. |
+| `fields` | The text fields whose values make up each document that the adapter scores, in that order and one line for each value. Each member of a list field takes a separate line, and a document without a value in a field adds nothing for it. A field that the schema does not declare as `string`, `string[]`, `verbatim`, or `verbatim[]` raises `RERANK_CONFIG_INVALID`, and so does a field that the list gives twice. |
 | `query` | The text that the adapter compares with each document. When you leave it out, the engine sends the query's `term`, or else its `vector.text`, and a query with neither raises `RERANK_CONFIG_INVALID`. |
 | `window` | How many of the top hits the adapter scores, from 1 to the engine's `maxRerankWindow`. Where you leave the window out, the engine takes the smallest of 100 and `maxRerankWindow`, and no more than the `hybrid.depth` of a hybrid query that sets one. A hybrid query that sets `hybrid.depth` reranks its fused list at that depth, so a `window` that you set above that depth raises `RERANK_CONFIG_INVALID`. |
 
@@ -93,4 +93,4 @@ const substringReranker: RerankAdapter = {
 
 The [HTTP server](http-server.md) takes `rerankAdapters` among its options and registers them on the engine that it wraps. The request threads send each model call to the main thread, which holds the adapters. Its `limits.maxRerankWindow` sets the largest window that a remote client may ask for, from 1 up to the engine's `maxRerankWindow`, and it defaults to 100. Where a request leaves `window` out, the server lowers the default window to this limit as well. A larger window answers 400 `INVALID_REQUEST`. The server answers `RERANK_CONFIG_INVALID` with 400 and `RERANK_FAILED` with 503.
 
-In a [cluster](cluster.md), the coordinator node that receives a reranked query reranks it with its own adapter, so register the adapter on every node that takes queries from clients. The data nodes rank and count the query as they do without `rerank`, so they need no adapter.
+In a [cluster](cluster.md), the coordinator node that receives a reranked query reranks it with the adapter registered on that node, so register the adapter on every node that takes queries from clients. The data nodes rank and count the query as they do without `rerank`, so they need no adapter.

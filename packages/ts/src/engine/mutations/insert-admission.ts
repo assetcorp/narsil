@@ -5,7 +5,7 @@ import type { AnyDocument } from '../../types/schema'
 import type { PendingAdmissions } from './batch-admissions'
 import type { MutationContext } from './context'
 
-/** Resolves a document's own `id` field as its identifier when present, so a
+/** Resolves the `id` field of a document as its identifier when present, so a
  * caller that embeds an id in the document (the cross-language convention) keeps
  * it. Returns undefined for an absent or non-string id, leaving the caller to
  * fall back to an explicit id argument or generation. */

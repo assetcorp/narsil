@@ -33,7 +33,7 @@ class EngineError(RuntimeError):
 
 @dataclass(frozen=True)
 class ServerTimeSource:
-    """How an engine reports its own query time, advertised by each driver so the
+    """How an engine reports a server-side query time, advertised by each driver so the
     reporter can disclose the headline latency's provenance uniformly. `resolution`
     is one of SERVER_TIME_RESOLUTIONS; NOT_AVAILABLE means the engine exposes no
     server-side query time and only the client round-trip is recorded."""
@@ -85,8 +85,8 @@ class VectorIndexParams:
     """Build-time vector-index settings. `dims`, `metric`, and the HNSW build
     parameters are held identical across every engine. `profile` selects how each
     engine stores its vectors: EQUAL_PRECISION keeps every engine at full float so
-    the comparison isolates the index, while BEST_CONFIG lets each engine apply its
-    own recommended production quantization, which differs by engine on purpose."""
+    the comparison isolates the index, while BEST_CONFIG lets each engine apply the
+    production quantization that its vendor recommends, which differs by engine on purpose."""
 
     dims: int
     metric: str
@@ -97,8 +97,8 @@ class VectorIndexParams:
 
 @dataclass(frozen=True)
 class VectorDoc:
-    """One corpus document carrying both its text (for an engine's own keyword
-    side in hybrid) and the shared precomputed dense vector every engine indexes."""
+    """One corpus document carrying both its text (for the keyword side
+    that each engine runs in hybrid) and the shared precomputed dense vector every engine indexes."""
 
     doc_id: str
     text: str

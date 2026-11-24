@@ -104,7 +104,7 @@ Embeds the SciFact and NFCorpus corpora with the `Xenova/all-MiniLM-L6-v2` model
 
 ### Serialization (`--tiers serial`)
 
-Measures serialize time, serialized size, and deserialize-plus-search time at 50,000 documents. Each engine runs on the serialization format it ships: Narsil on its binary snapshot, Orama on its json export, and MiniSearch on its json export. The suite doesn't roll its own serializer or work around an engine's format.
+Measures serialize time, serialized size, and deserialize-plus-search time at 50,000 documents. Each engine runs on the serialization format it ships: Narsil on its binary snapshot, Orama on its json export, and MiniSearch on its json export. The suite writes no serializer and uses each engine's format as that engine ships it.
 
 Orama's official persistence plugin (`@orama/plugin-data-persistence`) defaults to `binary`, but `binary`, `dpack`, and `seqproto` all fail on this index shape (tested against version 3.1.18), so `json` is Orama's only viable shipped format here. When an engine's shipped format can't serialize the index at all, the harness records a labeled capability limit for that engine and moves on; per-engine process isolation means one engine's failure never touches another's numbers.
 
@@ -156,7 +156,7 @@ The harness gives all three engines the same input and the same settings whereve
 an engine exposes the setting:
 
 - **Stop words**: Lucene English list (33 terms) from `src/stopwords.ts`, applied to all engines
-- **Stemming**: each engine stems English its own way, and no setting equalizes that. Narsil uses its `english` language module, MiniSearch receives the `stemmer@2.0.1` package, and Orama runs `stemming: true` for English.
+- **Stemming**: each engine stems English differently, and no setting equalizes that. Narsil uses its `english` language module, MiniSearch receives the `stemmer@2.0.1` package, and Orama runs `stemming: true` for English.
 - **Query processing**: All engines apply stop word removal and stemming to both indexing and search queries
 - **Term matching**: All default to OR semantics (documents matching any query term are candidates)
 - **No prefix or fuzzy matching** enabled for any engine

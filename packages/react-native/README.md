@@ -1,6 +1,6 @@
 # @delali/narsil-react-native
 
-`@delali/narsil-react-native` runs a Narsil search engine inside an iOS or Android app, so that the app can search its own documents by keyword, by vector, or by both while the phone is offline. The engine keeps each index in files in the app's private storage, so that the index survives a restart.
+`@delali/narsil-react-native` runs a Narsil search engine inside an iOS or Android app, so that the app can search the documents on the phone by keyword, by vector, or by both while the phone is offline. The engine keeps each index in files in the app's private storage, so that the index survives a restart.
 
 ## Install
 
@@ -27,7 +27,7 @@ await narsil.insert('notes', { title: 'Pack the tent poles', embedding: tentVect
 const { hits } = await narsil.query('notes', { term: 'tent', limit: 10 })
 ```
 
-The engine works on the app's own JS runtime and takes the same settings as on Node.js, including an embedding adapter, a plugin, or a tokenizer. Every method resolves through a promise, and otherwise it takes the same arguments and returns the same answer as the method of the same name in `@delali/narsil`. Each file read, file write, and vector search runs on a native thread, so the app can keep drawing the screen while the engine works.
+The engine works on the app's JS runtime and takes the same settings as on Node.js, including an embedding adapter, a plugin, or a tokenizer. Every method resolves through a promise, and otherwise it takes the same arguments and returns the same answer as the method of the same name in `@delali/narsil`. Each file read, file write, and vector search runs on a native thread, so the app can keep drawing the screen while the engine works.
 
 ## Set up the app
 

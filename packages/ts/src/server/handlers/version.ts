@@ -6,8 +6,8 @@ import type { VersionResponse } from '../types'
 
 /**
  * Builds the `/version` body on the thread that answers the request, because each
- * thread loads the native search core for itself and falls back to WebAssembly on
- * its own after a native error.
+ * thread loads the native search core for itself and falls back to WebAssembly
+ * independently of the other threads after a native error.
  */
 export function versionReport(build: ResolvedBuild): VersionResponse {
   return { name: 'narsil', ...build, vectorSearch: vectorSearchPath() }

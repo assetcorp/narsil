@@ -72,7 +72,7 @@ export interface InMemoryTransportInternal extends NodeTransport {
 /**
  * The switchboard that connects in-process cluster nodes to each other.
  *
- * Every node registers its transport under its own id, and a message addressed
+ * Every node registers its transport under the node's id, and a message addressed
  * to a node is handed straight to the transport registered under that id. This
  * runs a whole cluster inside one process, which is what tests and local
  * development use in place of TCP.

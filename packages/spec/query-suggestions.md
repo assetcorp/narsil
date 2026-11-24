@@ -87,7 +87,7 @@ A node without a key counts nothing and builds nothing. Where it holds an index 
 
 ### The Ban List
 
-The ban list of an index is a `List<string>` of [normalised phrases](#phrases), held next to the setting as a synonym set is. Each phrase holds at most 150 code points and only the code points that [Phrases](#phrases) allows, whatever the setting's own limits are, so that a change of the setting never invalidates a stored list. A node must store each phrase in its normal form and once, and it must refuse with `CONFIG_INVALID` a list of more than 1,000 phrases, or one whose MessagePack encoding is longer than 262,144 bytes.
+The ban list of an index is a `List<string>` of [normalised phrases](#phrases), held next to the setting as a synonym set is. Each phrase holds at most 150 code points and only the code points that [Phrases](#phrases) allows, whatever limits the setting sets, so that a change of the setting never invalidates a stored list. A node must store each phrase in its normal form and once, and it must refuse with `CONFIG_INVALID` a list of more than 1,000 phrases, or one whose MessagePack encoding is longer than 262,144 bytes.
 
 - A node must refuse every count of a banned phrase.
 - A build must publish no banned phrase, and it must remove every banned phrase from each suggestions index, whatever the phrase's `origin`.

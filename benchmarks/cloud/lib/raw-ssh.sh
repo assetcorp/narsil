@@ -4,7 +4,7 @@
 # Raw SSH transport shared by the IP-addressed providers (Hetzner, DigitalOcean,
 # AWS). Each of those drivers provides prov_ip; this file provides the transport
 # functions and resolves the local SSH key. GCP does not use this file because
-# gcloud manages its own SSH connection.
+# gcloud opens and manages the SSH connection.
 #
 # Host-key checking is relaxed on purpose: benchmark VMs are throwaway and get a
 # fresh IP each time, so pinning host keys would only produce mismatch prompts.

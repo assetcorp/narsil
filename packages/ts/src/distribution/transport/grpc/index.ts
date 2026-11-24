@@ -16,7 +16,7 @@ export type { GrpcTransportConfig } from './types'
  *
  * Each call carries one MessagePack-serialised message in a protobuf
  * envelope, so a node written in another language can join the same cluster
- * through its own gRPC stack. The transport listens on `config.host` and
+ * through a gRPC library in that language. The transport listens on `config.host` and
  * `config.port`, and it dials a peer at the `host:port` address that peer
  * registered with the coordinator. Passing `config.tls` makes every
  * connection mutually authenticated: the server requires a client

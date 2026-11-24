@@ -6,7 +6,8 @@ import "github.com/assetcorp/narsil/packages/go/engine/internal/model"
 // the text.
 type Token = model.Token
 
-// Tokenizer splits text into tokens in place of the language's own rules.
+// Tokenizer splits text into tokens in place of the rules of the index's
+// language.
 // The engine recovers a panic inside Tokenize and reports it as an error.
 type Tokenizer = model.Tokenizer
 
@@ -18,8 +19,8 @@ func NewStopWordSet(words ...string) StopWordSet {
 	return model.NewStopWordSet(words...)
 }
 
-// StopWordFunction receives the language's own stop words and returns the
-// set that analysis drops.
+// StopWordFunction receives the stop words of the index's language and
+// returns the set that analysis drops.
 type StopWordFunction = model.StopWordFunction
 
 // StopWords is the stop word setting of an index: a fixed list, a function,

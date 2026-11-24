@@ -5,9 +5,9 @@ import { ClientErrorCodes, isNarsilError, NarsilError } from '../errors'
  * always reports one.
  *
  * Every client method throws a `NarsilError` already, under the code that the
- * server sends or under one of the client's own. This function returns such an
- * error unchanged even though the client bundle holds its own copy of the
- * class, because it tests for the marker that every `NarsilError` constructor
+ * server sends or under one of the codes that the client defines. This function
+ * returns such an error unchanged even though the client bundle holds a separate
+ * copy of the class, because it tests for the marker that every `NarsilError` constructor
  * writes. Any other value comes from a fault on this side, so it comes back
  * under `CLIENT_UNEXPECTED_ERROR` and never under a code that would blame a
  * server that the request may never have reached.
