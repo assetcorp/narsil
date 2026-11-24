@@ -55,6 +55,7 @@ type WorkerCommand =
     }
   | { type: 'replaceSynonyms'; indexName: string; synonyms?: Uint8Array; requestId: string }
   | { type: 'replaceBm25'; indexName: string; bm25?: BM25Params; requestId: string }
+  | { type: 'replaceFoldMarks'; indexName: string; foldMarks?: boolean; requestId: string }
   | { type: 'copyLoaded'; indexName: string; copyLoad: string; requestId: string }
   | {
       type: 'loadVectorCopy'
@@ -179,6 +180,7 @@ const KNOWN_ACTION_TYPES: ReadonlyArray<WorkerMessage['type']> = [
   'createIndex',
   'replaceSynonyms',
   'replaceBm25',
+  'replaceFoldMarks',
   'copyLoaded',
   'loadVectorCopy',
   'dropVectorCopy',

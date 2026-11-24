@@ -12,6 +12,7 @@ function promotePendingAnalysis(metadata: IndexMetadata): void {
   metadata.tokenizer = pending.tokenizer
   metadata.stopWords = pending.stopWords
   metadata.stopWordList = pending.stopWordList
+  metadata.foldMarks = pending.foldMarks
   metadata.pendingAnalysis = undefined
 }
 

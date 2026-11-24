@@ -7,6 +7,7 @@ import type { IndexStoredSizes } from './stored-sizes'
 export interface DurableAnalysis extends PendingAnalysisMetadata {
   analysisRevision: string | null
   arrayPositionGap: number | null
+  rewritesTerms: boolean
 }
 
 export interface IndexSyncState {

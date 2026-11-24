@@ -143,6 +143,7 @@ export interface NamedAnalysisSettings {
   tokenizer?: string
   stopWords?: string
   stopWordList?: string[]
+  foldMarks?: boolean
 }
 
 export interface PendingAnalysisMetadata extends NamedAnalysisSettings {
@@ -174,6 +175,7 @@ export interface IndexMetadata {
   tokenizer?: string
   stopWords?: string
   stopWordList?: string[]
+  foldMarks?: boolean
   analysisGeneration?: number
   pendingAnalysis?: PendingAnalysisMetadata
   partitionLimits?: PartitionConfig

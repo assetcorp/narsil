@@ -240,6 +240,9 @@ export function validateChangeAnalysis(body: ChangeAnalysisBody): ValidationFail
   if (body.tokenizer !== undefined && body.tokenizer !== null && typeof body.tokenizer !== 'string') {
     return { message: 'Field "tokenizer" must be a registered name or null' }
   }
+  if (body.foldMarks !== undefined && body.foldMarks !== null && typeof body.foldMarks !== 'boolean') {
+    return { message: 'Field "foldMarks" must be true, false, or null' }
+  }
   const stopWords: unknown = body.stopWords
   if (stopWords === undefined || stopWords === null || typeof stopWords === 'string') return null
   if (Array.isArray(stopWords) && stopWords.every(word => typeof word === 'string')) return null

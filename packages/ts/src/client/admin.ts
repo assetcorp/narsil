@@ -236,13 +236,14 @@ export interface AdminOperations {
    */
   rebuildAnalysis(indexName: string, options?: RequestOptions): Promise<TaskRecord>
   /**
-   * Starts a change of the language, the tokeniser, or the stop words of a live
-   * index, which keeps answering searches during the change.
+   * Starts a change of the language, the tokeniser, the stop words, or the
+   * folded matching of a live index, which keeps answering searches during the
+   * change.
    *
    * @param indexName - The index to change.
    * @param change - The settings to change. A key that you leave out keeps its
-   * current value, and `null` on `tokenizer` or `stopWords` returns that key to
-   * the language default.
+   * current value, and `null` on `tokenizer`, `stopWords`, or `foldMarks`
+   * returns that key to the language default.
    * @param options - This sets the signal, the deadline, and the headers for
    * this request.
    * @returns The record is the task to follow, and it ends with any failure of

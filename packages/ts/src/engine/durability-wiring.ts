@@ -44,7 +44,7 @@ export function createDurabilityFromTier(tier: DurabilityTier, wiring: Durabilit
       const entry = wiring.indexRegistry.get(indexName)
       return entry === undefined ? undefined : metadataConfigOf(entry)
     },
-    mustRewriteTerms: indexName => (wiring.indexRegistry.get(indexName)?.durableAnalysis ?? null) !== null,
+    mustRewriteTerms: indexName => wiring.indexRegistry.get(indexName)?.durableAnalysis?.rewritesTerms === true,
     onManifestCommitted(indexName, analysisGeneration) {
       const entry = wiring.indexRegistry.get(indexName)
       if (entry !== undefined && entry.analysisGeneration === analysisGeneration) entry.durableAnalysis = null

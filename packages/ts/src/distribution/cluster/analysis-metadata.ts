@@ -43,8 +43,16 @@ export function metadataPublishingAnalysis(
     tokenizer: _tokenizer,
     stopWords: _stopWords,
     stopWordList: _stopWordList,
+    foldMarks,
     ...rest
   } = settings
+  const termsChange =
+    settings.language !== pending.language ||
+    settings.tokenizer !== pending.tokenizer ||
+    settings.stopWords !== pending.stopWords ||
+    !sameWords(settings.stopWordList, pending.stopWordList)
+  const capturesHistory =
+    (isRecord(rest.sync) && rest.sync.enabled === true) || (isRecord(rest.changes) && rest.changes.enabled === true)
   return encoded(fields, {
     ...rest,
     language: pending.language,
@@ -52,10 +60,16 @@ export function metadataPublishingAnalysis(
     ...(pending.tokenizer !== undefined ? { tokenizer: pending.tokenizer } : {}),
     ...(pending.stopWords !== undefined ? { stopWords: pending.stopWords } : {}),
     ...(pending.stopWordList !== undefined ? { stopWordList: pending.stopWordList } : {}),
-    ...((isRecord(rest.sync) && rest.sync.enabled === true) || (isRecord(rest.changes) && rest.changes.enabled === true)
+    ...(pending.foldMarks !== undefined ? { foldMarks: pending.foldMarks } : {}),
+    ...(capturesHistory && (termsChange || foldMarks === pending.foldMarks)
       ? { syncActive: false, syncEpoch: newSyncEpoch() }
       : {}),
   })
+}
+
+function sameWords(left: unknown, right: readonly string[] | undefined): boolean {
+  if (left === undefined || right === undefined) return left === right
+  return Array.isArray(left) && left.length === right.length && left.every((word, at) => word === right[at])
 }
 
 export function metadataWithAnalysisFailure(snapshot: IndexMetadataSnapshot, failure: AnalysisFailure): Uint8Array {

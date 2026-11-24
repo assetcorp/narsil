@@ -38,6 +38,7 @@ export interface MetadataConfig {
   tokenizer?: string
   stopWords?: string
   stopWordList?: string[]
+  foldMarks?: boolean
   analysisGeneration?: number
   pendingAnalysis?: PendingAnalysisMetadata
   partitionLimits?: PartitionConfig
@@ -125,6 +126,9 @@ export function metadataFromConfig(
   if (config.stopWordList !== undefined) {
     metadata.stopWordList = config.stopWordList
   }
+  if (config.foldMarks !== undefined) {
+    metadata.foldMarks = config.foldMarks
+  }
   if (config.analysisGeneration !== undefined) {
     metadata.analysisGeneration = config.analysisGeneration
   }
@@ -202,6 +206,7 @@ export function metadataConfigOf(entry: IndexRegistryEntry): MetadataConfig {
     ...(entry.config.stopWords instanceof Set
       ? { stopWordList: [...entry.config.stopWords].sort(compareCodePoints) }
       : {}),
+    ...(typeof entry.config.foldMarks === 'boolean' ? { foldMarks: entry.config.foldMarks } : {}),
     ...(entry.analysisGeneration > 0 ? { analysisGeneration: entry.analysisGeneration } : {}),
     ...(entry.pendingAnalysis !== null ? { pendingAnalysis: entry.pendingAnalysis } : {}),
     ...(entry.config.partitions !== undefined ? { partitionLimits: entry.config.partitions } : {}),
@@ -258,6 +263,7 @@ export function durableMetadataConfigOf(entry: IndexRegistryEntry): MetadataConf
     tokenizer,
     stopWords,
     stopWordList,
+    foldMarks,
     analysisRevision: _analysisRevision,
     arrayPositionGap: _arrayPositionGap,
     analysisGeneration: _analysisGeneration,
@@ -269,6 +275,7 @@ export function durableMetadataConfigOf(entry: IndexRegistryEntry): MetadataConf
     ...(durable.tokenizer !== undefined ? { tokenizer: durable.tokenizer } : {}),
     ...(durable.stopWords !== undefined ? { stopWords: durable.stopWords } : {}),
     ...(durable.stopWordList !== undefined ? { stopWordList: durable.stopWordList } : {}),
+    ...(durable.foldMarks !== undefined ? { foldMarks: durable.foldMarks } : {}),
     ...(durable.analysisRevision !== null ? { analysisRevision: durable.analysisRevision } : {}),
     ...(durable.arrayPositionGap !== null ? { arrayPositionGap: durable.arrayPositionGap } : {}),
     ...(durable.generation > 0 ? { analysisGeneration: durable.generation } : {}),
@@ -278,6 +285,7 @@ export function durableMetadataConfigOf(entry: IndexRegistryEntry): MetadataConf
       ...(tokenizer !== undefined ? { tokenizer } : {}),
       ...(stopWords !== undefined ? { stopWords } : {}),
       ...(stopWordList !== undefined ? { stopWordList } : {}),
+      ...(foldMarks !== undefined ? { foldMarks } : {}),
     },
   }
 }

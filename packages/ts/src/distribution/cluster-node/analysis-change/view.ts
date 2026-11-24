@@ -31,6 +31,7 @@ export function namedSettingsOfMetadata(settings: IndexSettings | undefined): Na
     ...(settings?.tokenizer !== undefined ? { tokenizer: settings.tokenizer } : {}),
     ...(settings?.stopWords !== undefined ? { stopWords: settings.stopWords } : {}),
     ...(settings?.stopWordList !== undefined ? { stopWordList: settings.stopWordList } : {}),
+    ...(settings?.foldMarks !== undefined ? { foldMarks: settings.foldMarks } : {}),
   }
 }
 

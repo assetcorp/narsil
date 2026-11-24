@@ -151,7 +151,7 @@ export function validatePatternValueLimit(limit: unknown): void {
   }
 }
 
-const BOOLEAN_ONLY_SETTINGS = ['returnVectors', 'strict', 'surfaceForms', 'trackPositions'] as const
+const BOOLEAN_ONLY_SETTINGS = ['foldMarks', 'returnVectors', 'strict', 'surfaceForms', 'trackPositions'] as const
 
 export function validateBooleanOnlySettings(
   config: {

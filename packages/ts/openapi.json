@@ -3200,6 +3200,17 @@
               }
             ],
             "description": "This is a name registered on the server, a list of words, or `null` for the language default."
+          },
+          "foldMarks": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "This turns folded matching on or off, or `null` returns it to the language default, and a change to it alone needs no rebuild."
           }
         },
         "description": "The body of `POST /indexes/{name}/_change-analysis`, where a key that you leave out keeps its current value."
@@ -4207,6 +4218,10 @@
               }
             ],
             "description": "This name of a stop word set registered on the server, or this list, replaces the language's stop words."
+          },
+          "foldMarks": {
+            "type": "boolean",
+            "description": "Setting this to true lets a query typed without marks match the words of a document that carry marks, and false turns that off. Where it is unset, the language decides."
           },
           "trackPositions": {
             "type": "boolean",

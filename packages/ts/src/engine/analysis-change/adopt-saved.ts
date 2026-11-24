@@ -17,12 +17,13 @@ export function adoptSavedAnalysis(
   metadata: IndexMetadata,
 ): void {
   const saved = reconstructSchemaFromMetadata(metadata)
-  const { tokenizer: _tokenizer, stopWords: _stopWords, ...rest } = entry.config
+  const { tokenizer: _tokenizer, stopWords: _stopWords, foldMarks: _foldMarks, ...rest } = entry.config
   const config: IndexConfig = {
     ...rest,
     language: saved.language,
     ...(saved.tokenizer !== undefined ? { tokenizer: saved.tokenizer } : {}),
     ...(saved.stopWords !== undefined ? { stopWords: saved.stopWords } : {}),
+    ...(saved.foldMarks !== undefined ? { foldMarks: saved.foldMarks } : {}),
   }
   const language = getLanguage(config.language ?? 'english')
   const analysis = resolveIndexAnalysis(config)
