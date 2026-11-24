@@ -31,7 +31,7 @@ The server listens on `127.0.0.1:7700` until it receives `SIGTERM` or `SIGINT`. 
 
 ## Serve an index from your program
 
-`NarsilServer` takes the engine and a `ServerOptions`, which holds a field for every option of the TypeScript `createServer` except `cluster`, because `NarsilServer::cluster` takes the place of that option. Its `query_suggestions_identify` field takes the place of `querySuggestions.identify`. The `on_request` check receives the method, the path, the headers, and the caller's address. It can allow the request, allow it until a set time, or deny it with a status and a code:
+`NarsilServer` takes the engine and a `ServerOptions`, which holds a field for every option of the TypeScript `createServer` except `cluster`, because `NarsilServer::cluster` takes the place of that option. Its `query_suggestions_identify` field takes the place of `querySuggestions.identify`. Its `accept_queue_length` field, which the TypeScript server lacks, sets how many connections the system holds for the server to accept. By default, the server asks for the most that the system allows, which Linux caps at `net.core.somaxconn`. The `on_request` check receives the method, the path, the headers, and the caller's address. It can allow the request, allow it until a set time, or deny it with a status and a code:
 
 ```rust,no_run
 use std::sync::Arc;

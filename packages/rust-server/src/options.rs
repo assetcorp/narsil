@@ -174,6 +174,14 @@ pub struct ServerOptions {
     pub host: Option<String>,
     /// The port to bind to, 9876 by default, where 0 asks the system for a free port.
     pub port: Option<u16>,
+    /// The connections that the system holds ready for the server to accept, from 1 up, where `None`, the default,
+    /// asks for the most that the system allows.
+    ///
+    /// The system lowers a value above its limit to that limit, which Linux reads from `net.core.somaxconn`, 4,096
+    /// by default since Linux 5.4, and macOS reads from `kern.ipc.somaxconn`. A client that connects while the queue
+    /// is full waits for TCP to retry its handshake, so raise that limit on a host where more clients can reconnect
+    /// at once than it holds, such as the devices that reopen their feeds after the server restarts.
+    pub accept_queue_length: Option<u32>,
     /// The cross-origin settings, where `None` sends no CORS header.
     pub cors: Option<CorsOptions>,
     /// The request check, which runs on every request except the probes.
