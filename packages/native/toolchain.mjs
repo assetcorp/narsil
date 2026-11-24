@@ -52,6 +52,7 @@ export const FUZZ_SUPPORT_FILES = [
   'replay.c',
 ]
 const GENERATED_DIRECTORIES = [
+  join('src', 'folding', 'data'),
   join('src', 'languages', 'data'),
   join('src', 'languages', 'snowball'),
   join('src', 'unicode'),
