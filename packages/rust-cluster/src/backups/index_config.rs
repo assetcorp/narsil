@@ -12,10 +12,11 @@ use crate::controller::{metadata_key, stored_settings_readable, validate_index_n
 use crate::coordinator::etcd::EtcdCoordinator;
 use crate::error::{ClusterError, ClusterResult, codes};
 
-const STORED_SETTING_KEYS: [&str; 15] = [
+const STORED_SETTING_KEYS: [&str; 16] = [
     "tokenizer",
     "stopWords",
     "stopWordList",
+    "foldMarks",
     "bm25",
     "surfaceForms",
     "defaultScoring",

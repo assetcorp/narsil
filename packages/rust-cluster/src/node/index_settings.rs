@@ -122,6 +122,9 @@ fn analysis_settings(config: &IndexConfig, settings: &mut Map) -> ClusterResult<
             return Err(code_in_settings("stop words", "registerStopWords"));
         }
     }
+    if let Some(fold_marks) = config.fold_marks {
+        settings.insert("foldMarks", Value::Bool(fold_marks));
+    }
     Ok(())
 }
 

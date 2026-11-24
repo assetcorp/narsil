@@ -8,7 +8,7 @@ use crate::data::synonym_set::{read_synonym_set_bytes, synonym_set_ref};
 use crate::error::{ClusterError, ClusterResult, codes};
 
 const DEFAULT_LANGUAGE: &str = "english";
-const COPIED_FEED_SETTINGS: [&str; 3] = ["tokenizer", "stopWords", "stopWordList"];
+const COPIED_FEED_SETTINGS: [&str; 4] = ["tokenizer", "stopWords", "stopWordList", "foldMarks"];
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct ServingLayout {

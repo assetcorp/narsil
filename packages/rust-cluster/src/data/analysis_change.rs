@@ -67,6 +67,7 @@ fn change_of(pending: &PendingAnalysis) -> PendingAnalysisChange {
         tokenizer: pending.tokenizer.clone(),
         stop_words: pending.stop_words.clone(),
         stop_word_list: pending.stop_word_list.clone(),
+        fold_marks: pending.fold_marks,
     }
 }
 

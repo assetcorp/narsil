@@ -38,6 +38,9 @@ fn pending_analysis_is_valid(raw: &Value) -> bool {
         && is_optional_text(pending.get("tokenizer"))
         && is_optional_text(pending.get("stopWords"))
         && stop_word_list_valid
+        && pending
+            .get("foldMarks")
+            .is_none_or(|fold_marks| matches!(fold_marks, Value::Bool(_)))
 }
 
 fn analysis_failure_is_valid(raw: &Value) -> bool {
