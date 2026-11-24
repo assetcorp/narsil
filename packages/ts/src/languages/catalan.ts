@@ -230,4 +230,5 @@ export const catalan: LanguageModule = {
   stemmer: stem,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9àçèéíïòóúü]+/gi },
+  folding: {},
 }

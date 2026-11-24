@@ -2,6 +2,7 @@ import { requireLoadedPhraseCode } from '../../search/phrase-code'
 import type { InternalSearchParams, PostingListView } from '../../types/internal'
 import { bitsetHas, bitsetSet, createBitSet } from '../bitset'
 import type { PartitionFilterMatches } from './filters'
+import { foldedTermOf, withFoldedTypoMatches } from './folded-matches'
 import { partialFieldMarks, termGroupOf, typoMatchesFor } from './group-scoring'
 import { postingColumns } from './posting-columns'
 import type { PartitionReadState } from './utils'
@@ -63,8 +64,14 @@ export function searchFulltextMatches(state: PartitionReadState, params: Interna
 
   for (const qt of params.phrases === undefined ? queryTokens : []) {
     const group = termGroupOf(termGroups, qt.token)
-    for (const match of typoMatchesFor(state.invertedIdx, qt.token, group, exact, tolerance, prefixLength)) {
+    const folded = foldedTermOf(params.foldedTerms, qt.token)
+    const typoMatches = typoMatchesFor(state.invertedIdx, qt.token, group, exact, tolerance, prefixLength)
+    for (const match of withFoldedTypoMatches(state.invertedIdx, typoMatches, folded)) {
       markPostingList(matched, match.postingList, searched, filterBitset)
+    }
+    for (const variant of folded?.variants ?? []) {
+      const postingList = state.invertedIdx.lookup(variant)
+      if (postingList !== undefined) markPostingList(matched, postingList, searched, filterBitset)
     }
     if (group === undefined) continue
     for (const member of group.members) {

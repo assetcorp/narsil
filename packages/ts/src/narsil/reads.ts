@@ -1,3 +1,4 @@
+import { indexFolds, loadFoldingForQuery } from '../core/folding/code'
 import { loadPrefixFor } from '../core/partition/suggestion-code'
 import { holdsStringArrayField } from '../engine/array-positions'
 import type { EngineCore } from '../engine/core'
@@ -335,11 +336,19 @@ export async function runEngineQueryStats(
     if (loadingPhraseCode !== null) await loadingPhraseCode
     const loadingPrefix = loadPrefixFor(scope?.expansion?.prefix)
     if (loadingPrefix !== null) await loadingPrefix
+    const loadingFolding = loadFoldingForQuery(
+      term,
+      scope?.expansion?.exact ?? undefined,
+      manager.config.foldMarks,
+      manager.language,
+    )
+    if (loadingFolding !== null) await loadingFolding
     return await manager.publication.read(() => {
       const analysis = {
         stopWords: manager.analysis.stopWords,
         customTokenizer: manager.analysis.customTokenizer,
         synonyms: manager.synonyms,
+        folds: indexFolds(manager.config.foldMarks, manager.language),
       }
       const stats = collectQueryTermStats(manager, term, entry.language, analysis, partitionIds, {
         expansion:

@@ -1,0 +1,2 @@
+export const MAX_FOLDED_VARIANTS = 50
+export const FOLD_KEY_CACHE_MAX_ENTRIES = 65_536

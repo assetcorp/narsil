@@ -185,4 +185,5 @@ export const serbian: LanguageModule = {
   stopWords: withNormalisedSpellings(listedSpellings, normalize),
   normalizer: normalize,
   tokenizer: { splitPattern: /[^a-z0-9\u0400-\u04FFčćžđš]+/gi },
+  folding: {},
 }

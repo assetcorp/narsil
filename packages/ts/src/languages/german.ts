@@ -265,4 +265,5 @@ export const german: LanguageModule = {
   stopWords: withNormalisedSpellings(stopWords, normalize),
   normalizer: normalize,
   tokenizer: { splitPattern: /[^a-z0-9äöüßé]+/gi },
+  folding: {},
 }

@@ -150,4 +150,5 @@ export const guarani: LanguageModule = {
   stopWords: withNormalisedSpellings(stopWords, normalize),
   normalizer: normalize,
   tokenizer: { splitPattern: /[^\p{Script=Latin}\p{M}0-9']+/giu },
+  folding: {},
 }

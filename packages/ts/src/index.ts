@@ -76,7 +76,7 @@ export type {
   PresenceFilter,
   StringFilter,
 } from './types/filters'
-export type { LanguageModule, TokenizerConfig } from './types/language'
+export type { LanguageFolding, LanguageModule, TokenizerConfig } from './types/language'
 export type { IndexLifecycleOperations } from './types/lifecycle'
 export type { HeldCheckpointReport, MemoryStats, ProcessMemoryReport, WorkerCopyReport } from './types/memory'
 export type { PartialWordSearch } from './types/partial-words'

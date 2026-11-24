@@ -1,3 +1,4 @@
+import { resolveFoldedTerms } from '../core/folding/code'
 import type { PartitionIndex } from '../core/partition'
 import { partitionStateOf } from '../core/partition'
 import { isCompositePartition } from '../core/partition/composite'
@@ -5,7 +6,7 @@ import type { PartitionReadState } from '../core/partition/read-state'
 import { tokenize } from '../core/tokenizer'
 import { DEFAULT_FUZZY_PREFIX_LENGTH } from '../search/constants'
 import { analyseQueryPhrases } from '../search/phrase-code'
-import { resolveTermGroups, type TermGroupAnalysis } from '../search/term-groups'
+import { resolveTermGroups, type TermGroupAnalysis, writtenWordsByPosition } from '../search/term-groups'
 import type { LanguageModule } from '../types/language'
 import type { SchemaDefinition } from '../types/schema'
 import type { QueryParams } from '../types/search'
@@ -88,6 +89,20 @@ function addPartitionTokens(
       if (member.token !== group.token) addedMembers.add(member.token)
     }
   }
+  if (analysis.folds !== true) return
+  const foldedTerms = resolveFoldedTerms({
+    partition,
+    language,
+    queryTokens,
+    written: writtenWordsByPosition(term, language, analysis),
+    tolerance,
+    prefixLength,
+    termGroups,
+  })
+  for (const folded of foldedTerms ?? []) {
+    for (const token of folded.variants) addedMembers.add(token)
+    for (const token of folded.typoMatches) addedMembers.add(token)
+  }
 }
 
 export function addReachedTokens(
@@ -107,7 +122,8 @@ export function addReachedTokens(
       ? { schema: requested.schema, options: { ...requested.options, prefix: false } }
       : requested
   const { options } = expansion
-  if (!((options.tolerance ?? 0) > 0 || options.prefix === true || options.partialWords === true)) return []
+  const expands = (options.tolerance ?? 0) > 0 || options.prefix === true || options.partialWords === true
+  if (!expands && analysis.folds !== true) return []
   const analysed = queryTokensOf(words, language, analysis)
   if (analysed === null) return []
   const addedMembers = new Set<string>()

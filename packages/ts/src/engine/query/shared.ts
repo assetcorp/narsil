@@ -1,3 +1,4 @@
+import { indexFolds } from '../../core/folding/code'
 import type { PartitionIndex } from '../../core/partition'
 import { createPatternWorkMeter, type SearchPatternWork } from '../../core/pattern-index/work-meter'
 import { mergeBM25Levels } from '../../core/scorer'
@@ -164,7 +165,11 @@ function statTokensOf(params: QueryParams, context: QueryContext): Set<string> {
   const term = params.term
   if (term === undefined || term.trim().length === 0) return new Set()
   const { manager } = context
-  const analysis = { ...manager.analysis, synonyms: manager.synonyms }
+  const analysis = {
+    ...manager.analysis,
+    synonyms: manager.synonyms,
+    folds: indexFolds(manager.config.foldMarks, manager.language),
+  }
   return queryStatTokens(term, context.language, analysis, {
     partitions: partitionsFor(manager, context.partitionIds),
     expansion: { options: params, schema: context.config.schema },
@@ -191,6 +196,7 @@ export function searchOptionsFor(params: QueryParams, context: SearchContext): F
     synonyms: manager.synonyms,
     patternWork,
     turns: context.turns,
+    folds: indexFolds(manager.config.foldMarks, manager.language),
   }
 }
 

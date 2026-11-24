@@ -184,4 +184,5 @@ export const galician: LanguageModule = {
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9áéíñóúü]+/gi },
+  folding: {},
 }

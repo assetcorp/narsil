@@ -210,4 +210,5 @@ export const bosnian: LanguageModule = {
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9čćđšž]+/gi },
+  folding: {},
 }

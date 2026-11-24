@@ -110,4 +110,5 @@ export const twi: LanguageModule = {
     normalizeDiacritics: false,
     minTokenLength: 1,
   },
+  folding: { letters: { ɛ: 'e', ɔ: 'o' } },
 }

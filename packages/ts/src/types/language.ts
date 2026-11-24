@@ -28,6 +28,27 @@ export interface LanguageModule {
   normalizer?: (token: string) => string
   /** These rules split text into tokens, when this language needs something other than the engine's default. */
   tokenizer?: TokenizerConfig
+  /**
+   * Setting this lets a query typed without marks find the words that carry
+   * them, so `oko` finds `ọkọ`, in every index of this language that leaves
+   * `foldMarks` unset. The engine stores no extra token for it.
+   */
+  folding?: LanguageFolding
+}
+
+/**
+ * How a query typed without marks matches the words of a language that carry
+ * them.
+ *
+ * @public
+ */
+export interface LanguageFolding {
+  /**
+   * Each key is a letter that the engine also matches when a query types the
+   * value in its place, such as Twi `ɛ` typed as `e`. Every key and every value
+   * holds one code point.
+   */
+  letters?: Readonly<Record<string, string>>
 }
 
 /**

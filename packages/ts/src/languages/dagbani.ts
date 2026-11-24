@@ -111,4 +111,5 @@ export const dagbani: LanguageModule = {
     normalizeDiacritics: false,
     minTokenLength: 1,
   },
+  folding: {},
 }

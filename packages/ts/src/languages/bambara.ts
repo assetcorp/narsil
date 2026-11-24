@@ -72,4 +72,5 @@ export const bambara: LanguageModule = {
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^\p{Script=Latin}0-9]+/giu },
+  folding: {},
 }

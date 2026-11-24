@@ -109,4 +109,5 @@ export const ewe: LanguageModule = {
     normalizeDiacritics: false,
     minTokenLength: 1,
   },
+  folding: {},
 }

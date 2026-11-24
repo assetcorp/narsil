@@ -1,3 +1,4 @@
+import { indexFolds } from '../../core/folding/code'
 import { createPartitionManager, type PartitionManager } from '../../partitioning/manager'
 import { createPartitionRouter } from '../../partitioning/router'
 import { extractVectorFieldsFromSchema } from '../../schema/validator'
@@ -104,6 +105,9 @@ export function indexEntryOf(
       },
       get synonyms() {
         return manager.synonyms
+      },
+      get folds() {
+        return indexFolds(manager.config.foldMarks, manager.language)
       },
     },
     vectorIndexes,

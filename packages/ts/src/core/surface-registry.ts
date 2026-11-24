@@ -8,6 +8,7 @@ export interface SurfaceFormCandidate {
 
 export interface SurfaceRegistryReader {
   candidatesForPrefix(prefix: string): SurfaceFormCandidate[]
+  formOf(surface: string): SurfaceFormCandidate | undefined
   stemChangedTotalFor(token: string): number
   size(): number
   serialize(): SerializedSurfaceForms
@@ -134,6 +135,14 @@ export function createSurfaceRegistry(): SurfaceRegistry {
         results.push({ surface, token: entry.token, occurrences: entry.count })
       }
       return results
+    },
+
+    formOf(surface: string): SurfaceFormCandidate | undefined {
+      if (source !== null) return source.formOf(surface)
+      const entry = entries.get(surface)
+      return entry === undefined || entry.count <= 0
+        ? undefined
+        : { surface, token: entry.token, occurrences: entry.count }
     },
 
     stemChangedTotalFor(token: string): number {

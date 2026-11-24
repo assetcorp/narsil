@@ -1,3 +1,4 @@
+import { mergeFoldedCompletions } from '../core/folding/code'
 import type { PartitionIndex } from '../core/partition'
 import { addPartialWordMembers } from '../core/partition/partial-words/registry'
 import type { PartialWordAnalysis } from '../core/partition/partial-words/spellings'
@@ -13,6 +14,7 @@ import { PREFIX_MAX_EXPANSIONS } from './constants'
 export interface TermGroupAnalysis {
   stopWords?: Set<string> | ((defaults: Set<string>) => Set<string>)
   customTokenizer?: CustomTokenizer
+  folds?: boolean
 }
 
 export interface ResolvedTermGroups {
@@ -22,7 +24,7 @@ export interface ResolvedTermGroups {
 
 type QueryToken = { token: string; position: number }
 
-function writtenWordsByPosition(
+export function writtenWordsByPosition(
   term: string,
   language: LanguageModule,
   analysis: TermGroupAnalysis | undefined,
@@ -54,10 +56,23 @@ function addCompletions(
   partition: PartitionIndex,
   lastToken: QueryToken,
   typedPrefix: string | undefined,
+  foldingLanguage: LanguageModule | null,
 ): void {
   if (typedPrefix === undefined || typedPrefix.length === 0) return
   const group = groupFor(groups, lastToken.token, false)
-  for (const completion of partition.expandTermPrefix(typedPrefix, lastToken.token, PREFIX_MAX_EXPANSIONS)) {
+  const completions = partition.expandTermPrefix(typedPrefix, lastToken.token, PREFIX_MAX_EXPANSIONS)
+  const merged =
+    foldingLanguage === null
+      ? completions
+      : mergeFoldedCompletions({
+          partition,
+          language: foldingLanguage,
+          typed: typedPrefix,
+          own: lastToken.token,
+          completions,
+          limit: PREFIX_MAX_EXPANSIONS,
+        })
+  for (const completion of merged) {
     if (completion.token === lastToken.token) continue
     group.members.push({ token: completion.token, factor: completion.factor, partialFactor: completion.factor })
   }
@@ -107,7 +122,8 @@ export function resolveTermGroups(
   const written =
     usesPrefix || usesPartialWords ? writtenWordsByPosition(term, language, analysis) : new Map<number, string>()
   const groups = new Map<string, ExpandedTermGroup>()
-  if (usesPrefix) addCompletions(groups, partition, lastToken, written.get(lastToken.position))
+  const foldingLanguage = analysis?.folds === true ? language : null
+  if (usesPrefix) addCompletions(groups, partition, lastToken, written.get(lastToken.position), foldingLanguage)
   const prefixToken = groups.has(lastToken.token) ? lastToken.token : undefined
 
   if (usesPartialWords) {

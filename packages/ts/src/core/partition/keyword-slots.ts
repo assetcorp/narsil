@@ -1,6 +1,7 @@
 import type { ExpandedTermGroup, InternalSearchParams, PostingListView } from '../../types/internal'
 import { TERM_ORDERED } from '../inverted-index/terms'
 import type { KeywordRequestBuilder } from '../keyword-score/request'
+import { foldedTermOf, hasFoldedTerms, withFoldedTypoMatches } from './folded-matches'
 import { termGroupOf, typoMatchesFor } from './group-scoring'
 import type { PhraseMatches } from './phrase-matching'
 import type { PartitionReadState } from './read-state'
@@ -117,6 +118,7 @@ export function planKeywordSlots(
   const exactTerms =
     queryTokens.length > 1 &&
     (termGroups === undefined || termGroups.length === 0) &&
+    !hasFoldedTerms(params.foldedTerms) &&
     (params.exact === true || (params.tolerance ?? 0) === 0)
   if (exactTerms && planTermRanges(state, params, builder)) {
     if (phraseMatches !== null) planPhrases(state, params, builder, phraseMatches)
@@ -135,13 +137,18 @@ export function planKeywordSlots(
       continue
     }
     const group = termGroupOf(termGroups, token)
-    const matches = typoMatchesFor(
+    const folded = foldedTermOf(params.foldedTerms, token)
+    const matches = withFoldedTypoMatches(
       state.invertedIdx,
-      token,
-      group,
-      params.exact ?? false,
-      params.tolerance ?? 0,
-      params.prefixLength ?? 2,
+      typoMatchesFor(
+        state.invertedIdx,
+        token,
+        group,
+        params.exact ?? false,
+        params.tolerance ?? 0,
+        params.prefixLength ?? 2,
+      ),
+      folded,
     )
     builder.termSlot(term)
     for (const match of matches) {
@@ -149,6 +156,7 @@ export function planKeywordSlots(
       planned.labels.push(match.token)
     }
     if (group !== undefined) planGroup(state, params, builder, group, term)
+    if (folded?.group) planGroup(state, params, builder, folded.group, term)
   }
   if (phraseMatches !== null) planPhrases(state, params, builder, phraseMatches)
   return planned

@@ -274,10 +274,18 @@ export interface ExpandedTermGroup {
   synonyms?: GroupSynonyms
 }
 
+export interface FoldedQueryTerm {
+  token: string
+  typoMatches: readonly string[]
+  variants: readonly string[]
+  group: ExpandedTermGroup | null
+}
+
 export interface AnalysedPhrase {
   key: string
   tokens: readonly string[]
   offsets: readonly number[]
+  variants?: ReadonlyArray<readonly string[]>
 }
 
 export interface InternalSearchParams {
@@ -285,6 +293,7 @@ export interface InternalSearchParams {
   phrases?: readonly AnalysedPhrase[]
   phraseWork?: import('../core/pattern-index/types').PatternWorkMeter
   termGroups?: ExpandedTermGroup[]
+  foldedTerms?: FoldedQueryTerm[]
   partialFields?: string[]
   fields?: string[]
   boost?: Record<string, number>

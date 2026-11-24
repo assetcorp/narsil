@@ -258,4 +258,5 @@ export const romanian: LanguageModule = {
   stopWords: withNormalisedSpellings(stopWords, normalize),
   normalizer: normalize,
   tokenizer: { splitPattern: /[^a-z0-9ăâîșțşţ]+/gi },
+  folding: {},
 }

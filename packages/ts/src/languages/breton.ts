@@ -108,4 +108,5 @@ export const breton: LanguageModule = {
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9êñù']+/gi },
+  folding: {},
 }

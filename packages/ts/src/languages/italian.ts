@@ -305,4 +305,5 @@ export const italian: LanguageModule = {
   stemmer: stem,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9àèéìîòóù-]+/gi },
+  folding: {},
 }

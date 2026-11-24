@@ -230,4 +230,5 @@ export const spanish: LanguageModule = {
   tokenizer: {
     splitPattern: /[^a-z0-9á-úñü]+/gi,
   },
+  folding: {},
 }

@@ -1,6 +1,7 @@
 import { createLoadedGeoIndex } from '../../geo/geo-code'
 import type { BaseFieldType, SchemaField } from '../../schema/validator'
 import { createBooleanIndex, createEnumIndex, createNumericIndex } from '../field-index'
+import { noteFoldedSpellings } from '../folding/segment-registry'
 import { patternIndexOf } from '../pattern-index/host'
 import { keywordFields, retireTextlessDocument } from './keyword-writes'
 import type { PreparedText } from './prepared-text'
@@ -29,6 +30,7 @@ export function indexDocument(
 ): void {
   const keyword = keywordFields(state, prepared, fields, internalId)
   if (!keyword.segment.insert(internalId, keyword.fields)) throw new SegmentFull({ after: prepared })
+  noteFoldedSpellings(state, prepared)
   for (const { path: fieldPath, base, pattern } of fields) {
     const value = getNestedValue(document, fieldPath)
     if (value === undefined || value === null) continue

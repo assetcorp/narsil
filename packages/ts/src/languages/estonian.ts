@@ -1388,4 +1388,5 @@ export const estonian: LanguageModule = {
   stemmer: stem,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9äõöüšž]+/gi },
+  folding: {},
 }
