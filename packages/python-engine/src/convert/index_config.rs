@@ -185,6 +185,7 @@ pub(crate) fn index_config(
             .strings("required")
             .map_err(recoded(ErrorCode::EMBEDDING_CONFIG_INVALID))?,
         surface_forms: fields.boolean("surfaceForms")?,
+        fold_marks: fields.boolean("foldMarks")?,
         pattern_value_limit: fields.whole("patternValueLimit")?,
         synonyms: fields
             .get("synonyms")?

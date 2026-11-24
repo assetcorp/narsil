@@ -322,10 +322,15 @@ const stopWords = new Set([
 
 const ARABIC_YEH_FORMS = /[\u064A\u0649]/g
 const ARABIC_KAF = /\u0643/g
-const TATWEEL_AND_HARAKAT = /[\u0640\u064B-\u0652]/g
+const HEH_WITH_YEH_ABOVE = /\u06C0/g
+const TATWEEL_HARAKAT_AND_HAMZA_ABOVE = /[\u0640\u064B-\u0652\u0654]/g
 
 function normalize(token: string): string {
-  return token.replace(ARABIC_YEH_FORMS, '\u06CC').replace(ARABIC_KAF, '\u06A9').replace(TATWEEL_AND_HARAKAT, '')
+  return token
+    .replace(ARABIC_YEH_FORMS, '\u06CC')
+    .replace(ARABIC_KAF, '\u06A9')
+    .replace(HEH_WITH_YEH_ABOVE, '\u0647')
+    .replace(TATWEEL_HARAKAT_AND_HAMZA_ABOVE, '')
 }
 
 /**
@@ -339,7 +344,7 @@ function normalize(token: string): string {
  */
 export const persian: LanguageModule = {
   name: 'persian',
-  revision: '7b8776252b3e0f5e',
+  revision: '044707f16c709003',
   stemmer: stem,
   stopWords: withNormalisedSpellings(stopWords, normalize),
   normalizer: normalize,

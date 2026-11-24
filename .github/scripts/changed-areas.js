@@ -192,6 +192,7 @@ const PATHS_BY_LANGUAGE_AREA = {
       'packages/ts/src/__tests__/runtime/process-memory-oracle.mjs',
       'packages/ts/src/__tests__/core/tokenizer/',
       'packages/ts/src/__tests__/core/keyword-score/',
+      'packages/ts/src/__tests__/languages/',
       'packages/ts/src/__tests__/math/',
       'packages/ts/scripts/native-analysis/',
       'packages/ts/snowball/native.ts',

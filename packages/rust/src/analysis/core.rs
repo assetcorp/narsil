@@ -302,6 +302,43 @@ pub(crate) fn analyse_packed(
     })
 }
 
+pub(crate) fn language_folds(index: u32) -> bool {
+    let mut folds = 0u32;
+    let status = unsafe { ffi::narsil_language_folds(index, &mut folds) };
+    status == ffi::NARSIL_OK && folds != 0
+}
+
+pub(crate) fn fold_spelling(language: u32, spelling: &str, stem: bool) -> Result<String> {
+    with_analyser(|analyser| {
+        analyser.units.clear();
+        analyser.units.extend(spelling.encode_utf16());
+        let length = u32::try_from(analyser.units.len()).map_err(|_| text_too_long())?;
+        let flags = if stem { ffi::NARSIL_FOLD_STEM } else { 0 };
+        let mut term = ffi::narsil_term {
+            units: ptr::null(),
+            length: 0,
+        };
+        let status = unsafe {
+            ffi::narsil_fold_spelling(
+                analyser.handle,
+                language,
+                analyser.units.as_ptr(),
+                length,
+                flags,
+                &mut term,
+            )
+        };
+        if status != ffi::NARSIL_OK {
+            return Err(core_refused("a folded spelling", status));
+        }
+        if term.length == 0 || term.units.is_null() {
+            return Ok(String::new());
+        }
+        let units = unsafe { std::slice::from_raw_parts(term.units, term.length as usize) };
+        Ok(String::from_utf16_lossy(units))
+    })
+}
+
 pub(crate) fn transform(language: u32, flags: u32, raw: &str) -> Result<String> {
     with_analyser(|analyser| {
         analyser.units.clear();

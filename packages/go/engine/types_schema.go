@@ -189,5 +189,7 @@ type EmbeddingFieldConfig = model.EmbeddingFieldConfig
 // DocumentProjection leaves that choice to the index; it defaults to false,
 // because a vector of 1,536 dimensions adds about 32 KB of JSON to each
 // result. A snapshot, a document export, and a restart of a durable engine
-// keep the setting.
+// keep the setting. FoldMarks sets whether a query typed without marks
+// matches the words that carry them, so that oko finds ọkọ; where it is
+// unset, the index follows the default that its language sets.
 type IndexConfig = model.IndexConfig

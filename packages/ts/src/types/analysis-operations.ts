@@ -17,6 +17,13 @@ export interface AnalysisChange {
    * Pass `null` to return to the stop words of the language.
    */
   stopWords?: string | readonly string[] | ReadonlySet<string> | null
+  /**
+   * Turns folded matching on or off, so that a query typed without marks
+   * matches the words of a document that carry marks. Pass `null` to return to
+   * the default of the language. A change to this setting alone switches with
+   * no rebuild, because folded matching changes no stored term.
+   */
+  foldMarks?: boolean | null
 }
 
 /**
@@ -43,7 +50,8 @@ export interface AnalysisOperations {
    * index already holds completes with no rebuild.
    * @throws A `NarsilError` with `LANGUAGE_NOT_SUPPORTED` for an unregistered
    * language, with `CONFIG_INVALID` for an unregistered name, a tokeniser
-   * instance, a stop word function, or a synonym word that breaks the synonym
+   * instance, a stop word function, a `foldMarks` that is neither a boolean
+   * nor `null`, or a synonym word that breaks the synonym
    * rules under the new settings, with `ANALYSIS_REBUILD_MEMORY_EXCEEDED` when a
    * second copy of the terms does not fit in memory, with
    * `ANALYSIS_CHANGE_REPLACED` when a later change or a restore replaces this

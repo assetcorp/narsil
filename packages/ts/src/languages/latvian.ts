@@ -185,4 +185,5 @@ export const latvian: LanguageModule = {
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9āčēģīķļņšūž]+/gi },
+  folding: {},
 }

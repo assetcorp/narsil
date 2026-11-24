@@ -47,6 +47,17 @@ function tokenizerOfChange(indexName: string, value: unknown): string | null | u
   refuseTokenizer(indexName)
 }
 
+function foldMarksOfChange(indexName: string, value: unknown): boolean | null | undefined {
+  if (value === undefined || value === null || typeof value === 'boolean') return value
+  throw new NarsilError(
+    ErrorCodes.CONFIG_INVALID,
+    `The foldMarks of index "${indexName}" must be true, false, or null`,
+    {
+      indexName,
+    },
+  )
+}
+
 function requireRegisteredLanguage(name: unknown): LanguageModule {
   if (typeof name !== 'string') {
     throw new NarsilError(ErrorCodes.LANGUAGE_NOT_SUPPORTED, 'The language of an analysis change must be a name')
@@ -66,18 +77,18 @@ export function resolveAnalysisTarget(indexName: string, base: IndexConfig, chan
     change.language === undefined ? getLanguage(base.language ?? 'english') : requireRegisteredLanguage(change.language)
   const tokenizer = tokenizerOfChange(indexName, change.tokenizer)
   const stopWords = stopWordsOfChange(indexName, change.stopWords)
-  const config = configUnderAnalysis(
-    base,
-    language.name,
-    tokenizer === undefined ? base.tokenizer : (tokenizer ?? undefined),
-    stopWords === undefined ? base.stopWords : (stopWords ?? undefined),
-  )
+  const foldMarks = foldMarksOfChange(indexName, change.foldMarks)
+  const config = configUnderAnalysis(base, language.name, {
+    tokenizer: tokenizer === undefined ? base.tokenizer : (tokenizer ?? undefined),
+    stopWords: stopWords === undefined ? base.stopWords : (stopWords ?? undefined),
+    foldMarks: foldMarks === undefined ? base.foldMarks : (foldMarks ?? undefined),
+  })
   requireConfigurationWithinSizeLimit(config, language)
   return { config, language, analysis: resolveIndexAnalysis(config) }
 }
 
 export function currentConfigUnderTarget(current: IndexConfig, target: AnalysisTarget): IndexConfig {
-  return configUnderAnalysis(current, target.language.name, target.config.tokenizer, target.config.stopWords)
+  return configUnderAnalysis(current, target.language.name, target.config)
 }
 
 function sameStopWords(left: IndexConfig['stopWords'], right: IndexConfig['stopWords']): boolean {
@@ -87,12 +98,16 @@ function sameStopWords(left: IndexConfig['stopWords'], right: IndexConfig['stopW
   return true
 }
 
-export function holdsSettings(config: IndexConfig, target: AnalysisTarget): boolean {
+export function holdsTerms(config: IndexConfig, target: AnalysisTarget): boolean {
   return (
     (config.language ?? 'english') === target.language.name &&
     config.tokenizer === target.config.tokenizer &&
     sameStopWords(config.stopWords, target.config.stopWords)
   )
+}
+
+export function holdsSettings(config: IndexConfig, target: AnalysisTarget): boolean {
+  return holdsTerms(config, target) && config.foldMarks === target.config.foldMarks
 }
 
 export function namedSettingsOf(config: IndexConfig, language: string): NamedAnalysisSettings {
@@ -101,15 +116,17 @@ export function namedSettingsOf(config: IndexConfig, language: string): NamedAna
     ...(typeof config.tokenizer === 'string' ? { tokenizer: config.tokenizer } : {}),
     ...(typeof config.stopWords === 'string' ? { stopWords: config.stopWords } : {}),
     ...(config.stopWords instanceof Set ? { stopWordList: [...config.stopWords].sort(compareCodePoints) } : {}),
+    ...(typeof config.foldMarks === 'boolean' ? { foldMarks: config.foldMarks } : {}),
   }
 }
 
-export function durableSettingsOf(entry: IndexRegistryEntry): DurableAnalysis {
+export function durableSettingsOf(entry: IndexRegistryEntry, rewritesTerms: boolean): DurableAnalysis {
   return {
     ...namedSettingsOf(entry.config, entry.language.name),
     generation: entry.analysisGeneration,
     analysisRevision: entry.analysisRevision,
     arrayPositionGap: entry.arrayPositionGap,
+    rewritesTerms,
   }
 }
 

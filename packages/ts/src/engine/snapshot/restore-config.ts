@@ -18,6 +18,7 @@ export interface SnapshotEnvelope {
   tokenizer?: unknown
   stopWords?: unknown
   stopWordList?: unknown
+  foldMarks?: unknown
   bm25?: unknown
   surfaceForms?: unknown
   partitionConfig?: unknown
@@ -43,6 +44,7 @@ export type ConfigFieldSource = Pick<
   | 'tokenizer'
   | 'stopWords'
   | 'stopWordList'
+  | 'foldMarks'
   | 'bm25'
   | 'surfaceForms'
   | 'defaultScoring'
@@ -246,6 +248,7 @@ export function readSharedConfigFields(source: ConfigFieldSource, reject: Config
     reject('tokenizer must be a name')
   }
   const stopWords = restoredStopWords(source.stopWords, source.stopWordList, reject)
+  const foldMarks = restoredBoolean(source.foldMarks, 'foldMarks', reject)
   const bm25 = restoredBm25(source.bm25, reject)
   const surfaceForms = restoredBoolean(source.surfaceForms, 'surfaceForms', reject)
   const defaultScoring = restoredScoring(source.defaultScoring, reject)
@@ -265,6 +268,7 @@ export function readSharedConfigFields(source: ConfigFieldSource, reject: Config
   return {
     ...(typeof source.tokenizer === 'string' ? { tokenizer: source.tokenizer } : {}),
     ...(stopWords !== undefined ? { stopWords } : {}),
+    ...(foldMarks !== undefined ? { foldMarks } : {}),
     ...(bm25 !== undefined ? { bm25 } : {}),
     ...(surfaceForms !== undefined ? { surfaceForms } : {}),
     ...(defaultScoring !== undefined ? { defaultScoring } : {}),

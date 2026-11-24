@@ -1,10 +1,11 @@
-export const SPEC_VERSION = '1.5'
+export const SPEC_VERSION = '1.6'
 export const PHRASE_SEARCH_SPEC_VERSION = '1.1'
 export const BM25_TUNING_SPEC_VERSION = '1.1'
 export const BACKUP_SPEC_VERSION = '1.2'
 export const DEVICE_SYNC_SPEC_VERSION = '1.3'
 export const QUERY_SUGGESTIONS_SPEC_VERSION = '1.4'
 export const CHANGE_CAPTURE_SPEC_VERSION = '1.5'
+export const FOLDED_MATCHING_SPEC_VERSION = '1.6'
 
 const VERSION_PATTERN = /^(\d+)\.(\d+)$/
 

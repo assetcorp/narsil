@@ -85,6 +85,10 @@ void field_merge_checks(narsil_workspace *workspace);
 void synonym_checks(void);
 void phrase_checks(narsil_workspace *workspace);
 void highlight_checks(narsil_workspace *workspace);
+void folded_highlight_checks(narsil_workspace *workspace);
+void folding_checks(void);
+void folded_expansion_checks(narsil_workspace *workspace);
+void folded_frozen_checks(narsil_workspace *workspace);
 void paged_vector_checks(narsil_workspace *workspace);
 void paged_posting_checks(narsil_workspace *workspace);
 

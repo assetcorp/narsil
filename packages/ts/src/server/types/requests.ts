@@ -105,6 +105,8 @@ export interface ChangeAnalysisBody {
   tokenizer?: string | null
   /** This is a name registered on the server, a list of words, or `null` for the language default. */
   stopWords?: string | string[] | null
+  /** This turns folded matching on or off, or `null` returns it to the language default, and a change to it alone needs no rebuild. */
+  foldMarks?: boolean | null
 }
 
 /**
@@ -142,6 +144,8 @@ export interface HttpIndexConfig {
   tokenizer?: string
   /** This name of a stop word set registered on the server, or this list, replaces the language's stop words. */
   stopWords?: string | string[]
+  /** Setting this to true lets a query typed without marks match the words of a document that carry marks, and false turns that off. Where it is unset, the language decides. */
+  foldMarks?: boolean
   /** Setting this records term positions in each posting, which the `.nrsl` format carries for readers that match phrases. Highlighting works without it. */
   trackPositions?: boolean
   /** Setting this to `disk` lets the index answer from segment files that the server reads by position, which needs filesystem durability. The default is `memory`. */

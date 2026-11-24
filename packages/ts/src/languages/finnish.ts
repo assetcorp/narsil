@@ -256,4 +256,5 @@ export const finnish: LanguageModule = {
   stemmer: stem,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9äöš]+/gi },
+  folding: {},
 }

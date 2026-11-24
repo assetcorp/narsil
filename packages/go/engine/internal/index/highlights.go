@@ -15,6 +15,7 @@ type highlightPlan struct {
 	options       query.HighlightOptions
 	partialWords  []string
 	partialFields []string
+	partialFolds  []string
 }
 
 func highlightLength(value model.Optional[int]) uint32 {
@@ -35,12 +36,15 @@ func (ix *Index) highlightPlanOf(prepared *preparedQuery, pass *analysis.Pass) (
 	config := params.Highlight
 	words, prefix, quoted := params.Term, params.Prefix, false
 	var phraseTokens []string
+	var phrases []query.Phrase
 	if term := prepared.term; term != nil && term.quoted {
 		words, prefix, quoted = term.words, term.usesPrefix, true
+		phrases = term.quotes.phrases
 		for _, phrase := range term.quotes.phrases {
 			phraseTokens = append(phraseTokens, phrase.Tokens...)
 		}
 	}
+	language, folds := prepared.foldLanguage, prepared.folds
 	var queryTokens []analysis.Token
 	if !quoted || !isBlank(words) {
 		tokens, err := pass.Tokens(words, analysis.QueryOptions)
@@ -61,7 +65,7 @@ func (ix *Index) highlightPlanOf(prepared *preparedQuery, pass *analysis.Pass) (
 	usesPrefix := prefix && !params.Exact && len(queryTokens) > 0
 	usesPartialWords := params.PartialWords && !params.Exact && len(queryTokens) > 0
 	var written []analysis.Token
-	if usesPrefix || usesPartialWords {
+	if usesPrefix || usesPartialWords || folds {
 		tokens, err := pass.Tokens(words, analysis.WrittenOptions)
 		if err != nil {
 			return nil, err
@@ -88,6 +92,16 @@ func (ix *Index) highlightPlanOf(prepared *preparedQuery, pass *analysis.Pass) (
 		}
 	}
 	options.Synonyms = append(options.Synonyms, phraseTokens...)
+	if folds && (len(queryTokens) > 0 || len(phraseTokens) > 0) {
+		folded, partialFolds, err := highlightFolding(highlightFoldingInputs{
+			language: language, queryTokens: queryTokens, written: written, phrases: phrases, options: options,
+			partialWords: plan.partialWords,
+		})
+		if err != nil {
+			return nil, err
+		}
+		options.Folded, plan.partialFolds = folded, partialFolds
+	}
 	return plan, nil
 }
 
@@ -95,6 +109,11 @@ func (plan *highlightPlan) field(field, value string) (model.HighlightMatch, err
 	options := plan.options
 	if len(plan.partialWords) > 0 && containsField(plan.partialFields, field) {
 		options.PartialWords = plan.partialWords
+		if options.Folded != nil {
+			folded := *options.Folded
+			folded.PartialWords = plan.partialFolds
+			options.Folded = &folded
+		}
 	}
 	match, err := query.Highlight(value, plan.tokens, options)
 	if err != nil {

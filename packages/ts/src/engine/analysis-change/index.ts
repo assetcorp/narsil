@@ -1,44 +1,21 @@
-import {
-  ARRAY_POSITION_GAP,
-  ErrorCodes,
-  emitEngineEvent,
-  holdSyncEpochChange,
-  loadSchemaCodeFor,
-  NarsilError,
-  prepareStoredSynonyms,
-  rebuildTextIndexes,
-  rulesOfStoredSynonyms,
-  textRebuildTargetOf,
-} from '#platform/storage-host'
-import type { RewriteSpill } from '../../persistence/paged/rewrite-spill'
+import { ErrorCodes, emitEngineEvent, loadSchemaCodeFor, NarsilError } from '#platform/storage-host'
 import type { AnalysisChange } from '../../types/analysis-operations'
 import type { NamedAnalysisSettings, PendingAnalysisMetadata } from '../../types/internal'
 import type { EngineCore, IndexRegistryEntry } from '../core'
 import { requireAnalysisRebuildMemory } from '../snapshot/memory-budget'
+import { buildAndSwitch, restoreInFlightError, stoppedError, termBytesOf, toError } from './build'
 import type { AnalysisTarget } from './pending-target'
 import { targetOfPending } from './pending-target'
-import { type ChangeRun, createHold, createRun, runsOf, stopRun, waitForRelease } from './run'
+import { type ChangeRun, createHold, createRun, runsOf, stopRun } from './run'
 import {
-  currentConfigUnderTarget,
   durableSettingsOf,
   holdsSettings,
+  holdsTerms,
   namedSettingsOf,
   requireSynonymsUnderTarget,
   resolveAnalysisTarget,
 } from './settings'
-
-function termBytesOf(core: EngineCore, indexName: string): number {
-  let bytes = 0
-  for (const partition of core.requireManager(indexName).getAllPartitions()) {
-    bytes += partition.estimateMemoryBytes()
-    for (const state of partition.readStates()) bytes -= state.docStore.contentBytes()
-  }
-  return Math.max(0, bytes)
-}
-
-function toError(value: unknown): Error {
-  return value instanceof Error ? value : new Error(String(value))
-}
+import { switchQuerySettings } from './settings-switch'
 
 async function requireNoUndurableSwitch(core: EngineCore, indexName: string, entry: IndexRegistryEntry): Promise<void> {
   if (entry.durableAnalysis === null) return
@@ -52,134 +29,20 @@ async function requireNoUndurableSwitch(core: EngineCore, indexName: string, ent
   )
 }
 
-interface ChangeScope {
-  core: EngineCore
-  indexName: string
-  entry: IndexRegistryEntry
-  run: ChangeRun
-  generation: number
-}
-
-function switchIndex({ core, indexName, entry, run, generation }: ChangeScope) {
-  const { language, analysis } = run.target
-  const config = currentConfigUnderTarget(entry.config, run.target)
-  const synonyms = prepareStoredSynonyms(rulesOfStoredSynonyms(entry.synonyms), config, language)
-  return (): void => {
-    run.switched = true
-    entry.durableAnalysis = core.durability === null ? null : durableSettingsOf(entry)
-    entry.config = config
-    entry.language = language
-    entry.analysisGeneration = generation
-    entry.analysisRevision = language.revision
-    entry.arrayPositionGap = ARRAY_POSITION_GAP
-    entry.pendingAnalysis = null
-    entry.synonyms = synonyms?.encoded ?? null
-    core.requireManager(indexName).adoptAnalysis({
-      ...textRebuildTargetOf(config, language, analysis),
-      synonyms: synonyms?.lookup ?? null,
-    })
-    core.analysisRebuild.clearStale(indexName)
-  }
-}
-
-async function buildAndSwitch(scope: ChangeScope): Promise<void> {
-  const { core, indexName, entry, run } = scope
-  const { hold } = run
-  const manager = core.requireManager(indexName)
-  const emit = (status: 'started' | 'completed' | 'failed', partitionsRebuilt: number, error?: Error): void => {
-    emitEngineEvent(core.eventHandlers, 'analysisRebuild', {
-      indexName,
-      status,
-      partitionsRebuilt,
-      partitionCount: manager.partitionCount,
-      ...(error !== undefined ? { error } : {}),
-    })
-  }
-  let partitionsRebuilt = 0
-  const refusal: { byRestore: NarsilError | null } = { byRestore: null }
-  const isCurrent = (): boolean =>
-    run.stopReason === null &&
-    refusal.byRestore === null &&
-    !core.shutdownState.isShutdown &&
-    core.indexRegistry.get(indexName) === entry &&
-    core.executor.getManager(indexName) === manager
-  emit('started', 0)
-  const wasPromoted = core.orchestrator.desyncIndex(indexName)
-  try {
-    const durable = core.durability?.manager
-    let spill: RewriteSpill | null = null
-    const rebuilt = await rebuildTextIndexes(
-      manager,
-      {
-        isCurrent,
-        rewriteStorage: () => durable?.rewriteStorage?.(),
-        onRewriteSpill(kept) {
-          spill = kept
-        },
-        onPartitionBuilt(built) {
-          partitionsRebuilt = built
-        },
-        onSwitch: () => switchIndex(scope)(),
-        ...(hold === null ? {} : { holdBeforeSwitch: keepCurrent => waitForRelease(run, hold, keepCurrent) }),
-        async runSwitch(swap) {
-          const swapWithSynonyms = (): boolean | Promise<boolean> => {
-            if (!isCurrent()) return false
-            if (core.restoresInFlight.has(indexName)) {
-              refusal.byRestore = restoreInFlightError(indexName)
-              return false
-            }
-            return swap()
-          }
-          const releaseSyncEpoch = await holdSyncEpochChange(core, indexName)
-          try {
-            return await (durable?.checkpointAfterSwitch?.(indexName, swapWithSynonyms) ?? swapWithSynonyms())
-          } finally {
-            releaseSyncEpoch()
-          }
-        },
-      },
-      textRebuildTargetOf(run.target.config, run.target.language, run.target.analysis),
-    )
-    if (!rebuilt) throw run.stopReason ?? refusal.byRestore ?? stoppedError(core, indexName)
-    await (spill as RewriteSpill | null)?.removeUnread(manager)
-    if (entry.durableAnalysis !== null) {
-      throw new NarsilError(
-        ErrorCodes.PERSISTENCE_SAVE_FAILED,
-        `The new terms of index "${indexName}" answer queries, but they have no durable checkpoint yet`,
-        { indexName },
-      )
-    }
-    emit('completed', partitionsRebuilt)
-  } catch (error) {
-    emit('failed', partitionsRebuilt, toError(error))
-    throw error
-  } finally {
-    if (core.executor.getManager(indexName) === manager) {
-      await core.orchestrator.resyncIndex(indexName, wasPromoted).catch(() => undefined)
-    }
-  }
-}
-
-function stoppedError(core: EngineCore, indexName: string): NarsilError {
-  if (core.shutdownState.isShutdown) {
-    return new NarsilError(ErrorCodes.INSTANCE_SHUT_DOWN, 'This Narsil instance has been shut down')
-  }
-  return new NarsilError(ErrorCodes.INDEX_NOT_FOUND, `Index "${indexName}" closed during its analysis change`, {
-    indexName,
-  })
+function requireRebuildFits(
+  core: EngineCore,
+  indexName: string,
+  entry: IndexRegistryEntry,
+  target: AnalysisTarget,
+): void {
+  if (holdsTerms(entry.config, target)) return
+  requireSynonymsUnderTarget(entry, target)
+  requireAnalysisRebuildMemory(indexName, termBytesOf(core, indexName))
 }
 
 async function clearPending(core: EngineCore, indexName: string, entry: IndexRegistryEntry): Promise<void> {
   entry.pendingAnalysis = null
   await core.durability?.manager.persistMetadata(indexName)
-}
-
-function restoreInFlightError(indexName: string): NarsilError {
-  return new NarsilError(
-    ErrorCodes.ANALYSIS_CHANGE_REPLACED,
-    `A restore of index "${indexName}" is in flight and replaces this analysis change, so try the change again once the restore ends`,
-    { indexName },
-  )
 }
 
 function requireNoRestoreInFlight(core: EngineCore, indexName: string): void {
@@ -219,6 +82,11 @@ async function driveRun(
     }
     const generation =
       resumedGeneration ?? Math.max(entry.analysisGeneration, entry.pendingAnalysis?.generation ?? 0) + 1
+    if (holdsTerms(entry.config, run.target)) {
+      await switchQuerySettings({ core, indexName, entry, run, generation })
+      run.finish()
+      return
+    }
     if (entry.pendingAnalysis?.generation !== generation || run.hold !== null) {
       entry.pendingAnalysis = { generation, ...namedSettingsOf(run.target.config, run.target.language.name) }
       await core.durability?.manager.persistMetadata(indexName)
@@ -262,10 +130,7 @@ export async function changeIndexAnalysis(core: EngineCore, indexName: string, c
   if (previous !== undefined && holdsSettings(previous.target.config, target)) return previous.finished
   const heldAlready = holdsSettings(entry.config, target)
   if (previous === undefined && entry.durableAnalysis === null && heldAlready) return
-  if (!heldAlready) {
-    requireSynonymsUnderTarget(entry, target)
-    requireAnalysisRebuildMemory(indexName, termBytesOf(core, indexName))
-  }
+  requireRebuildFits(core, indexName, entry, target)
   const run = createRun(target)
   if (previous !== undefined && !previous.switched) stopRun(previous, indexName)
   runs.set(indexName, run)
@@ -285,7 +150,7 @@ export function resumeAnalysisChange(core: EngineCore, indexName: string): Promi
   let target: AnalysisTarget
   try {
     target = targetOfPending(entry, pending)
-    requireAnalysisRebuildMemory(indexName, termBytesOf(core, indexName))
+    if (!holdsTerms(entry.config, target)) requireAnalysisRebuildMemory(indexName, termBytesOf(core, indexName))
   } catch (error) {
     emitEngineEvent(core.eventHandlers, 'analysisRebuild', {
       indexName,
@@ -322,8 +187,7 @@ function startHeldRun(core: EngineCore, indexName: string, pending: PendingAnaly
   const previous = runs.get(indexName)
   if (previous !== undefined && holdServes(previous, entry, pending)) return previous
   const target = targetOfPending(entry, pending)
-  requireSynonymsUnderTarget(entry, target)
-  requireAnalysisRebuildMemory(indexName, termBytesOf(core, indexName))
+  requireRebuildFits(core, indexName, entry, target)
   const run = createRun(target, createHold(pending.generation))
   if (previous !== undefined && !previous.switched) stopRun(previous, indexName)
   runs.set(indexName, run)
@@ -390,7 +254,7 @@ export async function stampAnalysisGeneration(core: EngineCore, indexName: strin
   await requireNoUndurableSwitch(core, indexName, entry)
   const durable = core.durability?.manager
   const stamp = (): boolean => {
-    entry.durableAnalysis = core.durability === null ? null : durableSettingsOf(entry)
+    entry.durableAnalysis = core.durability === null ? null : durableSettingsOf(entry, true)
     entry.analysisGeneration = generation
     entry.pendingAnalysis = null
     return true

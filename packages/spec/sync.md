@@ -40,7 +40,7 @@ The epoch identifies one history of an index. It is 16 random bytes, written as 
 - `clear` on a single node, which empties the index with no log entry
 - a restore over the index on a single node
 - a change of the partition count, on a single node or in a cluster
-- the switch of an [analysis change](adapters.md#analysis-changes)
+- the switch of an [analysis change](adapters.md#analysis-changes), unless the change alters `foldMarks` alone, because folded matching changes no stored token
 
 A cluster removes each document through the log when a caller clears an index, so a clear in a cluster keeps the epoch. A cluster restores a backup only under a new index name, so a restore there creates an index without sync and without change capture.
 
@@ -149,6 +149,7 @@ SyncSettings {
   tokenizer:        string or absent
   stopWords:        string or absent
   stopWordList:     List<string> or absent
+  foldMarks:        boolean or absent
   analysisRevision: string or absent
   bm25:             BM25Params or absent
   synonyms:         List<SynonymRule> or absent
@@ -197,7 +198,7 @@ A synced index on a device is an ordinary Narsil index, so a local write is an o
 - **Refused write.** Where the server refuses a write, the device must fetch the server's copy of that document, replace or remove its copy, drop the write from its queue, and tell the app.
 - **Applying the feed.** The device must never apply an entry to a document with a write in its queue, so that the feed can't undo a local edit before the server holds it. After each upload, the device must send `checkpoint`. It then keeps every entry that arrives, on disk and unapplied, until it holds every entry up to the answer's heads, and it applies the newest entry of each document, so that an entry from before the upload can't undo the uploaded edit. Between uploads, the device applies entries in `seqNo` order as they arrive.
 - **The device's writes.** A log entry records no origin, so the device must skip an entry whose document equals the document that it already holds under that ID, which spares it a second build of that document's vectors.
-- **Settings.** The device must apply the BM25 setting and the synonym set of `subscribed` and of each `settings` message to the copy that it holds.
+- **Settings.** The device must apply the BM25 setting, the synonym set, and the `foldMarks` setting of `subscribed` and of each `settings` message to the copy that it holds.
 - **Positions.** The device must save its positions only once the changes that they cover are durable, and it must acknowledge only saved positions. After a crash, it applies its kept entries again in order. Each entry holds a whole document or a remove, so applying an entry twice leaves the same index.
 - **Snapshot.** Before it downloads a snapshot, the device must compare `language`, `tokenizer`, `stopWords`, and `stopWordList` from `subscribed` with what it has registered, and it must raise `SYNC_ANALYSIS_UNAVAILABLE` and keep its copy where any of them is missing. Where `analysisRevision` differs from the revision of the device's module, the restore marks the index stale, and the device starts the rebuild that [Index Metadata Payload](envelope.md#index-metadata-payload) describes. The device must check its memory before the download, and where the old and the new copy can't both fit, the app chooses whether to keep the old copy or to drop it and load the new one.
 - **Vectors.** A local write to an index with automatic embedding needs the embedding adapter or a supplied vector, and a text query needs the same model.

@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use super::changes::analysis::{
-    AnalysisChange, AnalysisTarget, config_under, holds_target, pending_of, pending_target,
-    resolve_target,
+    AnalysisChange, AnalysisTarget, config_under, holds_fold_marks, holds_target, pending_of,
+    pending_target, refused_during_rebalance, resolve_target,
 };
 use super::changes::drive::{DriveHooks, HoldBeforeSwitch, rebuild_and_switch};
 use super::changes::rebuild::Rebuild;
@@ -10,11 +10,12 @@ use super::changes::switch::{LayoutSwitch, switch_layout};
 use super::changes::{ChangeKind, ChangeTicket};
 use super::durable::switch::SwitchFailure;
 use super::events::{NarsilEvent, WorkStatus};
+use super::fold_marks::change_held_terms;
 use super::index::IndexState;
 use super::layout::TextLayout;
 use super::memory::require_analysis_rebuild_memory;
 use super::stats::text_bytes;
-use super::sync::notify::announcing_epoch;
+use super::sync::notify::{announce_sync_settings, announcing_epoch};
 use super::synonyms::prepare_synonyms;
 use super::{EngineInner, Narsil};
 use crate::error::{ErrorCode, NarsilError, Result};
@@ -22,7 +23,6 @@ use crate::format::metadata::IndexMetadata;
 use crate::format::metadata_parts::PendingAnalysis;
 use crate::index::constants::ARRAY_POSITION_GAP;
 use crate::index::partition::Partition;
-use crate::value::Value;
 
 fn recorded_pending(index: &IndexState) -> Option<PendingAnalysis> {
     index
@@ -100,16 +100,6 @@ fn changed_under_change(index_name: &str) -> NarsilError {
     )
 }
 
-fn refused_during_rebalance(index_name: &str) -> NarsilError {
-    NarsilError::new(
-        ErrorCode::PARTITION_REBALANCING_BACKPRESSURE,
-        format!(
-            "Index \"{index_name}\" is being rebalanced, so try its analysis change again once the rebalance ends"
-        ),
-    )
-    .with_details([("indexName", Value::from(index_name))])
-}
-
 /// Rebuilds the terms of `index` under `target` while the index keeps answering searches from its old terms, and
 /// switches to the new terms once they hold every write. A change of settings records `generation` as the
 /// analysis that the new terms come from, and `hold_before_switch` keeps the new terms aside until it returns.
@@ -154,6 +144,7 @@ pub(super) fn rebuild_under(
             partitions: built,
             analyser: target.analyser.clone(),
             synonyms: Arc::new(synonyms),
+            fold_marks: target.fold_marks,
         };
         let config = Arc::new(config_under(&index.config(), target));
         let switched = switch_layout(
@@ -227,14 +218,15 @@ fn change_index_analysis(
     engine: &EngineInner,
     index: &IndexState,
     change: &AnalysisChange,
-) -> Result<()> {
+) -> Result<bool> {
     if index.changes.is_rebalancing() {
         return Err(refused_during_rebalance(&index.name));
     }
     let target = resolve_target(engine, index, change)?;
     let held = holds_target(&index.config(), &target);
-    if held && !index.changes.runs(ChangeKind::Analysis) {
-        return Ok(());
+    let unchanged = held && holds_fold_marks(&index.config(), &target);
+    if unchanged && !index.changes.runs(ChangeKind::Analysis) {
+        return Ok(false);
     }
     if !held {
         let synonyms = index.synonym_set();
@@ -253,13 +245,14 @@ fn change_index_analysis(
     };
     rebuild.require_current()?;
     if holds_target(&index.config(), &target) {
-        return record_pending(index, None);
+        let generation = next_generation(index);
+        return change_held_terms(index, &target, generation);
     }
     let generation = next_generation(index);
     record_pending(index, Some(pending_of(&target, generation)))?;
     let (outcome, event) = rebuild_under(engine, index, &ticket, &target, Some(generation), None);
     let result = match outcome {
-        Ok(()) => Ok(()),
+        Ok(()) => Ok(false),
         Err(failure) => {
             let still_owned = !ticket.stopped() && !index.is_retired();
             if matches!(failure, SwitchFailure::BeforeCommit(_))
@@ -290,6 +283,7 @@ fn rebuild_index_analysis(engine: &EngineInner, index: &IndexState) -> Result<()
         language: index.analyser().language().clone(),
         tokenizer: config.tokenizer.clone(),
         stop_words: config.stop_words.clone(),
+        fold_marks: config.fold_marks,
         analyser: index.analyser(),
     };
     let (outcome, event) = rebuild_under(engine, index, &ticket, &target, None, None);
@@ -382,10 +376,13 @@ impl Narsil {
                 change_index_analysis(&self.inner, state, change)
             })
         });
-        if let Some(name) = reached {
-            self.inner.events.wrote(&name);
+        if let Some(name) = &reached {
+            self.inner.events.wrote(name);
+            if outcome.as_ref().is_ok_and(|settings_only| *settings_only) {
+                announce_sync_settings(&self.inner, name);
+            }
         }
-        outcome
+        outcome.map(|_| ())
     }
 
     /// Rebuilds the terms of an index whose results report `analysis_stale`, under the analysis that its settings

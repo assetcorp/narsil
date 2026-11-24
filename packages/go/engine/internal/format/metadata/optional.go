@@ -55,6 +55,7 @@ func readOptional(record map[string]any, meta *Metadata) {
 	meta.Tokenizer = optionalString(record, "tokenizer")
 	meta.StopWords = optionalString(record, "stop_words")
 	meta.StopWordList = optionalStrings(record, "stop_word_list")
+	meta.FoldMarks = optionalBool(record, "fold_marks")
 	if generation, ok := is.AsPositive(record["analysis_generation"], form.MaxSafeInteger); ok {
 		meta.AnalysisGeneration = model.Some(generation)
 	}

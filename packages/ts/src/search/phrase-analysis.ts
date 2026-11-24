@@ -27,7 +27,21 @@ function identityOf(tokens: readonly string[], offsets: readonly number[]): stri
   return JSON.stringify([tokens, offsets])
 }
 
-export function analyseQueryPhrases(parts: readonly string[], analyseText: AnalyseText): QueryPhrases {
+function writtenWordsOf(
+  entries: ReadonlyArray<{ token: string; position: number }>,
+  part: string,
+  analyseWritten: AnalyseText,
+): string[] {
+  const byPosition = new Map<number, string>()
+  for (const entry of analyseWritten(part)) byPosition.set(entry.position, entry.token)
+  return entries.map(entry => byPosition.get(entry.position) ?? entry.token)
+}
+
+export function analyseQueryPhrases(
+  parts: readonly string[],
+  analyseText: AnalyseText,
+  analyseWritten?: AnalyseText,
+): QueryPhrases {
   const wordParts: string[] = []
   const phrases: AnalysedPhrase[] = []
   const seen = new Set<string>()
@@ -61,7 +75,12 @@ export function analyseQueryPhrases(parts: readonly string[], analyseText: Analy
     const identity = identityOf(tokens, offsets)
     if (seen.has(identity)) continue
     seen.add(identity)
-    phrases.push({ key: phraseKeyOf(tokens, offsets), tokens, offsets })
+    phrases.push({
+      key: phraseKeyOf(tokens, offsets),
+      tokens,
+      offsets,
+      ...(analyseWritten === undefined ? {} : { written: writtenWordsOf(ordered, part, analyseWritten) }),
+    })
   }
 
   const endsWithPhrase =

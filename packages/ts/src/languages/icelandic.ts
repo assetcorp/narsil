@@ -173,4 +173,5 @@ export const icelandic: LanguageModule = {
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9áæéíðóöúþý]+/gi },
+  folding: {},
 }

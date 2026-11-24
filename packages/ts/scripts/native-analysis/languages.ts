@@ -9,7 +9,9 @@ import { keepTable } from './language-tables'
 import { NATIVE_LANGUAGES_DIR, NATIVE_PACKAGE_DIR, TS_LANGUAGES_DIR } from './paths'
 
 const DATA_DIR = join(NATIVE_LANGUAGES_DIR, 'data')
+const FOLDING_DATA_DIR = join(NATIVE_PACKAGE_DIR, 'src', 'folding', 'data')
 const HEX_WORD_DIGITS = 16
+const ASCII_END_CODE_POINT = 0x80
 
 interface ModuleShape {
   file: string
@@ -147,17 +149,68 @@ const uint32_t narsil_language_table_length = ${ordered.length};
 `
 }
 
+function foldLettersOf(module: LanguageModule): Array<{ from: number; to: string }> {
+  const letters = Object.entries(module.folding?.letters ?? {}).map(([letter, to]) => {
+    const points = [...letter]
+    if (points.length !== 1) throw new Error(`${module.name} folds "${letter}", which is not one code point`)
+    return { from: points[0].codePointAt(0) ?? 0, to }
+  })
+  return letters.sort((left, right) => left.from - right.from)
+}
+
+function foldingEntry(shape: ModuleShape, tables: string[]): string {
+  const { module } = shape
+  const folds = module.folding === undefined ? 0 : 1
+  const letters = foldLettersOf(module)
+  if (letters.length === 0) return `  {${folds}, 0, 0, NULL, NULL},`
+  const name = identifier(module.name)
+  const units: number[] = []
+  const entries = letters.map(letter => {
+    const start = units.length
+    for (let at = 0; at < letter.to.length; at++) units.push(letter.to.charCodeAt(at))
+    return `  {${letter.from}, ${start}, ${units.length - start}},`
+  })
+  if (units.length === 0) units.push(0)
+  tables.push(
+    `static const narsil_fold_letter ${name}_letters[${letters.length}] = {\n${entries.join('\n')}\n};\n\nstatic const uint16_t ${name}_units[${units.length}] = {\n${numberLines(units)}\n};\n`,
+  )
+  const asciiLetters = letters.some(letter => letter.from < ASCII_END_CODE_POINT) ? 1 : 0
+  return `  {${folds}, ${asciiLetters}, ${letters.length}, ${name}_letters, ${name}_units},`
+}
+
+function foldingFile(shapes: ModuleShape[]): string {
+  const ordered = [...shapes].sort((a, b) =>
+    a.module.name < b.module.name ? -1 : a.module.name > b.module.name ? 1 : 0,
+  )
+  const tables: string[] = []
+  const entries = ordered.map(shape => foldingEntry(shape, tables))
+  return `#include "../folding.h"
+
+#include <stddef.h>
+#include <stdint.h>
+
+${tables.join('\n')}${tables.length > 0 ? '\n' : ''}const narsil_language_folding narsil_language_folding_table[${ordered.length}] = {
+${entries.join('\n')}
+};
+
+const uint32_t narsil_language_folding_table_length = ${ordered.length};
+`
+}
+
 async function main(): Promise<void> {
   const write = process.argv.includes('--write')
   const shapes = await loadModules()
   if (write) mkdirSync(DATA_DIR, { recursive: true })
+  if (write) mkdirSync(FOLDING_DATA_DIR, { recursive: true })
   const files: GeneratedFile[] = shapes.map(shape => ({
     path: join(DATA_DIR, `${shape.file}.c`),
     text: languageFile(shape),
   }))
   files.push({ path: join(DATA_DIR, 'declarations.h'), text: declarationsFile(shapes) })
   files.push({ path: join(DATA_DIR, 'registry.c'), text: registryFile(shapes) })
+  const folding = { path: join(FOLDING_DATA_DIR, 'languages.c'), text: foldingFile(shapes) }
   const expected = new Set(files.map(file => file.path))
+  files.push(folding)
   const strays = existsSync(DATA_DIR) ? readdirSync(DATA_DIR).filter(entry => !expected.has(join(DATA_DIR, entry))) : []
   for (const stray of strays) console.error(`${stray} in ${DATA_DIR} belongs to no language module`)
   const status = writeOrCheck(files, NATIVE_PACKAGE_DIR, write)

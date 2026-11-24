@@ -12,6 +12,7 @@ export interface AdapterRegistrationOperations {
 
 // @public
 export interface AnalysisChange {
+    foldMarks?: boolean | null;
     language?: string;
     stopWords?: string | readonly string[] | ReadonlySet<string> | null;
     tokenizer?: string | null;
@@ -545,6 +546,7 @@ export interface IndexConfig {
     bm25?: BM25Params;
     defaultScoring?: ScoringMode;
     embedding?: EmbeddingFieldConfig;
+    foldMarks?: boolean;
     language?: string;
     partitions?: PartitionConfig;
     patternValueLimit?: number;
@@ -652,7 +654,13 @@ export function isNarsilError(value: unknown): value is NarsilError;
 export function isSimdAvailable(): boolean;
 
 // @public
+export interface LanguageFolding {
+    letters?: Readonly<Record<string, string>>;
+}
+
+// @public
 export interface LanguageModule {
+    folding?: LanguageFolding;
     name: string;
     normalizer?: (token: string) => string;
     revision: string;
@@ -880,7 +888,7 @@ export interface NativeConnectResult {
 // Warning: (ae-internal-missing-underscore) The name "NativeCore" should be prefixed with an underscore because the declaration is marked as @internal
 //
 // @internal
-export interface NativeCore extends NativeAnalysisCore, NativeExpansionCore, NativeKeywordCore, NativeFacetCore, NativeFieldMergeCore, NativeFilterCore, NativeFrozenSegmentCore, NativeGroupCore, NativeHighlightCore, NativePagedCore, NativePatternCore, NativePhraseCore, NativeResultCore, NativeSegmentCore, NativeSegmentMergeCore, NativeSortCore, NativeSynonymCore, NativeTermCore {
+export interface NativeCore extends NativeAnalysisCore, NativeExpansionCore, NativeKeywordCore, NativeFacetCore, NativeFieldMergeCore, NativeFilterCore, NativeFoldingCore, NativeFrozenSegmentCore, NativeGroupCore, NativeHighlightCore, NativePagedCore, NativePatternCore, NativePhraseCore, NativeResultCore, NativeSegmentCore, NativeSegmentMergeCore, NativeSortCore, NativeSynonymCore, NativeTermCore {
     abiVersion(): number;
     applyMath(operation: number, first: Float64Array, second: Float64Array, results: Float64Array): number;
     attachGraph(memory: NativeGraphMemory): NativeGraphHandle;
@@ -977,6 +985,45 @@ export interface NativeFilterCore {
 //
 // @internal
 export type NativeFilterRegion = Uint16Array | Uint32Array | Float64Array | BigUint64Array;
+
+// Warning: (ae-internal-missing-underscore) The name "NativeFoldedHighlight" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativeFoldedHighlight {
+    keys: readonly {
+        key: Uint16Array;
+        tolerance: number;
+    }[];
+    partialWords: readonly Uint16Array[] | null;
+    prefix: Uint16Array | null;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativeFoldedWord" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativeFoldedWord {
+    excluded: readonly Uint16Array[];
+    key: Uint16Array;
+    own: Uint16Array;
+    prefixLength: number;
+    tolerance: number;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativeFoldingCore" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativeFoldingCore {
+    createFoldTable(): NativeFoldTableHandle;
+    expandFoldedPartialWords(sources: readonly NativePartialSource[], tables: readonly NativeFoldTableHandle[], language: number, requests: readonly NativePartialRequest[], folded: readonly Uint16Array[], outStarts: Uint32Array, outSegments: Uint32Array, outTokens: Uint32Array, outFactors: Float64Array): number;
+    expandFoldedPrefix(segments: readonly NativeExpansionSegment[], tables: readonly NativeFoldTableHandle[], language: number, typed: Uint16Array, stemmed: Uint16Array, own: Uint16Array, folded: Uint16Array, outSegments: Uint32Array, outTokens: Uint32Array, outFactors: Float64Array): number;
+    expandFoldedTerms(segments: readonly NativeExpansionSegment[], tables: readonly NativeFoldTableHandle[], language: number, words: readonly NativeFoldedWord[], outSegments: Uint32Array, outTokens: Uint32Array, outStarts: Uint32Array): number;
+    foldSpelling(language: number, flags: number, spelling: string): string | number;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativeFoldTableHandle" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export type NativeFoldTableHandle = object;
 
 // Warning: (ae-internal-missing-underscore) The name "NativeFrozenPagedRemovals" should be prefixed with an underscore because the declaration is marked as @internal
 //
@@ -1164,6 +1211,7 @@ export interface NativeHighlightCore {
 //
 // @internal
 export interface NativeHighlightQuery {
+    folded: NativeFoldedHighlight | null;
     partialWords: readonly Uint16Array[] | null;
     prefix: Uint16Array | null;
     prefixLength: number;

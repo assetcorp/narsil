@@ -16,6 +16,7 @@ type analysisTarget struct {
 	language  string
 	tokenizer model.TokenizerSetting
 	stopWords model.StopWords
+	foldMarks model.Optional[bool]
 	described analysisSettings
 	analyzer  *analysis.Analyzer
 }
@@ -55,11 +56,11 @@ func (entry *indexEntry) heldBy(target analysisTarget) bool {
 }
 
 func (target analysisTarget) sameAs(other analysisTarget) bool {
-	return target.holds(other.language, other.tokenizer, other.stopWords)
+	return target.holds(other.language, other.tokenizer, other.stopWords) && target.foldMarks == other.foldMarks
 }
 
 func (n *Narsil) resolveTarget(entry *indexEntry, language string, tokenizer model.TokenizerSetting,
-	stopWords model.StopWords) (analysisTarget, error) {
+	stopWords model.StopWords, foldMarks model.Optional[bool]) (analysisTarget, error) {
 	languageOnly, err := analysis.New(analysis.Settings{Language: language})
 	if err != nil {
 		return analysisTarget{}, err
@@ -77,7 +78,7 @@ func (n *Narsil) resolveTarget(entry *indexEntry, language string, tokenizer mod
 	described.language = analyzer.LanguageName()
 	described.revision = core.LanguageRevision(analyzer.Language())
 	return analysisTarget{language: described.language, tokenizer: tokenizer, stopWords: stopWords,
-		described: described, analyzer: analyzer}, nil
+		foldMarks: foldMarks, described: described, analyzer: analyzer}, nil
 }
 
 func (n *Narsil) targetOfChange(entry *indexEntry, change model.AnalysisChange) (analysisTarget, error) {
@@ -106,7 +107,7 @@ func (n *Narsil) targetOfChange(entry *indexEntry, change model.AnalysisChange) 
 	if err := entry.requireConfigurationFits(language, tokenizer, stopWords); err != nil {
 		return analysisTarget{}, err
 	}
-	return n.resolveTarget(entry, language, tokenizer, stopWords)
+	return n.resolveTarget(entry, language, tokenizer, stopWords, foldMarksOfChange(config.FoldMarks, change.FoldMarks))
 }
 
 func (entry *indexEntry) requireConfigurationFits(language string, tokenizer model.TokenizerSetting,
@@ -130,7 +131,7 @@ func (entry *indexEntry) requireConfigurationFits(language string, tokenizer mod
 func (target analysisTarget) pendingAt(generation uint64) *metadata.PendingAnalysis {
 	return &metadata.PendingAnalysis{Generation: generation, Language: target.language,
 		Tokenizer: target.described.tokenizer, StopWords: target.described.stopWords,
-		StopWordList: target.described.stopWordList}
+		StopWordList: target.described.stopWordList, FoldMarks: target.foldMarks}
 }
 
 func (n *Narsil) targetOfPending(entry *indexEntry, pending metadata.PendingAnalysis) (analysisTarget, error) {
@@ -146,7 +147,7 @@ func (n *Narsil) targetOfPending(entry *indexEntry, pending metadata.PendingAnal
 		sort.Strings(sorted)
 		stopWords = model.StopWordList(sorted...)
 	}
-	return n.resolveTarget(entry, pending.Language, tokenizer, stopWords)
+	return n.resolveTarget(entry, pending.Language, tokenizer, stopWords, pending.FoldMarks)
 }
 
 func (entry *indexEntry) prepareSynonymRules(rules []model.SynonymRule) (*synonyms.Lookup, []model.SynonymRule, error) {

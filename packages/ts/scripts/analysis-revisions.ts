@@ -14,6 +14,7 @@ const LOCK_PATH = join(PACKAGE_DIR, 'languages.lock.json')
 const REVISION_PLACEHOLDER = 'revision: "recorded in languages.lock.json"'
 const REVISION_PROPERTY = /revision:\s*(['"])[^'"]*\1/
 const DECLARED_REVISION = /^ {2}revision: '([^']*)',$/m
+const MATCHING_ONLY_MODULE_PROPERTIES: ReadonlySet<string> = new Set(['folding'])
 
 interface LockEntry {
   revision: string
@@ -51,8 +52,42 @@ function localImports(sourceFile: ts.SourceFile, fromPath: string): string[] {
   return resolved
 }
 
+function isMatchingOnlyProperty(property: ts.ObjectLiteralElementLike): boolean {
+  return (
+    ts.isPropertyAssignment(property) &&
+    ts.isIdentifier(property.name) &&
+    MATCHING_ONLY_MODULE_PROPERTIES.has(property.name.text)
+  )
+}
+
+function propertySpanWithComma(sourceFile: ts.SourceFile, property: ts.ObjectLiteralElementLike): [number, number] {
+  const text = sourceFile.text
+  let end = property.getEnd()
+  while (end < text.length && /\s/.test(text[end] ?? '')) end++
+  return [property.getFullStart(), text[end] === ',' ? end + 1 : property.getEnd()]
+}
+
+function withoutMatchingOnlyProperties(sourceFile: ts.SourceFile): ts.SourceFile {
+  const spans: Array<[number, number]> = []
+  const visit = (node: ts.Node): void => {
+    if (ts.isObjectLiteralExpression(node)) {
+      for (const property of node.properties) {
+        if (isMatchingOnlyProperty(property)) spans.push(propertySpanWithComma(sourceFile, property))
+      }
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(sourceFile)
+  if (spans.length === 0) return sourceFile
+  let text = sourceFile.text
+  for (const [start, end] of spans.sort((left, right) => right[0] - left[0])) {
+    text = text.slice(0, start) + text.slice(end)
+  }
+  return ts.createSourceFile(sourceFile.fileName, text, ts.ScriptTarget.ESNext, true)
+}
+
 function normalisedCode(sourceFile: ts.SourceFile, blankRevision: boolean): string {
-  const printed = printer.printFile(sourceFile)
+  const printed = printer.printFile(blankRevision ? withoutMatchingOnlyProperties(sourceFile) : sourceFile)
   return blankRevision ? printed.replace(REVISION_PROPERTY, REVISION_PLACEHOLDER) : printed
 }
 

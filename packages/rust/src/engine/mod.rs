@@ -12,6 +12,7 @@ mod engine_config;
 pub(crate) mod event_hold;
 pub(crate) mod events;
 mod export;
+mod fold_marks;
 mod held_analysis;
 mod hooked;
 mod ids;

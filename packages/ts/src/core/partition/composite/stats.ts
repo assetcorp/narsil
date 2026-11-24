@@ -12,6 +12,15 @@ function collectCandidateTerms(subs: readonly PartitionReadState[], params: Inte
     for (const token of phrase.tokens) terms.add(token)
   }
 
+  for (const folded of params.foldedTerms ?? []) {
+    for (const variant of folded.variants) terms.add(variant)
+    for (const match of folded.typoMatches) terms.add(match)
+  }
+
+  for (const phrase of params.phrases ?? []) {
+    for (const variants of phrase.variants ?? []) for (const variant of variants) terms.add(variant)
+  }
+
   for (const qt of queryTokens) {
     const group = termGroupOf(termGroups, qt.token)
     if (group !== undefined) {

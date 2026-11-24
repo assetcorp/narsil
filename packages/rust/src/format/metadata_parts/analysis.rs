@@ -7,6 +7,11 @@ pub(crate) struct NamedAnalysis {
     pub(crate) tokenizer: Option<String>,
     pub(crate) stop_words: Option<String>,
     pub(crate) stop_word_list: Option<Vec<String>>,
+    pub(crate) fold_marks: Option<bool>,
+}
+
+pub(crate) fn fold_marks_from_wire(map: &Map) -> Option<bool> {
+    map.get("fold_marks").and_then(Value::as_bool)
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -29,6 +34,9 @@ pub(crate) fn named_analysis_to_wire(map: &mut Map, analysis: &NamedAnalysis) {
             Value::Array(list.iter().cloned().map(Value::String).collect()),
         );
     }
+    if let Some(fold_marks) = analysis.fold_marks {
+        map.insert("fold_marks", Value::Bool(fold_marks));
+    }
 }
 
 pub(crate) fn pending_from_wire(value: Option<&Value>) -> Option<PendingAnalysis> {
@@ -50,6 +58,7 @@ pub(crate) fn pending_from_wire(value: Option<&Value>) -> Option<PendingAnalysis
                 .and_then(Value::as_str)
                 .map(str::to_string),
             stop_word_list: string_list(map.get("stop_word_list")),
+            fold_marks: fold_marks_from_wire(map),
         },
     })
 }

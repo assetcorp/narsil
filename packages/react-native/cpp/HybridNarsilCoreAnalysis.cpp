@@ -1,3 +1,4 @@
+#include "ArgumentValues.hpp"
 #include "HostMemory.hpp"
 #include "HybridNarsilCoreImpl.hpp"
 #include "narsil_packed_tokens.h"
@@ -60,41 +61,6 @@ public:
   StopWordSetState& operator=(const StopWordSetState&) = delete;
   narsil_stop_word_set* set = nullptr;
 };
-
-uint32_t wholeArgument(const jsi::Value* arguments, size_t count, size_t index, const char* what) {
-  if (index >= count || !arguments[index].isNumber()) throwInvalid(std::string(what) + " must be a number");
-  double value = arguments[index].getNumber();
-  if (!std::isfinite(value) || value < 0 || value > UINT32_MAX || std::floor(value) != value) {
-    throwInvalid(std::string(what) + " must be a whole number from 0 to 4294967295");
-  }
-  return static_cast<uint32_t>(value);
-}
-
-uint32_t languageArgument(const jsi::Value* arguments, size_t count, size_t index) {
-  uint32_t language = wholeArgument(arguments, count, index, "The language index");
-  if (language >= narsil_language_count()) throwInvalid("The language index names no language module of the core");
-  return language;
-}
-
-void appendUnits(jsi::Runtime& runtime, const jsi::String& text, std::vector<uint16_t>& units, size_t limit) {
-  bool tooLong = false;
-  auto collect = [&units, &tooLong, limit](bool ascii, const void* data, size_t length) {
-    if (tooLong || length > limit - units.size()) {
-      tooLong = true;
-      return;
-    }
-    size_t start = units.size();
-    units.resize(start + length);
-    if (ascii) {
-      const auto* characters = static_cast<const unsigned char*>(data);
-      for (size_t index = 0; index < length; index++) units[start + index] = characters[index];
-    } else if (length > 0) {
-      std::memcpy(units.data() + start, data, length * sizeof(uint16_t));
-    }
-  };
-  text.getStringData(runtime, collect);
-  if (tooLong) throwInvalid("The text holds more code units than the core analyses at once");
-}
 
 const narsil_stop_word_set* stopWordsArgument(jsi::Runtime& runtime, const jsi::Value& value) {
   if (value.isNull()) return nullptr;
@@ -161,29 +127,6 @@ bool writeRecords(const narsil_tokens& tokens, uint32_t* records, size_t capacit
   return true;
 }
 
-jsi::Value statusValue(narsil_status status) { return jsi::Value(-static_cast<double>(status)); }
-
-narsil_analyser* analyserOf(std::unique_ptr<narsil_analyser, AnalyserRelease>& held) {
-  if (held == nullptr) {
-    narsil_analyser* created = nullptr;
-    if (narsil_analyser_create(&created) != NARSIL_OK) return nullptr;
-    held.reset(created);
-  }
-  return held.get();
-}
-
-void readText(jsi::Runtime& runtime, const jsi::Value& value, const char* what, std::vector<uint16_t>& units) {
-  if (!value.isString()) throwInvalid(std::string(what) + " must be a string");
-  units.clear();
-  appendUnits(runtime, value.getString(runtime), units, NARSIL_MAX_ANALYSED_UNITS);
-}
-
-jsi::Value textOf(jsi::Runtime& runtime, std::u16string& out, const uint16_t* units, size_t length) {
-  out.resize(length);
-  if (length > 0) std::memcpy(out.data(), units, length * sizeof(uint16_t));
-  return jsi::String::createFromUtf16(runtime, out);
-}
-
 }
 
 void HybridNarsilCoreImpl::loadHybridMethods() {
@@ -198,6 +141,14 @@ void HybridNarsilCoreImpl::loadHybridMethods() {
     prototype.registerRawHybridMethod("analyse", ANALYSE_ARGUMENT_COUNT, &HybridNarsilCoreImpl::analyse);
     prototype.registerRawHybridMethod("analysePacked", PACKED_ARGUMENT_COUNT, &HybridNarsilCoreImpl::analysePacked);
     prototype.registerRawHybridMethod("transform", TRANSFORM_ARGUMENT_COUNT, &HybridNarsilCoreImpl::transform);
+    prototype.registerRawHybridMethod("foldSpelling", FOLD_SPELLING_ARGUMENT_COUNT, &HybridNarsilCoreImpl::foldSpelling);
+    prototype.registerRawHybridMethod("createFoldTable", 0, &HybridNarsilCoreImpl::createFoldTable);
+    prototype.registerRawHybridMethod("expandFoldedTerms", EXPAND_FOLDED_TERMS_ARGUMENT_COUNT,
+                                      &HybridNarsilCoreImpl::expandFoldedTerms);
+    prototype.registerRawHybridMethod("expandFoldedPrefix", EXPAND_FOLDED_PREFIX_ARGUMENT_COUNT,
+                                      &HybridNarsilCoreImpl::expandFoldedPrefix);
+    prototype.registerRawHybridMethod("expandFoldedPartialWords", EXPAND_FOLDED_PARTIAL_ARGUMENT_COUNT,
+                                      &HybridNarsilCoreImpl::expandFoldedPartialWords);
     prototype.registerRawHybridMethod("keywordScore", KEYWORD_SCORE_ARGUMENT_COUNT,
                                       &HybridNarsilCoreImpl::keywordScore);
     prototype.registerRawHybridMethod("fuse", FUSION_ARGUMENT_COUNT, &HybridNarsilCoreImpl::fuse);

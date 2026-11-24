@@ -52,6 +52,30 @@ export function preparedSurfaces(field: PreparedTextField): ReadonlyMap<string, 
   return surfaces
 }
 
+export function visitPreparedSpellings(
+  field: PreparedTextField,
+  visit: (spelling: string, token: string) => void,
+): void {
+  const records = field.records
+  const texts = records.texts
+  if (texts !== null) {
+    const rows = records.rows
+    for (let row = 0; row < records.count * PREPARED_ROW_WORDS; row += PREPARED_ROW_WORDS) {
+      const token = texts[rows[row]]
+      const surface = rows[row + 1]
+      visit(surface === ABSENT_TEXT ? token : texts[surface], token)
+    }
+    return
+  }
+  const { tokens, units } = packedTokens(records)
+  for (let at = 0; at < tokens.length; at += TOKEN_RECORD_WORDS) {
+    const token = storedText(units, tokens[at + 1], tokens[at + 2])
+    const surface =
+      tokens[at + 3] === ABSENT_TEXT || tokens[at + 4] === 0 ? token : storedText(units, tokens[at + 3], tokens[at + 4])
+    visit(surface, token)
+  }
+}
+
 export interface PreparedText {
   readonly fieldLengths: Readonly<Record<string, number>>
   readonly partialSpellings: ReadonlySpellingCounts | null

@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::analysis::{Analyser, TokenOptions};
 use crate::error::{ErrorCode, NarsilError, Result};
 use crate::search::phrase::AnalysedPhrase;
@@ -49,10 +51,39 @@ fn phrase_key(tokens: &[String], offsets: &[u32]) -> String {
     format!("\"{}\"", slots.join(" "))
 }
 
+fn written_words(
+    analyser: &Analyser,
+    text: &str,
+    entries: &[(String, u32)],
+) -> Result<Vec<String>> {
+    let options = TokenOptions {
+        stem: false,
+        ..TokenOptions::INDEXING
+    };
+    let mut written: HashMap<u32, String> = HashMap::new();
+    analyser.visit_tokens(text, options, &mut |term, position, _, _| {
+        written.insert(position, term.to_string());
+    })?;
+    Ok(entries
+        .iter()
+        .map(|(token, position)| written.get(position).unwrap_or(token).clone())
+        .collect())
+}
+
 /// Splits `term` at its quotes and analyses each phrase, or returns `None` where `term` holds no quote.
 pub(crate) fn analyse_query_phrases(
     analyser: &Analyser,
     term: &str,
+) -> Result<Option<QueryPhrases>> {
+    analyse_phrases(analyser, term, false)
+}
+
+/// Splits `term` at its quotes as [`analyse_query_phrases`] does, and keeps each phrase token's word as written
+/// where `folds` is set, which folded matching finds the token's variants from.
+pub(crate) fn analyse_phrases(
+    analyser: &Analyser,
+    term: &str,
+    folds: bool,
 ) -> Result<Option<QueryPhrases>> {
     if !holds_quote(term) {
         return Ok(None);
@@ -87,6 +118,10 @@ pub(crate) fn analyse_query_phrases(
             .iter()
             .map(|(_, position)| position - first_position)
             .collect();
+        let written = match folds {
+            true => written_words(analyser, part, &entries)?,
+            false => Vec::new(),
+        };
         let tokens: Vec<String> = entries.into_iter().map(|(token, _)| token).collect();
         if phrases
             .iter()
@@ -98,6 +133,8 @@ pub(crate) fn analyse_query_phrases(
             key: phrase_key(&tokens, &offsets),
             tokens,
             offsets,
+            written,
+            variants: Vec::new(),
         });
     }
     let ends_with_phrase = kept_phrase_count > 0

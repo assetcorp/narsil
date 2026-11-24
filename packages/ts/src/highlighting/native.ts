@@ -4,6 +4,7 @@ import type { LanguageModule } from '../types/language'
 import type { HighlightMatch } from '../types/results'
 import { noteFallback } from '../vector/native/backend'
 import { NATIVE_NEEDS_ROOM } from '../vector/native/types'
+import type { NativeFoldedHighlight, NativeHighlightQuery } from '../vector/native/types/highlight'
 import { DEFAULT_MAX_SNIPPET_LENGTH, NATIVE_FIRST_HIGHLIGHT_SPANS } from './constants'
 import type { HighlightOptions } from './highlighter'
 
@@ -11,6 +12,18 @@ function unitsOf(text: string): Uint16Array {
   const units = new Uint16Array(text.length)
   for (let at = 0; at < text.length; at++) units[at] = text.charCodeAt(at)
   return units
+}
+
+function foldedQueryOf(options: HighlightOptions | undefined): NativeFoldedHighlight | null {
+  const folding = options?.folding
+  if (folding === undefined) return null
+  const keys = folding.keys.map(entry => ({ key: unitsOf(entry.key), tolerance: entry.tolerance }))
+  for (const key of folding.phraseKeys) keys.push({ key: unitsOf(key), tolerance: 0 })
+  return {
+    keys,
+    prefix: folding.prefix === undefined ? null : unitsOf(folding.prefix),
+    partialWords: options?.partialWords?.folded?.words.filter(word => word.length > 0).map(unitsOf) ?? null,
+  }
 }
 
 export function nativeHighlight(
@@ -26,12 +39,13 @@ export function nativeHighlight(
   const preTag = unitsOf(options?.preTag ?? '<mark>')
   const postTag = unitsOf(options?.postTag ?? '</mark>')
   const maximum = options?.maxSnippetLength ?? DEFAULT_MAX_SNIPPET_LENGTH
-  const query = {
+  const query: NativeHighlightQuery = {
     terms: terms.map(term => ({ term: unitsOf(term.token), tolerance: term.tolerance })),
     prefixLength: options?.prefixLength ?? 0,
     prefix: options?.prefixToken === undefined ? null : unitsOf(options.prefixToken),
     synonyms: (options?.synonyms ?? []).map(unitsOf),
     partialWords: options?.partialWords?.words.map(unitsOf) ?? null,
+    folded: foldedQueryOf(options),
   }
   const textUnits = unitsOf(text)
   const length = new Uint32Array(1)

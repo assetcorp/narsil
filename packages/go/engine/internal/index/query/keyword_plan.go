@@ -27,7 +27,7 @@ func (s *searcher) typoMatches(segment *Segment, query *KeywordQuery, token stri
 func (s *searcher) planTerms(segment *Segment, query *KeywordQuery, stats *scoringStatistics) error {
 	for term, token := range query.Tokens {
 		group := query.groupOf(token)
-		matches, err := s.typoMatches(segment, query, token, group)
+		matches, err := s.termMatches(segment, query, token, group)
 		if err != nil {
 			return err
 		}
@@ -55,6 +55,13 @@ func (s *searcher) planTerms(segment *Segment, query *KeywordQuery, stats *scori
 		if group != nil {
 			if err := s.planGroup(segment, query, stats, group, term); err != nil {
 				return err
+			}
+		}
+		if folded := query.foldedOf(token); folded != nil {
+			if foldedGroup, held := folded.group(); held {
+				if err := s.planGroup(segment, query, stats, &foldedGroup, term); err != nil {
+					return err
+				}
 			}
 		}
 	}
@@ -158,6 +165,13 @@ func (s *searcher) planPhrases(segment *Segment, query *KeywordQuery, stats *sco
 			frequency, err := s.frequencyOf(segment, stats, token)
 			if err != nil {
 				return err
+			}
+			for _, variant := range phrase.variantsAt(at) {
+				reached, err := s.frequencyOf(segment, stats, variant)
+				if err != nil {
+					return err
+				}
+				frequency = max(frequency, reached)
 			}
 			frequencies[at] = frequency
 		}

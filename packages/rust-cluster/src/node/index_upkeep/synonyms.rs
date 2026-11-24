@@ -21,7 +21,7 @@ use crate::node::handle::ClusterNode;
 use crate::reads::{ReadDeps, live_serving_name};
 use crate::rebalance::read_rebalance_record;
 
-const NAMED_ANALYSIS_FIELDS: [&str; 3] = ["tokenizer", "stopWords", "stopWordList"];
+const NAMED_ANALYSIS_FIELDS: [&str; 4] = ["tokenizer", "stopWords", "stopWordList", "foldMarks"];
 
 enum SynonymInput<'a> {
     Rules(&'a [SynonymRule]),
@@ -75,6 +75,9 @@ fn pending_settings(settings: &Map, snapshot: &IndexMetadataSnapshot) -> Option<
             "stopWordList",
             Value::Array(list.iter().cloned().map(Value::String).collect()),
         );
+    }
+    if let Some(fold_marks) = pending.fold_marks {
+        changed.insert("foldMarks", Value::Bool(fold_marks));
     }
     Some(changed)
 }

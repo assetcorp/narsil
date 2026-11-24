@@ -1,4 +1,5 @@
 mod field;
+mod folding;
 mod native;
 mod snippet;
 
@@ -10,7 +11,7 @@ use super::constants::{
     DEFAULT_SNIPPET_LENGTH, PARTIAL_WORD_MIN_CODE_POINTS, PARTIAL_WORDS_ADDED_PER_QUERY,
 };
 use super::params::{HighlightConfig, QueryParams};
-use super::phrases::analyse_query_phrases;
+use super::phrases::analyse_phrases;
 use super::projection::{Projection, projection_keeps_field};
 use super::results::{HighlightMatch, Hit};
 use crate::analysis::{Analyser, ResolvedAnalysis, TokenOptions};
@@ -20,12 +21,12 @@ use crate::error::Result;
 use crate::index::partition::PartitionSnapshot;
 use crate::util::text::javascript_trim;
 use crate::value::{Map, Value};
-use native::CoreHighlightQuery;
+use folding::{FoldedHighlightInputs, HighlightFolding, highlight_folding};
+use native::{CoreFoldedQuery, CoreHighlightQuery};
 
 struct PartialTagging {
     fields: HashSet<String>,
     words: Vec<String>,
-    units: Vec<Vec<u16>>,
 }
 
 struct Highlighter {
@@ -36,6 +37,7 @@ struct Highlighter {
     prefix_token: Option<String>,
     synonyms: HashSet<String>,
     partial: Option<PartialTagging>,
+    folding: Option<HighlightFolding>,
     core: CoreHighlightQuery,
     max_length: usize,
     verdicts: HashMap<String, bool>,
@@ -108,12 +110,23 @@ fn partial_tagging(
         return None;
     }
     let words = partial_words_to_highlight(query_tokens, written);
-    let units = words.iter().map(|word| units_of(word)).collect();
-    (!words.is_empty()).then_some(PartialTagging {
-        fields,
-        words,
-        units,
-    })
+    (!words.is_empty()).then_some(PartialTagging { fields, words })
+}
+
+fn core_folded_query(folding: &HighlightFolding) -> CoreFoldedQuery {
+    CoreFoldedQuery {
+        keys: folding
+            .keys
+            .iter()
+            .map(|(key, tolerance)| (units_of(key), *tolerance))
+            .collect(),
+        prefix: folding.prefix.as_deref().map(units_of),
+        partial_words: folding
+            .partial_words
+            .iter()
+            .map(|word| units_of(word))
+            .collect(),
+    }
 }
 
 fn synonyms_of(layout: &TextLayout, query_tokens: &[(String, u32)]) -> Result<HashSet<String>> {
@@ -140,7 +153,9 @@ impl Highlighter {
     ) -> Result<Highlighter> {
         let analyser = &layout.analyser;
         let term = params.term.as_deref().unwrap_or("");
-        let quoted = analyse_query_phrases(analyser, term)?;
+        let exact = params.exact == Some(true);
+        let folds = layout.folding_language().filter(|_| !exact);
+        let quoted = analyse_phrases(analyser, term, folds.is_some())?;
         let wants_prefix = params.prefix == Some(true);
         let (words, prefix, phrase_tokens) = match &quoted {
             None => (term, wants_prefix, Vec::new()),
@@ -154,7 +169,6 @@ impl Highlighter {
                     .collect(),
             ),
         };
-        let exact = params.exact == Some(true);
         let query_tokens = match quoted.is_some() && javascript_trim(words).is_empty() {
             true => Vec::new(),
             false => positioned_words(analyser, words, true)?,
@@ -162,7 +176,7 @@ impl Highlighter {
         let uses_prefix = prefix && !exact && !query_tokens.is_empty();
         let uses_partial_words =
             params.partial_words == Some(true) && !exact && !query_tokens.is_empty();
-        let written = match uses_prefix || uses_partial_words {
+        let written = match uses_prefix || uses_partial_words || folds.is_some() {
             true => positioned_words(analyser, words, false)?,
             false => Vec::new(),
         };
@@ -203,6 +217,32 @@ impl Highlighter {
         let prefix_length = params.prefix_length.unwrap_or(DEFAULT_FUZZY_PREFIX_LENGTH);
         let prefix_token = completion.map(|(word, _)| word);
         let max_length = config.max_snippet_length.unwrap_or(DEFAULT_SNIPPET_LENGTH);
+        let phrases = quoted
+            .as_ref()
+            .map_or(&[][..], |quoted| quoted.phrases.as_slice());
+        let folding = match folds {
+            Some(language) if !query_tokens.is_empty() || !phrases.is_empty() => {
+                let query: Vec<(String, u32, u32)> = query_tokens
+                    .iter()
+                    .zip(&stemmed_query)
+                    .map(|((token, position), (_, tolerance))| {
+                        (token.clone(), *tolerance, *position)
+                    })
+                    .collect();
+                let partial_words = partial
+                    .as_ref()
+                    .map_or(&[][..], |partial| partial.words.as_slice());
+                let inputs = FoldedHighlightInputs {
+                    query: &query,
+                    written: &written,
+                    phrases,
+                    prefix_token: prefix_token.as_deref(),
+                    partial_words,
+                };
+                Some(highlight_folding(language, inputs)?)
+            }
+            _ => None,
+        };
         let core = CoreHighlightQuery {
             terms: stemmed_query
                 .iter()
@@ -211,6 +251,10 @@ impl Highlighter {
             prefix_length,
             prefix: prefix_token.as_deref().map(units_of),
             synonyms: synonyms.iter().map(|word| units_of(word)).collect(),
+            partial_words: partial.as_ref().map_or_else(Vec::new, |partial| {
+                partial.words.iter().map(|word| units_of(word)).collect()
+            }),
+            folded: folding.as_ref().map(core_folded_query),
             pre_tag: units_of(
                 config
                     .pre_tag
@@ -233,6 +277,7 @@ impl Highlighter {
             prefix_token,
             synonyms,
             partial,
+            folding,
             core,
             max_length,
             verdicts: HashMap::new(),
@@ -240,22 +285,19 @@ impl Highlighter {
     }
 
     fn highlight_field(&mut self, text: &str, field: &str) -> Result<HighlightMatch> {
-        let partial = self
+        let partial_field = self
             .partial
             .as_ref()
-            .filter(|partial| partial.fields.contains(field));
-        match partial {
-            Some(_) if self.index_analyser.sets_tokenizer_or_stop_words() => {
+            .is_some_and(|partial| partial.fields.contains(field));
+        match partial_field {
+            true if self.index_analyser.sets_tokenizer_or_stop_words() => {
                 self.highlight_through_index_analysis(text, field)
             }
-            Some(partial) => self.core.highlight(
+            _ => self.core.highlight(
                 self.index_analyser.language().core_index(),
                 text,
-                &partial.units,
+                partial_field,
             ),
-            None => self
-                .core
-                .highlight(self.index_analyser.language().core_index(), text, &[]),
         }
     }
 }

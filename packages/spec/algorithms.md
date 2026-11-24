@@ -51,7 +51,7 @@ Each field uses a separate `|D|`, the token count in that field, a separate `avg
 
 ### Expanded Terms
 
-With typo tolerance, prefix completion, partial-word search, or synonyms, one query term can match several tokens. An implementation must score those tokens as below, where `score(t, D, idf)` is the multi-field score of token `t` in document `D`, computed with that IDF:
+With typo tolerance, prefix completion, partial-word search, synonyms, or [folded matching](#folded-matching), one query term can match several tokens. An implementation must score those tokens as below, where `score(t, D, idf)` is the multi-field score of token `t` in document `D`, computed with that IDF:
 
 ```text
 typoScore(D) = SUM over each typo match t of score(t, D, IDF(t))
@@ -99,7 +99,7 @@ phraseRow = bm25(tf, phraseIdf, len, avg, k1, b) * boost
 
 An implementation must add the rows of a document in this order:
 
-1. The query terms, in query order. Within one term, it must add the term's matches in code point order, which include the term's token where the term has no group, and then the term's group.
+1. The query terms, in query order. Within one term, it must add the term's matches in code point order, which include the term's token where the term has no group, then the term's group, and then the term's [folded term](#variants).
 2. The phrases, in query order, after every term.
 
 Within one token, it must add a document's rows in code point order of their field names. A group adds the largest of its members' sums once, so the order of the members changes no score. Under `termMatch` `all`, the order stays the same, and an implementation that reads the term with the fewest postings first may use it to choose which documents it scores.
@@ -175,7 +175,7 @@ Across partitions, an implementation scores BM25 in one of three modes.
 
 **Local scoring**, the default, gives each partition a separate `N`, `n(qi)`, and `avgdl`. It takes one round trip, and its scores are approximate where partition sizes or term distributions differ.
 
-**DFS**, for distributed frequency statistics, takes two phases. In the first phase, the coordinator collects `N`, `n(qi)`, and `avgdl` from each partition, sums `N` and `n(qi)`, and computes a weighted `avgdl`. In the second phase, it sends those global values back to the partitions for scoring. The ranking is exact, and it takes two round trips. Under DFS, the coordinator must also collect and sum `n(s)` for each synonym `s` that the query adds, so that every partition computes the same `n(c)`.
+**DFS**, for distributed frequency statistics, takes two phases. In the first phase, the coordinator collects `N`, `n(qi)`, and `avgdl` from each partition, sums `N` and `n(qi)`, and computes a weighted `avgdl`. In the second phase, it sends those global values back to the partitions for scoring. The ranking is exact, and it takes two round trips. Under DFS, the coordinator must also collect and sum `n(s)` for each synonym `s` that the query adds, so that every partition computes the same `n(c)`, and it must collect and sum `n(v)` for each variant `v` that [folded matching](#folded-matching) adds in any partition.
 
 **Statistics broadcast** has each partition publish its local statistics periodically. The coordinator holds a merged set, and every query scores against the latest merge. It takes one round trip, while its statistics can be older than the newest writes.
 
@@ -277,6 +277,53 @@ An implementation must store the set with its index, as the [index metadata payl
 
 ---
 
+## Folded Matching
+
+Folded matching lets a query typed without marks match the words of a document that carry marks, so that the Yoruba query `oko` matches `ọkọ` and `ọkọ̀`, while every token that the index stores keeps the spelling that analysis gave it. An index folds where its `foldMarks` setting is true, and where the setting is absent and the index's language sets [folding](adapters.md#folding). An implementation must apply no folded matching where `exact` is set. Because folded matching stores no token, an implementation must apply a changed `foldMarks` from the next query without rebuilding the index, as [Changing Analysis](adapters.md#changing-analysis) requires.
+
+### Keys
+
+An implementation must compute the fold and the key of a spelling as below, where `letters` is the map that the index's language sets in `folding`, or an empty map where the language sets none:
+
+```text
+fold(s) =
+  t = s in NFD, without each code point from U+0300 to U+036F
+  return t with each code point c that letters holds replaced by letters[c]
+
+key(s) =
+  fold(s) where the language has no stemmer
+  otherwise stemmer(fold(s))
+```
+
+`fold` removes the marks as step 12 of [Analysis Pipeline](adapters.md#analysis-pipeline) removes them, so it composes nothing after the removal, and it leaves the normaliser out, because every spelling is the normaliser's output. A spelling is folded where its fold differs from it. The spellings of a segment are its [surface forms](envelope.md#surface-forms) whose count is above 0, together with its tokens that occur at least once as written.
+
+### Variants
+
+For each query term, `w` is the term as the index's analysis leaves it without stemming, `e` is its token, and `k` is `key(w)`. The variants of the term in a partition are the token `k`, where a segment of the partition holds it, and the token of each folded spelling whose key is `k`, in any segment of the partition, leaving out `e` and every synonym of the term. Where a term has more than 50 variants, an implementation must keep the 50 that the most documents of the partition hold, breaking ties in code point order.
+
+An implementation must score a term that has variants through one more combined term `f`, which holds `e` and each variant, and it must add no such term for a term without variants:
+
+```text
+tf(f, D) = SUM over e and each variant v of tf(v, D)
+n(f)     = the largest n(t) over e and each variant
+```
+
+It must sum `tf` within each field, as [Expanded Terms](#expanded-terms) requires for synonyms, and it must add `f` to the term's score after the term's typo matches and its group, as a group that holds `f` alone with a factor of 1. A document that holds `e` therefore scores through `e` and through `f`, so it scores above a document that holds a variant alone with the same term frequency in a field of the same length. A token that is both a variant and a typo match, a completion, or an added word counts as a variant alone. A document that holds a variant covers the term under `termMatch`.
+
+### Typos and Completions
+
+Where a term takes typo matches with a `tolerance` above 0, its typo matches must also hold each token that [Bounded Levenshtein Distance](#bounded-levenshtein-distance) accepts for `k`, and the token of each folded spelling whose key that distance accepts for `k`, under the same `tolerance` and `prefixLength`. A typo match that two of these rules add counts once.
+
+For the last term of a prefix query, with `typed` as [Prefix Completion](#prefix-completion) defines it, an implementation must also collect the completions that Prefix Completion collects for `fold(typed)` where it differs from `typed`, together with the token of each folded spelling whose fold starts with `fold(typed)`. It must choose the 50 completions from every token that it collects. With `partialWords` set, [Partial-Word Search](#partial-word-search) must also add each word whose written spelling has a fold that holds the fold of the query word, and it must take both lengths of the added word's factor from those folds. An implementation must add completions and words through a fold only where that fold holds at least one code point.
+
+### Phrases and Highlights
+
+In an index that folds, a position of a [phrase](#phrase-search) must also match the variants of its token, which an implementation finds from the token's word as written, in the way that [Variants](#variants) defines for a query term. The IDF of such a token in [Phrase Scoring](#phrase-scoring) is the IDF of the largest `n(t)` over the token and its variants.
+
+A highlighter must also mark each word whose key is the `k` of a query term, or whose key [Bounded Levenshtein Distance](#bounded-levenshtein-distance) accepts for that `k` under the term's `tolerance` and `prefixLength`, and each word of a phrase whose key is the key of that phrase token's word. For the last word of a prefix query, it must also mark each word whose fold starts with `fold(typed)`. In a `partial` field, it must likewise mark each word whose written spelling has a fold that holds the fold of a query word that partial-word search applies to. It must mark words through `fold(typed)` and through the fold of a query word only where that fold holds at least one code point.
+
+---
+
 ## Phrase Search
 
 A caller marks a phrase by putting words inside double quotes in a query's `term`, as in `"olive oil" pasta`. A document matches a phrase when one of its fields holds the phrase's words at the same distances apart as in the phrase. Specification version 1.1 adds phrase search.
@@ -303,7 +350,7 @@ An implementation must raise `SEARCH_INVALID_PHRASE` for a phrase on an index wh
 
 ### Matching
 
-A document must match every phrase in the query, and each phrase must match within one field, although two phrases may match in different fields. `fields` and `filters` apply to a phrase as they apply to a word. An implementation must match each token of a phrase in its stemmed form alone, with no typo tolerance, prefix completion, partial-word search, or synonyms, whatever the query sets for its words.
+A document must match every phrase in the query, and each phrase must match within one field, although two phrases may match in different fields. `fields` and `filters` apply to a phrase as they apply to a word. An implementation must match each token of a phrase in its stemmed form alone, with no typo tolerance, prefix completion, partial-word search, or synonyms, whatever the query sets for its words, while in an index that folds it must also match the token's variants, as [Phrases and Highlights](#phrases-and-highlights) requires.
 
 The query's words match under `termMatch`, as they do in a query without a phrase, and a document that matches every phrase is a hit whether or not it holds any of those words, unless `termMatch` requires them. `termMatch` tests nothing in a query with no words. A word outside the quotes takes its typo matches, its completions, its added words, and its synonyms as usual, except that the last term of a prefix query is the last word only where no phrase that the implementation kept follows it.
 
@@ -327,11 +374,11 @@ IDF(P) = SUM over each token t of P, counting a repeated token each time, of IDF
 
 An implementation must find `k1` and `b` for a phrase as [Parameter Levels](#parameter-levels) sets out for a field, so that a phrase and the query's words score under one pair in each field.
 
-Under [DFS](#distributed-bm25) and statistics broadcast, an implementation must gather `n(t)` for each token of each phrase, as it does for a query term, and it needs no other statistic. It must add no typo match, completion, added word, or synonym of a phrase's token to those statistics.
+Under [DFS](#distributed-bm25) and statistics broadcast, an implementation must gather `n(t)` for each token of each phrase, as it does for a query term, and it needs no other statistic. It must add no typo match, completion, added word, or synonym of a phrase's token to those statistics, while it must add each variant of the token that [folded matching](#folded-matching) adds.
 
 ### Work Limit
 
-The limits above do not bound the positions that a search compares, because a phrase of common words can hold positions in many documents. An implementation must count one unit for each posting of its starting token that it visits, and one unit for each position that it compares with the position that the phrase needs. Where the postings of any token in the phrase are out of document order, and the implementation has to put them in order for the search, it must also count one unit for each of those postings. It must add those units to the work that [Limits and Matching](#limits-and-matching) counts, across every partition that it answers the search for, and it must raise `SEARCH_WORK_CAP_EXCEEDED` once the count exceeds the work cap. Those units count towards the [move threshold](partitioning.md#request-threads) of a request thread as well, so that a long phrase search moves off that thread, and an implementation must be able to move a search off that thread partway through putting postings in order. An implementation must count no such unit for a query that holds no phrase.
+The limits above do not bound the positions that a search compares, because a phrase of common words can hold positions in many documents. An implementation must count one unit for each posting of its starting token that it visits, and one unit for each position that it compares with the position that the phrase needs. Where the postings of any token in the phrase are out of document order, and the implementation has to put them in order for the search, it must also count one unit for each of those postings. Where a position of the phrase matches variants, the implementation must treat the postings of the token and of its variants as the postings of one token, and it must count one unit for each posting of a variant that it merges into them. It must add those units to the work that [Limits and Matching](#limits-and-matching) counts, across every partition that it answers the search for, and it must raise `SEARCH_WORK_CAP_EXCEEDED` once the count exceeds the work cap. Those units count towards the [move threshold](partitioning.md#request-threads) of a request thread as well, so that a long phrase search moves off that thread, and an implementation must be able to move a search off that thread partway through putting postings in order. An implementation must count no such unit for a query that holds no phrase.
 
 ### Array Position Gap
 
@@ -353,7 +400,7 @@ While the terms of an index that holds a `string[]` field are stale, whatever ma
 
 ### Highlighting
 
-An implementation must highlight each token of a phrase as it highlights a query word, wherever the token occurs in the field, and it must apply no typo tolerance, prefix completion, partial-word search, or synonyms to that token.
+An implementation must highlight each token of a phrase as it highlights a query word, wherever the token occurs in the field, and it must apply no typo tolerance, prefix completion, partial-word search, or synonyms to that token, although it must mark the words that [Phrases and Highlights](#phrases-and-highlights) adds.
 
 ### Errors
 

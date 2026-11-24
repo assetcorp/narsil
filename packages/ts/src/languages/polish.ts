@@ -354,4 +354,5 @@ export const polish: LanguageModule = {
   stemmer: stem,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9ąćęłńóśźż]+/gi },
+  folding: {},
 }

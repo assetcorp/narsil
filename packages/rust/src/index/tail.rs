@@ -7,6 +7,7 @@ use super::derived::{DerivedColumns, KeptColumns, SortedNumbers};
 use super::indexed::IndexedDocument;
 use super::stored_values::path_value;
 use crate::error::Result;
+use crate::keyword::fold_table::FoldTableCell;
 use crate::keyword::growing::{GrowingSegment, Indexed};
 use crate::keyword::tokens::SegmentFieldTokens;
 use crate::ordering::{SortValues, push_reduced};
@@ -39,6 +40,7 @@ pub(crate) struct TailSegment {
     pub(crate) derived: DerivedColumns,
     name_ranks: Vec<u16>,
     pub(crate) entry_bytes: usize,
+    pub(crate) folds: FoldTableCell,
 }
 
 impl Clone for TailSegment {
@@ -55,6 +57,7 @@ impl Clone for TailSegment {
             derived: self.derived.clone(),
             name_ranks: self.name_ranks.clone(),
             entry_bytes: self.entry_bytes,
+            folds: self.folds.clone(),
         }
     }
 }
@@ -91,6 +94,7 @@ impl TailSegment {
             derived: DerivedColumns::kept_by(kept),
             name_ranks: Vec::new(),
             entry_bytes: 0,
+            folds: FoldTableCell::default(),
         }
     }
 

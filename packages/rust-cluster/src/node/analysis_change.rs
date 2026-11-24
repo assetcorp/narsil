@@ -7,7 +7,8 @@ use super::handle::ClusterNode;
 use super::identity::generate_node_id;
 use super::rebalance::refuse_hidden_generation;
 use crate::constants::{
-    ANALYSIS_CHANGE_POLL_INTERVAL_MS, BM25_TUNING_SPEC_VERSION, MAX_SETTINGS_REPLACEMENT_ATTEMPTS,
+    ANALYSIS_CHANGE_POLL_INTERVAL_MS, BM25_TUNING_SPEC_VERSION, FOLDED_MATCHING_SPEC_VERSION,
+    MAX_SETTINGS_REPLACEMENT_ATTEMPTS,
 };
 use crate::controller::{
     IndexMetadataSnapshot, PendingAnalysis, metadata_key, metadata_with_pending_analysis,
@@ -24,6 +25,7 @@ struct NamedSettings {
     tokenizer: Option<String>,
     stop_words: Option<String>,
     stop_word_list: Option<Vec<String>>,
+    fold_marks: Option<bool>,
 }
 
 impl From<PendingAnalysisChange> for NamedSettings {
@@ -33,6 +35,7 @@ impl From<PendingAnalysisChange> for NamedSettings {
             tokenizer: checked.tokenizer,
             stop_words: checked.stop_words,
             stop_word_list: checked.stop_word_list,
+            fold_marks: checked.fold_marks,
         }
     }
 }
@@ -81,11 +84,17 @@ fn target_of(
             .with_detail("indexName", Value::from(index_name)));
         }
     };
+    let fold_marks = match change.fold_marks {
+        AnalysisSetting::Keep => current.fold_marks,
+        AnalysisSetting::LanguageDefault => None,
+        AnalysisSetting::Set(fold_marks) => Some(fold_marks),
+    };
     Ok(NamedSettings {
         language,
         tokenizer,
         stop_words,
         stop_word_list,
+        fold_marks,
     })
 }
 
@@ -94,6 +103,14 @@ fn asks_for(pending: &PendingAnalysis, target: &NamedSettings) -> bool {
         && pending.tokenizer == target.tokenizer
         && pending.stop_words == target.stop_words
         && pending.stop_word_list == target.stop_word_list
+        && pending.fold_marks == target.fold_marks
+}
+
+fn minimum_version_of(change: &AnalysisChange) -> &'static str {
+    match change.fold_marks {
+        AnalysisSetting::Keep => BM25_TUNING_SPEC_VERSION,
+        _ => FOLDED_MATCHING_SPEC_VERSION,
+    }
 }
 
 fn outcome_of(
@@ -156,6 +173,7 @@ impl ClusterNode {
                 tokenizer: target.tokenizer.clone(),
                 stop_words: target.stop_words.clone(),
                 stop_word_list: target.stop_word_list.clone(),
+                fold_marks: target.fold_marks,
             };
             let next = metadata_with_pending_analysis(&snapshot, &pending)?;
             if coordinator
@@ -226,7 +244,7 @@ impl ClusterNode {
     /// `CONFIG_INVALID` for a stop word function, a name that starts with `narsil-generation-`, or, on a data node,
     /// an unregistered tokenizer or stop word name or a synonym word that breaks the rules under the new settings, with
     /// `INDEX_NOT_FOUND` where the cluster holds no such index, with `ANALYSIS_CHANGE_NOT_READY` where a registered
-    /// node runs a specification version below 1.1, with `CLUSTER_WRITE_BLOCKED` where the index's metadata kept
+    /// node runs a specification version below 1.1, or below 1.6 for a change that sets `fold_marks`, with `CLUSTER_WRITE_BLOCKED` where the index's metadata kept
     /// changing over 5 attempts, with `PARTITION_REBALANCING_BACKPRESSURE` during a partition count change, with
     /// `ANALYSIS_CHANGE_REPLACED` where a later change replaces this one, with the code that a holder refused the
     /// change with, such as `LANGUAGE_NOT_SUPPORTED`, `CONFIG_INVALID`, or `ANALYSIS_REBUILD_MEMORY_EXCEEDED`, and
@@ -264,11 +282,12 @@ impl ClusterNode {
                 .ok_or_else(|| index_not_found(index_name))?,
             None => target_of(index_name, &snapshot.published_analysis(), change)?,
         };
+        let minimum = minimum_version_of(change);
         let older: Vec<Value> = coordinator
             .list_nodes()
             .await?
             .into_iter()
-            .filter(|node| !reaches_version(&node.version, BM25_TUNING_SPEC_VERSION))
+            .filter(|node| !reaches_version(&node.version, minimum))
             .map(|node| Value::String(node.node_id))
             .collect();
         if !older.is_empty() {

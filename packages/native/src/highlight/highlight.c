@@ -14,27 +14,41 @@ static int text_region(const segment_regions *regions, narsil_highlight_text tex
          segment_region_input(regions, text.units, text.length, sizeof *text.units);
 }
 
-static int query_regions(const segment_regions *regions, const narsil_highlight_query *query) {
-  if (query->term_count > UINT32_MAX || query->synonym_count > UINT32_MAX || query->partial_count > UINT32_MAX ||
-      (uintptr_t)query->terms % _Alignof(narsil_highlight_term) != 0 ||
-      (uintptr_t)query->synonyms % _Alignof(narsil_highlight_text) != 0 ||
-      (uintptr_t)query->partial_words % _Alignof(narsil_highlight_text) != 0 ||
-      !segment_region_input(regions, query->terms, query->term_count, sizeof *query->terms) ||
-      !segment_region_input(regions, query->synonyms, query->synonym_count, sizeof *query->synonyms) ||
-      !segment_region_input(regions, query->partial_words, query->partial_count, sizeof *query->partial_words) ||
-      !text_region(regions, query->prefix)) {
+static int term_regions(const segment_regions *regions, const narsil_highlight_term *terms, size_t count) {
+  if (count > UINT32_MAX || (uintptr_t)terms % _Alignof(narsil_highlight_term) != 0 ||
+      !segment_region_input(regions, terms, count, sizeof *terms)) {
     return 0;
   }
-  for (size_t at = 0; at < query->term_count; at++) {
-    if (!text_region(regions, query->terms[at].text)) { return 0; }
-  }
-  for (size_t at = 0; at < query->synonym_count; at++) {
-    if (!text_region(regions, query->synonyms[at])) { return 0; }
-  }
-  for (size_t at = 0; at < query->partial_count; at++) {
-    if (!text_region(regions, query->partial_words[at])) { return 0; }
+  for (size_t at = 0; at < count; at++) {
+    if (!text_region(regions, terms[at].text)) { return 0; }
   }
   return 1;
+}
+
+static int text_list_regions(const segment_regions *regions, const narsil_highlight_text *texts, size_t count) {
+  if (count > UINT32_MAX || (uintptr_t)texts % _Alignof(narsil_highlight_text) != 0 ||
+      !segment_region_input(regions, texts, count, sizeof *texts)) {
+    return 0;
+  }
+  for (size_t at = 0; at < count; at++) {
+    if (!text_region(regions, texts[at])) { return 0; }
+  }
+  return 1;
+}
+
+static int folded_regions(const segment_regions *regions, const narsil_folded_highlight *folded) {
+  if (folded == NULL) { return 1; }
+  return (uintptr_t)folded % _Alignof(narsil_folded_highlight) == 0 &&
+         segment_region_input(regions, folded, 1, sizeof *folded) &&
+         term_regions(regions, folded->keys, folded->key_count) && text_region(regions, folded->prefix) &&
+         text_list_regions(regions, folded->partial_words, folded->partial_count);
+}
+
+static int query_regions(const segment_regions *regions, const narsil_highlight_query *query) {
+  return term_regions(regions, query->terms, query->term_count) &&
+         text_list_regions(regions, query->synonyms, query->synonym_count) &&
+         text_list_regions(regions, query->partial_words, query->partial_count) &&
+         text_region(regions, query->prefix) && folded_regions(regions, query->folded);
 }
 
 static int valid_regions(const narsil_highlight_request *request, const narsil_highlight_output *output,

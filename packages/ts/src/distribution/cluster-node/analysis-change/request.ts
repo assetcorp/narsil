@@ -20,6 +20,7 @@ import {
 import { indexConfigFromSettings, type PendingClusterAnalysis } from '../../cluster/index-settings'
 import { pause } from '../../cluster/rebalance/pause'
 import { readRebalanceRecord } from '../../cluster/rebalance/records'
+import { FOLDED_MATCHING_SPEC_VERSION, reachesVersion } from '../../cluster/version'
 import type { ClusterCoordinator } from '../../coordinator/types'
 import { registeredNodesBelowBm25Tuning } from '../../query/bm25-routing'
 import { MAX_SETTINGS_REPLACEMENT_ATTEMPTS, SETTINGS_CONTENTION_REASON } from '../constants'
@@ -52,7 +53,8 @@ function asksForPending(pending: PendingClusterAnalysis | undefined, target: Ana
     pending.language === named.language &&
     pending.tokenizer === named.tokenizer &&
     pending.stopWords === named.stopWords &&
-    sameList(pending.stopWordList, named.stopWordList)
+    sameList(pending.stopWordList, named.stopWordList) &&
+    pending.foldMarks === named.foldMarks
   )
 }
 
@@ -135,7 +137,11 @@ export async function changeClusterAnalysis(request: AnalysisChangeRequest): Pro
     change,
   )
   await requireTargetAcceptable(coordinator, servingName, target)
-  const olderNodes = registeredNodesBelowBm25Tuning(await coordinator.listNodes())
+  const nodes = await coordinator.listNodes()
+  const olderNodes =
+    change.foldMarks === undefined
+      ? registeredNodesBelowBm25Tuning(nodes)
+      : nodes.filter(node => !reachesVersion(node.version, FOLDED_MATCHING_SPEC_VERSION)).map(node => node.nodeId)
   if (olderNodes.length > 0) {
     throw new NarsilError(
       ErrorCodes.ANALYSIS_CHANGE_NOT_READY,

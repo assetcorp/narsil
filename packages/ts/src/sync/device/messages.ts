@@ -65,6 +65,9 @@ function settingsOf(raw: unknown): SyncSettings {
   if (raw.stopWordList !== undefined && raw.stopWordList !== null && !stringList(raw.stopWordList)) {
     throw malformed('settings.stopWordList must be a list of strings')
   }
+  if (raw.foldMarks !== undefined && raw.foldMarks !== null && typeof raw.foldMarks !== 'boolean') {
+    throw malformed('settings.foldMarks must be true or false')
+  }
   if (raw.bm25 !== undefined && raw.bm25 !== null && !isRecord(raw.bm25)) throw malformed('settings.bm25 is invalid')
   if (raw.synonyms !== undefined && raw.synonyms !== null && !Array.isArray(raw.synonyms)) {
     throw malformed('settings.synonyms must be a list')
@@ -74,6 +77,7 @@ function settingsOf(raw: unknown): SyncSettings {
     ...(tokenizer !== undefined ? { tokenizer } : {}),
     ...(stopWords !== undefined ? { stopWords } : {}),
     ...(stringList(raw.stopWordList) ? { stopWordList: raw.stopWordList } : {}),
+    ...(typeof raw.foldMarks === 'boolean' ? { foldMarks: raw.foldMarks } : {}),
     ...(analysisRevision !== undefined ? { analysisRevision } : {}),
     ...(isRecord(raw.bm25) ? { bm25: raw.bm25 as SyncSettings['bm25'] } : {}),
     ...(Array.isArray(raw.synonyms) ? { synonyms: raw.synonyms as SyncSettings['synonyms'] } : {}),

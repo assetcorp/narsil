@@ -96,7 +96,27 @@ func phraseSpanOf(first, last int) int {
 	return int(span) + 1
 }
 
-func analyseQueryPhrases(parts []string, pass *analysis.Pass) (queryPhrases, error) {
+func phraseWrittenWords(part string, entries []analysis.Token, pass *analysis.Pass) ([]string, error) {
+	unstemmed, err := pass.Tokens(part, analysis.WrittenOptions)
+	if err != nil {
+		return nil, err
+	}
+	writtenAt := make(map[int]string, len(unstemmed))
+	for _, token := range unstemmed {
+		writtenAt[token.Position] = token.Term
+	}
+	written := make([]string, len(entries))
+	for at, entry := range entries {
+		word, found := writtenAt[entry.Position]
+		if !found {
+			word = entry.Term
+		}
+		written[at] = word
+	}
+	return written, nil
+}
+
+func analyseQueryPhrases(parts []string, pass *analysis.Pass, keepWritten bool) (queryPhrases, error) {
 	var analysed queryPhrases
 	wordParts := make([]string, 0, len(parts)/2+1)
 	seen := map[string]struct{}{}
@@ -142,7 +162,15 @@ func analyseQueryPhrases(parts []string, pass *analysis.Pass) (queryPhrases, err
 		for at, offset := range offsets {
 			relative[at] = uint32(offset)
 		}
-		analysed.phrases = append(analysed.phrases, query.Phrase{Key: phraseKeyOf(tokens, offsets), Tokens: tokens, Offsets: relative})
+		var written []string
+		if keepWritten {
+			if written, err = phraseWrittenWords(part, entries, pass); err != nil {
+				return queryPhrases{}, err
+			}
+		}
+		analysed.phrases = append(analysed.phrases, query.Phrase{
+			Key: phraseKeyOf(tokens, offsets), Tokens: tokens, Offsets: relative, Written: written,
+		})
 	}
 	analysed.words = strings.Join(wordParts, " ")
 	if analysed.keptPhraseCount > 0 {
@@ -181,10 +209,10 @@ func requirePhrasesWithinLimits(phrases queryPhrases, trackPositions bool) error
 	return nil
 }
 
-func analyseTerm(term string, prefix bool, pass *analysis.Pass) (analysedTerm, error) {
+func analyseTerm(term string, prefix bool, pass *analysis.Pass, keepWritten bool) (analysedTerm, error) {
 	analysed := analysedTerm{words: term, usesPrefix: prefix}
 	if holdsQuoteCharacter(term) {
-		quotes, err := analyseQueryPhrases(splitOnQuotes(term), pass)
+		quotes, err := analyseQueryPhrases(splitOnQuotes(term), pass, keepWritten)
 		if err != nil {
 			return analysedTerm{}, err
 		}

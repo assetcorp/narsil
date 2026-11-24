@@ -28,6 +28,8 @@ type preparedQuery struct {
 	hybrid        bool
 	ctx           context.Context
 	phraseReady   func() error
+	foldLanguage  uint32
+	folds         bool
 }
 
 func (q *preparedQuery) context() context.Context {
@@ -221,10 +223,12 @@ func (ix *Index) QueryWith(ctx context.Context, request model.QueryParams, optio
 }
 
 func (ix *Index) analyseQueryTerm(prepared *preparedQuery, pass *analysis.Pass) error {
+	language, folds := ix.foldingLanguage()
+	prepared.foldLanguage, prepared.folds = language, folds && !prepared.params.Exact
 	if isBlank(prepared.params.Term) || prepared.vectorOnly && prepared.params.Highlight == nil {
 		return nil
 	}
-	analysed, err := analyseTerm(prepared.params.Term, prepared.params.Prefix, pass)
+	analysed, err := analyseTerm(prepared.params.Term, prepared.params.Prefix, pass, prepared.folds)
 	if err != nil {
 		return err
 	}

@@ -31,6 +31,7 @@ export function mapHttpIndexConfig(http: HttpIndexConfig): IndexConfig {
   if (http.trackPositions !== undefined) config.trackPositions = http.trackPositions
   if (http.textStorage !== undefined) config.textStorage = http.textStorage
   if (http.surfaceForms !== undefined) config.surfaceForms = http.surfaceForms
+  if (http.foldMarks !== undefined) config.foldMarks = http.foldMarks
   if (http.vectorPromotion !== undefined) config.vectorPromotion = http.vectorPromotion
   if (http.strict !== undefined) config.strict = http.strict
   if (http.returnVectors !== undefined) config.returnVectors = http.returnVectors

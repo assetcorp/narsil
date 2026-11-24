@@ -1,3 +1,4 @@
+import { addFoldedTermTokens, foldedPhraseVariants } from '../core/folding/code'
 import type { PartitionIndex } from '../core/partition'
 import { partitionStateOf } from '../core/partition'
 import { isCompositePartition } from '../core/partition/composite'
@@ -5,7 +6,7 @@ import type { PartitionReadState } from '../core/partition/read-state'
 import { tokenize } from '../core/tokenizer'
 import { DEFAULT_FUZZY_PREFIX_LENGTH } from '../search/constants'
 import { analyseQueryPhrases } from '../search/phrase-code'
-import { resolveTermGroups, type TermGroupAnalysis } from '../search/term-groups'
+import { resolveTermGroups, type TermGroupAnalysis, writtenWordsByPosition } from '../search/term-groups'
 import type { LanguageModule } from '../types/language'
 import type { SchemaDefinition } from '../types/schema'
 import type { QueryParams } from '../types/search'
@@ -88,6 +89,16 @@ function addPartitionTokens(
       if (member.token !== group.token) addedMembers.add(member.token)
     }
   }
+  if (analysis.folds !== true) return
+  addFoldedTermTokens(addedMembers, {
+    partition,
+    language,
+    queryTokens,
+    written: writtenWordsByPosition(term, language, analysis),
+    tolerance,
+    prefixLength,
+    termGroups,
+  })
 }
 
 export function addReachedTokens(
@@ -99,18 +110,24 @@ export function addReachedTokens(
   analysis: TermGroupAnalysis,
 ): string[] {
   if (requested.options.exact === true) return []
-  const quoted = analyseQueryPhrases(term, language, analysis)
+  const quoted = analyseQueryPhrases(term, language, analysis, analysis.folds === true)
   const words = quoted?.words ?? term
-  if (quoted !== null && words.trim().length === 0) return []
+  const phraseVariants =
+    analysis.folds === true && quoted !== null && quoted.phrases.length > 0
+      ? foldedPhraseVariants(partitions, language, quoted.phrases)
+      : []
+  for (const token of phraseVariants) tokens.add(token)
+  if (quoted !== null && words.trim().length === 0) return phraseVariants
   const expansion =
     quoted?.endsWithPhrase === true
       ? { schema: requested.schema, options: { ...requested.options, prefix: false } }
       : requested
   const { options } = expansion
-  if (!((options.tolerance ?? 0) > 0 || options.prefix === true || options.partialWords === true)) return []
+  const expands = (options.tolerance ?? 0) > 0 || options.prefix === true || options.partialWords === true
+  if (!expands && analysis.folds !== true) return []
   const analysed = queryTokensOf(words, language, analysis)
-  if (analysed === null) return []
-  const addedMembers = new Set<string>()
+  if (analysed === null) return phraseVariants
+  const addedMembers = new Set<string>(phraseVariants)
   for (const partition of partitions) {
     addPartitionTokens(tokens, addedMembers, partition, words, analysed, expansion, language, analysis)
   }

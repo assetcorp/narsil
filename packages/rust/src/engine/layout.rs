@@ -2,7 +2,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 use super::synonyms::SynonymSet;
-use crate::analysis::Analyser;
+use crate::analysis::{Analyser, Language};
 use crate::index::partition::Partition;
 
 /// The partitions of an index with the analysis that wrote their terms and the synonym set that its searches expand
@@ -11,6 +11,7 @@ pub(crate) struct TextLayout {
     pub(crate) partitions: Vec<Arc<Partition>>,
     pub(crate) analyser: Analyser,
     pub(crate) synonyms: Arc<SynonymSet>,
+    pub(crate) fold_marks: Option<bool>,
 }
 
 impl Deref for TextLayout {
@@ -28,6 +29,7 @@ impl TextLayout {
             partitions,
             analyser: self.analyser.clone(),
             synonyms: Arc::clone(&self.synonyms),
+            fold_marks: self.fold_marks,
         }
     }
 
@@ -37,6 +39,27 @@ impl TextLayout {
             partitions: self.partitions.clone(),
             analyser: self.analyser.clone(),
             synonyms: Arc::new(synonyms),
+            fold_marks: self.fold_marks,
         }
+    }
+
+    /// Returns a layout that keeps this layout's partitions, analysis, and synonyms with the `fold_marks` setting
+    /// `fold_marks`, which changes no stored token.
+    pub(crate) fn with_fold_marks(&self, fold_marks: Option<bool>) -> TextLayout {
+        TextLayout {
+            partitions: self.partitions.clone(),
+            analyser: self.analyser.clone(),
+            synonyms: Arc::clone(&self.synonyms),
+            fold_marks,
+        }
+    }
+
+    /// Returns the language that a search folds by, where the index sets `fold_marks` or, without the setting,
+    /// where its language sets folding.
+    pub(crate) fn folding_language(&self) -> Option<&Language> {
+        let language = self.analyser.language();
+        self.fold_marks
+            .unwrap_or_else(|| language.folds())
+            .then_some(language)
     }
 }

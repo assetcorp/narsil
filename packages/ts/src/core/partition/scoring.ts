@@ -71,6 +71,7 @@ export interface ResolvedTokenPostings {
   }>
   totalPostings: number
   group: GroupMatch[] | null
+  folded?: GroupMatch[] | null
 }
 
 export interface GroupMatch {

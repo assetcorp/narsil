@@ -62,4 +62,5 @@ export const kurmanji: LanguageModule = {
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9çêîşû]+/gi },
+  folding: {},
 }

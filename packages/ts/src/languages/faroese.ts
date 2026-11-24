@@ -104,4 +104,5 @@ export const faroese: LanguageModule = {
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9áðíóúýæø]+/gi },
+  folding: {},
 }

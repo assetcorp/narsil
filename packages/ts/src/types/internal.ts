@@ -143,6 +143,7 @@ export interface NamedAnalysisSettings {
   tokenizer?: string
   stopWords?: string
   stopWordList?: string[]
+  foldMarks?: boolean
 }
 
 export interface PendingAnalysisMetadata extends NamedAnalysisSettings {
@@ -174,6 +175,7 @@ export interface IndexMetadata {
   tokenizer?: string
   stopWords?: string
   stopWordList?: string[]
+  foldMarks?: boolean
   analysisGeneration?: number
   pendingAnalysis?: PendingAnalysisMetadata
   partitionLimits?: PartitionConfig
@@ -274,10 +276,19 @@ export interface ExpandedTermGroup {
   synonyms?: GroupSynonyms
 }
 
+export interface FoldedQueryTerm {
+  token: string
+  typoMatches: readonly string[]
+  variants: readonly string[]
+  group: ExpandedTermGroup | null
+}
+
 export interface AnalysedPhrase {
   key: string
   tokens: readonly string[]
   offsets: readonly number[]
+  written?: readonly string[]
+  variants?: ReadonlyArray<readonly string[]>
 }
 
 export interface InternalSearchParams {
@@ -285,6 +296,7 @@ export interface InternalSearchParams {
   phrases?: readonly AnalysedPhrase[]
   phraseWork?: import('../core/pattern-index/types').PatternWorkMeter
   termGroups?: ExpandedTermGroup[]
+  foldedTerms?: FoldedQueryTerm[]
   partialFields?: string[]
   fields?: string[]
   boost?: Record<string, number>

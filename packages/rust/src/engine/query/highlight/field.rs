@@ -79,19 +79,28 @@ fn contains_partial_word(spelling: &str, words: &[String]) -> bool {
 
 impl Highlighter {
     fn inside_matches(&self, text: &str, words: &[String]) -> Result<InsideMatches> {
-        let mut positions = HashSet::new();
-        let mut spellings = HashSet::new();
+        let mut indexed: Vec<(u32, String)> = Vec::new();
         self.index_analyser.visit_tokens(
             text,
             INDEXED_SPELLINGS,
             &mut |term, position, surface, _| {
-                let spelling = surface.unwrap_or(term);
-                if contains_partial_word(spelling, words) {
-                    positions.insert(position);
-                    spellings.insert(spelling.to_string());
-                }
+                indexed.push((position, surface.unwrap_or(term).to_string()));
             },
         )?;
+        let mut positions = HashSet::new();
+        let mut spellings = HashSet::new();
+        for (position, spelling) in indexed {
+            let folded_match = match &self.folding {
+                Some(folding) if !folding.partial_words.is_empty() => {
+                    contains_partial_word(&folding.fold(&spelling)?, &folding.partial_words)
+                }
+                _ => false,
+            };
+            if folded_match || contains_partial_word(&spelling, words) {
+                positions.insert(position);
+                spellings.insert(spelling);
+            }
+        }
         Ok(InsideMatches {
             positions,
             spellings,
@@ -107,7 +116,11 @@ impl Highlighter {
         let matches = self.synonyms.contains(&stemmed)
             || self.stemmed_query.iter().any(|(query, tolerance)| {
                 fuzzy_term_matches(query, &stemmed, *tolerance, self.prefix_length)
-            });
+            })
+            || match &self.folding {
+                Some(folding) => folding.matches(field_token, self.prefix_length)?,
+                None => false,
+            };
         self.verdicts.insert(field_token.to_string(), matches);
         Ok(matches)
     }

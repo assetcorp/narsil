@@ -1,6 +1,7 @@
 pub(crate) mod constants;
 pub(crate) mod dictionary;
 pub(crate) mod expansion;
+pub(crate) mod fold_table;
 pub(crate) mod frozen;
 pub(crate) mod frozen_state;
 pub(crate) mod growing;

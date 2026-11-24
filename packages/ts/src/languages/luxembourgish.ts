@@ -226,4 +226,5 @@ export const luxembourgish: LanguageModule = {
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9àäéë]+/gi },
+  folding: {},
 }

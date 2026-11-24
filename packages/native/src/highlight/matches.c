@@ -2,11 +2,13 @@
 
 #include "../../include/narsil_analysis.h"
 #include "../../include/narsil_core.h"
+#include "../../include/narsil_folding.h"
 #include "../../include/narsil_highlight.h"
 #include "../analysis/analyser.h"
 #include "../analysis/languages.h"
 #include "../analysis/split.h"
 #include "../analysis/text.h"
+#include "../folding/folding.h"
 #include "../terms/dictionary.h"
 #include "../terms/matching.h"
 
@@ -48,23 +50,60 @@ static int contains_partial(highlight_scratch *scratch, narsil_highlight_text te
   return 0;
 }
 
+static int matches_terms(highlight_scratch *scratch, narsil_unit_view spelling, uint32_t prefix_length,
+                         const narsil_highlight_term *terms, size_t term_count) {
+  term_cursor candidate = {spelling.units, NULL, 0, spelling.length};
+  int status = term_points(candidate, &scratch->distance.candidate);
+  if (status != 1) { return status == 0 ? -NARSIL_INVALID_ARGUMENT : status; }
+  for (size_t at = 0; at < term_count; at++) {
+    narsil_highlight_term term = terms[at];
+    status = term_points((term_cursor){term.text.units, NULL, 0, term.text.length}, &scratch->distance.query);
+    if (status != 1) { return status == 0 ? -NARSIL_INVALID_ARGUMENT : status; }
+    int valid = 0;
+    size_t prefix = prefix_length;
+    if (prefix > scratch->distance.query.length) { prefix = scratch->distance.query.length; }
+    if (term_compare_query(candidate, &scratch->distance.query, prefix, &valid) != 0 || !valid) { continue; }
+    status = term_within_distance(&scratch->distance, term.tolerance);
+    if (status != 0) { return status; }
+  }
+  return 0;
+}
+
 static int matches_stem(highlight_scratch *scratch, narsil_unit_view stem, const narsil_highlight_query *query) {
   for (size_t at = 0; at < query->synonym_count; at++) {
     narsil_highlight_text synonym = query->synonyms[at];
     if (narsil_units_equal(stem.units, stem.length, synonym.units, synonym.length)) { return 1; }
   }
-  term_cursor candidate = {stem.units, NULL, 0, stem.length};
-  int status = term_points(candidate, &scratch->distance.candidate);
-  if (status != 1) { return status == 0 ? -NARSIL_INVALID_ARGUMENT : status; }
-  for (size_t at = 0; at < query->term_count; at++) {
-    narsil_highlight_term term = query->terms[at];
-    status = term_points((term_cursor){term.text.units, NULL, 0, term.text.length}, &scratch->distance.query);
-    if (status != 1) { return status == 0 ? -NARSIL_INVALID_ARGUMENT : status; }
-    int valid = 0;
-    size_t prefix = query->prefix_length;
-    if (prefix > scratch->distance.query.length) { prefix = scratch->distance.query.length; }
-    if (term_compare_query(candidate, &scratch->distance.query, prefix, &valid) != 0 || !valid) { continue; }
-    status = term_within_distance(&scratch->distance, term.tolerance);
+  return matches_terms(scratch, stem, query->prefix_length, query->terms, query->term_count);
+}
+
+static int matches_folded(narsil_analyser *analyser, highlight_scratch *scratch,
+                          const narsil_highlight_request *request, narsil_highlight_text field) {
+  const narsil_folded_highlight *folded = request->query.folded;
+  narsil_unit_view spelling = {field.units, field.length};
+  narsil_unit_view view;
+  if (folded->prefix.units != NULL) {
+    int status = narsil_fold_view(analyser, request->language, spelling, 0, &view);
+    if (status != NARSIL_OK) { return -status; }
+    if (starts_with((narsil_highlight_text){view.units, view.length}, folded->prefix)) { return 1; }
+  }
+  if (folded->key_count == 0) { return 0; }
+  int status = narsil_fold_view(analyser, request->language, spelling, NARSIL_FOLD_STEM, &view);
+  if (status != NARSIL_OK) { return -status; }
+  return matches_terms(scratch, view, request->query.prefix_length, folded->keys, folded->key_count);
+}
+
+static int contains_folded_partial(narsil_analyser *analyser, highlight_scratch *scratch,
+                                   const narsil_highlight_request *request, narsil_highlight_text spelling) {
+  const narsil_folded_highlight *folded = request->query.folded;
+  if (folded == NULL || folded->partial_count == 0) { return 0; }
+  narsil_unit_view view;
+  int status =
+      narsil_fold_view(analyser, request->language, (narsil_unit_view){spelling.units, spelling.length}, 0, &view);
+  if (status != NARSIL_OK) { return -status; }
+  narsil_highlight_text fold = {view.units, view.length};
+  for (size_t word = 0; word < folded->partial_count; word++) {
+    status = contains_word(scratch, fold, folded->partial_words[word]);
     if (status != 0) { return status; }
   }
   return 0;
@@ -104,6 +143,9 @@ static narsil_status match_tokens(narsil_analyser *analyser, highlight_scratch *
                                                 (narsil_unit_view){field.units, field.length}, &stem);
       if (status != NARSIL_OK) { return status; }
       matches = matches_stem(scratch, stem, &request->query);
+      if (matches == 0 && request->query.folded != NULL) {
+        matches = matches_folded(analyser, scratch, request, field);
+      }
       if (matches < 0) { return (narsil_status)-matches; }
     }
     if (matches) { status = mark_token(scratch, token, ascii); }
@@ -114,10 +156,15 @@ static narsil_status match_tokens(narsil_analyser *analyser, highlight_scratch *
 narsil_status highlight_matches(narsil_analyser *analyser, highlight_scratch *scratch,
                                 const narsil_highlight_request *request) {
   scratch->marked.length = 0;
+  const narsil_folded_highlight *folded = request->query.folded;
+  if (folded != NULL && narsil_language_folding_table_length != narsil_language_count()) {
+    return NARSIL_INVALID_ARGUMENT;
+  }
   int ascii = narsil_units_are_ascii(request->text.units, request->text.length);
   narsil_status status = ascii ? NARSIL_OK : highlight_offsets(scratch, request->text.units, request->text.length);
   if (status == NARSIL_OK) { status = match_tokens(analyser, scratch, request, ascii); }
-  if (status != NARSIL_OK || request->query.partial_count == 0) { return status; }
+  int partial = request->query.partial_count > 0 || (folded != NULL && folded->partial_count > 0);
+  if (status != NARSIL_OK || !partial) { return status; }
   narsil_analysis_request analysis = {
       request->language, NULL, NARSIL_ANALYSE_STEM | NARSIL_ANALYSE_COLLECT_SURFACES | NARSIL_ANALYSE_REMOVE_STOP_WORDS,
       request->text.units, (uint32_t)request->text.length};
@@ -127,7 +174,9 @@ narsil_status highlight_matches(narsil_analyser *analyser, highlight_scratch *sc
     const narsil_token *token = tokens.tokens + at;
     uint32_t start = token->surface_offset == NARSIL_NO_SURFACE ? token->term_offset : token->surface_offset;
     uint32_t length = token->surface_offset == NARSIL_NO_SURFACE ? token->term_length : token->surface_length;
-    int matches = contains_partial(scratch, (narsil_highlight_text){tokens.units + start, length}, &request->query);
+    narsil_highlight_text spelling = {tokens.units + start, length};
+    int matches = contains_partial(scratch, spelling, &request->query);
+    if (matches == 0) { matches = contains_folded_partial(analyser, scratch, request, spelling); }
     if (matches < 0) { return (narsil_status)-matches; }
     if (matches) { status = mark_token(scratch, token, ascii); }
   }

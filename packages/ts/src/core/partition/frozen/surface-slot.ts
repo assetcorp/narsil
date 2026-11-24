@@ -25,6 +25,7 @@ const NO_REMOVED_SURFACES = new Uint32Array(0)
 
 export interface SurfaceTableReader {
   candidatesForPrefix(prefix: string): SurfaceFormCandidate[]
+  formOf(surface: string): SurfaceFormCandidate | undefined
   heldBytes(): number
 }
 
@@ -141,6 +142,8 @@ export function createFrozenSurfaceSlot(
         table !== undefined && waitingRemovals.size === 0
           ? table.candidatesForPrefix(prefix)
           : loaded().candidatesForPrefix(prefix),
+      formOf: surface =>
+        table !== undefined && waitingRemovals.size === 0 ? table.formOf(surface) : loaded().formOf(surface),
       stemChangedTotalFor: token => loaded().stemChangedTotalFor(token),
       size: () => loaded().size(),
       serialize: () => loaded().serialize(),

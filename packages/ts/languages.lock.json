@@ -70,8 +70,8 @@
       "fingerprint": "b26c5d7aec1d955c"
     },
     "dagbani": {
-      "revision": "e42bcc973db0290d",
-      "fingerprint": "83664f291547dee4"
+      "revision": "a295484940874a18",
+      "fingerprint": "a295484940874a18"
     },
     "danish": {
       "revision": "788cf50eae64a8cf",
@@ -94,8 +94,8 @@
       "fingerprint": "9bc1e2eb5a9bfe23"
     },
     "ewe": {
-      "revision": "ebb21a269520d5c8",
-      "fingerprint": "e3fb1e7a4d2eba1e"
+      "revision": "572aab18a2c420da",
+      "fingerprint": "572aab18a2c420da"
     },
     "faroese": {
       "revision": "a0010c6b81c493c0",
@@ -126,16 +126,16 @@
       "fingerprint": "27f16f0d74cbfd2b"
     },
     "german": {
-      "revision": "e19265657c2ac118",
-      "fingerprint": "e5584c44fbdabd3c"
+      "revision": "ddac031ccc75e16b",
+      "fingerprint": "ddac031ccc75e16b"
     },
     "greek": {
       "revision": "da4de4dbdfb62cf7",
       "fingerprint": "f766cead461768ee"
     },
     "guarani": {
-      "revision": "83ea1f6310c8f07e",
-      "fingerprint": "aa20b7666c8a8c67"
+      "revision": "2064957c85b42aa7",
+      "fingerprint": "2064957c85b42aa7"
     },
     "gujarati": {
       "revision": "3696d2726a76163d",
@@ -154,8 +154,8 @@
       "fingerprint": "38e9edd274c9cf22"
     },
     "hebrew": {
-      "revision": "a3b69b03beba16ed",
-      "fingerprint": "d824f2ec330c7d43"
+      "revision": "7366dc7775e61207",
+      "fingerprint": "7366dc7775e61207"
     },
     "hindi": {
       "revision": "a36ce049da1857e6",
@@ -286,8 +286,8 @@
       "fingerprint": "0cf280851fb2ea50"
     },
     "persian": {
-      "revision": "7b8776252b3e0f5e",
-      "fingerprint": "bf0302ef4152e8a5"
+      "revision": "044707f16c709003",
+      "fingerprint": "044707f16c709003"
     },
     "polish": {
       "revision": "8946a2753a049c54",
@@ -302,8 +302,8 @@
       "fingerprint": "2f666f0d7a1a2722"
     },
     "romanian": {
-      "revision": "43c3e27c002a61eb",
-      "fingerprint": "64ac1d30e5d74bdc"
+      "revision": "88dd5b4d44fe0f0d",
+      "fingerprint": "88dd5b4d44fe0f0d"
     },
     "russian": {
       "revision": "464c5e110a3c9fa2",
@@ -322,16 +322,16 @@
       "fingerprint": "3250bec603b85e64"
     },
     "serbian": {
-      "revision": "64cda363a3210f23",
-      "fingerprint": "968542a3fe972956"
+      "revision": "eb9cc57e76637f37",
+      "fingerprint": "eb9cc57e76637f37"
     },
     "shona": {
       "revision": "df8d6378905409cc",
       "fingerprint": "88a5da9f3fa78dba"
     },
     "sinhala": {
-      "revision": "e9950353d304d7c7",
-      "fingerprint": "0d8c433b5c59805d"
+      "revision": "0c9b63ad82fbe76f",
+      "fingerprint": "0c9b63ad82fbe76f"
     },
     "slovak": {
       "revision": "aff034a3a0c9871e",
@@ -370,8 +370,8 @@
       "fingerprint": "30dbfe06d41dfdac"
     },
     "telugu": {
-      "revision": "294b01982c7663fa",
-      "fingerprint": "43e34a1e09af3266"
+      "revision": "fa026c6739911eb7",
+      "fingerprint": "fa026c6739911eb7"
     },
     "thai": {
       "revision": "7904f26488b7d0ea",
@@ -394,16 +394,16 @@
       "fingerprint": "7935b632a721a11e"
     },
     "twi": {
-      "revision": "1cb6b683c37edf35",
-      "fingerprint": "b18843cfcd7f39fc"
+      "revision": "549c06d9121111ae",
+      "fingerprint": "549c06d9121111ae"
     },
     "ukrainian": {
       "revision": "61fcb7b1c69c81a3",
       "fingerprint": "e824df1755a5d0c8"
     },
     "urdu": {
-      "revision": "8a8267e8ee2a336b",
-      "fingerprint": "016539bed9323ae7"
+      "revision": "626cf2a712addc01",
+      "fingerprint": "626cf2a712addc01"
     },
     "vietnamese": {
       "revision": "349cbd420cb4d167",
@@ -422,8 +422,8 @@
       "fingerprint": "be72fa1cb65a5bee"
     },
     "yoruba": {
-      "revision": "b03320c630f0283a",
-      "fingerprint": "314443683da16906"
+      "revision": "c8419ae97bcb6021",
+      "fingerprint": "c8419ae97bcb6021"
     },
     "zulu": {
       "revision": "ff5bd473a33f37b4",

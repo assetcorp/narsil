@@ -11,25 +11,23 @@ export interface AnalysisTarget {
   analysis: ResolvedAnalysis
 }
 
-export function configUnderAnalysis(
-  base: IndexConfig,
-  language: string,
-  tokenizer: IndexConfig['tokenizer'],
-  stopWords: IndexConfig['stopWords'],
-): IndexConfig {
-  const { tokenizer: _tokenizer, stopWords: _stopWords, ...rest } = base
+export type AnalysisMembers = Pick<IndexConfig, 'tokenizer' | 'stopWords' | 'foldMarks'>
+
+export function configUnderAnalysis(base: IndexConfig, language: string, members: AnalysisMembers): IndexConfig {
+  const { tokenizer: _tokenizer, stopWords: _stopWords, foldMarks: _foldMarks, ...rest } = base
   return {
     ...rest,
     language,
-    ...(tokenizer !== undefined ? { tokenizer } : {}),
-    ...(stopWords !== undefined ? { stopWords } : {}),
+    ...(members.tokenizer !== undefined ? { tokenizer: members.tokenizer } : {}),
+    ...(members.stopWords !== undefined ? { stopWords: members.stopWords } : {}),
+    ...(members.foldMarks !== undefined ? { foldMarks: members.foldMarks } : {}),
   }
 }
 
 export function configOfNamedSettings(base: IndexConfig, settings: NamedAnalysisSettings): IndexConfig {
-  const { language, tokenizer, stopWords, stopWordList } = settings
+  const { language, tokenizer, stopWords, stopWordList, foldMarks } = settings
   const listed = stopWordList === undefined ? undefined : new Set(stopWordList)
-  return configUnderAnalysis(base, language, tokenizer, stopWords ?? listed)
+  return configUnderAnalysis(base, language, { tokenizer, stopWords: stopWords ?? listed, foldMarks })
 }
 
 export function targetOfPending(entry: IndexRegistryEntry, pending: PendingAnalysisMetadata): AnalysisTarget {

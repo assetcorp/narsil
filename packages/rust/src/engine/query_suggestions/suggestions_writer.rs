@@ -112,6 +112,7 @@ pub(crate) fn ensure_suggestions_index(
                 language: Some(language),
                 tokenizer: AnalysisSetting::Keep,
                 stop_words: AnalysisSetting::Keep,
+                fold_marks: AnalysisSetting::Keep,
             },
         )?;
     }

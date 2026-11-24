@@ -6,9 +6,9 @@ use crate::format::metadata_parts::{
     Bm25Params, ChangesSetting, EmbeddingMetadata, NamedAnalysis, PartitionLimits, PendingAnalysis,
     SyncSetting, VectorFieldMetadata, VectorPromotion, bm25_from_wire, bm25_to_wire,
     config_invalid, describe, embedding_from_wire, embedding_to_wire, feeds_from_wire,
-    feeds_to_wire, limits_from_wire, limits_to_wire, named_analysis_to_wire, pending_from_wire,
-    positive_integer, promotion_from_wire, promotion_to_wire, vector_fields_from_wire,
-    vector_fields_to_wire,
+    feeds_to_wire, fold_marks_from_wire, limits_from_wire, limits_to_wire, named_analysis_to_wire,
+    pending_from_wire, positive_integer, promotion_from_wire, promotion_to_wire,
+    vector_fields_from_wire, vector_fields_to_wire,
 };
 use crate::value::{Map, Value, decode_value, encode_value};
 
@@ -164,6 +164,7 @@ pub(crate) fn metadata_from_wire(raw: &Map) -> Result<IndexMetadata> {
         tokenizer: text(raw, "tokenizer"),
         stop_words: text(raw, "stop_words"),
         stop_word_list: string_list(raw.get("stop_word_list")),
+        fold_marks: fold_marks_from_wire(raw),
     };
     meta.analysis_generation = positive_integer(raw.get("analysis_generation"));
     meta.pending_analysis = pending_from_wire(raw.get("pending_analysis"));

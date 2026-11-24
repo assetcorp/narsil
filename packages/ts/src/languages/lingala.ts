@@ -73,4 +73,5 @@ export const lingala: LanguageModule = {
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^\p{Script=Latin}\p{M}0-9]+/giu },
+  folding: {},
 }

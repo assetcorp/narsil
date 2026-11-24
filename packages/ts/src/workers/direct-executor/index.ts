@@ -275,6 +275,12 @@ export function createDirectExecutor(
         return undefined as T
       }
 
+      case 'replaceFoldMarks': {
+        const entry = indexes.get(action.indexName)
+        if (entry !== undefined) entry.config.foldMarks = action.foldMarks
+        return undefined as T
+      }
+
       case 'get': {
         const entry = requireIndex(action.indexName)
         return entry.manager.get(action.docId, action.projection) as T

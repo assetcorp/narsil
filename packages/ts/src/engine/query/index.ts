@@ -1,3 +1,4 @@
+import { loadFoldingForQuery } from '../../core/folding/code'
 import { loadPrefixFor } from '../../core/partition/suggestion-code'
 import { type FanOutResult, fanOutQuery } from '../../partitioning/fan-out'
 import { countsWithoutScores, fanOutMatchCount } from '../../partitioning/match-count'
@@ -60,11 +61,18 @@ export function loadQueryCode(request: QueryParams): Promise<unknown> | null {
   return Promise.all([phrase, fixedDepth, cursor, grouping, pinning, facets, sorting, prefix])
 }
 
+function loadFoldingOf(request: QueryParams, context: PinnedQueryContext): Promise<void> | null {
+  return loadFoldingForQuery(request.term, request.exact, context.manager.config.foldMarks, context.manager.language)
+}
+
 export function executeQuery<T = AnyDocument>(
   request: QueryParams,
   callerContext: PinnedQueryContext,
 ): Promise<QueryResult<T>> {
-  const loading = loadQueryCode(request) ?? loadMessagePackForStoredValues(request, callerContext.config)
+  const loading =
+    loadQueryCode(request) ??
+    loadFoldingOf(request, callerContext) ??
+    loadMessagePackForStoredValues(request, callerContext.config)
   if (loading !== null) return loading.then(() => executeQuery<T>(request, callerContext))
   if (request.rerank === undefined) return runQuery<T>(request, callerContext, callerContext.pin)
   const runtime = loadedRerankRuntime()
@@ -87,6 +95,8 @@ export async function executePreflight(
 ): Promise<PreflightResult> {
   const loading = loadQueryCode(request)
   if (loading !== null) await loading
+  const foldingCode = loadFoldingOf(request, callerContext)
+  if (foldingCode !== null) await foldingCode
   const storedValueCode = loadMessagePackForStoredValues(request, callerContext.config)
   if (storedValueCode !== null) await storedValueCode
   const context = withPatternWork(callerContext)

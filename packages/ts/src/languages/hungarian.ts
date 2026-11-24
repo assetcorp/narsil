@@ -271,4 +271,5 @@ export const hungarian: LanguageModule = {
   stemmer: stem,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9áéíóöőúüű]+/gi },
+  folding: {},
 }

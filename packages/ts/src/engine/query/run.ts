@@ -1,3 +1,4 @@
+import { indexFolds } from '../../core/folding/code'
 import { resolveProjection } from '../../core/projection'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { fanOutQuery } from '../../partitioning/fan-out'
@@ -250,6 +251,7 @@ export async function runQuery<T>(
       analysis: manager.analysis,
       schema: manager.schema,
       synonyms: manager.synonyms,
+      folds: indexFolds(manager.config.foldMarks, manager.language),
     },
   }
 

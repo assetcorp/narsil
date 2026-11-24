@@ -6,7 +6,7 @@ use super::groups::{
     ExpansionInputs, PartitionGroups, WordExpansion, plan_word_expansion, resolve_term_groups,
 };
 use super::params::{QueryParams, TermMatch};
-use super::phrases::analyse_query_phrases;
+use super::phrases::analyse_phrases;
 use super::scope::PartitionFilter;
 use super::scoring::GlobalStats;
 use crate::analysis::{Analyser, TokenOptions};
@@ -99,9 +99,13 @@ fn expansion_of(
     params: &QueryParams,
     words: &str,
     analysed: AnalysedWords,
+    phrases: &[AnalysedPhrase],
     ends_with_phrase: bool,
 ) -> Result<WordExpansion> {
-    if analysed.tokens.is_empty() || params.exact == Some(true) {
+    let folds = layout.folding_language();
+    if params.exact == Some(true)
+        || (analysed.tokens.is_empty() && (folds.is_none() || phrases.is_empty()))
+    {
         return Ok(WordExpansion::default());
     }
     let partial_fields = match params.partial_words == Some(true) {
@@ -127,6 +131,8 @@ fn expansion_of(
             partial_fields,
             tolerance: params.tolerance.unwrap_or(0),
             prefix_length: params.prefix_length.unwrap_or(DEFAULT_FUZZY_PREFIX_LENGTH),
+            folds,
+            phrases,
         },
     )?;
     if let Some(lookup) = &layout.synonyms.lookup {
@@ -155,7 +161,8 @@ pub(crate) fn analyse_text(
     if let Some(fields) = &params.fields {
         require_search_fields(index, fields)?;
     }
-    let quoted = analyse_query_phrases(&layout.analyser, term)?;
+    let folds = layout.folding_language().is_some() && params.exact != Some(true);
+    let quoted = analyse_phrases(&layout.analyser, term, folds)?;
     let holds_quotes = quoted.is_some();
     let (words, phrases, ends_with_phrase) = match quoted {
         None => (term.to_string(), Vec::new(), false),
@@ -173,7 +180,15 @@ pub(crate) fn analyse_text(
         .iter()
         .map(|(token, _)| token.clone())
         .collect();
-    let expansion = expansion_of(index, layout, params, &words, analysed, ends_with_phrase)?;
+    let expansion = expansion_of(
+        index,
+        layout,
+        params,
+        &words,
+        analysed,
+        &phrases,
+        ends_with_phrase,
+    )?;
     Ok(Some(AnalysedText {
         tokens,
         phrases,
@@ -231,7 +246,8 @@ fn keyword_query<'q>(search: &TextSearch<'q>, resolved: &'q PartitionGroups) -> 
     KeywordQuery {
         tokens: &search.text.tokens,
         groups: &resolved.groups,
-        phrases: &search.text.phrases,
+        folded: &resolved.folded,
+        phrases: resolved.phrases.as_deref().unwrap_or(&search.text.phrases),
         exact: params.exact.unwrap_or(false),
         tolerance: params.tolerance.unwrap_or(0),
         prefix_length: params.prefix_length.unwrap_or(DEFAULT_FUZZY_PREFIX_LENGTH),
@@ -251,7 +267,7 @@ pub(crate) fn partition_terms(
     snapshot: &PartitionSnapshot,
     search: &TextSearch<'_>,
 ) -> Result<BTreeSet<String>> {
-    let resolved = resolve_term_groups(snapshot, &search.text.expansion)?;
+    let resolved = resolve_term_groups(snapshot, &search.text.expansion, &search.text.phrases)?;
     candidate_terms(snapshot, &keyword_query(search, &resolved))
 }
 
@@ -277,7 +293,7 @@ pub(crate) fn search_partition_text(
     let prefix_length = params.prefix_length.unwrap_or(DEFAULT_FUZZY_PREFIX_LENGTH);
     let exact = params.exact.unwrap_or(false);
     let needs_all = search.needs_all_results();
-    let resolved = resolve_term_groups(snapshot, &search.text.expansion)?;
+    let resolved = resolve_term_groups(snapshot, &search.text.expansion, &search.text.phrases)?;
     let groups = &resolved.groups;
     let partial_fields = resolved.partial_fields.as_slice();
     let query = keyword_query(search, &resolved);
@@ -310,6 +326,7 @@ pub(crate) fn search_partition_text(
                 prefix_length,
                 exact,
                 groups,
+                folded: &resolved.folded,
                 partial_fields,
                 phrase_keys: phrase_keys.as_ref(),
             },

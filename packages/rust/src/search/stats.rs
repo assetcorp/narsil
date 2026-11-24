@@ -55,6 +55,37 @@ pub(crate) fn typo_tokens_for<'a>(
     }
 }
 
+/// Returns the tokens that a query term reaches in one segment through typos, as [`typo_tokens_for`] does, with
+/// the term's variants taken out and the typo matches of its unmarked form added, in code point order.
+pub(crate) fn term_matches_for<'a>(
+    entry: &'a SegmentEntry,
+    token: &'a str,
+    group: Option<&TermGroup>,
+    query: &KeywordQuery<'_>,
+) -> Result<Vec<TermMatch<'a>>> {
+    let mut matches = typo_tokens_for(entry, token, group, query)?;
+    let Some(folded) = query.folded_of(token) else {
+        return Ok(matches);
+    };
+    matches.retain(|found| found.token == token || !folded.is_variant(&found.token));
+    if folded.typo_matches.is_empty() {
+        return Ok(matches);
+    }
+    for added in &folded.typo_matches {
+        if matches.iter().any(|found| found.token == added.as_str()) {
+            continue;
+        }
+        if let Some(list) = lookup(entry, added)? {
+            matches.push(TermMatch {
+                token: Cow::Owned(added.clone()),
+                list,
+            });
+        }
+    }
+    matches.sort_by(|left, right| left.token.cmp(&right.token));
+    Ok(matches)
+}
+
 /// Returns every term that a query can reach in one partition: its tokens, the members and synonyms of their
 /// groups, the tokens of its phrases, and the words that its typo tolerance reaches.
 pub(crate) fn candidate_terms(
@@ -64,6 +95,11 @@ pub(crate) fn candidate_terms(
     let mut terms: BTreeSet<String> = BTreeSet::new();
     for phrase in query.phrases {
         terms.extend(phrase.tokens.iter().cloned());
+        terms.extend(phrase.variants.iter().flatten().cloned());
+    }
+    for folded in query.folded {
+        terms.extend(folded.variants.iter().cloned());
+        terms.extend(folded.typo_matches.iter().cloned());
     }
     for token in query.tokens {
         let group = query.group_of(token);

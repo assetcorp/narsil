@@ -198,4 +198,5 @@ export const norwegian: LanguageModule = {
   stemmer: stem,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9æøåäöüéó]+/gi },
+  folding: {},
 }

@@ -66,6 +66,7 @@ export function feedSettingsOf(settings: IndexSettings | undefined, synonyms: re
     ...(settings?.tokenizer !== undefined ? { tokenizer: settings.tokenizer } : {}),
     ...(settings?.stopWords !== undefined ? { stopWords: settings.stopWords } : {}),
     ...(settings?.stopWordList !== undefined ? { stopWordList: settings.stopWordList } : {}),
+    ...(settings?.foldMarks !== undefined ? { foldMarks: settings.foldMarks } : {}),
     ...(revision !== undefined ? { analysisRevision: revision } : {}),
     ...(settings?.bm25 !== undefined ? { bm25: settings.bm25 } : {}),
     ...(synonyms.length > 0 ? { synonyms: [...synonyms] } : {}),
@@ -85,6 +86,7 @@ function sameFeedSettings(held: HeldSyncIndex, next: HeldSyncIndex): boolean {
     a?.tokenizer === b?.tokenizer &&
     a?.stopWords === b?.stopWords &&
     JSON.stringify(a?.stopWordList ?? null) === JSON.stringify(b?.stopWordList ?? null) &&
+    a?.foldMarks === b?.foldMarks &&
     (a?.bm25Revision ?? 0) === (b?.bm25Revision ?? 0)
   )
 }

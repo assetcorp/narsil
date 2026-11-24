@@ -39,24 +39,50 @@ static int prepare_texts(napi_env env, napi_value list, napi_value **handles, na
   return 1;
 }
 
-static int prepare_terms(napi_env env, napi_value list, highlight_handles *handles) {
-  if (!list_length(env, list, &handles->query.term_count)) { return 0; }
-  size_t capacity = handles->query.term_count == 0 ? 1 : handles->query.term_count;
-  if (capacity > SIZE_MAX / sizeof *handles->terms || capacity > SIZE_MAX / sizeof *handles->term_values) { return 0; }
-  handles->terms = (napi_value *)calloc(capacity, sizeof *handles->terms);
-  handles->term_values = calloc(capacity, sizeof *handles->term_values);
-  if (handles->terms == NULL || handles->term_values == NULL) { return 0; }
-  for (size_t at = 0; at < handles->query.term_count; at++) {
+static int prepare_optional_texts(napi_env env, napi_value list, napi_value **handles, narsil_highlight_text **values,
+                                  size_t *count) {
+  napi_valuetype type;
+  if (napi_typeof(env, list, &type) != napi_ok) { return 0; }
+  return type == napi_null || prepare_texts(env, list, handles, values, count);
+}
+
+static int prepare_terms(napi_env env, napi_value list, const char *text_name, napi_value **handles,
+                         narsil_highlight_term **values, size_t *count) {
+  if (!list_length(env, list, count)) { return 0; }
+  size_t capacity = *count == 0 ? 1 : *count;
+  if (capacity > SIZE_MAX / sizeof **handles || capacity > SIZE_MAX / sizeof **values) { return 0; }
+  *handles = (napi_value *)calloc(capacity, sizeof **handles);
+  *values = calloc(capacity, sizeof **values);
+  if (*handles == NULL || *values == NULL) { return 0; }
+  for (size_t at = 0; at < *count; at++) {
     napi_value term;
     napi_value tolerance;
     if (napi_get_element(env, list, (uint32_t)at, &term) != napi_ok ||
-        napi_get_named_property(env, term, "term", handles->terms + at) != napi_ok ||
+        napi_get_named_property(env, term, text_name, *handles + at) != napi_ok ||
         napi_get_named_property(env, term, "tolerance", &tolerance) != napi_ok ||
-        !segment_uint_argument(env, tolerance, &handles->term_values[at].tolerance)) {
+        !segment_uint_argument(env, tolerance, &(*values)[at].tolerance)) {
       return 0;
     }
   }
   return 1;
+}
+
+static int prepare_folded(napi_env env, napi_value value, highlight_handles *handles) {
+  napi_value folded;
+  napi_valuetype type;
+  if (napi_get_named_property(env, value, "folded", &folded) != napi_ok || napi_typeof(env, folded, &type) != napi_ok) {
+    return 0;
+  }
+  if (type == napi_null) { return 1; }
+  folded_highlight_handles *held = &handles->folded;
+  napi_value keys;
+  napi_value partial;
+  handles->folds = 1;
+  return napi_get_named_property(env, folded, "keys", &keys) == napi_ok &&
+         napi_get_named_property(env, folded, "prefix", &held->prefix) == napi_ok &&
+         napi_get_named_property(env, folded, "partialWords", &partial) == napi_ok &&
+         prepare_terms(env, keys, "key", &held->keys, &held->key_values, &held->query.key_count) &&
+         prepare_optional_texts(env, partial, &held->partial, &held->partial_values, &held->query.partial_count);
 }
 
 int prepare_highlight_query(napi_env env, napi_value value, highlight_handles *handles) {
@@ -64,20 +90,17 @@ int prepare_highlight_query(napi_env env, napi_value value, highlight_handles *h
   napi_value prefix_length;
   napi_value synonyms;
   napi_value partial;
-  napi_valuetype type;
-  if (napi_get_named_property(env, value, "terms", &terms) != napi_ok ||
-      napi_get_named_property(env, value, "prefixLength", &prefix_length) != napi_ok ||
-      napi_get_named_property(env, value, "prefix", &handles->prefix) != napi_ok ||
-      napi_get_named_property(env, value, "synonyms", &synonyms) != napi_ok ||
-      napi_get_named_property(env, value, "partialWords", &partial) != napi_ok ||
-      !segment_uint_argument(env, prefix_length, &handles->query.prefix_length) ||
-      !prepare_terms(env, terms, handles) ||
-      !prepare_texts(env, synonyms, &handles->synonyms, &handles->synonym_values, &handles->query.synonym_count) ||
-      napi_typeof(env, partial, &type) != napi_ok) {
-    return 0;
-  }
-  return type == napi_null ||
-         prepare_texts(env, partial, &handles->partial, &handles->partial_values, &handles->query.partial_count);
+  narsil_highlight_query *query = &handles->query;
+  return napi_get_named_property(env, value, "terms", &terms) == napi_ok &&
+         napi_get_named_property(env, value, "prefixLength", &prefix_length) == napi_ok &&
+         napi_get_named_property(env, value, "prefix", &handles->prefix) == napi_ok &&
+         napi_get_named_property(env, value, "synonyms", &synonyms) == napi_ok &&
+         napi_get_named_property(env, value, "partialWords", &partial) == napi_ok &&
+         segment_uint_argument(env, prefix_length, &query->prefix_length) &&
+         prepare_terms(env, terms, "term", &handles->terms, &handles->term_values, &query->term_count) &&
+         prepare_texts(env, synonyms, &handles->synonyms, &handles->synonym_values, &query->synonym_count) &&
+         prepare_optional_texts(env, partial, &handles->partial, &handles->partial_values, &query->partial_count) &&
+         prepare_folded(env, value, handles);
 }
 
 int read_highlight_text(napi_env env, napi_value value, narsil_highlight_text *text) {
@@ -91,24 +114,50 @@ int read_highlight_text(napi_env env, napi_value value, narsil_highlight_text *t
   return 1;
 }
 
-int read_highlight_query(napi_env env, highlight_handles *handles) {
+static int read_optional_text(napi_env env, napi_value value, narsil_highlight_text *text) {
   napi_valuetype type;
-  if (napi_typeof(env, handles->prefix, &type) != napi_ok ||
-      (type != napi_null && !read_highlight_text(env, handles->prefix, &handles->query.prefix))) {
+  if (napi_typeof(env, value, &type) != napi_ok) { return 0; }
+  return type == napi_null || read_highlight_text(env, value, text);
+}
+
+static int read_terms(napi_env env, const napi_value *handles, narsil_highlight_term *values, size_t count) {
+  for (size_t at = 0; at < count; at++) {
+    if (!read_highlight_text(env, handles[at], &values[at].text)) { return 0; }
+  }
+  return 1;
+}
+
+static int read_texts(napi_env env, const napi_value *handles, narsil_highlight_text *values, size_t count) {
+  for (size_t at = 0; at < count; at++) {
+    if (!read_highlight_text(env, handles[at], values + at)) { return 0; }
+  }
+  return 1;
+}
+
+static int read_folded(napi_env env, folded_highlight_handles *held) {
+  if (!read_optional_text(env, held->prefix, &held->query.prefix) ||
+      !read_terms(env, held->keys, held->key_values, held->query.key_count) ||
+      !read_texts(env, held->partial, held->partial_values, held->query.partial_count)) {
     return 0;
   }
-  for (size_t at = 0; at < handles->query.term_count; at++) {
-    if (!read_highlight_text(env, handles->terms[at], &handles->term_values[at].text)) { return 0; }
+  held->query.keys = held->key_values;
+  held->query.partial_words = held->partial_values;
+  return 1;
+}
+
+int read_highlight_query(napi_env env, highlight_handles *handles) {
+  narsil_highlight_query *query = &handles->query;
+  if (!read_optional_text(env, handles->prefix, &query->prefix) ||
+      !read_terms(env, handles->terms, handles->term_values, query->term_count) ||
+      !read_texts(env, handles->synonyms, handles->synonym_values, query->synonym_count) ||
+      !read_texts(env, handles->partial, handles->partial_values, query->partial_count) ||
+      (handles->folds && !read_folded(env, &handles->folded))) {
+    return 0;
   }
-  for (size_t at = 0; at < handles->query.synonym_count; at++) {
-    if (!read_highlight_text(env, handles->synonyms[at], handles->synonym_values + at)) { return 0; }
-  }
-  for (size_t at = 0; at < handles->query.partial_count; at++) {
-    if (!read_highlight_text(env, handles->partial[at], handles->partial_values + at)) { return 0; }
-  }
-  handles->query.terms = handles->term_values;
-  handles->query.synonyms = handles->synonym_values;
-  handles->query.partial_words = handles->partial_values;
+  query->terms = handles->term_values;
+  query->synonyms = handles->synonym_values;
+  query->partial_words = handles->partial_values;
+  query->folded = handles->folds ? &handles->folded.query : NULL;
   return 1;
 }
 
@@ -119,4 +168,8 @@ void release_highlight_query(highlight_handles *handles) {
   free(handles->term_values);
   free(handles->synonym_values);
   free(handles->partial_values);
+  free((void *)handles->folded.keys);
+  free((void *)handles->folded.partial);
+  free(handles->folded.key_values);
+  free(handles->folded.partial_values);
 }

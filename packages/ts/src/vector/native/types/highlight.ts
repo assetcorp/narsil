@@ -10,6 +10,18 @@ export interface NativeHighlightQuery {
   synonyms: readonly Uint16Array[]
   /** The words that may match inside longer written spellings. */
   partialWords: readonly Uint16Array[] | null
+  /** The folded forms of the query that also mark a span, or null where the index does not fold. */
+  folded: NativeFoldedHighlight | null
+}
+
+/** The folded forms of a query that mark the spans of marked spellings. @internal */
+export interface NativeFoldedHighlight {
+  /** The key of each query word and phrase word, with the edit distance that each key permits. */
+  keys: readonly { key: Uint16Array; tolerance: number }[]
+  /** The fold of the final query word, or null when prefix matching is disabled. */
+  prefix: Uint16Array | null
+  /** The fold of each word that may match inside the fold of a longer written spelling. */
+  partialWords: readonly Uint16Array[] | null
 }
 
 /** The native operation that marks matching spans in the original text. @internal */

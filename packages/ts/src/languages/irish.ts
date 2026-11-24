@@ -136,4 +136,5 @@ export const irish: LanguageModule = {
   stemmer: stem,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9áéíóú'-]+/gi },
+  folding: {},
 }

@@ -442,4 +442,5 @@ export const slovak: LanguageModule = {
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9áäčďéíĺľňóôŕšťúýž]+/gi },
+  folding: {},
 }

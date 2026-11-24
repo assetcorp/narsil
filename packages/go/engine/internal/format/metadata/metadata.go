@@ -22,6 +22,7 @@ type PendingAnalysis struct {
 	Tokenizer    model.Optional[string]
 	StopWords    model.Optional[string]
 	StopWordList model.Optional[[]string]
+	FoldMarks    model.Optional[bool]
 }
 
 type SyncSetting struct {
@@ -56,6 +57,7 @@ type Metadata struct {
 	Tokenizer           model.Optional[string]
 	StopWords           model.Optional[string]
 	StopWordList        model.Optional[[]string]
+	FoldMarks           model.Optional[bool]
 	AnalysisGeneration  model.Optional[uint64]
 	PendingAnalysis     *PendingAnalysis
 	PartitionLimits     *indexsettings.PartitionLimits

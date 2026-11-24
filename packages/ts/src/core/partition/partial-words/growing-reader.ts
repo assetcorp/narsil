@@ -59,6 +59,12 @@ export function growingSpellingReader(segment: GrowingSegment): PartialWordReade
           visit(terms.tokens[table.token[spelling]], table.codePoints[spelling])
       }
     },
+    holdsSpelling(spelling: string, token: string): boolean {
+      const table = segment.spellings
+      const ordinal = table?.strings.get(spelling)
+      if (table === null || ordinal === undefined || table.count[ordinal] === 0) return false
+      return segment.postings.terms.tokens[table.token[ordinal]] === token
+    },
     bytes: () => 0,
   }
 }

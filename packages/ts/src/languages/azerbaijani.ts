@@ -164,4 +164,5 @@ export const azerbaijani: LanguageModule = {
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9çəğıöşü]+/gi },
+  folding: {},
 }

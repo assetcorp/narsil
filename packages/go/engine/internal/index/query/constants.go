@@ -18,6 +18,12 @@ const (
 )
 
 const (
+	foldedBlocksPerWord      = 2
+	foldedTermsStartCapacity = 50
+	maxFoldedRoomAttempts    = 64
+)
+
+const (
 	MaxFilterDepth          = 30
 	MaxFilterTests          = 1024
 	MaxFilterListItems      = 65536

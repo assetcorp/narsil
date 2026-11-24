@@ -9,7 +9,7 @@ import { termText } from '../term-table/read'
 import { expansionDictionary, PARTIAL_BUDGET } from './partial-bindings'
 import { expansionSource } from './sources'
 
-function sourceOf(state: PartitionReadState, analysis: PartialWordAnalysis): NativePartialSource | null {
+export function partialSourceOf(state: PartitionReadState, analysis: PartialWordAnalysis): NativePartialSource | null {
   state.partialWords.readerFor(analysis)
   const source = expansionSource(state)
   if (source === null) return null
@@ -57,7 +57,7 @@ export function partialAdditions(
   if (analysis.fields.length === 0 || requests.length === 0) return requests.map(() => [])
   const sources: NativePartialSource[] = []
   for (const state of states) {
-    const source = sourceOf(state, analysis)
+    const source = partialSourceOf(state, analysis)
     if (source === null) return null
     sources.push(source)
   }

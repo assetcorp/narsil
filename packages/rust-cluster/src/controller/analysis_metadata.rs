@@ -1,6 +1,7 @@
 use narsil::suggestions_host::SuggestionState;
 use narsil::{Map, Value, decode_msgpack, encode_msgpack};
 
+use super::analysis_epoch::renews_epoch;
 use super::metadata::{IndexMetadata, metadata_key, validate_index_name, validate_record};
 use super::settings::stored_settings_readable;
 use crate::constants::SYNC_EPOCH_HEX_DIGITS;
@@ -11,7 +12,7 @@ const SETTINGS_FIELD: &str = "settings";
 const PENDING_ANALYSIS_FIELD: &str = "pendingAnalysis";
 const ANALYSIS_FAILURE_FIELD: &str = "analysisFailure";
 const ANALYSIS_GENERATION_FIELD: &str = "analysisGeneration";
-const NAMED_ANALYSIS_FIELDS: [&str; 3] = ["tokenizer", "stopWords", "stopWordList"];
+const NAMED_ANALYSIS_FIELDS: [&str; 4] = ["tokenizer", "stopWords", "stopWordList", "foldMarks"];
 const DEFAULT_LANGUAGE: &str = "english";
 const BM25_FIELD: &str = "bm25";
 const BM25_REVISION_FIELD: &str = "bm25Revision";
@@ -25,6 +26,7 @@ pub(crate) struct PendingAnalysis {
     pub(crate) tokenizer: Option<String>,
     pub(crate) stop_words: Option<String>,
     pub(crate) stop_word_list: Option<Vec<String>>,
+    pub(crate) fold_marks: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -70,11 +72,15 @@ fn pending_of(raw: &Value) -> Option<PendingAnalysis> {
         tokenizer: text_of(pending, "tokenizer"),
         stop_words: text_of(pending, "stopWords"),
         stop_word_list,
+        fold_marks: match pending.get("foldMarks") {
+            Some(Value::Bool(fold_marks)) => Some(*fold_marks),
+            _ => None,
+        },
     })
 }
 
 pub(crate) fn pending_to_value(pending: &PendingAnalysis) -> Value {
-    let mut fields = Map::with_capacity(6);
+    let mut fields = Map::with_capacity(7);
     fields.insert("changeId", Value::String(pending.change_id.clone()));
     fields.insert("generation", Value::Number(pending.generation));
     fields.insert("language", Value::String(pending.language.clone()));
@@ -89,6 +95,9 @@ pub(crate) fn pending_to_value(pending: &PendingAnalysis) -> Value {
             "stopWordList",
             Value::Array(words.iter().cloned().map(Value::String).collect()),
         );
+    }
+    if let Some(fold_marks) = pending.fold_marks {
+        fields.insert("foldMarks", Value::Bool(fold_marks));
     }
     Value::Object(fields)
 }
@@ -185,6 +194,7 @@ impl IndexMetadataSnapshot {
             tokenizer: None,
             stop_words: None,
             stop_word_list: None,
+            fold_marks: None,
         })
     }
 
@@ -227,13 +237,6 @@ fn new_sync_epoch() -> ClusterResult<String> {
     Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
-fn history_enabled(settings: &Map, key: &str) -> bool {
-    matches!(
-        settings.get(key),
-        Some(Value::Object(history)) if matches!(history.get("enabled"), Some(Value::Bool(true)))
-    )
-}
-
 pub(crate) fn metadata_with_pending_analysis(
     snapshot: &IndexMetadataSnapshot,
     pending: &PendingAnalysis,
@@ -256,6 +259,7 @@ pub(crate) fn metadata_publishing_analysis(
     pending: &PendingAnalysis,
 ) -> ClusterResult<Vec<u8>> {
     let (fields, mut settings) = snapshot.fields();
+    let renews = renews_epoch(&settings, pending);
     settings.remove(PENDING_ANALYSIS_FIELD);
     settings.remove(ANALYSIS_FAILURE_FIELD);
     for field in NAMED_ANALYSIS_FIELDS {
@@ -271,7 +275,7 @@ pub(crate) fn metadata_publishing_analysis(
             settings.insert(field, value.clone());
         }
     }
-    if history_enabled(&settings, "sync") || history_enabled(&settings, "changes") {
+    if renews {
         settings.insert("syncActive", Value::Bool(false));
         settings.insert("syncEpoch", Value::String(new_sync_epoch()?));
     }

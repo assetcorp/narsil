@@ -238,4 +238,5 @@ export const portuguese: LanguageModule = {
   stopWords: withNormalisedSpellings(stopWords, normalize),
   normalizer: normalize,
   tokenizer: { splitPattern: /[^a-z0-9àáâãçéêíóôõúü]+/gi },
+  folding: {},
 }

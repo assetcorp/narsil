@@ -3,6 +3,7 @@
 pub mod adapters;
 pub mod changes;
 pub mod filter_parity;
+pub mod folding;
 pub mod parity;
 pub mod parity_cases;
 pub mod portable;

@@ -218,6 +218,7 @@ func (n *Narsil) recoveredGeneration(ctx context.Context, meta metadata.Metadata
 		stored.config.Language = pending.Language
 		stored.config.Tokenizer = model.TokenizerSetting{}
 		stored.config.StopWords = model.StopWords{}
+		stored.config.FoldMarks = pending.FoldMarks
 		if name, named := pending.Tokenizer.Get(); named {
 			stored.config.Tokenizer = model.RegisteredTokenizer(name)
 		}

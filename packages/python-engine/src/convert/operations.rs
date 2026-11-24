@@ -6,7 +6,7 @@ use narsil::{
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyString};
 
-use super::fields::{Fields, string_of};
+use super::fields::{Fields, boolean_of, string_of};
 use super::query::{filter_value, projection};
 use crate::callbacks::analysis::stop_words_setting;
 use crate::errors::{config_invalid, recoded};
@@ -81,11 +81,18 @@ pub(crate) fn analysis_change(value: &Bound<'_, PyAny>) -> Result<AnalysisChange
             AnalysisSetting::Set(stop_words_setting(&stop_words, &stop_words_path)?)
         }
     };
+    let fold_marks_path = fields.path("foldMarks");
+    let fold_marks = match fields.present("foldMarks")? {
+        None => AnalysisSetting::Keep,
+        Some(fold_marks) if fold_marks.is_none() => AnalysisSetting::LanguageDefault,
+        Some(fold_marks) => AnalysisSetting::Set(boolean_of(&fold_marks, &fold_marks_path)?),
+    };
     fields.finish()?;
     Ok(AnalysisChange {
         language,
         tokenizer,
         stop_words,
+        fold_marks,
     })
 }
 

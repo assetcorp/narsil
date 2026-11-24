@@ -135,21 +135,21 @@ func (n *Narsil) ChangeAnalysis(ctx context.Context, indexName string, change An
 		return err
 	}
 	held := entry.heldBy(target)
-	run, err := n.startChange(entry, target, held)
+	run, err := n.startChange(entry, target, held, held && entry.holdsFoldMarksOf(target))
 	if err != nil || run == nil {
 		return err
 	}
 	return run.wait(ctx)
 }
 
-func (n *Narsil) startChange(entry *indexEntry, target analysisTarget, held bool) (*changeRun, error) {
+func (n *Narsil) startChange(entry *indexEntry, target analysisTarget, held bool, unchanged bool) (*changeRun, error) {
 	entry.swap.mu.Lock()
 	previous := entry.swap.change
 	entry.swap.mu.Unlock()
 	if previous != nil && previous.target.sameAs(target) {
 		return previous, nil
 	}
-	if previous == nil && held {
+	if previous == nil && unchanged {
 		return nil, nil
 	}
 	if !held {
@@ -239,12 +239,17 @@ func (n *Narsil) runChange(entry *indexEntry, run *changeRun, previous *changeRu
 	if err := entry.refuseChangeStart(); err != nil {
 		return err
 	}
-	if resumed == 0 && entry.heldBy(run.target) {
+	held := entry.heldBy(run.target)
+	sameFoldMarks := entry.holdsFoldMarksOf(run.target)
+	if resumed == 0 && held && sameFoldMarks {
 		return n.clearPending(n.stopping, entry)
 	}
 	generation := resumed
 	if generation == 0 {
 		generation = n.nextGeneration(entry)
+	}
+	if held && !sameFoldMarks {
+		return n.switchFoldMarks(entry, run, generation)
 	}
 	if err := n.setPending(entry, run, generation); err != nil {
 		return err

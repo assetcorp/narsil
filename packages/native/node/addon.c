@@ -256,8 +256,8 @@ static napi_value initialise(napi_env env, napi_value exports) {
       !define_groups(env, exports) || !define_sort(env, exports) || !define_filters(env, exports) ||
       !define_pattern(env, exports) || !define_terms(env, exports) || !define_segments(env, exports) ||
       !define_synonyms(env, exports) || !define_phrases(env, exports) || !define_expansion(env, exports) ||
-      !define_highlight(env, exports) || !define_paged_files(env, exports) || !define_paged_reads(env, exports) ||
-      !define_paged_vectors(env, exports)) {
+      !define_folding(env, exports) || !define_highlight(env, exports) || !define_paged_files(env, exports) ||
+      !define_paged_reads(env, exports) || !define_paged_vectors(env, exports)) {
     return throw_error(env, "the native search core cannot define its functions");
   }
   return exports;

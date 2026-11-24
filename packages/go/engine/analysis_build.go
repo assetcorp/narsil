@@ -36,6 +36,7 @@ func detachedBuilder(settings index.Settings, built *index.Index) func() (*index
 		current := settings
 		current.Synonyms = built.Synonyms()
 		current.BM25 = built.BM25()
+		current.FoldMarks = built.FoldMarks()
 		return index.New(current)
 	}
 }

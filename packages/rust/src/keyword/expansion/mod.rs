@@ -1,3 +1,4 @@
+mod folded;
 mod partial;
 mod prefix;
 mod suggestions;
@@ -14,6 +15,7 @@ use crate::native::status::core_refused;
 use crate::native::workspace::with_workspace;
 use crate::search::lookup::token_text;
 
+pub(crate) use folded::FoldedWordRequest;
 pub(crate) use partial::PartialWordRequest;
 
 enum HeldView {

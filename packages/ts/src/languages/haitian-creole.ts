@@ -118,4 +118,5 @@ export const haitianCreole: LanguageModule = {
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9èò]+/gi },
+  folding: {},
 }

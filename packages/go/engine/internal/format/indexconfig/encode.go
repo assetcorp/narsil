@@ -18,6 +18,7 @@ func (config Configuration) Value() codec.OrderedMap {
 	is.PutOptional(&entries, "tokenizer", config.Tokenizer, is.Text)
 	is.PutOptional(&entries, "stopWords", config.StopWords, is.Text)
 	is.PutOptional(&entries, "stopWordList", config.StopWordList, is.Texts)
+	is.PutOptional(&entries, "foldMarks", config.FoldMarks, is.Flag)
 	is.PutOptional(&entries, "analysisGeneration", config.AnalysisGeneration, is.Number[uint64])
 	if config.BM25 != nil {
 		is.Put(&entries, "bm25", config.BM25.Value())
