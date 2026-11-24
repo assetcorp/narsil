@@ -3,6 +3,8 @@ package partition
 import (
 	"maps"
 	"slices"
+
+	"github.com/assetcorp/narsil/packages/go/engine/internal/core"
 )
 
 func (p *Partition) catchUp(write *Write) error {
@@ -83,6 +85,7 @@ func (p *Partition) copySide(target, source *side) error {
 	}
 	source.gen.documents.copySide(source.index, target.index)
 	target.gen, target.growing, target.fields, target.frozen = source.gen, growing, set, frozen
+	target.folds = core.NewFoldTable()
 	target.viewFields, target.fieldCount = source.viewFields, source.fieldCount
 	target.capacity, target.liveCount = source.capacity, source.liveCount
 	target.ids, target.live = maps.Clone(source.ids), slices.Clone(source.live)
