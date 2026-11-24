@@ -1,12 +1,11 @@
 import type { ResolvedAnalysis } from '../../analysis/registry'
-import { spellingFoldsOf } from '../../core/folding/code'
+import { foldedHighlightOf } from '../../core/folding/code'
 import { partialWordsToHighlight } from '../../core/partition/partial-words/registry'
 import type { SynonymLookup } from '../../core/synonyms/types'
 import { tokenize } from '../../core/tokenizer'
-import { type FoldedHighlight, highlightField, type PartialWordHighlight } from '../../highlighting/highlighter'
+import { highlightField, type PartialWordHighlight } from '../../highlighting/highlighter'
 import { partialFieldsOf } from '../../schema/validator'
 import { DEFAULT_FUZZY_PREFIX_LENGTH } from '../../search/constants'
-import type { QueryPhrases } from '../../search/phrase-analysis'
 import { analyseQueryPhrases, requireLoadedPhraseCode } from '../../search/phrase-code'
 import type { LanguageModule } from '../../types/language'
 import type { HighlightMatch, Hit } from '../../types/results'
@@ -46,35 +45,6 @@ function partialWordTagging(
   return {
     fields: new Set(fields),
     highlight: { words, customTokenizer: analysis.customTokenizer, stopWordOverride: analysis.stopWords },
-  }
-}
-
-function foldedHighlightOf(
-  language: LanguageModule,
-  queryTokens: readonly QueryToken[],
-  written: readonly QueryToken[],
-  quoted: QueryPhrases | null,
-  tolerance: number,
-  completedToken: string | undefined,
-  prefixToken: string | undefined,
-): FoldedHighlight {
-  const folds = spellingFoldsOf(language)
-  const writtenAt = new Map(written.map(entry => [entry.position, entry.token]))
-  const phraseKeys = new Set<string>()
-  for (const phrase of quoted?.phrases ?? []) {
-    for (let at = 0; at < phrase.tokens.length; at++) {
-      phraseKeys.add(folds.keyOf(phrase.written?.[at] ?? phrase.tokens[at]))
-    }
-  }
-  return {
-    keyOf: folds.keyOf,
-    foldOf: folds.foldOf,
-    keys: queryTokens.map(query => ({
-      key: folds.keyOf(writtenAt.get(query.position) ?? query.token),
-      tolerance: query.token === completedToken ? 0 : tolerance,
-    })),
-    phraseKeys,
-    ...(prefixToken !== undefined ? { prefix: folds.foldOf(prefixToken) } : {}),
   }
 }
 
@@ -130,9 +100,15 @@ export function applyHighlights<T>(
   const tolerance = params.exact === true ? 0 : (params.tolerance ?? 0)
   const folding =
     folds && (queryTokens.length > 0 || phraseTokens.length > 0)
-      ? foldedHighlightOf(language, queryTokens, written, quoted, tolerance, completedToken, prefixToken)
+      ? foldedHighlightOf({ language, queryTokens, written, quoted, tolerance, completedToken, prefixToken })
       : undefined
-  const partialFolds = partialWords?.highlight.words.map(word => folding?.foldOf(word) ?? word)
+  const partialHighlight =
+    partialWords === null || folding === undefined
+      ? partialWords?.highlight
+      : {
+          ...partialWords.highlight,
+          folded: { foldOf: folding.foldOf, words: partialWords.highlight.words.map(folding.foldOf) },
+        }
 
   for (const hit of hits) {
     const highlights: Record<string, HighlightMatch> = {}
@@ -153,10 +129,9 @@ export function applyHighlights<T>(
           completedToken,
           tolerance,
           prefixLength: params.prefixLength ?? DEFAULT_FUZZY_PREFIX_LENGTH,
-          partialWords: partialWords?.fields.has(field) === true ? partialWords.highlight : undefined,
+          partialWords: partialWords?.fields.has(field) === true ? partialHighlight : undefined,
           synonyms,
-          folding:
-            folding !== undefined && partialWords?.fields.has(field) === true ? { ...folding, partialFolds } : folding,
+          folding,
         })
       }
     }

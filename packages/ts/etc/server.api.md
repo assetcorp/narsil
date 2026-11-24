@@ -346,6 +346,7 @@ export interface HttpIndexConfig {
     bm25?: BM25Params;
     defaultScoring?: 'local' | 'dfs' | 'broadcast';
     embedding?: CreateIndexEmbedding;
+    foldMarks?: boolean;
     language?: string;
     partitions?: {
         maxDocsPerPartition?: number;

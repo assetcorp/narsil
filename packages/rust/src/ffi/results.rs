@@ -114,6 +114,15 @@ pub struct narsil_highlight_term {
 }
 
 #[repr(C)]
+pub struct narsil_folded_highlight {
+    pub keys: *const narsil_highlight_term,
+    pub key_count: usize,
+    pub prefix: narsil_highlight_text,
+    pub partial_words: *const narsil_highlight_text,
+    pub partial_count: usize,
+}
+
+#[repr(C)]
 pub struct narsil_highlight_query {
     pub terms: *const narsil_highlight_term,
     pub term_count: usize,
@@ -123,6 +132,7 @@ pub struct narsil_highlight_query {
     pub synonym_count: usize,
     pub partial_words: *const narsil_highlight_text,
     pub partial_count: usize,
+    pub folded: *const narsil_folded_highlight,
 }
 
 #[repr(C)]

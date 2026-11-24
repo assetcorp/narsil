@@ -1,6 +1,6 @@
 import type { FoldedQueryTerm, PostingListView } from '../../types/internal'
+import { addFoldedTypoMatches } from '../folding/code'
 import type { InvertedIndexReader } from '../inverted-index'
-import { compareCodePoints } from '../ordering/code-points'
 
 type TypoMatch = { token: string; postingList: PostingListView }
 
@@ -20,20 +20,7 @@ export function withFoldedTypoMatches(
   matches: TypoMatch[],
   folded: FoldedQueryTerm | undefined,
 ): TypoMatch[] {
-  if (folded === undefined) return matches
-  const kept =
-    folded.variants.length === 0
-      ? matches
-      : matches.filter(match => match.token === folded.token || !folded.variants.includes(match.token))
-  if (folded.typoMatches.length === 0) return kept
-  const held = new Set(kept.map(match => match.token))
-  const added = kept === matches ? [...matches] : kept
-  for (const token of folded.typoMatches) {
-    if (held.has(token)) continue
-    const postingList = index.lookup(token)
-    if (postingList !== undefined) added.push({ token, postingList })
-  }
-  return added.length > 1 ? added.sort((left, right) => compareCodePoints(left.token, right.token)) : added
+  return folded === undefined ? matches : addFoldedTypoMatches(index, matches, folded)
 }
 
 export function hasFoldedTerms(terms: readonly FoldedQueryTerm[] | undefined): boolean {

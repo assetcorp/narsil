@@ -115,7 +115,8 @@ narsil_pinned_output entries capacity count
 narsil_page_request count sorted has_scores has_anchor_score scores scores_length score_present score_present_length after_anchor after_anchor_length anchor_score
 narsil_highlight_text units length
 narsil_highlight_term text tolerance
-narsil_highlight_query terms term_count prefix_length prefix synonyms synonym_count partial_words partial_count
+narsil_folded_highlight keys key_count prefix partial_words partial_count
+narsil_highlight_query terms term_count prefix_length prefix synonyms synonym_count partial_words partial_count folded
 narsil_highlight_request language text query pre_tag post_tag maximum
 narsil_highlight_output snippet snippet_capacity positions position_words snippet_length length_capacity
 narsil_fusion_leg keys scores count

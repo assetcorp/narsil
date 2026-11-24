@@ -12,6 +12,7 @@ export interface AdapterRegistrationOperations {
 
 // @public
 export interface AnalysisChange {
+    foldMarks?: boolean | null;
     language?: string;
     stopWords?: string | readonly string[] | ReadonlySet<string> | null;
     tokenizer?: string | null;
@@ -545,6 +546,7 @@ export interface IndexConfig {
     bm25?: BM25Params;
     defaultScoring?: ScoringMode;
     embedding?: EmbeddingFieldConfig;
+    foldMarks?: boolean;
     language?: string;
     partitions?: PartitionConfig;
     patternValueLimit?: number;
@@ -652,7 +654,13 @@ export function isNarsilError(value: unknown): value is NarsilError;
 export function isSimdAvailable(): boolean;
 
 // @public
+export interface LanguageFolding {
+    letters?: Readonly<Record<string, string>>;
+}
+
+// @public
 export interface LanguageModule {
+    folding?: LanguageFolding;
     name: string;
     normalizer?: (token: string) => string;
     revision: string;
@@ -978,6 +986,18 @@ export interface NativeFilterCore {
 // @internal
 export type NativeFilterRegion = Uint16Array | Uint32Array | Float64Array | BigUint64Array;
 
+// Warning: (ae-internal-missing-underscore) The name "NativeFoldedHighlight" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativeFoldedHighlight {
+    keys: readonly {
+        key: Uint16Array;
+        tolerance: number;
+    }[];
+    partialWords: readonly Uint16Array[] | null;
+    prefix: Uint16Array | null;
+}
+
 // Warning: (ae-internal-missing-underscore) The name "NativeFrozenPagedRemovals" should be prefixed with an underscore because the declaration is marked as @internal
 //
 // @internal
@@ -1164,6 +1184,7 @@ export interface NativeHighlightCore {
 //
 // @internal
 export interface NativeHighlightQuery {
+    folded: NativeFoldedHighlight | null;
     partialWords: readonly Uint16Array[] | null;
     prefix: Uint16Array | null;
     prefixLength: number;

@@ -1,15 +1,25 @@
 import { importOptionalReads } from '../../engine/optional-reads-code'
 import { lazyCode } from '../../search/lazy-code'
 import type { LanguageModule } from '../../types/language'
-import type * as FoldingKeys from './keys'
+import type * as FoldedHighlights from './highlight'
 import type * as FoldedPartialWords from './partial-words'
+import type * as FoldedReachedTokens from './reached-tokens'
 import type * as Folding from './resolve'
+import type * as FoldedTypoMatches from './typo-matches'
 
 const code = lazyCode('folded matching', importOptionalReads)
 
-export type { SpellingFolds } from './keys'
+export const addFoldedTypoMatches: typeof FoldedTypoMatches.addFoldedTypoMatches = (...args) =>
+  code.get().addFoldedTypoMatches(...args)
 
-export const spellingFoldsOf: typeof FoldingKeys.spellingFoldsOf = (...args) => code.get().spellingFoldsOf(...args)
+export const foldedHighlightOf: typeof FoldedHighlights.foldedHighlightOf = (...args) =>
+  code.get().foldedHighlightOf(...args)
+
+export const addFoldedTermTokens: typeof FoldedReachedTokens.addFoldedTermTokens = (...args) =>
+  code.get().addFoldedTermTokens(...args)
+
+export const foldedPhraseVariants: typeof FoldedReachedTokens.foldedPhraseVariants = (...args) =>
+  code.get().foldedPhraseVariants(...args)
 
 export function indexFolds(foldMarks: boolean | undefined, language: LanguageModule): boolean {
   return foldMarks ?? language.folding !== undefined

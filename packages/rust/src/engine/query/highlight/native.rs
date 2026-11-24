@@ -109,6 +109,7 @@ impl CoreHighlightQuery {
                 synonym_count: synonyms.len(),
                 partial_words: partial_words.as_ptr(),
                 partial_count: partial_words.len(),
+                folded: ptr::null(),
             },
             pre_tag: text_of(&self.pre_tag),
             post_tag: text_of(&self.post_tag),

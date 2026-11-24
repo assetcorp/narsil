@@ -175,9 +175,15 @@ static narsil_status highlight_text(narsil_workspace *workspace, void *opaque) {
                                    {{nation, sizeof nation / sizeof nation[0]}, 1}};
   narsil_highlight_text synonyms[] = {{prefix, sizeof prefix / sizeof prefix[0]}};
   narsil_highlight_text partial_words[] = {{partial, sizeof partial / sizeof partial[0]}};
-  narsil_highlight_query query = {
-      terms, sizeof terms / sizeof terms[0], 1, {prefix, sizeof prefix / sizeof prefix[0]}, synonyms, 1, partial_words,
-      1};
+  narsil_highlight_query query = {terms,
+                                  sizeof terms / sizeof terms[0],
+                                  1,
+                                  {prefix, sizeof prefix / sizeof prefix[0]},
+                                  synonyms,
+                                  1,
+                                  partial_words,
+                                  1,
+                                  NULL};
   narsil_highlight_request request = {inputs->language,
                                       {inputs->text, inputs->length},
                                       query,

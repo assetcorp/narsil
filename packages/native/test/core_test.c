@@ -737,6 +737,7 @@ int main(int argc, char **argv) {
   synonym_checks();
   phrase_checks(workspace);
   highlight_checks(workspace);
+  folded_highlight_checks(workspace);
   folding_checks();
   paged_vector_checks(workspace);
   paged_posting_checks(workspace);

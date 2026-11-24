@@ -184,7 +184,11 @@ export type {
   NativeFrozenStrings,
 } from './vector/native/types/frozen-segments'
 export type { NativeGroupCore } from './vector/native/types/groups'
-export type { NativeHighlightCore, NativeHighlightQuery } from './vector/native/types/highlight'
+export type {
+  NativeFoldedHighlight,
+  NativeHighlightCore,
+  NativeHighlightQuery,
+} from './vector/native/types/highlight'
 export type {
   NativePageCache,
   NativePagedCore,

@@ -21,7 +21,7 @@ void highlight_checks(narsil_workspace *workspace) {
   const uint16_t after[] = {']'};
   const uint16_t expected[] = {'[', 'r', 'u', 'n', 'n', 'i', 'n', 'g', ']'};
   narsil_highlight_term query_term = {{term, STEM_LENGTH}, 0};
-  narsil_highlight_query query = {&query_term, 1, 0, {NULL, 0}, NULL, 0, NULL, 0};
+  narsil_highlight_query query = {&query_term, 1, 0, {NULL, 0}, NULL, 0, NULL, 0, NULL};
   narsil_highlight_request request = {language, {text, TEXT_LENGTH}, query, {before, 1}, {after, 1}, 0};
   uint16_t snippet[SNIPPET_LENGTH] = {0};
   uint32_t positions[2] = {0};

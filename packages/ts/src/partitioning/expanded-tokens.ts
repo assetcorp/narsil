@@ -1,11 +1,10 @@
-import { resolveFoldedPhrases, resolveFoldedTerms } from '../core/folding/code'
+import { addFoldedTermTokens, foldedPhraseVariants } from '../core/folding/code'
 import type { PartitionIndex } from '../core/partition'
 import { partitionStateOf } from '../core/partition'
 import { isCompositePartition } from '../core/partition/composite'
 import type { PartitionReadState } from '../core/partition/read-state'
 import { tokenize } from '../core/tokenizer'
 import { DEFAULT_FUZZY_PREFIX_LENGTH } from '../search/constants'
-import type { QueryPhrases } from '../search/phrase-analysis'
 import { analyseQueryPhrases } from '../search/phrase-code'
 import { resolveTermGroups, type TermGroupAnalysis, writtenWordsByPosition } from '../search/term-groups'
 import type { LanguageModule } from '../types/language'
@@ -91,7 +90,7 @@ function addPartitionTokens(
     }
   }
   if (analysis.folds !== true) return
-  const foldedTerms = resolveFoldedTerms({
+  addFoldedTermTokens(addedMembers, {
     partition,
     language,
     queryTokens,
@@ -100,25 +99,6 @@ function addPartitionTokens(
     prefixLength,
     termGroups,
   })
-  for (const folded of foldedTerms ?? []) {
-    for (const token of folded.variants) addedMembers.add(token)
-    for (const token of folded.typoMatches) addedMembers.add(token)
-  }
-}
-
-function foldedPhraseVariants(
-  partitions: readonly PartitionIndex[],
-  language: LanguageModule,
-  quoted: QueryPhrases | null,
-): string[] {
-  if (quoted === null || quoted.phrases.length === 0) return []
-  const found = new Set<string>()
-  for (const partition of partitions) {
-    for (const phrase of resolveFoldedPhrases(partition, language, quoted.phrases)) {
-      for (const variants of phrase.variants ?? []) for (const variant of variants) found.add(variant)
-    }
-  }
-  return [...found]
 }
 
 export function addReachedTokens(
@@ -132,7 +112,10 @@ export function addReachedTokens(
   if (requested.options.exact === true) return []
   const quoted = analyseQueryPhrases(term, language, analysis, analysis.folds === true)
   const words = quoted?.words ?? term
-  const phraseVariants = analysis.folds === true ? foldedPhraseVariants(partitions, language, quoted) : []
+  const phraseVariants =
+    analysis.folds === true && quoted !== null && quoted.phrases.length > 0
+      ? foldedPhraseVariants(partitions, language, quoted.phrases)
+      : []
   for (const token of phraseVariants) tokens.add(token)
   if (quoted !== null && words.trim().length === 0) return phraseVariants
   const expansion =
