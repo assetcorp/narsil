@@ -9,7 +9,7 @@ import { remoteErrorDetails } from '../error-reply'
 import { sendUntilMaybeDelivered } from '../transport-failure'
 import { abandonedWriteFrom, conditionFields, withAbandonedWrite } from './abandoned-write'
 import { resolveNodeTargets } from './assignment'
-import { requireOpenWindow } from './forward-window'
+import { beforeShutdown, requireOpenWindow, WINDOW_ENDED } from './forward-window'
 import type { WriteRoutingDeps } from './types'
 
 export function assertForwardResponse(
@@ -50,7 +50,9 @@ export async function forwardInsertToRemote(
   }
   if (indexUuid !== undefined) payload.indexUuid = indexUuid
   const message = createForwardMessage(payload, deps.nodeId)
-  const response = await sendToNode(primaryNodeId, message, deps, () => requireOpenWindow(deadline, indexName, docId))
+  const response = await sendToNode(primaryNodeId, message, deps, () =>
+    requireOpenWindow(deadline, indexName, docId, deps.shutdownSignal),
+  )
   const decoded = assertForwardResponse(response, indexName, primaryNodeId)
   if (typeof decoded.documentId !== 'string') {
     throw new NarsilError(
@@ -82,7 +84,9 @@ export async function forwardUpdateToRemote(
   }
   if (indexUuid !== undefined) payload.indexUuid = indexUuid
   const message = createForwardMessage(payload, deps.nodeId)
-  const response = await sendToNode(primaryNodeId, message, deps, () => requireOpenWindow(deadline, indexName, docId))
+  const response = await sendToNode(primaryNodeId, message, deps, () =>
+    requireOpenWindow(deadline, indexName, docId, deps.shutdownSignal),
+  )
   assertForwardResponse(response, indexName, primaryNodeId)
 }
 
@@ -105,7 +109,9 @@ export async function forwardRemoveToRemote(
   }
   if (indexUuid !== undefined) payload.indexUuid = indexUuid
   const message = createForwardMessage(payload, deps.nodeId)
-  const response = await sendToNode(primaryNodeId, message, deps, () => requireOpenWindow(deadline, indexName, docId))
+  const response = await sendToNode(primaryNodeId, message, deps, () =>
+    requireOpenWindow(deadline, indexName, docId, deps.shutdownSignal),
+  )
   assertForwardResponse(response, indexName, primaryNodeId)
 }
 
@@ -118,7 +124,11 @@ export async function sendToNode(
   const targets = await resolveNodeTargets(nodeId, deps)
   const send = async (target: string) => {
     assertSending()
-    return refuseCarrierFailure(await deps.transport.send(target, message), target)
+    const sending = deps.transport.send(target, message)
+    const answer = await beforeShutdown(sending, deps.shutdownSignal)
+    if (answer !== WINDOW_ENDED) return refuseCarrierFailure(answer, target)
+    assertSending()
+    return refuseCarrierFailure(await sending, target)
   }
   return sendUntilMaybeDelivered(targets, send, {
     message: `Node '${nodeId}' did not answer a forwarded write`,

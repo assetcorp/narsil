@@ -17,24 +17,81 @@ export async function beforeWindowEnds<T>(work: Promise<T>, deadline: number): P
   }
 }
 
-export function windowEndedOutcome(indexName: string, docId: string): NarsilError {
+const waitersBySignal = new WeakMap<AbortSignal, Set<() => void>>()
+
+function shutdownWaitersOf(shutdownSignal: AbortSignal): Set<() => void> {
+  const known = waitersBySignal.get(shutdownSignal)
+  if (known !== undefined) return known
+  const waiters = new Set<() => void>()
+  waitersBySignal.set(shutdownSignal, waiters)
+  shutdownSignal.addEventListener(
+    'abort',
+    () => {
+      for (const wake of waiters) wake()
+      waiters.clear()
+    },
+    { once: true },
+  )
+  return waiters
+}
+
+export function beforeShutdown<T>(
+  work: Promise<T>,
+  shutdownSignal: AbortSignal | undefined,
+): Promise<T | typeof WINDOW_ENDED> {
+  if (shutdownSignal === undefined) return work
+  if (shutdownSignal.aborted) {
+    work.catch(() => undefined)
+    return Promise.resolve(WINDOW_ENDED)
+  }
+  const waiters = shutdownWaitersOf(shutdownSignal)
+  return new Promise<T | typeof WINDOW_ENDED>((resolve, reject) => {
+    const wake = (): void => resolve(WINDOW_ENDED)
+    waiters.add(wake)
+    work.then(
+      value => {
+        waiters.delete(wake)
+        resolve(value)
+      },
+      error => {
+        waiters.delete(wake)
+        reject(error)
+      },
+    )
+  })
+}
+
+export function windowEndedOutcome(indexName: string, docId: string, shutdownSignal?: AbortSignal): NarsilError {
+  const cause =
+    shutdownSignal?.aborted === true
+      ? 'once it began to shut down'
+      : `once ${PRIMARY_CHANGE_RETRY_WINDOW_MS}ms had passed`
   return new NarsilError(
     ErrorCodes.REPLICATION_OUTCOME_UNKNOWN,
-    `This node stopped waiting for the primary of index '${indexName}' to answer the write to document '${docId}' once ${PRIMARY_CHANGE_RETRY_WINDOW_MS}ms had passed, so the write may or may not have taken effect. Read the document before you retry the write.`,
+    `This node stopped waiting for the primary of index '${indexName}' to answer the write to document '${docId}' ${cause}, so the write may or may not have taken effect. Read the document before you retry the write.`,
     { indexName, docId, reason: 'forward_window_ended' },
   )
 }
 
-export function windowClosed(deadline: number): boolean {
-  return Date.now() >= deadline
+export function windowClosed(deadline: number, shutdownSignal?: AbortSignal): boolean {
+  return Date.now() >= deadline || shutdownSignal?.aborted === true
 }
 
-export function requireOpenWindow(deadline: number, indexName: string, docId: string): void {
-  if (windowClosed(deadline)) throw windowEndedOutcome(indexName, docId)
+export function requireOpenWindow(
+  deadline: number,
+  indexName: string,
+  docId: string,
+  shutdownSignal?: AbortSignal,
+): void {
+  if (windowClosed(deadline, shutdownSignal)) throw windowEndedOutcome(indexName, docId, shutdownSignal)
 }
 
-export function unsentAfterWindow<V>(indexName: string, writes: readonly BatchWrite<V>[]): WriteFailure<V>[] {
-  return writes.map(write => ({ write, error: windowEndedOutcome(indexName, write.docId) }))
+export function unsentAfterWindow<V>(
+  indexName: string,
+  writes: readonly BatchWrite<V>[],
+  shutdownSignal?: AbortSignal,
+): WriteFailure<V>[] {
+  return writes.map(write => ({ write, error: windowEndedOutcome(indexName, write.docId, shutdownSignal) }))
 }
 
 export function interruptedOutcome(indexName: string, docId: string, error: unknown): NarsilError {

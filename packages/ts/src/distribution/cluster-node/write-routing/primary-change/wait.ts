@@ -6,7 +6,7 @@ import {
   PRIMARY_CHANGE_POLL_INTERVAL_MS,
 } from '../../constants'
 import { resolvePartitionId } from '../assignment'
-import { beforeWindowEnds, WINDOW_ENDED, windowClosed } from '../forward-window'
+import { beforeShutdown, beforeWindowEnds, WINDOW_ENDED, windowClosed } from '../forward-window'
 import type { WriteRoutingDeps } from '../types'
 
 export interface RefusingPrimary {
@@ -63,8 +63,8 @@ export async function pauseAndRereadTable(
 ): Promise<boolean> {
   const untilDeadlineMs = deadline - Date.now()
   if (untilDeadlineMs <= 0) return false
-  await pause(Math.min(delayMs, untilDeadlineMs))
-  if (deps.stopped?.() === true) return false
+  await beforeShutdown(pause(Math.min(delayMs, untilDeadlineMs)), deps.shutdownSignal)
+  if (deps.stopped?.() === true || deps.shutdownSignal?.aborted === true) return false
   try {
     const live = await beforeWindowEnds(liveTable(deps, indexName), deadline)
     if (live === WINDOW_ENDED || live === null) return false
@@ -85,14 +85,14 @@ export async function awaitNewPrimary(
   refusing: RefusingPrimary[],
   deadline: number,
 ): Promise<boolean> {
-  while (Date.now() < deadline) {
+  while (!windowClosed(deadline, deps.shutdownSignal)) {
     let table: AllocationTable | null | undefined | typeof WINDOW_ENDED
     try {
-      table = await beforeWindowEnds(liveTable(deps, indexName), deadline)
+      table = await beforeShutdown(beforeWindowEnds(liveTable(deps, indexName), deadline), deps.shutdownSignal)
     } catch (_) {
       table = undefined
     }
-    if (table === null || table === WINDOW_ENDED) return false
+    if (table === null || table === WINDOW_ENDED || deps.shutdownSignal?.aborted === true) return false
     if (table !== undefined && refusing.some(primary => movedOn(table, primary))) return true
     await pause(Math.max(0, Math.min(PRIMARY_CHANGE_POLL_INTERVAL_MS, deadline - Date.now())))
   }

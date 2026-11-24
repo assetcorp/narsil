@@ -275,15 +275,27 @@ impl NarsilServer {
     /// Closes the server as [`NarsilServer::close`] does, stops every running task and waits for it, then shuts the
     /// engine down.
     ///
+    /// A server that fronts a cluster node shuts the node down while it closes, because a node that has started to shut
+    /// down stops waiting for the primary of each write that it forwarded. Such a write answers with its last refusal,
+    /// or with `REPLICATION_OUTCOME_UNKNOWN` where the primary may have applied it, so that every running request can
+    /// finish before the node leaves the cluster.
+    ///
     /// # Errors
     ///
     /// Returns the engine's error where its shutdown fails.
     pub async fn shutdown(&self) -> Result<(), NarsilError> {
-        self.close().await;
-        self.state.tasks.shutdown().await;
-        #[cfg(feature = "cluster")]
-        if let Some(node) = &self.state.cluster {
-            node.shutdown().await;
+        let stopping = async {
+            self.state.tasks.shutdown().await;
+            #[cfg(feature = "cluster")]
+            if let Some(node) = &self.state.cluster {
+                node.shutdown().await;
+            }
+        };
+        if self.state.fronts_cluster() {
+            tokio::join!(self.close(), stopping);
+        } else {
+            self.close().await;
+            stopping.await;
         }
         let engine = Arc::clone(&self.state.engine);
         tokio::task::spawn_blocking(move || engine.shutdown())

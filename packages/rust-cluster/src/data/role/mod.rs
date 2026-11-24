@@ -291,6 +291,12 @@ impl DataRole {
         partition_stores_answer(message, &self.node_id, &index_name, stored)
     }
 
+    pub(crate) fn end_lead_holds(&self) {
+        if let Some(writes) = lock(&self.writes).as_ref() {
+            writes.end_lead_holds();
+        }
+    }
+
     pub(crate) async fn close(&self) {
         self.search_contexts.stop();
         if let Some((_, analysis_watch)) = lock(&self.analysis).take() {

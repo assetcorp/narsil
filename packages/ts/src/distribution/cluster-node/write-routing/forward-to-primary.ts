@@ -94,8 +94,8 @@ export async function forwardBatchToRemote<V extends AnyDocument | null>(
     return { succeeded, failed }
   }
 
-  if (windowClosed(deadline)) {
-    return { succeeded, failed: unsentAfterWindow(indexName, writes) }
+  if (windowClosed(deadline, deps.shutdownSignal)) {
+    return { succeeded, failed: unsentAfterWindow(indexName, writes, deps.shutdownSignal) }
   }
 
   if (writes.length === 1) {
@@ -123,8 +123,10 @@ export async function forwardBatchToRemote<V extends AnyDocument | null>(
   }
   let undelivered: unknown
   for (const planned of chunkOutgoing(outgoing)) {
-    if (windowClosed(deadline)) {
-      for (const { write } of planned) failed.push({ write, error: windowEndedOutcome(indexName, write.docId) })
+    if (windowClosed(deadline, deps.shutdownSignal)) {
+      for (const { write } of planned) {
+        failed.push({ write, error: windowEndedOutcome(indexName, write.docId, deps.shutdownSignal) })
+      }
       continue
     }
     if (undelivered !== undefined) {
@@ -148,8 +150,8 @@ export async function forwardBatchToRemote<V extends AnyDocument | null>(
         indexUuid === undefined ? { indexName, operations } : { indexName, operations, indexUuid }
       const message = createForwardBatchMessage(payload, deps.nodeId)
       const response = await sendToNode(primaryNodeId, message, deps, () => {
-        if (!windowClosed(deadline)) return
-        windowEndedAtSend = windowEndedOutcome(indexName, only.docId)
+        if (!windowClosed(deadline, deps.shutdownSignal)) return
+        windowEndedAtSend = windowEndedOutcome(indexName, only.docId, deps.shutdownSignal)
         throw windowEndedAtSend
       })
       const decoded = assertForwardResponse(response, indexName, primaryNodeId)
@@ -189,7 +191,9 @@ export async function forwardBatchToRemote<V extends AnyDocument | null>(
       }
     } catch (err) {
       if (err !== null && err === windowEndedAtSend) {
-        for (const { write } of chunk) failed.push({ write, error: windowEndedOutcome(indexName, write.docId) })
+        for (const { write } of chunk) {
+          failed.push({ write, error: windowEndedOutcome(indexName, write.docId, deps.shutdownSignal) })
+        }
         continue
       }
       if (err instanceof NarsilError && (forwardUnsent(err) || forwardInterrupted(err))) undelivered = unsentAfter(err)

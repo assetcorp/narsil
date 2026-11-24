@@ -65,12 +65,13 @@ impl PrimaryWrites {
         let mut table_changes = self.view.changes();
         let mut hold_changes = held.partition.lead_hold_changes.subscribe();
         let mut stopping = self.stopping.subscribe();
+        let mut shutting_down = self.shutting_down.subscribe();
         let mut retry_delay = Duration::from_millis(LEAD_HANDOFF_TABLE_READ_RETRY_INITIAL_DELAY_MS);
         loop {
             let Some(deadline) = held.partition.lead_hold_deadline(held.number) else {
                 return;
             };
-            if self.is_stopping() || !self.leads_in_view(held) {
+            if self.is_stopping() || *self.shutting_down.borrow() || !self.leads_in_view(held) {
                 return;
             }
             if Instant::now() < deadline {
@@ -78,6 +79,7 @@ impl PrimaryWrites {
                     open = changed_or_closed(&mut table_changes) => if !open { return },
                     open = changed_or_closed(&mut hold_changes) => if !open { return },
                     _ = stopping.changed() => return,
+                    _ = shutting_down.changed() => return,
                     () = tokio::time::sleep_until(deadline.into()) => {}
                 }
                 continue;
@@ -92,6 +94,7 @@ impl PrimaryWrites {
                     continue;
                 },
                 _ = stopping.changed() => return,
+                _ = shutting_down.changed() => return,
                 read = self.view.read_live(&held.index_name) => read,
             };
             match read {
@@ -106,6 +109,7 @@ impl PrimaryWrites {
                     tokio::select! {
                         open = changed_or_closed(&mut hold_changes) => if !open { return },
                         _ = stopping.changed() => return,
+                        _ = shutting_down.changed() => return,
                         () = tokio::time::sleep(retry_delay) => {}
                     }
                     retry_delay = (retry_delay * 2).min(Duration::from_millis(

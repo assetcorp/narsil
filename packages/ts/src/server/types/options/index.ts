@@ -330,6 +330,13 @@ export interface NarsilServer {
    * Closes the server and then shuts the engine down, which is what a process
    * whose work is this server calls on its way out.
    *
+   * Where the `cluster` option is set, the server shuts the cluster node down
+   * while it closes, because a node that has started to shut down stops
+   * waiting for the primary of each write that it forwarded. Such a write
+   * answers with its last refusal, or with `REPLICATION_OUTCOME_UNKNOWN` where
+   * the primary may have applied it, so that every running request can finish
+   * before the node leaves the cluster.
+   *
    * Shutting the engine down is what ends the request threads, so Node aborts
    * a process that exits while one of those threads still holds a client
    * connection. Call {@link NarsilServer.close} alone where the engine

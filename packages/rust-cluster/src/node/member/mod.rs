@@ -341,6 +341,15 @@ impl NodeInner {
         Ok(())
     }
 
+    pub(super) fn stop_waiting(&self) {
+        if let Some(router) = lock(&self.router).as_ref() {
+            router.stop_waiting();
+        }
+        if let Some(data) = &self.data {
+            data.end_lead_holds();
+        }
+    }
+
     pub(super) async fn leave(&self) {
         self.joined.store(false, Ordering::Release);
         self.backups.stop();

@@ -6,8 +6,8 @@ use tokio::time::Instant;
 
 use super::WriteRouter;
 use super::rules::{
-    forward_interrupted, forward_unsent, retriable, transport_failure, unsent_after,
-    window_ended_outcome,
+    forward_interrupted, forward_unsent, retriable, shutdown_outcome, transport_failure,
+    unsent_after, window_ended_outcome,
 };
 use super::write::{Attempted, PendingWrite, Refused};
 use crate::error::{ClusterError, ClusterResult, codes};
@@ -20,14 +20,23 @@ use crate::payload::client::{
 use crate::payload::forward::{ForwardKind, WriteFailure};
 use crate::wire_size::wire_batches;
 
+fn ended_window(serving_name: &str, document_id: &str, shutting_down: bool) -> ClusterError {
+    if shutting_down {
+        shutdown_outcome(serving_name, document_id)
+    } else {
+        window_ended_outcome(serving_name, document_id)
+    }
+}
+
 pub(super) fn unsent_after_window(
     serving_name: &str,
     writes: &[PendingWrite],
+    shutting_down: bool,
 ) -> Vec<(usize, Attempted)> {
     writes
         .iter()
         .map(|write| {
-            let ended = window_ended_outcome(serving_name, write.document_id());
+            let ended = ended_window(serving_name, write.document_id(), shutting_down);
             (write.position, Err(Refused::of(ended)))
         })
         .collect()
@@ -37,9 +46,10 @@ fn require_open_window(
     serving_name: &str,
     document_id: &str,
     deadline: Instant,
+    shutting_down: bool,
 ) -> ClusterResult<()> {
-    if Instant::now() >= deadline {
-        return Err(window_ended_outcome(serving_name, document_id));
+    if shutting_down || Instant::now() >= deadline {
+        return Err(ended_window(serving_name, document_id, shutting_down));
     }
     Ok(())
 }
@@ -73,9 +83,22 @@ impl WriteRouter {
             payload,
         );
         let mut failure = None;
+        let mut shutting_down = self.stopping.subscribe();
         for target in self.view.targets(primary) {
             assert_sending()?;
-            match self.transport.send(&target, message.clone()).await {
+            let sending = self.transport.send(&target, message.clone());
+            tokio::pin!(sending);
+            let mut watching_shutdown = true;
+            let answered = loop {
+                tokio::select! {
+                    answered = &mut sending => break answered,
+                    _ = shutting_down.wait_for(|stopping| *stopping), if watching_shutdown => {
+                        assert_sending()?;
+                        watching_shutdown = false;
+                    }
+                }
+            };
+            match answered {
                 Ok(answer) if answer.message_type == CARRIER_ERROR_TYPE => {
                     failure = answer.failure();
                     break;
@@ -114,7 +137,12 @@ impl WriteRouter {
         let payload = encode_forward_request(serving_name, index_uuid, &write.outgoing());
         let answer = self
             .send_to_primary(primary, message_types::REPLICATION_FORWARD, payload, || {
-                require_open_window(serving_name, write.document_id(), deadline)
+                require_open_window(
+                    serving_name,
+                    write.document_id(),
+                    deadline,
+                    self.is_stopping(),
+                )
             })
             .await
             .map_err(Refused::of)?;
@@ -146,7 +174,12 @@ impl WriteRouter {
                 message_types::REPLICATION_FORWARD_BATCH,
                 payload,
                 || {
-                    let open = require_open_window(serving_name, first.document_id(), deadline);
+                    let open = require_open_window(
+                        serving_name,
+                        first.document_id(),
+                        deadline,
+                        self.is_stopping(),
+                    );
                     if open.is_err() {
                         window_ended_at_send.store(true, Ordering::Release);
                     }
@@ -155,7 +188,7 @@ impl WriteRouter {
             )
             .await;
         if sent.is_err() && window_ended_at_send.load(Ordering::Acquire) {
-            return Ok(unsent_after_window(serving_name, chunk)
+            return Ok(unsent_after_window(serving_name, chunk, self.is_stopping())
                 .into_iter()
                 .map(|(_, attempted)| attempted)
                 .collect());
@@ -206,8 +239,8 @@ impl WriteRouter {
         writes: &[PendingWrite],
         deadline: Instant,
     ) -> Vec<(usize, Attempted)> {
-        if Instant::now() >= deadline {
-            return unsent_after_window(serving_name, writes);
+        if self.is_stopping() || Instant::now() >= deadline {
+            return unsent_after_window(serving_name, writes, self.is_stopping());
         }
         if let [only] = writes {
             let attempted = self
@@ -222,8 +255,12 @@ impl WriteRouter {
         let mut awaiting_retry: HashMap<String, Box<Refused>> = HashMap::new();
         let mut undelivered: Option<ClusterError> = None;
         for planned in wire_batches(writes, PendingWrite::wire_bytes, |_, _| true) {
-            if Instant::now() >= deadline {
-                outcomes.extend(unsent_after_window(serving_name, planned));
+            if self.is_stopping() || Instant::now() >= deadline {
+                outcomes.extend(unsent_after_window(
+                    serving_name,
+                    planned,
+                    self.is_stopping(),
+                ));
                 continue;
             }
             if let Some(error) = &undelivered {

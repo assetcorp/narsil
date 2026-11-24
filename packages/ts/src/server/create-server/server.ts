@@ -231,6 +231,15 @@ class NarsilHttpServer implements NarsilServer {
   }
 
   async shutdown(): Promise<void> {
+    if (this.deps.cluster !== undefined) {
+      const [closed, shutDown] = await Promise.allSettled([
+        this.close(),
+        this.deps.tasks.shutdown().then(() => this.engine.shutdown()),
+      ])
+      if (closed.status === 'rejected') throw closed.reason
+      if (shutDown.status === 'rejected') throw shutDown.reason
+      return
+    }
     await this.close()
     await this.deps.tasks.shutdown()
     await this.engine.shutdown()

@@ -95,7 +95,7 @@ impl WriteRouter {
                 self.apply_here(&serving_name, table.index_uuid.clone(), &here)
                     .await
             } else {
-                unsent_after_window(&serving_name, &here)
+                unsent_after_window(&serving_name, &here, false)
             };
             outcomes.extend(applied);
         }

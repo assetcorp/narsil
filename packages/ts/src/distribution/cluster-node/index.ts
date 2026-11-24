@@ -118,7 +118,7 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
   let unregisterNotReadyHandler: (() => void) | null = null
   const searchContexts = hasDataRole ? createSearchContextRegistry() : undefined
   let serving = false
-  let isShutdown = false
+  const shuttingDown = new AbortController()
 
   const localCopies = createNodeCopies({
     ...cleanupDeps,
@@ -127,7 +127,8 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
       clearBootstrapSyncIndex(bootstrapSyncState, indexName, partitionId)
       replicationLogs.delete(buildReplicationLogKey(indexName, partitionId))
     },
-    isShutdown: () => isShutdown,
+    isShutdown: () => shuttingDown.signal.aborted,
+    shutdownSignal: shuttingDown.signal,
     settleAdopted: indexName => analysisView.settle(indexName),
     standForElection: () => controllerTenure.standEarly(),
   })
@@ -167,7 +168,7 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
   })
 
   function guardShutdown(): void {
-    if (isShutdown) {
+    if (shuttingDown.signal.aborted) {
       throw new NarsilError(ErrorCodes.NODE_NOT_JOINED, `Cluster node '${nodeId}' has been shut down`, { nodeId })
     }
   }
@@ -234,7 +235,7 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
     coordinator: config.coordinator,
     lifecycle: () => lifecycle,
     controller: () => controller,
-    isShutdown: () => isShutdown,
+    isShutdown: () => shuttingDown.signal.aborted,
     isServing: () => serving,
     trackOp,
     requestReplicationFactor: async (indexName, factor) =>
@@ -337,10 +338,10 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
     },
 
     async shutdown() {
-      if (isShutdown) {
+      if (shuttingDown.signal.aborted) {
         return
       }
-      isShutdown = true
+      shuttingDown.abort()
       serving = false
       stopEveryReshardJob(reshard)
       await stopCatchUpPump(writeDeps.catchUp)
