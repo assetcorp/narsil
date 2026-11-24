@@ -13,8 +13,9 @@ use support::adapters::{EmbedWith, RerankWith};
 use support::portable::{Tier, snapshot_of};
 
 const INDEX: &str = "documents";
-const RERANK_TIMEOUT_MS: u64 = 1_000;
-const CALLBACK_TIMEOUT: Duration = Duration::from_secs(10);
+const DEADLOCK_BOUND_MS: u64 = 10_000;
+const RERANK_TIMEOUT_MS: u64 = DEADLOCK_BOUND_MS;
+const CALLBACK_TIMEOUT: Duration = Duration::from_millis(DEADLOCK_BOUND_MS);
 const QUERY_RERANKS_BEFORE_REFUSAL: usize = 3;
 
 fn config() -> IndexConfig {

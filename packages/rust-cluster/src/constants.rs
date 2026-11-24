@@ -139,6 +139,11 @@ pub const ARCHIVE_ENTRY_ESTIMATE_BYTES: u64 = 1_536;
 pub const DEVICE_SYNC_SPOOL_DIRECTORY: &str = "device-sync";
 pub const DEVICE_SYNC_SPEC_VERSION: &str = "1.3";
 pub const MAX_SETTINGS_REPLACEMENT_ATTEMPTS: u32 = 5;
+pub const SETTINGS_CONTENTION_REASON: &str = "settings_contention";
+pub const CLEAR_PAGE_SIZE: usize = 1_000;
+pub const COORDINATOR_REQUEST_BUCKET_BOUNDS_SECONDS: [f64; 12] = [
+    0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
+];
 pub const FETCH_GROUP_DOCUMENT_IDS: usize = 256;
 pub const MAX_COUNT_VALUE: u64 = 9_007_199_254_740_991;
 pub const MAX_LANGUAGE_NAME_LENGTH: usize = 64;

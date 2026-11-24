@@ -4,8 +4,10 @@ mod config;
 mod endpoints;
 mod keys;
 mod leases;
+mod named_leases;
 mod registration;
 mod requests;
+mod timing;
 mod values;
 mod watch;
 
@@ -14,13 +16,14 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 pub use config::{EtcdAuthConfig, EtcdCoordinatorConfig, EtcdTlsConfig, WatchErrorHandler};
-use etcd_client::{Compare, CompareOp, PutOptions, Txn, TxnOp};
+use etcd_client::{Compare, CompareOp, Txn, TxnOp};
+pub use timing::CoordinatorRequestFigure;
 pub use watch::WatchHandle;
 
 use self::client::{WriteGuard, connect_and_probe};
 use self::endpoints::EndpointPool;
 use self::keys::{CoordinatorKeys, record_name};
-use self::leases::{LeaseManager, ManagedLease};
+use self::leases::LeaseManager;
 use self::registration::{RegistrationKeys, write_node_registration};
 use self::watch::{PrefixHandlers, watch_prefix, watcher_limit_error};
 use super::serialization::decode_registration;
@@ -135,14 +138,17 @@ impl EtcdCoordinator {
     /// or a null byte, or where the request would pass `max_request_bytes`, and with `COORDINATOR_UNAVAILABLE` where
     /// etcd cannot be reached.
     pub async fn register_node(&self, registration: &NodeRegistration) -> ClusterResult<()> {
-        let _active = self.inner.lease_operations.read().await;
-        self.inner.ensure_open()?;
-        validate_node_id(&registration.node_id)?;
-        let keys = RegistrationKeys {
-            key: self.inner.keys.node(&registration.node_id),
-            started_at_key: self.inner.keys.node_started_at(&registration.node_id),
-        };
-        write_node_registration(&self.inner, keys, registration).await
+        self.timed("registerNode", async {
+            let _active = self.inner.lease_operations.read().await;
+            self.inner.ensure_open()?;
+            validate_node_id(&registration.node_id)?;
+            let keys = RegistrationKeys {
+                key: self.inner.keys.node(&registration.node_id),
+                started_at_key: self.inner.keys.node_started_at(&registration.node_id),
+            };
+            write_node_registration(&self.inner, keys, registration).await
+        })
+        .await
     }
 
     /// Revokes the lease under the node's registration and deletes the registration and its start time.
@@ -152,6 +158,11 @@ impl EtcdCoordinator {
     /// Fails with `CONFIG_INVALID` for an invalid node id, and with `COORDINATOR_UNAVAILABLE` where etcd cannot be
     /// reached.
     pub async fn deregister_node(&self, node_id: &str) -> ClusterResult<()> {
+        self.timed("deregisterNode", self.remove_registration(node_id))
+            .await
+    }
+
+    async fn remove_registration(&self, node_id: &str) -> ClusterResult<()> {
         let _active = self.inner.lease_operations.read().await;
         self.inner.ensure_open()?;
         validate_node_id(node_id)?;
@@ -191,12 +202,15 @@ impl EtcdCoordinator {
     /// Renews the lease under the node's registration once and returns how long it then holds, or `None` where this
     /// coordinator holds no lease for it.
     pub async fn confirm_registration_lease(&self, node_id: &str) -> Option<RegistrationLease> {
-        if self.inner.is_shut_down() {
-            return None;
-        }
-        let holder = self.inner.leases.holder(&self.inner.keys.node(node_id))?;
-        let _ = holder.keepalive_once().await;
-        holder.held_for()
+        self.timed("confirmRegistrationLease", async {
+            if self.inner.is_shut_down() {
+                return None;
+            }
+            let holder = self.inner.leases.holder(&self.inner.keys.node(node_id))?;
+            let _ = holder.keepalive_once().await;
+            holder.held_for()
+        })
+        .await
     }
 
     /// Returns every node registration that etcd holds.
@@ -206,22 +220,27 @@ impl EtcdCoordinator {
     /// Fails with `CONFIG_INVALID` where a stored registration cannot be read, and with `COORDINATOR_UNAVAILABLE`
     /// where etcd cannot be reached.
     pub async fn list_nodes(&self) -> ClusterResult<Vec<NodeRegistration>> {
-        self.inner.ensure_open()?;
-        let prefix = self.inner.keys.node_prefix();
-        let listing = self
-            .inner
-            .get(
-                "listNodes",
-                prefix.as_bytes(),
-                Some(etcd_client::GetOptions::new().with_prefix()),
-            )
-            .await?;
-        listing
-            .kvs()
-            .iter()
-            .filter(|entry| record_name(&String::from_utf8_lossy(entry.key()), &prefix).is_some())
-            .map(|entry| decode_registration(entry.value()))
-            .collect()
+        self.timed("listNodes", async {
+            self.inner.ensure_open()?;
+            let prefix = self.inner.keys.node_prefix();
+            let listing = self
+                .inner
+                .get(
+                    "listNodes",
+                    prefix.as_bytes(),
+                    Some(etcd_client::GetOptions::new().with_prefix()),
+                )
+                .await?;
+            listing
+                .kvs()
+                .iter()
+                .filter(|entry| {
+                    record_name(&String::from_utf8_lossy(entry.key()), &prefix).is_some()
+                })
+                .map(|entry| decode_registration(entry.value()))
+                .collect()
+        })
+        .await
     }
 
     /// Calls `handler` with every change to the registered nodes until the returned handle stops the watch.
@@ -256,128 +275,23 @@ impl EtcdCoordinator {
         watch_prefix(&self.inner, prefix, handlers).await
     }
 
-    /// Takes the lease `key` for `node_id`, which holds for `ttl_ms` rounded up to whole seconds, and returns
-    /// whether `node_id` holds it, renewing it where `node_id` held it already.
-    ///
-    /// # Errors
-    ///
-    /// Fails with `CONFIG_INVALID` after shutdown, and with `COORDINATOR_UNAVAILABLE` where etcd cannot be reached.
-    pub async fn acquire_lease(
-        &self,
-        key: &str,
-        node_id: &str,
-        ttl_ms: u64,
-    ) -> ClusterResult<bool> {
-        let _active = self.inner.lease_operations.read().await;
-        self.inner.ensure_open()?;
-        let etcd_key = self.inner.keys.lease(key);
-        let _exclusive = self.inner.leases.exclusively(&etcd_key).await;
-        let ttl_seconds = ttl_ms.div_ceil(1_000).max(1);
-        if let Some(existing) = self
-            .inner
-            .leases
-            .get(&etcd_key)
-            .filter(|entry| entry.node_id == node_id)
-        {
-            if existing.lease.keepalive_once().await.is_ok() {
-                return Ok(true);
-            }
-            self.inner.leases.remove(&etcd_key);
-        }
-        let lease = ManagedLease::grant(Arc::clone(&self.inner.pool), ttl_seconds).await?;
-        let txn = Txn::new()
-            .when(vec![Compare::create_revision(
-                etcd_key.clone(),
-                CompareOp::Equal,
-                0,
-            )])
-            .and_then(vec![TxnOp::put(
-                etcd_key.clone(),
-                node_id.as_bytes().to_vec(),
-                Some(PutOptions::new().with_lease(lease.id)),
-            )]);
-        let committed = match self.inner.txn("acquireLease", txn).await {
-            Ok(response) => response.succeeded(),
-            Err(error) => {
-                lease.revoke().await;
-                return Err(error);
-            }
-        };
-        if !committed {
-            lease.revoke().await;
-            return Ok(self.lease_holder(key).await?.as_deref() == Some(node_id));
-        }
-        self.inner.leases.track(&etcd_key, lease, node_id, None);
-        Ok(true)
-    }
-
-    /// Renews the lease `key` where `node_id` holds it through this coordinator, and returns whether it held.
-    ///
-    /// # Errors
-    ///
-    /// Fails with `CONFIG_INVALID` after shutdown.
-    pub async fn renew_lease(&self, key: &str, node_id: &str) -> ClusterResult<bool> {
-        let _active = self.inner.lease_operations.read().await;
-        self.inner.ensure_open()?;
-        let etcd_key = self.inner.keys.lease(key);
-        let _exclusive = self.inner.leases.exclusively(&etcd_key).await;
-        let Some(entry) = self.inner.leases.get_by_node_id(&etcd_key, node_id) else {
-            return Ok(false);
-        };
-        if entry.lease.keepalive_once().await.is_ok() {
-            return Ok(true);
-        }
-        self.inner.leases.remove(&etcd_key);
-        Ok(false)
-    }
-
-    /// Revokes the lease `key` where this coordinator holds it.
-    ///
-    /// # Errors
-    ///
-    /// Fails with `CONFIG_INVALID` after shutdown.
-    pub async fn release_lease(&self, key: &str) -> ClusterResult<()> {
-        let _active = self.inner.lease_operations.read().await;
-        self.inner.ensure_open()?;
-        let etcd_key = self.inner.keys.lease(key);
-        let _exclusive = self.inner.leases.exclusively(&etcd_key).await;
-        if let Some(entry) = self.inner.leases.remove(&etcd_key) {
-            entry.lease.revoke().await;
-        }
-        Ok(())
-    }
-
-    /// Returns the node id that holds the lease `key`, or `None` where nobody holds it.
-    ///
-    /// # Errors
-    ///
-    /// Fails with `CONFIG_INVALID` after shutdown, and with `COORDINATOR_UNAVAILABLE` where etcd cannot be reached.
-    pub async fn lease_holder(&self, key: &str) -> ClusterResult<Option<String>> {
-        self.inner.ensure_open()?;
-        let found = self
-            .inner
-            .get("getLeaseHolder", self.inner.keys.lease(key), None)
-            .await?;
-        Ok(found
-            .kvs()
-            .first()
-            .map(|entry| String::from_utf8_lossy(entry.value()).into_owned()))
-    }
-
     /// Stops every watch, revokes every lease that this coordinator holds, and refuses every later call. A second
     /// call does nothing.
     pub async fn shutdown(&self) {
-        if self.inner.closed.swap(true, Ordering::AcqRel) {
-            return;
-        }
-        let watchers: Vec<StopSender> = lock(&self.inner.watchers)
-            .drain()
-            .map(|(_, stop)| stop)
-            .collect();
-        for stop in watchers {
-            stop.send_replace(true);
-        }
-        let _exclusive = self.inner.lease_operations.write().await;
-        self.inner.leases.revoke_all().await;
+        self.timed("shutdown", async {
+            if self.inner.closed.swap(true, Ordering::AcqRel) {
+                return;
+            }
+            let watchers: Vec<StopSender> = lock(&self.inner.watchers)
+                .drain()
+                .map(|(_, stop)| stop)
+                .collect();
+            for stop in watchers {
+                stop.send_replace(true);
+            }
+            let _exclusive = self.inner.lease_operations.write().await;
+            self.inner.leases.revoke_all().await;
+        })
+        .await
     }
 }

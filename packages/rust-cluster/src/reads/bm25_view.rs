@@ -5,7 +5,8 @@ use narsil::Value;
 
 use crate::controller::{IndexMetadata, index_metadata_of, lock, stored_index_metadata};
 use crate::coordinator::etcd::{EtcdCoordinator, WatchHandle};
-use crate::error::ClusterResult;
+use crate::data::LocalReads;
+use crate::error::{ClusterResult, codes};
 use crate::node::{NodeErrorHandler, report_failure};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -43,39 +44,82 @@ fn is_later_than(next: &HeldBm25Setting, held: &HeldBm25Setting) -> bool {
     next.revision.unwrap_or(0) > held.revision.unwrap_or(0)
 }
 
-fn hold(
-    held: &Mutex<HashMap<String, HeldBm25Setting>>,
-    index_name: &str,
-    next: HeldBm25Setting,
-) -> HeldBm25Setting {
+type HeldSettings = Arc<Mutex<HashMap<String, HeldBm25Setting>>>;
+
+fn hold(held: &HeldSettings, index_name: &str, next: HeldBm25Setting) -> bool {
     let mut held = lock(held);
     if let Some(current) = held.get(index_name)
         && current.index_uuid == next.index_uuid
         && !is_later_than(&next, current)
     {
-        return current.clone();
+        return false;
     }
-    held.insert(index_name.to_string(), next.clone());
-    next
+    held.insert(index_name.to_string(), next);
+    true
+}
+
+async fn apply_to_local_copy(
+    local: &LocalReads,
+    held: &HeldSettings,
+    on_error: Option<&NodeErrorHandler>,
+    index_name: &str,
+    index_uuid: &str,
+) {
+    let (latest, name, uuid) = (
+        Arc::clone(held),
+        index_name.to_string(),
+        index_uuid.to_string(),
+    );
+    let applied = local
+        .apply_held_bm25(index_name, index_uuid, move || {
+            lock(&latest)
+                .get(&name)
+                .filter(|setting| setting.index_uuid == uuid)
+                .map(|setting| setting.bm25.clone())
+        })
+        .await;
+    if let Err(error) = applied
+        && error.code() != codes::INDEX_NOT_FOUND
+    {
+        report_failure(on_error, &error);
+    }
 }
 
 pub(crate) struct Bm25View {
     coordinator: Arc<EtcdCoordinator>,
+    local: Option<Arc<LocalReads>>,
     on_error: Option<NodeErrorHandler>,
-    held: Arc<Mutex<HashMap<String, HeldBm25Setting>>>,
+    held: HeldSettings,
     watch: Mutex<Option<WatchHandle>>,
 }
 
 impl Bm25View {
     pub(crate) fn new(
         coordinator: Arc<EtcdCoordinator>,
+        local: Option<Arc<LocalReads>>,
         on_error: Option<NodeErrorHandler>,
     ) -> Bm25View {
         Bm25View {
             coordinator,
+            local,
             on_error,
             held: Arc::new(Mutex::new(HashMap::new())),
             watch: Mutex::new(None),
+        }
+    }
+
+    pub(crate) async fn apply_written(&self, index_name: &str, written: HeldBm25Setting) {
+        let index_uuid = written.index_uuid.clone();
+        hold(&self.held, index_name, written);
+        if let Some(local) = &self.local {
+            apply_to_local_copy(
+                local,
+                &self.held,
+                self.on_error.as_ref(),
+                index_name,
+                &index_uuid,
+            )
+            .await;
         }
     }
 
@@ -111,6 +155,7 @@ impl Bm25View {
             return Ok(());
         }
         let held = Arc::clone(&self.held);
+        let local = self.local.clone();
         let on_error = self.on_error.clone();
         let handle = self
             .coordinator
@@ -119,16 +164,28 @@ impl Bm25View {
                     lock(&held).remove(&event.index_name);
                     return;
                 };
-                match index_metadata_of(&metadata, &event.index_name) {
-                    Ok(Some((record, settings))) => {
-                        hold(
+                let next = match index_metadata_of(&metadata, &event.index_name) {
+                    Ok(Some((record, settings))) => setting_of(&record, settings.as_ref()),
+                    Ok(None) => return,
+                    Err(error) => return report_failure(on_error.as_ref(), &error),
+                };
+                let index_uuid = next.index_uuid.clone();
+                if !hold(&held, &event.index_name, next) {
+                    return;
+                }
+                if let Some(local) = &local {
+                    let (local, held, on_error) =
+                        (Arc::clone(local), Arc::clone(&held), on_error.clone());
+                    tokio::spawn(async move {
+                        apply_to_local_copy(
+                            &local,
                             &held,
+                            on_error.as_ref(),
                             &event.index_name,
-                            setting_of(&record, settings.as_ref()),
-                        );
-                    }
-                    Ok(None) => {}
-                    Err(error) => report_failure(on_error.as_ref(), &error),
+                            &index_uuid,
+                        )
+                        .await;
+                    });
                 }
             })
             .await?;

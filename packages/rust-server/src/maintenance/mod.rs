@@ -22,7 +22,11 @@ pub(crate) use admin::{change_analysis, optimize, rebalance, rebuild_analysis};
 #[cfg(feature = "cluster")]
 pub(crate) use analysis::analysis_change_of;
 pub(crate) use archives::{import_export, restore};
+#[cfg(feature = "cluster")]
+pub(crate) use import::{ImportedBatch, document_failure};
 pub(crate) use import_route::import_ndjson;
+#[cfg(feature = "cluster")]
+pub(crate) use import_route::{ImportTarget, import_body, import_into, runs_as_task};
 pub(crate) use suggestions_build::build_query_suggestions;
 #[cfg(feature = "cluster")]
 pub(crate) use suggestions_build::{build_of, failed_build, suggestions_off};

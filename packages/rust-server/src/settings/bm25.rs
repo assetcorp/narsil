@@ -199,22 +199,23 @@ fn not_a_number() -> Bm25FieldParams {
     }
 }
 
-pub(crate) fn update_bm25(engine: &Narsil, index_name: &str, body: &Value) -> Outcome<()> {
+pub(crate) enum Bm25Change {
+    Valid(Bm25Params),
+    Refused {
+        sentinel: Bm25Params,
+        failure: ServerError,
+    },
+}
+
+pub(crate) fn bm25_change_of(body: &Value) -> Bm25Change {
     match shape_of(body) {
-        Shape::Valid(params) => engine
-            .update_bm25(index_name, &params)
-            .map_err(ServerError::from),
+        Shape::Valid(params) => Bm25Change::Valid(params),
         Shape::TopLevel(failure) => {
             let sentinel = Bm25Params {
                 k1: Some(f64::NAN),
                 ..Bm25Params::default()
             };
-            Err(after_engine_checks(
-                engine,
-                failure,
-                |engine| engine.update_bm25(index_name, &sentinel),
-                provoked,
-            ))
+            Bm25Change::Refused { sentinel, failure }
         }
         Shape::Field {
             mut checked,
@@ -226,12 +227,21 @@ pub(crate) fn update_bm25(engine: &Narsil, index_name: &str, body: &Value) -> Ou
                 fields: Some(checked),
                 ..Bm25Params::default()
             };
-            Err(after_engine_checks(
-                engine,
-                failure,
-                |engine| engine.update_bm25(index_name, &sentinel),
-                provoked,
-            ))
+            Bm25Change::Refused { sentinel, failure }
         }
+    }
+}
+
+pub(crate) fn update_bm25(engine: &Narsil, index_name: &str, body: &Value) -> Outcome<()> {
+    match bm25_change_of(body) {
+        Bm25Change::Valid(params) => engine
+            .update_bm25(index_name, &params)
+            .map_err(ServerError::from),
+        Bm25Change::Refused { sentinel, failure } => Err(after_engine_checks(
+            engine,
+            failure,
+            |engine| engine.update_bm25(index_name, &sentinel),
+            provoked,
+        )),
     }
 }

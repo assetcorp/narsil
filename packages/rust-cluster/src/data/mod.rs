@@ -31,6 +31,7 @@ pub(crate) use device_sync::{
 };
 pub(crate) use local_reads::LocalReads;
 pub(crate) use role::DataRole;
+pub(crate) use stored_index::stored_synonym_rules;
 pub(crate) use writes::{
     AllocationView, PrimaryWrites, abandoned_with_term, fnv1a, fnv1a_uint32s, routed_partition,
     unassigned,

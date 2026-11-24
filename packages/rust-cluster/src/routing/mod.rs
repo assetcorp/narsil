@@ -151,7 +151,7 @@ impl WriteRouter {
         {
             return Err(ClusterError::new(
                 codes::INDEX_NOT_FOUND,
-                format!("The cluster holds no index named '{serving_name}'"),
+                format!("Index \"{serving_name}\" does not exist"),
             )
             .with_detail("indexName", Value::from(serving_name)));
         }

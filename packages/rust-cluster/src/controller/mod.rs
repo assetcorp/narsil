@@ -35,8 +35,8 @@ use crate::message::TransportMessage;
 use crate::transport::{BoxFuture, NodeTransport, Respond};
 
 pub(crate) use self::analysis_metadata::{
-    IndexMetadataSnapshot, PendingAnalysis, metadata_with_pending_analysis,
-    metadata_with_suggestion_state, metadata_without_pending_analysis,
+    IndexMetadataSnapshot, PendingAnalysis, metadata_with_bm25, metadata_with_pending_analysis,
+    metadata_with_suggestion_state, metadata_with_synonym_set, metadata_without_pending_analysis,
     read_index_metadata_snapshot,
 };
 pub(crate) use self::messages::is_controller_message;

@@ -30,9 +30,12 @@ use narsil::{DocumentProjection, Map};
 
 pub(crate) use self::analysis_view::AnalysisView;
 use self::bm25_view::Bm25View;
+pub(crate) use self::bm25_view::HeldBm25Setting;
 pub use self::counts::{ClusterIndexStats, ClusterPartitionStats};
 pub(crate) use self::counts::{count_cluster, partition_stats_cluster, stats_cluster};
-pub(crate) use self::generation_routing::read_following_the_name;
+pub(crate) use self::generation_routing::{
+    live_serving_name, read_following_the_name, serving_name,
+};
 pub(crate) use self::index_list::list_indexes_cluster;
 pub(crate) use self::list::list_cluster;
 use self::node_messaging::{CopyRead, read_documents_from_copies};
@@ -86,7 +89,11 @@ impl ReadDeps {
                 Arc::clone(&settings.coordinator),
                 settings.on_error.clone(),
             ),
-            bm25_view: Bm25View::new(Arc::clone(&settings.coordinator), settings.on_error.clone()),
+            bm25_view: Bm25View::new(
+                Arc::clone(&settings.coordinator),
+                settings.local.clone(),
+                settings.on_error.clone(),
+            ),
             vector_reads: VectorReadView::new(Arc::clone(&settings.coordinator), settings.on_error),
             coordinator: settings.coordinator,
             transport: settings.transport,

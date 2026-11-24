@@ -208,6 +208,26 @@ const SUITES = {
     manifestsWithoutVersion: [ENGINE_MANIFEST],
     importers: ['.', 'packages/ts', 'packages/conformance'],
   },
+  'rust-cluster': {
+    workflows: ['ci.yml'],
+    jobs: [
+      'Rust cluster / Format and Clippy',
+      'Rust cluster / Test on linux-x64, part 1 of 1',
+      ...parts(2, (part, count) => `Rust cluster / Test on win32-x64, part ${part} of ${count}`),
+      'Rust cluster / A Rust node beside a TypeScript node',
+      'Rust cluster / Every route on a Rust node and a TypeScript node',
+    ],
+    paths: [
+      ...areaPaths('rust_cluster'),
+      ...ENGINE_BUILD_FILES,
+      ...WORKSPACE_FILES,
+      ...workflowFiles(CI_WORKFLOW, ENGINE_WORKFLOW),
+    ],
+    except: PATHS_BY_LANGUAGE_AREA.rust_cluster.except,
+    markdown: compiledMarkdown('rust_cluster'),
+    manifestsWithoutVersion: [ENGINE_MANIFEST],
+    importers: ['.', 'packages/ts', 'packages/conformance'],
+  },
   'go-engine': {
     workflows: ['ci.yml'],
     jobs: [
@@ -289,6 +309,7 @@ const SUITES_BY_PACKAGE = {
   'github.com/assetcorp/narsil/packages/go/engine': ['go-engine'],
   'delali-narsil': ['rust'],
   'delali-narsil-server': ['rust-server'],
+  'delali-narsil-cluster': ['rust-cluster'],
   'delali-narsil on PyPI': ['python-engine'],
 }
 

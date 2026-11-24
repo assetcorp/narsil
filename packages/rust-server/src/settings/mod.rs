@@ -12,7 +12,7 @@ mod synonyms;
 mod vectors;
 
 #[cfg(feature = "cluster")]
-pub(crate) use bm25::provoked_refusal;
+pub(crate) use bm25::{Bm25Change, bm25_change_of, provoked_refusal};
 pub(crate) use bm25::{UnknownBm25Key, bm25_params_of, unknown_bm25_key};
 #[cfg(feature = "cluster")]
 pub(crate) use errors::preparing;
@@ -29,3 +29,5 @@ pub(crate) use routes::{CHANGES_EXPORT_PREPARING, ok};
 pub(crate) use stream::streamed_output;
 #[cfg(feature = "cluster")]
 pub(crate) use sync_snapshot::{SYNC_SNAPSHOT_PREPARING, require_sync_feed, serve_snapshot};
+#[cfg(feature = "cluster")]
+pub(crate) use synonyms::synonym_set_json;

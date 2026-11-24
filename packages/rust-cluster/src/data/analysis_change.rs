@@ -224,6 +224,19 @@ impl AnalysisChanges {
         self.held_partitions(index_name).await
     }
 
+    pub(super) async fn rebuild_held_copies(
+        &self,
+        index_name: &str,
+        index_uuid: &str,
+    ) -> ClusterResult<Vec<u32>> {
+        let request = RebuildRequest {
+            index_name: index_name.to_string(),
+            index_uuid: index_uuid.to_string(),
+            generation: None,
+        };
+        self.rebuild_local_copies(&request).await
+    }
+
     pub(super) async fn answer_rebuild(
         self: &Arc<Self>,
         message: &TransportMessage,

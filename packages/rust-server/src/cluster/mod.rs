@@ -1,14 +1,17 @@
 mod allocation;
 mod backups;
 mod feed_settings;
+mod imports;
 mod indexes;
 mod jobs;
 mod operations;
 mod options;
 mod queries;
 mod reads;
+mod reports;
 mod snapshots;
 mod suggestions;
+mod upkeep;
 mod writes;
 
 use std::sync::Arc;
@@ -78,9 +81,21 @@ pub(crate) async fn dispatch(
         Route::ClusterAllocation | Route::ClusterReplicationFactor => {
             allocation::handle(&node, route, &context).await
         }
-        Route::ChangeAnalysis | Route::Rebalance => {
+        Route::ChangeAnalysis | Route::Rebalance | Route::RebuildAnalysis => {
             jobs::handle(&state, node, route, &context).await
         }
+        Route::ClusterTopology | Route::ClusterHealth | Route::Metrics => {
+            reports::handle(&node, route).await
+        }
+        Route::Memory
+        | Route::ClearIndex
+        | Route::OpenIndex
+        | Route::CloseIndex
+        | Route::Checkpoint
+        | Route::ReadSynonyms
+        | Route::ReplaceSynonyms
+        | Route::UpdateBm25 => upkeep::handle(&node, route, &context).await,
+        Route::ImportNdjson => imports::import_ndjson(&state, node, &context).await,
         Route::Get
         | Route::Exists
         | Route::MultiGet

@@ -60,27 +60,27 @@ async fn settle(
         }
     }
     match apply_stored_settings(coordinator, copies, index_name, &cluster_uuid).await {
-        Ok(()) => Ok(Settled::Claimed),
+        Ok(_) => Ok(Settled::Claimed),
         Err(error) => Ok(Settled::Unreadable(format!(
             "its synonym set and BM25 setting could not be read or applied: {error}"
         ))),
     }
 }
 
-async fn apply_stored_settings(
+pub(super) async fn apply_stored_settings(
     coordinator: &EtcdCoordinator,
     copies: &Arc<LocalCopies>,
     index_name: &str,
     cluster_uuid: &str,
-) -> ClusterResult<()> {
+) -> ClusterResult<bool> {
     let Some(schema) = coordinator.schema(index_name).await? else {
-        return Ok(());
+        return Ok(false);
     };
     let Some(stored) = stored_index(coordinator, index_name, &schema).await? else {
-        return Ok(());
+        return Ok(false);
     };
     if stored.index_uuid != cluster_uuid {
-        return Ok(());
+        return Ok(false);
     }
     let (held, name) = (Arc::clone(copies), index_name.to_string());
     off_executor(move || held.apply_stored_settings(&name, &stored.index_uuid, &stored.config))

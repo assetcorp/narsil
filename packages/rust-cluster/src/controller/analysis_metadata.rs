@@ -13,6 +13,9 @@ const ANALYSIS_FAILURE_FIELD: &str = "analysisFailure";
 const ANALYSIS_GENERATION_FIELD: &str = "analysisGeneration";
 const NAMED_ANALYSIS_FIELDS: [&str; 3] = ["tokenizer", "stopWords", "stopWordList"];
 const DEFAULT_LANGUAGE: &str = "english";
+const BM25_FIELD: &str = "bm25";
+const BM25_REVISION_FIELD: &str = "bm25Revision";
+const SYNONYMS_FIELD: &str = "synonyms";
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct PendingAnalysis {
@@ -285,16 +288,67 @@ pub(crate) fn metadata_with_analysis_failure(
     encoded(fields, settings)
 }
 
-pub(crate) fn metadata_with_suggestion_state(
-    snapshot: &IndexMetadataSnapshot,
-    state: &SuggestionState,
-) -> ClusterResult<Vec<u8>> {
+fn fields_with_language(snapshot: &IndexMetadataSnapshot) -> (Map, Map) {
     let (fields, mut settings) = snapshot.fields();
     if !matches!(fields.get(SETTINGS_FIELD), Some(Value::Object(_)))
         && !settings.contains_key("language")
     {
         settings.insert("language", Value::String(DEFAULT_LANGUAGE.to_string()));
     }
+    (fields, settings)
+}
+
+pub(crate) fn metadata_with_suggestion_state(
+    snapshot: &IndexMetadataSnapshot,
+    state: &SuggestionState,
+) -> ClusterResult<Vec<u8>> {
+    let (fields, mut settings) = fields_with_language(snapshot);
     state.write_settings(&mut settings);
     encoded(fields, settings)
+}
+
+pub(crate) fn metadata_with_bm25(
+    snapshot: &IndexMetadataSnapshot,
+    bm25: Option<Map>,
+    revision: f64,
+) -> ClusterResult<Vec<u8>> {
+    let (fields, mut settings) = fields_with_language(snapshot);
+    settings.remove(BM25_FIELD);
+    settings.insert(BM25_REVISION_FIELD, Value::Number(revision));
+    if let Some(bm25) = bm25 {
+        settings.insert(BM25_FIELD, Value::Object(bm25));
+    }
+    encoded(fields, settings)
+}
+
+pub(crate) fn metadata_with_synonym_set(
+    snapshot: &IndexMetadataSnapshot,
+    reference: Option<Value>,
+) -> ClusterResult<Vec<u8>> {
+    let (fields, mut settings) = fields_with_language(snapshot);
+    settings.remove(SYNONYMS_FIELD);
+    if let Some(reference) = reference {
+        settings.insert(SYNONYMS_FIELD, reference);
+    }
+    encoded(fields, settings)
+}
+
+impl IndexMetadataSnapshot {
+    pub(crate) fn bm25_revision(&self) -> f64 {
+        match self
+            .settings
+            .as_ref()
+            .and_then(|settings| settings.get(BM25_REVISION_FIELD))
+        {
+            Some(Value::Number(revision)) if revision.is_finite() => *revision,
+            _ => 0.0,
+        }
+    }
+
+    pub(crate) fn synonym_set(&self) -> Option<&Value> {
+        self.settings
+            .as_ref()
+            .and_then(|settings| settings.get(SYNONYMS_FIELD))
+            .filter(|reference| !matches!(reference, Value::Null))
+    }
 }

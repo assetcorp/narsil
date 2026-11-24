@@ -153,14 +153,23 @@ func statsMatchTheFiles(t *testing.T, narsil *engine.Narsil, directory string) (
 	if err != nil {
 		t.Fatalf("reading the partition stats failed with %s: %v", codeOrMessage(err), err)
 	}
+	var partitionsSaved, partitionsLogged int64
 	for _, row := range encodedRows(t, partitions) {
 		partitionID, _ := integerAt(row, "PartitionID")
 		onDisk := partitionCheckpointFileBytes(t, directory, statsJSONIndex, int(partitionID))
 		partitionSaved, isInteger := integerAt(row, "SavedBytes")
-		if _, logIsInteger := integerAt(row, "LogBytes"); !isInteger || !logIsInteger || partitionSaved != onDisk {
+		partitionLogged, logIsInteger := integerAt(row, "LogBytes")
+		if !isInteger || !logIsInteger || partitionSaved != onDisk {
 			return false, "partition " + strconv.FormatInt(partitionID, 10) + " encodes " +
 				describeJSON(row) + ", while its checkpoint files hold " + strconv.FormatInt(onDisk, 10) + " bytes"
 		}
+		partitionsSaved += partitionSaved
+		partitionsLogged += partitionLogged
+	}
+	if partitionsLogged != logged || partitionsSaved > saved {
+		return false, "the partitions report " + strconv.FormatInt(partitionsLogged, 10) + " log bytes and " +
+			strconv.FormatInt(partitionsSaved, 10) + " saved bytes between them, while the index reports " +
+			strconv.FormatInt(logged, 10) + " and " + strconv.FormatInt(saved, 10)
 	}
 	return true, ""
 }
@@ -176,7 +185,6 @@ func TestStatsAndDurabilityConfigEncodeToJSON(t *testing.T) {
 		for {
 			matched, mismatch := statsMatchTheFiles(t, narsil, directory)
 			if matched {
-				requireFiguresMatchTheFiles(t, narsil, directory, statsJSONIndex)
 				return
 			}
 			if time.Now().After(deadline) {

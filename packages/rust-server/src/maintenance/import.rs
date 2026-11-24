@@ -26,13 +26,62 @@ impl ImportSettings {
     }
 }
 
+pub(crate) struct ImportedBatch {
+    pub(crate) indexed: u64,
+    pub(crate) failures: Vec<Map>,
+}
+
+pub(crate) type BatchInsert<'a> = &'a dyn Fn(Vec<Map>) -> Result<ImportedBatch, TaskFailure>;
+
 pub(crate) struct ImportRun<'a> {
     pub(crate) engine: &'a Narsil,
-    pub(crate) index: &'a str,
+    pub(crate) insert: BatchInsert<'a>,
     pub(crate) body: &'a [u8],
     pub(crate) settings: &'a ImportSettings,
     pub(crate) cancelled: &'a dyn Fn() -> bool,
     pub(crate) on_progress: &'a dyn Fn(Map),
+}
+
+pub(crate) fn document_failure(
+    document_id: String,
+    code: &str,
+    message: &str,
+    details: Option<&Map>,
+) -> Map {
+    let mut error = Map::new();
+    error.insert("docId", Value::String(document_id));
+    error.insert("code", Value::String(code.to_string()));
+    error.insert("message", Value::String(message.to_string()));
+    if let Some(details) = details {
+        error.insert("details", Value::Object(details.clone()));
+    }
+    error
+}
+
+pub(crate) fn engine_insert(
+    engine: &Narsil,
+    index: &str,
+    documents: Vec<Map>,
+) -> Result<ImportedBatch, TaskFailure> {
+    let result: BatchResult = engine
+        .insert_batch(index, documents)
+        .map_err(|failure| TaskFailure::Coded(ServerError::from(failure)))?;
+    let failures = result
+        .failed
+        .into_iter()
+        .map(|failure| {
+            document_failure(
+                failure.doc_id,
+                failure.error.code().as_str(),
+                failure.error.message(),
+                failure.error.details(),
+            )
+        })
+        .collect();
+    Ok(ImportedBatch {
+        indexed: result.succeeded.len() as u64,
+        failures,
+    })
 }
 
 struct Tally {
@@ -86,23 +135,10 @@ impl Tally {
         }
     }
 
-    fn count(&mut self, result: BatchResult) {
-        self.indexed = self.indexed.saturating_add(result.succeeded.len() as u64);
-        for failure in result.failed {
-            let mut error = Map::new();
-            error.insert("docId", Value::String(failure.doc_id));
-            error.insert(
-                "code",
-                Value::String(failure.error.code().as_str().to_string()),
-            );
-            error.insert(
-                "message",
-                Value::String(failure.error.message().to_string()),
-            );
-            if let Some(details) = failure.error.details() {
-                error.insert("details", Value::Object(details.clone()));
-            }
-            self.record(error);
+    fn count(&mut self, batch: ImportedBatch) {
+        self.indexed = self.indexed.saturating_add(batch.indexed);
+        for failure in batch.failures {
+            self.record(failure);
         }
     }
 }
@@ -157,12 +193,8 @@ impl Importer<'_> {
         if documents.is_empty() {
             return Ok(());
         }
-        let result = self
-            .run
-            .engine
-            .insert_batch(self.run.index, documents)
-            .map_err(|failure| TaskFailure::Coded(ServerError::from(failure)))?;
-        self.tally.count(result);
+        let batch = (self.run.insert)(documents)?;
+        self.tally.count(batch);
         Ok(())
     }
 

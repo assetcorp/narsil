@@ -36,6 +36,20 @@ async fn change_analysis(
     accepted(state, TaskLaunch::on("changeAnalysis", &index), operation).await
 }
 
+async fn rebuild_analysis(
+    state: &ServerState,
+    node: Arc<ClusterNode>,
+    context: &RouteContext,
+) -> Outcome<HttpResponse> {
+    let index = context.param(0).to_string();
+    require_index(&node, &index).await?;
+    let named = index.clone();
+    let operation: TaskOperation = Box::new(move |_context| {
+        Box::pin(async move { node.rebuild_analysis(&named).await.map_err(failed) })
+    });
+    accepted(state, TaskLaunch::on("rebuildAnalysis", &index), operation).await
+}
+
 async fn rebalance(
     state: &ServerState,
     node: Arc<ClusterNode>,
@@ -61,6 +75,7 @@ pub(super) async fn handle(
     match route {
         Route::ChangeAnalysis => change_analysis(state, node, context).await,
         Route::Rebalance => rebalance(state, node, context).await,
+        Route::RebuildAnalysis => rebuild_analysis(state, node, context).await,
         _ => Err(ServerError::internal()),
     }
 }
