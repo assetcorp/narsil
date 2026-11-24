@@ -543,7 +543,7 @@ An index can declare fields that every document must carry:
   "model": "Xenova/all-MiniLM-L6-v2",
   "dtype": "q8",
   "device": "wasm | webgpu | cpu",
-  "pooling": "mean | cls",
+  "pooling": "mean | cls | last_token",
   "normalize": true,
   "documentPrefix": "passage: ",
   "queryPrefix": "query: ",
