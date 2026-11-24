@@ -8,7 +8,7 @@ A [Transformers.js](https://huggingface.co/docs/transformers.js) embedding adapt
 pnpm add @delali/narsil-embeddings-transformers @huggingface/transformers
 ```
 
-`@huggingface/transformers` is a peer dependency, so install it alongside this package. The adapter accepts any 3.x or 4.x release, which is the range `>=3.0.0 <5.0.0`.
+`@huggingface/transformers` is a peer dependency, so install it alongside this package. The adapter accepts any release from 3.6.0 through 4.x, which is the range `>=3.6.0 <5.0.0`, because 3.6.0 is the first release that pools a passage at its last token.
 
 ## Quick start
 
@@ -46,6 +46,7 @@ import { createTransformersEmbedding } from '@delali/narsil-embeddings-transform
 const embedding = createTransformersEmbedding({
   model: 'Xenova/bge-base-en-v1.5',
   dimensions: 768,
+  pooling: 'cls',
 })
 ```
 
@@ -64,6 +65,7 @@ import { createTransformersEmbedding } from '@delali/narsil-embeddings-transform
 const embedding = createTransformersEmbedding({
   model: 'Xenova/bge-base-en-v1.5',
   dimensions: 768,
+  pooling: 'cls',
   documentPrefix: 'Represent this sentence: ',
   queryPrefix: 'Represent this sentence for searching relevant passages: ',
 })
@@ -84,6 +86,25 @@ const embedding = createTransformersEmbedding({
 ```
 
 The adapter prepends the appropriate prefix based on the `purpose` argument (`'document'` or `'query'`) passed to `embed()` and `embedBatch()`.
+
+## Pooling
+
+A model produces one vector for every token of a text, and `pooling` decides how the adapter turns those vectors into the one vector that Narsil stores. `'mean'`, the default, averages them, as MiniLM, E5, and GTE expect. `'cls'` keeps the vector of the first token, as BGE expects. `'last_token'` keeps the vector of the last token, which is the only token that has seen the whole text in a model that reads left to right, such as Qwen3-Embedding. Set the mode that the model was trained with, which a Sentence Transformers model records in its `1_Pooling/config.json`, because a vector pooled another way points in a different direction from the vectors that the model was trained to compare.
+
+<!-- example setup
+import { createTransformersEmbedding } from '@delali/narsil-embeddings-transformers'
+-->
+```typescript
+const embedding = createTransformersEmbedding({
+  model: 'onnx-community/Qwen3-Embedding-0.6B-ONNX',
+  dimensions: 1024,
+  dtype: 'fp16',
+  pooling: 'last_token',
+  queryPrefix: 'Instruct: Given a web search query, retrieve relevant passages that answer the query\nQuery:',
+})
+```
+
+With these settings, the adapter gives the vectors that Sentence Transformers 5.1.2 gives for `Qwen/Qwen3-Embedding-0.6B`, to a cosine similarity above 0.9999. Under `'q8'`, the same texts score between 0.85 and 0.95 against those vectors, so use `'fp16'` or `'fp32'` for Qwen3-Embedding. When the tokenizer of a model pads a batch on the right, `embedBatch` under `'last_token'` embeds each text on its own, because the last position of a padded batch holds padding for every text shorter than the longest. Qwen3-Embedding pads on the left, so it embeds a batch in one call.
 
 ## Device and quantization
 
@@ -192,7 +213,7 @@ Returns an object conforming to Narsil's `EmbeddingAdapter` interface.
 | `model` | `string` | `'Xenova/all-MiniLM-L6-v2'` | Hugging Face model identifier for the `feature-extraction` pipeline. |
 | `dtype` | `string` | `'fp32'` | Model precision: `'fp32'`, `'fp16'`, `'q8'`, or `'q4'`. Under a quantised setting, `embedBatch` embeds each text on its own. |
 | `device` | `'wasm' \| 'webgpu' \| 'cpu'` | auto-detect | Inference backend. Omit to let Transformers.js pick the best available. |
-| `pooling` | `'mean' \| 'cls'` | `'mean'` | Token pooling strategy for generating a single vector from token-level outputs. |
+| `pooling` | `'mean' \| 'cls' \| 'last_token'` | `'mean'` | How the adapter turns the vector of every token into one vector for the text, as [Pooling](#pooling) explains. |
 | `normalize` | `boolean` | `true` | Whether to L2-normalize output vectors. |
 | `documentPrefix` | `string` | `''` | Text prepended to input when `purpose` is `'document'`. |
 | `queryPrefix` | `string` | `''` | Text prepended to input when `purpose` is `'query'`. |
