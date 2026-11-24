@@ -83,7 +83,7 @@ engine.registerEmbeddingAdapter('openai-small', myReplacementAdapter)
 | Adapter | Package | Dependencies |
 | --- | --- | --- |
 | OpenAI | `@delali/narsil/embeddings/openai` | The adapter has no dependencies and uses `fetch`. |
-| Transformers.js | `@delali/narsil-embeddings-transformers` | Install `@huggingface/transformers` beside the adapter as its peer dependency, at any release from 3.6.0 through 4.x. |
+| Transformers.js | `@delali/narsil-embeddings-transformers` | Install `@huggingface/transformers` beside the adapter as its peer dependency, at release 3.6 or any later 3.x or 4.x release. |
 
 The OpenAI adapter retries retryable failures with exponential backoff and jitter, chunks batches at 2,048 inputs per request, and accepts a timeout and a retry cap. `baseUrl` points at any OpenAI-compatible endpoint, and `apiKey` accepts a string or a function returning one, so short-lived credentials work. The Transformers.js adapter runs models locally with lazy pipeline initialization, supports WebGPU, WASM, and CPU backends, and handles asymmetric models such as E5 and BGE through `documentPrefix` and `queryPrefix`. Its `pooling` option takes `'mean'`, `'cls'`, or `'last_token'`, so it can pool each text the way that the model was trained, which is at the last token for Qwen3-Embedding. Its [README](../packages/embeddings-transformers/README.md) documents every option.
 
