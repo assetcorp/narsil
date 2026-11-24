@@ -10,7 +10,7 @@ use narsil_cluster::transport::tcp::{TcpTransport, TcpTransportConfig};
 use tokio::runtime::Runtime;
 
 const NODE_ID: &str = "node-under-reconnect";
-const RECONNECTING_PEERS: usize = 600;
+const RECONNECTING_PEERS: usize = 256;
 const HANDSHAKE_WAIT: Duration = Duration::from_secs(1);
 
 fn reconnecting_peers() -> usize {

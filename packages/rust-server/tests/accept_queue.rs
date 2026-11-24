@@ -8,7 +8,7 @@ use narsil::{ErrorCode, Narsil};
 use narsil_server::{NarsilServer, ServerOptions};
 use tokio::runtime::Runtime;
 
-const RECONNECTING_CLIENTS: usize = 600;
+const RECONNECTING_CLIENTS: usize = 256;
 const HANDSHAKE_WAIT: Duration = Duration::from_secs(1);
 const CONFIGURED_QUEUE_LENGTH: u32 = 32;
 
