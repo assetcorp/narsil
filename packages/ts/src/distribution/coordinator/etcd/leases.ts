@@ -1,4 +1,8 @@
-import type { Lease } from 'etcd3'
+import type { Etcd3, Lease } from 'etcd3'
+import { ETCD_CALL_TIMEOUT_MS, ETCD_LEASE_RENEWALS_PER_TTL } from './constants'
+import { recordLeaseRenewal } from './lease-validity'
+
+const MILLISECONDS_PER_SECOND = 1_000
 
 interface ManagedLease {
   lease: Lease
@@ -19,12 +23,50 @@ function payloadsMatch(left: Uint8Array | null, right: Uint8Array): boolean {
   return true
 }
 
+export function renewLeaseOnce(lease: Lease): ReturnType<Lease['keepaliveOnce']> {
+  return lease.keepaliveOnce({ deadline: Date.now() + ETCD_CALL_TIMEOUT_MS })
+}
+
+export function grantedLease(client: Etcd3, ttlSeconds: number): Lease {
+  return client.lease(ttlSeconds, { autoKeepAlive: false })
+}
+
+export function keepLeaseAlive(lease: Lease, ttlSeconds: number): void {
+  let renewing = false
+  const timer = setInterval(
+    () => {
+      if (lease.revoked()) {
+        clearInterval(timer)
+        return
+      }
+      if (renewing) return
+      renewing = true
+      const sentAt = performance.now()
+      renewLeaseOnce(lease)
+        .then(
+          renewal => recordLeaseRenewal(lease, sentAt, Number(renewal.TTL)),
+          () => {},
+        )
+        .finally(() => {
+          renewing = false
+        })
+    },
+    (ttlSeconds * MILLISECONDS_PER_SECOND) / ETCD_LEASE_RENEWALS_PER_TTL,
+  )
+  timer.unref?.()
+}
+
 export class LeaseManager {
   private leases = new Map<string, ManagedLease>()
   private holders = new Map<string, Lease>()
   private keyLocks = new Map<string, Promise<void>>()
+  private closed = false
 
   track(key: string, lease: Lease, nodeId: string, payload: Uint8Array | null = null): void {
+    if (this.closed) {
+      void lease.revoke().catch(() => {})
+      return
+    }
     this.leases.set(key, { lease, nodeId, key, payload })
     this.holders.set(key, lease)
   }
@@ -62,6 +104,11 @@ export class LeaseManager {
     return entry
   }
 
+  async discard(key: string, lease: Lease): Promise<void> {
+    if (this.leases.get(key)?.lease === lease) this.leases.delete(key)
+    await lease.revoke().catch(() => {})
+  }
+
   runExclusively<T>(key: string, work: () => Promise<T>): Promise<T> {
     const previous = this.keyLocks.get(key) ?? Promise.resolve()
     const result = previous.then(work, work)
@@ -79,6 +126,7 @@ export class LeaseManager {
   }
 
   async revokeAll(): Promise<void> {
+    this.closed = true
     const revokePromises: Promise<void>[] = []
     for (const [, entry] of this.leases) {
       revokePromises.push(entry.lease.revoke().catch(() => {}))

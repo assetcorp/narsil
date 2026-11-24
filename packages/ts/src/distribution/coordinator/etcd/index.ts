@@ -20,8 +20,9 @@ import {
 } from './constants'
 import { createEndpointBreaker } from './endpoint-breaker'
 import { coordinatorKeys, recordName } from './keys'
+import { leaseMethods } from './lease-methods'
 import { leaseHeldFor, recordLeaseRenewal } from './lease-validity'
-import { LeaseManager } from './leases'
+import { LeaseManager, renewLeaseOnce } from './leases'
 import { loadEtcd3Module } from './loader'
 import { watchPrefix } from './prefix-watch'
 import { writeNodeRegistration } from './registration'
@@ -167,7 +168,7 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
       if (holder === undefined) return null
       const sentAt = performance.now()
       try {
-        recordLeaseRenewal(holder, sentAt, Number((await holder.keepaliveOnce()).TTL))
+        recordLeaseRenewal(holder, sentAt, Number((await renewLeaseOnce(holder)).TTL))
       } catch (_) {}
       return leaseHeldFor(holder)
     },
@@ -306,62 +307,7 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
       await client.put(key).value(state).exec()
     },
 
-    async acquireLease(key: string, nodeId: string, ttlMs: number): Promise<boolean> {
-      assertNotShutdown()
-      const etcdKey = keys.lease(key)
-      const ttlSeconds = Math.max(1, Math.ceil(ttlMs / 1000))
-
-      const existing = leaseManager.get(etcdKey)
-      if (existing !== undefined && existing.nodeId === nodeId) {
-        try {
-          await existing.lease.keepaliveOnce()
-          return true
-        } catch (_) {
-          leaseManager.remove(etcdKey)
-        }
-      }
-
-      const lease = client.lease(ttlSeconds)
-      await lease.grant()
-      const txn = await client.if(etcdKey, 'Create', '==', 0).then(lease.put(etcdKey).value(nodeId)).commit()
-
-      if (!txn.succeeded) {
-        await lease.revoke().catch(() => {})
-        const currentValue = await client.get(etcdKey).string()
-        return currentValue === nodeId
-      }
-
-      leaseManager.track(etcdKey, lease, nodeId)
-      return true
-    },
-
-    async renewLease(key: string, nodeId: string, _ttlMs: number): Promise<boolean> {
-      assertNotShutdown()
-      const etcdKey = keys.lease(key)
-
-      const entry = leaseManager.getByNodeId(etcdKey, nodeId)
-      if (entry === undefined) {
-        return false
-      }
-
-      try {
-        await entry.lease.keepaliveOnce()
-        return true
-      } catch (_) {
-        leaseManager.remove(etcdKey)
-        return false
-      }
-    },
-
-    async releaseLease(key: string): Promise<void> {
-      assertNotShutdown()
-      const etcdKey = keys.lease(key)
-      const entry = leaseManager.remove(etcdKey)
-      if (entry === undefined) {
-        return
-      }
-      await entry.lease.revoke().catch(() => {})
-    },
+    ...leaseMethods({ client, keys, leaseManager, assertNotShutdown }),
 
     ...storedValueMethods({
       client,
@@ -370,13 +316,6 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
       assertNotShutdown,
       watchPrefix: (prefix, handlers) => watchPrefix(watchContext, prefix, handlers),
     }),
-
-    async getLeaseHolder(key: string): Promise<string | null> {
-      assertNotShutdown()
-      const etcdKey = keys.lease(key)
-      const value = await client.get(etcdKey).string()
-      return value ?? null
-    },
 
     async shutdown(): Promise<void> {
       if (isShutdown) {
