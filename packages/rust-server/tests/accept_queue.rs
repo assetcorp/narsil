@@ -12,6 +12,14 @@ const RECONNECTING_CLIENTS: usize = 600;
 const HANDSHAKE_WAIT: Duration = Duration::from_secs(1);
 const CONFIGURED_QUEUE_LENGTH: u32 = 32;
 
+fn system_queue_length() -> usize {
+    std::fs::read_to_string("/proc/sys/net/core/somaxconn")
+        .expect("the system reports its accept queue limit")
+        .trim()
+        .parse()
+        .expect("the accept queue limit is a whole number")
+}
+
 fn paused_runtime() -> Runtime {
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -55,12 +63,13 @@ fn every_client_of_a_reconnect_burst_completes_its_handshake_while_the_server_is
     let runtime = paused_runtime();
     let (server, port) = listen(&runtime, ServerOptions::default());
 
-    let connected = connect_until_refused(port, RECONNECTING_CLIENTS);
+    let clients = RECONNECTING_CLIENTS.min(system_queue_length().max(1));
+    let connected = connect_until_refused(port, clients);
 
     assert_eq!(
         connected.len(),
-        RECONNECTING_CLIENTS,
-        "the system held only {} of {RECONNECTING_CLIENTS} connections for a server that had not accepted them yet",
+        clients,
+        "the system held only {} of {clients} connections for a server that had not accepted them yet",
         connected.len()
     );
     drop(connected);
@@ -94,7 +103,7 @@ fn the_server_holds_the_queue_length_that_its_options_set_and_refuses_an_empty_q
 
     let connected = connect_until_refused(port, RECONNECTING_CLIENTS);
 
-    let queue_length = CONFIGURED_QUEUE_LENGTH as usize;
+    let queue_length = (CONFIGURED_QUEUE_LENGTH as usize).min(system_queue_length());
     assert!(
         (queue_length..=queue_length + 1).contains(&connected.len()),
         "the system held {} connections for a queue of {CONFIGURED_QUEUE_LENGTH}",
