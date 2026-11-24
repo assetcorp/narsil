@@ -3,7 +3,7 @@ use narsil::{DocumentProjection, ErrorCode, IndexConfig, Map, Value};
 pub(crate) use super::index_config::with_given_values;
 use super::index_config::{index_config_of, refusal};
 use crate::errors::{Outcome, ServerError};
-use crate::script_values::{script_text, script_type_name};
+use crate::script_values::{displayed_name, script_text, script_type_name};
 use crate::search::projection;
 
 pub(crate) fn field<'a>(body: &'a Value, key: &str) -> Option<&'a Value> {
@@ -114,7 +114,8 @@ pub(crate) fn read_projection(vectors: Option<&str>) -> Outcome<Option<DocumentP
         Some("false") => false,
         Some(other) => {
             let mut details = Map::new();
-            details.insert("vectors", Value::String(other.to_string()));
+            details.insert("option", Value::String("vectors".to_string()));
+            details.insert("received", Value::String(displayed_name(other).to_string()));
             return Err(ServerError::coded(
                 ErrorCode::SEARCH_INVALID_FIELD.as_str(),
                 "Query parameter \"vectors\" must be true or false",

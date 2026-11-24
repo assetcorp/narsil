@@ -156,6 +156,8 @@ jobs:
     if: ${{ !inputs.proven-on-main }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
 
     steps:
       - name: Checkout
@@ -212,6 +214,8 @@ jobs:
     if: ${{ !inputs.proven-on-main }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
 
     steps:
       - name: Checkout
