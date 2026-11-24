@@ -24,6 +24,7 @@ export function foldedHighlightOf(request: FoldedHighlightRequest): FoldedHighli
       phraseKeys.add(folds.keyOf(phrase.written?.[at] ?? phrase.tokens[at]))
     }
   }
+  const prefix = request.prefixToken === undefined ? '' : folds.foldOf(request.prefixToken)
   return {
     keyOf: folds.keyOf,
     foldOf: folds.foldOf,
@@ -32,6 +33,6 @@ export function foldedHighlightOf(request: FoldedHighlightRequest): FoldedHighli
       tolerance: query.token === request.completedToken ? 0 : request.tolerance,
     })),
     phraseKeys,
-    ...(request.prefixToken !== undefined ? { prefix: folds.foldOf(request.prefixToken) } : {}),
+    ...(prefix.length > 0 ? { prefix } : {}),
   }
 }

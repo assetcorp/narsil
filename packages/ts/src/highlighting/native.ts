@@ -22,7 +22,7 @@ function foldedQueryOf(options: HighlightOptions | undefined): NativeFoldedHighl
   return {
     keys,
     prefix: folding.prefix === undefined ? null : unitsOf(folding.prefix),
-    partialWords: options?.partialWords?.folded?.words.map(unitsOf) ?? null,
+    partialWords: options?.partialWords?.folded?.words.filter(word => word.length > 0).map(unitsOf) ?? null,
   }
 }
 

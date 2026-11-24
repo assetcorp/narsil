@@ -44,6 +44,7 @@ function addedWordsFor(
   if (request.share <= 0 || readers.length === 0) return []
   const probe = probeOf(foldText(request.written, rules))
   const foldLength = probe.codePoints.length
+  if (foldLength === 0) return []
   const shortest = new Map<string, number>()
   const keep = (token: string, length: number): void => {
     if (length <= foldLength) return

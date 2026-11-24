@@ -72,6 +72,7 @@ export function mergeFoldedCompletions(request: FoldedCompletionRequest): Prefix
   const { partition, typed, own, completions, limit } = request
   const rules = foldingRulesOf(request.language)
   const folded = foldText(typed, rules)
+  if (folded.length === 0) return [...completions]
   const states = partition.readStates()
   const candidates = heldTokens(states, rules, (index, visit) => index.refsWithFoldPrefix(folded, visit))
   if (folded !== typed) {

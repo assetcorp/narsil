@@ -4,7 +4,7 @@ import { tokenize } from '../../tokenizer/tokenize'
 
 function containsPartialWord(spelling: string, words: readonly string[]): boolean {
   for (const word of words) {
-    if (spelling.length > word.length && spelling.includes(word)) return true
+    if (word.length > 0 && spelling.length > word.length && spelling.includes(word)) return true
   }
   return false
 }
