@@ -1,3 +1,13 @@
+## 0.1.5 (2026-11-24)
+
+### 🩹 Fixes
+
+- **rust-server:** report a refused vectors query value as option and received, as the TypeScript server does ([92aaee34](https://github.com/assetcorp/narsil/commit/92aaee34))
+
+### ❤️ Thank You
+
+- assetcorp @assetcorp
+
 ## 0.1.4 (2026-11-24)
 
 ### 🚀 Features
