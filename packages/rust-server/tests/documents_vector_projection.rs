@@ -20,7 +20,15 @@ const NOTES: [(&str, &str); 3] = [
     ("c", r#"{"title":"harbor light","meta":{"tag":"x"}}"#),
 ];
 const HOSTILE_FLAGS: &str = r#"[null,0,1,"true","false",[],[true],{}]"#;
-const HOSTILE_QUERY_FLAGS: [&str; 6] = ["TRUE", "False", "1", "0", "yes", "true%00"];
+const HOSTILE_QUERY_FLAGS: [(&str, &str); 6] = [
+    ("TRUE", "TRUE"),
+    ("False", "False"),
+    ("1", "1"),
+    ("0", "0"),
+    ("yes", "yes"),
+    ("true%00", "true\0"),
+];
+const RECEIVED_FLAG_UTF16_UNITS: usize = 64;
 
 fn note(id: &str) -> Value {
     let found = NOTES.iter().find(|(note, _)| *note == id);
@@ -327,11 +335,30 @@ async fn malformed_vector_options_are_refused_on_every_route() {
             );
         }
     }
-    for hostile in HOSTILE_QUERY_FLAGS {
+    let long_flag = "%C3%A9".repeat(RECEIVED_FLAG_UTF16_UNITS * 2);
+    let long_received = "\u{e9}".repeat(RECEIVED_FLAG_UTF16_UNITS);
+    let hostile_flags = HOSTILE_QUERY_FLAGS
+        .iter()
+        .map(|(flag, received)| (flag.to_string(), received.to_string()))
+        .chain([(long_flag, long_received)]);
+    for (hostile, received) in hostile_flags {
         let (status, answer) = read_one(port, "notes", "a", &format!("?vectors={hostile}")).await;
         assert_eq!(
             (status, error_code(&answer)),
             (400, Some("SEARCH_INVALID_FIELD")),
+            "GET with vectors={hostile}"
+        );
+        let details = answer
+            .as_object()
+            .and_then(|body| body.get("error"))
+            .and_then(Value::as_object)
+            .and_then(|error| error.get("details"));
+        assert_eq!(
+            details,
+            Some(&object(vec![
+                ("option", Value::String("vectors".to_string())),
+                ("received", Value::String(received)),
+            ])),
             "GET with vectors={hostile}"
         );
     }
