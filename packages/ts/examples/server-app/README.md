@@ -35,15 +35,15 @@ The browser example's **Sync** page creates its notes space automatically. A sig
 
 ## Ask a question of your dataset
 
-The **Ask** tab answers from the index that you loaded. Narsil retrieves the passages, which this app assembles into a grounded prompt. Your own OpenAI-compatible model then writes the answer beside the documents that it drew on, and a Keyword, Semantic, and Hybrid toggle sends the same question through each retrieval mode while the model stays fixed.
+The **Ask** tab answers from the index that you loaded. Narsil retrieves the passages, which this app assembles into a grounded prompt. An OpenAI-compatible model that you supply then writes the answer beside the documents that it drew on. A Keyword, Semantic, and Hybrid toggle sends the same question through each retrieval mode while the model stays fixed.
 
-Bring your own key, because the example carries no model:
+Set `OPENAI_API_KEY` to a key that you hold, because the example carries no model:
 
 ```bash
 OPENAI_API_KEY=sk-... pnpm --filter @delali/narsil-example-server-app dev
 ```
 
-With the key set, a dataset load embeds each document through the OpenAI embedding model. Without a key, the demo server embeds with `Xenova/all-MiniLM-L6-v2` on its own CPU, so the semantic and hybrid modes work either way. The demo server loads that model and the `Xenova/ms-marco-MiniLM-L-6-v2` reranker on their first use, so the server starts without waiting for either one. An index keeps the model that embedded it, so remove a dataset and load it again after you set or remove the key.
+With the key set, a dataset load embeds each document through the OpenAI embedding model. Without a key, the demo server embeds with `Xenova/all-MiniLM-L6-v2` on the local CPU, so the semantic and hybrid modes work either way. The demo server loads that model and the `Xenova/ms-marco-MiniLM-L-6-v2` reranker on their first use, so the server starts without waiting for either one. An index keeps the model that embedded it, so remove a dataset and load it again after you set or remove the key.
 
 ## Point it at another server
 

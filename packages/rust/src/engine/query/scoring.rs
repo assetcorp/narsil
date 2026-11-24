@@ -8,8 +8,8 @@ use crate::error::Result;
 use crate::index::partition::PartitionSnapshot;
 use crate::search::stats::{QueryStats, partition_frequency};
 
-/// Returns how a query gathers its BM25 statistics: its own `scoring`, else the index's `defaultScoring`, else
-/// `Local`.
+/// Returns how a query gathers its BM25 statistics: the `scoring` that the query sets, else the index's
+/// `defaultScoring`, else `Local`.
 ///
 /// This engine holds no invalidation adapter, so it receives no statistics that other instances publish, and a
 /// `Broadcast` query scores with the statistics of every partition that the index holds, exactly as `Dfs` does.

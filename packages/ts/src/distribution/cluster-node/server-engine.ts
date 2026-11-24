@@ -49,7 +49,7 @@ function rejectWait(options: WriteOptions | undefined): void {
  * `CLUSTER_OPERATION_UNSUPPORTED`, which the HTTP server answers with status
  * 501, so a caller learns the operation is missing rather than reading a
  * wrong answer. The HTTP server answers the index list, the index figures,
- * and the partition figures from the whole cluster. The adapter's own
+ * and the partition figures from the whole cluster. The adapter methods
  * `getStats`, `getPartitionStats`, and `listIndexes` still fail with
  * `CLUSTER_OPERATION_UNSUPPORTED`, because {@link Narsil} declares them
  * synchronous and a cluster answer needs a round trip, so call them on the

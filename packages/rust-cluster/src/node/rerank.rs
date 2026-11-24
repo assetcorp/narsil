@@ -9,8 +9,8 @@ impl ClusterNode {
     /// Registers a rerank adapter on this node under a name that a search gives in `rerank.adapter`, replacing any
     /// adapter registered under it before.
     ///
-    /// The node that receives a reranked search scores it with its own adapter, so register the adapter on every
-    /// node that takes searches from clients. A data node that takes none needs none.
+    /// The node that receives a reranked search scores it with the adapter registered on that node, so register the
+    /// adapter on every node that takes searches from clients. A data node that takes none needs none.
     ///
     /// # Errors
     ///

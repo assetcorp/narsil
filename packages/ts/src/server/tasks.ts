@@ -112,7 +112,7 @@ export class TaskRegistry {
    * Returns the record once it is persisted so the caller can respond 202.
    * @throws A `NarsilError` with `TOO_MANY_REQUESTS` where this instance
    * already drives {@link ServerLimits.maxConcurrentTasks} tasks, because each
-   * one holds its own working set until it finishes. */
+   * one holds a separate working set until it finishes. */
   async start(
     type: TaskType,
     indexName: string,
@@ -212,11 +212,11 @@ export class TaskRegistry {
   }
 
   /** Fails this instance's previously-running tasks after a restart. A task can
-   * only be advanced by the process that owns it, so its own running tasks from
-   * a prior life are dead and must not keep showing a stale running status. This
-   * is effective only with a stable instanceId; with the default random id it
-   * finds none of its own prior tasks, which is also correct for the in-memory
-   * default (which starts empty). */
+   * only be advanced by the process that owns it, so the tasks that this
+   * instance was running before the restart are dead and must not keep showing a
+   * stale running status. This is effective only with a stable instanceId; with
+   * the default random id it finds none of the tasks that it ran before, which is
+   * also correct for the in-memory default (which starts empty). */
   async reconcile(cancelled: () => boolean = () => false): Promise<void> {
     let records: TaskRecord[]
     try {

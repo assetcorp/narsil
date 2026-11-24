@@ -9,11 +9,11 @@ languages.set('english', english)
 /**
  * Makes a language available to indexes that name it.
  *
- * English is registered already. Every other language is its own module, so a
+ * English is registered already. Every other language is a separate module, so a
  * bundle carries only what you import. Import the one you want and register
  * it before you create an index that sets it as `language`.
  *
- * @param module - The language module, which registers under its own `name`.
+ * @param module - The language module, which registers under its `name`.
  * Registering a name again replaces what was there.
  *
  * @public

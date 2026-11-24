@@ -25,7 +25,7 @@ export interface TransformersRerankerConfig {
   activation?: 'sigmoid' | 'none'
   /** The adapter scores this many pairs in one model call. It defaults to 32. */
   batchSize?: number
-  /** The longest pair, in tokens, that the model reads, beyond which the tokenizer cuts the document. It defaults to the model's own limit. */
+  /** The longest pair, in tokens, that the model reads, beyond which the tokenizer cuts the document. It defaults to the limit that the tokenizer configuration of the model sets. */
   maxLength?: number
   /** Receives the download and load progress of the model files. */
   progress?: (data: unknown) => void

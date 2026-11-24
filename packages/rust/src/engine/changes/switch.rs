@@ -7,7 +7,7 @@ use crate::engine::layout::TextLayout;
 use crate::engine::sync::{release_sync, renew_sync_epoch};
 use crate::format::metadata::IndexMetadata;
 
-/// The partitions and settings that replace an index's own once a change has built them, with the change that
+/// The partitions and settings that replace those of an index once a change has built them, with the change that
 /// the index's metadata records for them.
 pub(crate) struct LayoutSwitch<'a> {
     pub(crate) layout: TextLayout,

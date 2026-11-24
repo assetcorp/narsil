@@ -128,15 +128,15 @@ function phoneNarsil(runtime: WorkletRuntime, instanceId: number): PhoneNarsil {
 }
 
 /**
- * Starts a Narsil engine on its own Worklets runtime and resolves with a
+ * Starts a Narsil engine on a separate Worklets runtime and resolves with a
  * client whose methods send each request to that runtime, so the engine's
  * JavaScript work leaves the app's JS thread free. Every engine that this
- * function starts shares one runtime, and each engine keeps its own indexes.
+ * function starts shares one runtime, and each engine keeps a separate set of indexes.
  * The app needs `react-native-worklets` with Bundle Mode turned on. The
  * client copies each batch that an insert sends across to the engine's
  * runtime before the engine indexes it, as JSON text when the batch holds
  * plain data. On a physical iPhone and a physical Android phone, inserts took
- * 6% to 57% longer than on the app's own JS runtime, depending on the number
+ * 6% to 57% longer than on the app's JS runtime, depending on the number
  * of documents and on durability, and an import from a file, which sends only
  * the file's path across, took up to 11% longer. In return, the longest pause
  * that a 10 ms timer on the app's JS thread saw during an insert of 50,000

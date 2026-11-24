@@ -104,7 +104,7 @@ const embedding = createTransformersEmbedding({
 })
 ```
 
-With these settings, the adapter gives the vectors that Sentence Transformers 5.1.2 gives for `Qwen/Qwen3-Embedding-0.6B`, to a cosine similarity above 0.9999. Under `'q8'`, the same texts score between 0.85 and 0.95 against those vectors, so use `'fp16'` or `'fp32'` for Qwen3-Embedding. When the tokenizer of a model pads a batch on the right, `embedBatch` under `'last_token'` embeds each text on its own, because the last position of a padded batch holds padding for every text shorter than the longest. Qwen3-Embedding pads on the left, so it embeds a batch in one call.
+With these settings, the adapter gives the vectors that Sentence Transformers 5.1.2 gives for `Qwen/Qwen3-Embedding-0.6B`, to a cosine similarity above 0.9999. Under `'q8'`, the same texts score between 0.85 and 0.95 against those vectors, so use `'fp16'` or `'fp32'` for Qwen3-Embedding. When the tokenizer of a model pads a batch on the right, `embedBatch` under `'last_token'` embeds each text in a separate model call, because the last position of a padded batch holds padding for every text shorter than the longest. Qwen3-Embedding pads on the left, so it embeds a batch in one call.
 
 ## Device and quantization
 
@@ -122,7 +122,7 @@ const embedding = createTransformersEmbedding({
 ```
 
 - **`device`**: Defaults to auto-detection by Transformers.js. Use `'webgpu'` for GPU acceleration in supported browsers. Use `'cpu'` for Node.js environments.
-- **`dtype`**: The adapter uses `'fp32'` by default, so a text gets the same vector from `embed` and from `embedBatch`. Under a quantised setting such as `'q8'` or `'q4'`, you download the smaller models in the table above and inference is faster, at a small cost in quality. Under a quantised setting the model computes one scale for the numbers of a whole padded batch, so `embedBatch` embeds each text on its own to return the vector that `embed` returns for it. A batch then takes as long as embedding the same texts one at a time.
+- **`dtype`**: The adapter uses `'fp32'` by default, so a text gets the same vector from `embed` and from `embedBatch`. Under a quantised setting such as `'q8'` or `'q4'`, you download the smaller models in the table above and inference is faster, at a small cost in quality. Under a quantised setting the model computes one scale for the numbers of a whole padded batch, so `embedBatch` embeds each text in a separate model call to return the vector that `embed` returns for it. A batch then takes as long as embedding the same texts one at a time.
 
 ## Download progress
 
@@ -211,7 +211,7 @@ Returns an object conforming to Narsil's `EmbeddingAdapter` interface.
 | ------ | ---- | ------- | ----------- |
 | `dimensions` | `number` | **(required)** | Output dimensionality of the model. Must match the model's actual output size. |
 | `model` | `string` | `'Xenova/all-MiniLM-L6-v2'` | Hugging Face model identifier for the `feature-extraction` pipeline. |
-| `dtype` | `string` | `'fp32'` | Model precision: `'fp32'`, `'fp16'`, `'q8'`, or `'q4'`. Under a quantised setting, `embedBatch` embeds each text on its own. |
+| `dtype` | `string` | `'fp32'` | Model precision: `'fp32'`, `'fp16'`, `'q8'`, or `'q4'`. Under a quantised setting, `embedBatch` embeds each text in a separate model call. |
 | `device` | `'wasm' \| 'webgpu' \| 'cpu'` | auto-detect | Inference backend. Omit to let Transformers.js pick the best available. |
 | `pooling` | `'mean' \| 'cls' \| 'last_token'` | `'mean'` | How the adapter turns the vector of every token into one vector for the text, as [Pooling](#pooling) explains. |
 | `normalize` | `boolean` | `true` | Whether to L2-normalize output vectors. |

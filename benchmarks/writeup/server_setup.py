@@ -96,7 +96,7 @@ def _host(environment: dict) -> str:
 
 def _machine_sentence(environment: dict, engines: list[dict]) -> str:
     """One machine sentence when every engine ran on the same host, and one clause
-    per engine when the engines ran on their own machines and the fetch step merged
+    per engine when the engines ran on separate machines and the fetch step merged
     their files into one comparison."""
 
     groups: dict[tuple, tuple[dict, list[str]]] = {}

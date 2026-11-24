@@ -20,7 +20,7 @@ The controller creates the cluster's UUID the first time that the cluster takes 
 
 ### The Claim
 
-Two clusters that write under one prefix can delete each other's files, so each cluster claims its prefix. Before a backup starts, before the controller saves a manifest, and before a deletion removes any key, the controller must read `<keyPrefix>/cluster`. Where that key holds nothing, the controller stores its own UUID there with saveIfAbsent, and where that call returns false, it reads the key again. Because a retry can return false for the controller's own write, the controller compares the value that it reads with its own UUID, and it proceeds only where the two match. Where the key holds another cluster's UUID, the controller must refuse the operation with `BACKUP_STORE_CLAIMED`, and it must count a value of more than 128 bytes, or one that is not UTF-8, as another cluster's UUID. A restore and a listing read the store without this check, so that a new cluster can restore the backups of a cluster that no longer exists.
+Two clusters that write under one prefix can delete each other's files, so each cluster claims its prefix. Before a backup starts, before the controller saves a manifest, and before a deletion removes any key, the controller must read `<keyPrefix>/cluster`. Where that key holds nothing, the controller stores the cluster's UUID there with saveIfAbsent, and where that call returns false, it reads the key again. Because a retry can return false for a write that the controller itself made, the controller compares the value that it reads with the cluster's UUID, and it proceeds only where the two match. Where the key holds another cluster's UUID, the controller must refuse the operation with `BACKUP_STORE_CLAIMED`, and it must count a value of more than 128 bytes, or one that is not UTF-8, as another cluster's UUID. A restore and a listing read the store without this check, so that a new cluster can restore the backups of a cluster that no longer exists.
 
 A backup store must offer saveIfAbsent, because a save followed by a read can't stop two controllers from both taking an empty claim. A node must refuse a backup store without saveIfAbsent with CONFIG_INVALID when it starts.
 
@@ -110,12 +110,13 @@ Each partition's manifest is the manifest that a [snapshot archive](../durabilit
    configuration as different bytes still agree. It stores as the
    manifest's config the payload of the lowest partitionId, with the
    querySuggestions, bannedQueries, and querySuggestionsSource that
-   the IndexSettings of the index name hold in place of its own. It
-   then checks with list that every file that the manifest names is
-   stored, checks the claim again, and saves the manifest.
+   the IndexSettings of the index name hold in place of the values
+   in that payload. It then checks with list that every file that
+   the manifest names is stored, checks the claim again, and saves
+   the manifest.
 ```
 
-A backup holds every write that each primary acknowledged before it received `cluster.backup_partition`, because the checkpoint of step 4 follows that message. Each partition's content matches its own `lastSeqNo`, and a backup gives no single point in time across partitions.
+A backup holds every write that each primary acknowledged before it received `cluster.backup_partition`, because the checkpoint of step 4 follows that message. Each partition's content matches the `lastSeqNo` of that partition, and a backup gives no single point in time across partitions.
 
 Saving the manifest is the commit point, so a reader must treat a backup that has no manifest as absent. A failed backup saves no manifest, and the files that it stored stay until a [deletion](#deleting-a-backup) removes them.
 

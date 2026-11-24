@@ -26,7 +26,7 @@ greek: analysis changed while revision stayed 4f02e255d00e5848
 ```
 
 Run `narsil-ts:revisions:write` and read the diff. On startup an engine compares the stored
-revision against the one its own module declares, and rebuilds the index in the background
+revision against the one that the language module declares, and rebuilds the index in the background
 when the two differ, so it rebuilds a stored index only after you bump.
 
 Adding or removing a stop word counts, and so does editing the normalizer or a tokenizer
@@ -37,7 +37,7 @@ nothing.
 ## Changing the shared tokenizer
 
 `src/core/tokenizer/` splits, folds, and stems the text for every language. The check digests
-the implementation alongside each module's own sources and reports the two cases apart:
+the implementation alongside the sources of each module and reports the two cases apart:
 
 ```text
 src/core/tokenizer/ changed, so every language analyses text differently: <count> revisions must bump

@@ -84,7 +84,8 @@ function write(value: unknown, out: string[], depth: number, seen: object[]): vo
  *
  * It reads the arguments the way the client sends them: object keys come out in
  * a fixed order, a field set to `undefined` reads the same as an absent one, a
- * `toJSON` method decides its own value, and a typed array reads as its numbers.
+ * value with a `toJSON` method reads as what that method returns, and a typed
+ * array reads as its numbers.
  *
  * @param parts - These are the method name and the arguments the hook was
  * called with.

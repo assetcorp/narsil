@@ -55,10 +55,11 @@ track. The two dedicated vector databases run vector and hybrid.
 | Typesense | yes | no | no | keyword only here |
 | Meilisearch | yes | no | no | keyword only here |
 
-Every engine indexes the same dense vectors, but each engine runs its own keyword
-side for hybrid. Elasticsearch, OpenSearch, and Weaviate run BM25 over the text.
-Qdrant turns the raw text into BM25 sparse vectors on its own server (`qdrant/bm25`) with server-side IDF.
-Narsil runs its own BM25. Each engine implements its own fusion, so the table
+Every engine indexes the same dense vectors, but for hybrid each engine searches
+the text with the keyword method that it implements. Elasticsearch, OpenSearch, and
+Weaviate run BM25 over the text.
+Qdrant turns the raw text into BM25 sparse vectors on the Qdrant server (`qdrant/bm25`) with server-side IDF.
+Narsil runs BM25. Each engine fuses the two sides by a built-in method, so the table
 names the method per engine.
 
 ## How every engine is scored the same way
@@ -90,15 +91,15 @@ names the method per engine.
   not enough, because the scorer treats scores that differ by one step of a 64-bit
   float as ties, and it does the same with scores as large as Typesense's
   text-match values. The saved run files therefore hold those rank scores in place
-  of the engine's own. The rule lives in `core/runfile.py` and runs
+  of the scores that the engine returned. The rule lives in `core/runfile.py` and runs
   over whatever hits a driver returns, whether they came from keyword, vector, or
   hybrid retrieval.
 
 ## Keyword setup per engine
 
-Each engine runs the keyword configuration this harness sets, and its own defaults
+Each engine runs the keyword configuration that this harness sets, and its defaults
 everywhere else. The engines that implement BM25 take the Anserini and Pyserini
-reference parameters. The two engines without BM25 rank their own way, named here
+reference parameters. The two engines without BM25 rank by other models, named here
 so that you know the comparison there is model against model.
 
 The table records what the harness configures. It names no stemmer and counts no
@@ -227,7 +228,7 @@ only the rest, so after a stop hours in, the harness carries on from that point:
 BENCH_RUN_ID=20260908T120000Z ./run-all.sh elasticsearch
 ```
 
-The engines that run on their own machines share one run id the same way. Each
+Engines that run on separate machines share one run id the same way. Each
 machine writes its engine file under that id, and the comparison step reads every
 engine file it finds under the id, so copying the engine files from each machine
 into one `results/runs/<run-id>/` directory and running
@@ -324,7 +325,7 @@ the engines you care about, set `BENCH_DATASETS`, or shorten the sweep with
   busy, or when the client reaches less than 80% of its target concurrency, and
   `client_bound_reasons` names each test that fired. The machine test catches a
   shared host: on a 4-core, 8-thread machine, an engine at 3.0 cores beside a client
-  at 3.3 leaves neither its own core, although neither one alone looks saturated.
+  at 3.3 makes the two of them share cores, although neither one alone looks saturated.
   Treat a client-bound peak as a floor on what the engine can serve.
 - To keep the load generator off the engine's machine altogether, set
   `BENCH_ENGINE_HOST` to an SSH target for a second machine and
@@ -356,7 +357,7 @@ the engines you care about, set `BENCH_DATASETS`, or shorten the sweep with
   hybrid result then reports the vector track's build time with
   `index_built_by_vector_track` set, and its peak memory leaves out the load. Where
   the vector track came from a checkpoint, no index is left in the engine, so the
-  hybrid track loads its own.
+  hybrid track loads the documents again.
 - The vector track measures throughput once more at every search-effort value its
   recall sweep visited, one pass at `throughput.recall_sweep_concurrency` clients,
   so the operating point's `sweep` carries queries per second beside the sample
@@ -366,7 +367,8 @@ the engines you care about, set `BENCH_DATASETS`, or shorten the sweep with
   sets, records ingest, recall, latency, and throughput, and its quality fields
   stay empty.
 - The vector and hybrid tracks run twice for every engine that serves them: once at
-  full float, and once under the engine's own recommended production quantization,
+  full float, and once under the production quantization that the engine's vendor
+  recommends,
   which `run-all.sh` names best config and writes to `engine-<name>-bestconfig.json`.
   Set `BENCH_BEST_CONFIG=0` to run the equal-precision pass alone.
 - For Narsil the harness also records how the server held the index it measured, read from
@@ -382,8 +384,8 @@ the engines you care about, set `BENCH_DATASETS`, or shorten the sweep with
   and states plainly where Narsil leads and where it trails. The aggregator reads only
   the engines in one run directory, so a comparison never blends results from different
   runs; a best-config pass adds `comparison-best-config.json` alongside it.
-- A TREC run file per engine, dataset, and track lands under the run's own
-  `results/runs/<run-id>/runfiles/` folder, tagged `<engine>_bm25`,
+- The harness writes a TREC run file per engine, dataset, and track into the
+  `results/runs/<run-id>/runfiles/` folder of that run, tagged `<engine>_bm25`,
   `<engine>_vector`, or `<engine>_hybrid`. These raw rankings are the scorer's input;
   they are large and kept out of git, so each run is self-contained on disk but only
   its scored results and comparison are committed.
@@ -396,8 +398,8 @@ the engines you care about, set `BENCH_DATASETS`, or shorten the sweep with
 - Every engine image is pinned to an exact tag, and the Narsil server is built from
   this repository's source and stamped with its commit at build time. `run-all.sh`
   records each running image's digest, and the harness reads each engine's build
-  identity from its info endpoint, so every results file carries the exact image
-  digest and commit under test on its own.
+  identity from its info endpoint, so each results file alone records the exact
+  image digest and commit under test.
 - The embedding model (`sentence-transformers/all-MiniLM-L6-v2`) and the BM25
   sparse model (`Qdrant/bm25`) are baked into the harness image at build time and
   read offline at run time, so every machine embeds with identical artifacts and
@@ -408,8 +410,8 @@ the engines you care about, set `BENCH_DATASETS`, or shorten the sweep with
   it scored.
 - Each dataset's vectors, and for the DBpedia sets its documents and queries as
   well, are published as a dataset artifact: a directory of files listed in an
-  `artifact.json` manifest with a SHA-256 per file, whose own SHA-256 the config
-  pins in `artifact_sha256`. The embed step fetches the manifest, refuses it
+  `artifact.json` manifest with a SHA-256 per file, and the config pins the SHA-256
+  of that manifest in `artifact_sha256`. The embed step fetches the manifest, refuses it
   unless its digest matches, then fetches and verifies every file it lists, so
   every machine reads byte-identical vectors and ground truth. A file that is
   already present and verified is never fetched again.
@@ -444,7 +446,7 @@ no ranking quality.
 With no selection, the harness measures the two BEIR sets. Both DBpedia sets, MS
 MARCO passage (`beir/msmarco/dev`, 8.84M passages), and Natural Questions
 (`beir/nq`, 2.68M passages) are flagged `large` in `config/benchmark.toml`, so
-you select one of them by name, on its own or beside the BEIR sets. The 100K set
+you select one of them by name, alone or beside the BEIR sets. The 100K set
 fits a laptop:
 
 ```bash
@@ -472,8 +474,8 @@ exact command, and how to copy the results back.
 ### Dataset artifacts
 
 Each dataset's artifact is a directory of files with an `artifact.json` manifest:
-the vector shards and manifests for documents and queries in the embedding
-store's own layout, the exact-neighbour file, and, for a dataset that does not
+the vector shards and manifests for documents and queries in the layout of
+the embedding store, the exact-neighbour file, and, for a dataset that does not
 come from `ir_datasets`, `documents.jsonl.gz` and `queries.jsonl.gz`. The config
 pins the manifest's SHA-256, and the manifest pins every file's. The harness
 looks for a local copy under `artifacts/<slug>/` first, which the compose file

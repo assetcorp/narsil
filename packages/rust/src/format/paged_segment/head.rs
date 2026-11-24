@@ -322,7 +322,7 @@ fn encode_head(fields: &PagedHead, planned: &[SectionPlan], offsets: &[u64]) -> 
 }
 
 /// Encodes the head of a paged segment that holds `planned` in order, placing each section on a 4-byte boundary
-/// after the head and repeating until the head's own length settles.
+/// after the head and repeating until the length of the head settles.
 pub(crate) fn encode_paged_head(
     fields: &PagedHead,
     planned: &[SectionPlan],

@@ -60,7 +60,7 @@ function nextFoldedCodePoint(
  * lazily during the comparison, so that it builds no folded copy of either
  * string.
  *
- * Folding maps each code point on its own, so a shared raw prefix folds
+ * Folding maps each code point independently of its neighbours, so a shared raw prefix folds
  * identically on both sides. The comparison starts at the first differing
  * position.
  *

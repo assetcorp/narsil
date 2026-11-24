@@ -13,10 +13,10 @@ class EngineDriver(Protocol):
     ranking model, BM25 parameters). The harness only sees this neutral surface,
     so the spine treats Narsil, Elasticsearch, OpenSearch, Typesense, and
     Meilisearch identically. The harness applies one uniform run-file ordering
-    rule to whatever hits come back, so a driver returns hits in the engine's own
-    ranked order and never rewrites scores for the scorer.
+    rule to whatever hits come back, so a driver returns hits in the order that the
+    engine ranked them and never rewrites scores for the scorer.
 
-    `server_time` advertises whether the engine reports its own query time and at
+    `server_time` advertises whether the engine reports a server-side query time and at
     what resolution, so the latency measurement records the engine-reported time as
     the headline and the reporter discloses its provenance without naming engines.
     """
@@ -43,7 +43,7 @@ class EngineDriver(Protocol):
     def index_stats(self, index: str) -> dict | None: ...
 
     def build_identity(self) -> dict | None:
-        """The engine's own build identity, read from its info endpoint (version and,
+        """The build identity that the engine reports through its info endpoint (version and,
         where the engine exposes it, the git build hash and date). Returns None when
         the engine reports nothing usable, so provenance capture never aborts a run."""
         ...
@@ -55,12 +55,12 @@ class EngineDriver(Protocol):
 class VectorDriver(Protocol):
     """The dense-retrieval surface an engine adds to also run the vector and hybrid
     tracks. Every engine indexes the identical precomputed vectors, so the dense
-    side is the controlled variable; each engine still owns its own keyword side
-    for hybrid (its analyzer or BM25 sparse encoder), described in `hybrid_setup`.
+    side is the controlled variable, while each engine runs the keyword side of
+    hybrid with its analyzer or BM25 sparse encoder, described in `hybrid_setup`.
 
     `vector_search` and `hybrid_search` take a per-query search-time exploration
     value (`ef`); the harness sweeps it to a matched recall operating point and
-    then measures latency there. A driver returns hits in its own ranked order;
+    then measures latency there. A driver returns hits in the order that its engine ranked them;
     the harness applies the same run-file ordering rule it uses for keyword.
 
     The lifecycle methods (`wait_until_ready`, `drop_index`, `count`,

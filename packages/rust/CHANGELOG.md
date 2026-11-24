@@ -44,7 +44,7 @@
 - **rust:** start one held analysis change per pending change and stop a held change that has not claimed the index ([e791659b](https://github.com/assetcorp/narsil/commit/e791659b))
 - **cluster-node:** check and reserve process memory before a failed copy's reload decodes its document segments ([8b949206](https://github.com/assetcorp/narsil/commit/8b949206))
 - **rust:** fail a cluster copy's log alone when it fails to close, and check memory before a reload decodes vectors and reread a moved checkpoint outside the write lock ([a5930309](https://github.com/assetcorp/narsil/commit/a5930309))
-- **rust:** reload a partition from only its own segments and vectors, read before the index's write lock with the checkpoint's files pinned ([ba5f5e3c](https://github.com/assetcorp/narsil/commit/ba5f5e3c))
+- **rust:** reload a partition from only the segments and vectors that it holds, read before the index's write lock with the checkpoint's files pinned ([ba5f5e3c](https://github.com/assetcorp/narsil/commit/ba5f5e3c))
 - **rust:** read a copy's saved write records from their segments, and keep in memory only the records written since the last checkpoint ([9bc58e78](https://github.com/assetcorp/narsil/commit/9bc58e78))
 - **rust:** fail a copy that cannot apply an entry, read nil stored settings as absent, and reload one partition's segments alone ([c00e5e95](https://github.com/assetcorp/narsil/commit/c00e5e95))
 - **rust:** take a forwarded vector as float32 bytes, write entry vectors as bytes, and refuse every write of a failed put-back as an unknown outcome ([99f648c7](https://github.com/assetcorp/narsil/commit/99f648c7))
@@ -117,7 +117,7 @@
 - **rust:** keep the shutdown wake for reads waiting on a restore ([b5b93944](https://github.com/assetcorp/narsil/commit/b5b93944))
 - **rust:** stop nested listings when shutdown begins ([8998ce82](https://github.com/assetcorp/narsil/commit/8998ce82))
 - **rust:** wake restore readers when shutdown begins ([6b2db904](https://github.com/assetcorp/narsil/commit/6b2db904))
-- **rust:** stop reads and listings waiting on a shutdown or on their own thread's search ([e7164b6d](https://github.com/assetcorp/narsil/commit/e7164b6d))
+- **rust:** stop reads and listings waiting on a shutdown or on a search that the same thread runs ([e7164b6d](https://github.com/assetcorp/narsil/commit/e7164b6d))
 - **rust:** report the process's resident memory on macOS and Windows as well as Linux ([644e582f](https://github.com/assetcorp/narsil/commit/644e582f))
 - **rust:** build a write's memory reservation only once its compare-and-swap succeeds ([02db76b8](https://github.com/assetcorp/narsil/commit/02db76b8))
 - **rust:** reserve write memory in one compare-and-swap so concurrent writes cannot share headroom ([5c357af7](https://github.com/assetcorp/narsil/commit/5c357af7))
@@ -180,7 +180,7 @@
 - **rust:** count only the resident sections of text on disk in a restore's memory check ([76be5a26](https://github.com/assetcorp/narsil/commit/76be5a26))
 - **rust:** restore a snapshot whose text is on disk ([9d7bf5ae](https://github.com/assetcorp/narsil/commit/9d7bf5ae))
 - **rust:** refuse a drop from a listener before it deletes the source's suggestion indexes ([a4d11b9a](https://github.com/assetcorp/narsil/commit/a4d11b9a))
-- **rust:** refuse a listener's change to an index its own call holds, and raise count warnings after the count lock ([b239222c](https://github.com/assetcorp/narsil/commit/b239222c))
+- **rust:** refuse a listener's change to an index that the call which fired the listener holds, and raise count warnings after the count lock ([b239222c](https://github.com/assetcorp/narsil/commit/b239222c))
 - **rust:** let a shutdown inside a build listener skip waiting for that build ([5e1b1f0f](https://github.com/assetcorp/narsil/commit/5e1b1f0f))
 - **rust:** let a shutdown from a listener or plugin hook return while another shutdown waits for its thread ([d5c1010c](https://github.com/assetcorp/narsil/commit/d5c1010c))
 - **rust:** make every shutdown wait for creates, restores, and reopens without deadlocking ([3e43cd82](https://github.com/assetcorp/narsil/commit/3e43cd82))
@@ -196,7 +196,7 @@
 
 ### 🩹 Fixes
 
-- **rust:** give each vector store copy its own ID table so a search on the older store never follows an ordinal it lacks ([883e54ee](https://github.com/assetcorp/narsil/commit/883e54ee))
+- **rust:** give each vector store copy a separate ID table so a search on the older store never follows an ordinal it lacks ([883e54ee](https://github.com/assetcorp/narsil/commit/883e54ee))
 
 ### ❤️ Thank You
 

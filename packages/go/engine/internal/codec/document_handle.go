@@ -129,7 +129,7 @@ func (s *documentState) put(key string, value any) {
 // Set stores value under key and returns d, so that calls can chain. A key
 // that d already holds keeps its place, and a new key that is an array index
 // goes among the other array indexes in ascending order, ahead of every
-// other key. Set takes its own copy of a list, and it takes a
+// other key. Set stores a copy of a list, and it takes a
 // map[string]any, at any depth of value, as a nested document whose keys are
 // sorted as DocumentFromMap sorts them. A nested *Document is held as it is,
 // so a later Set on it changes d too.

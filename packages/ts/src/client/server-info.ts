@@ -64,7 +64,7 @@ export interface ServerOperations {
    * Reports whether the server serves one optional capability, such as
    * `ASYNC_IMPORT_CAPABILITY`.
    *
-   * The client reads the answer once and keeps it for its own lifetime, because
+   * The client reads the answer once and keeps it for the lifetime of the client, because
    * a server cannot take on a capability without restarting.
    *
    * @param capability - This names the capability to ask about.

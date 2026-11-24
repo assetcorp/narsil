@@ -1,6 +1,6 @@
 # React Native
 
-`@delali/narsil-react-native` runs a Narsil engine inside an iOS or Android app, so the app can search its own documents by keyword, by vector, or by both while the phone is offline. The engine keeps each index in files in the app's private storage, so the index survives a restart.
+`@delali/narsil-react-native` runs a Narsil engine inside an iOS or Android app, so the app can search its documents by keyword, by vector, or by both while the phone is offline. The engine keeps each index in files in the app's private storage, so the index survives a restart.
 
 <!-- example setup
 declare const tentVector: number[]
@@ -17,9 +17,9 @@ await narsil.insert('notes', { title: 'Pack the tent poles', embedding: tentVect
 const { hits } = await narsil.query('notes', { term: 'tent', limit: 10 })
 ```
 
-The engine works on the app's own JS runtime and takes the same settings as on Node.js, so you can pass an embedding adapter, a plugin, a tokenizer, or an id generator to `createNarsil` directly. Every method of the client resolves through a promise, including the ones that answer at once on the `Narsil` interface of `@delali/narsil`, such as `listIndexes`. Otherwise each method takes the same arguments and returns the same answer as the method of the same name in [Indexes and documents](indexes-and-documents.md).
+The engine works on the JS runtime of the app and takes the same settings as on Node.js, so you can pass an embedding adapter, a plugin, a tokenizer, or an id generator to `createNarsil` directly. Every method of the client resolves through a promise, including the ones that answer at once on the `Narsil` interface of `@delali/narsil`, such as `listIndexes`. Otherwise each method takes the same arguments and returns the same answer as the method of the same name in [Indexes and documents](indexes-and-documents.md).
 
-The engine keeps its slow work off the JS thread so that the app can keep drawing the screen. Each file read, file write, and file sync runs on a native thread, and so does each vector search and each scan of many vectors through the C search core. During a large import or a search, the engine hands the JS thread back to the app every 20 milliseconds of its own work, so a touch or a frame waits for one step of an import, never for the whole import.
+The engine keeps its slow work off the JS thread so that the app can keep drawing the screen. Each file read, file write, and file sync runs on a native thread, and so does each vector search and each scan of many vectors through the C search core. During a large import or a search, the engine hands the JS thread back to the app every 20 milliseconds of engine work, so a touch or a frame waits for one step of an import, never for the whole import.
 
 ## What the app needs
 
@@ -63,9 +63,9 @@ reactNativeArchitectures=arm64-v8a,x86_64
 
 Run `pod install` in the `ios` folder, then rebuild the app for each platform. The app keeps its Babel and Metro settings as they are.
 
-## Run the engine on its own runtime
+## Run the engine on a separate runtime
 
-An app whose own JavaScript keeps the JS thread busy can move the engine's JavaScript to a separate Hermes runtime as well. `createNarsil` from `@delali/narsil-react-native/worklets` starts the engine on a [Worklets](https://docs.swmansion.com/react-native-worklets/) runtime and returns the same client. An app that never imports that entry point bundles none of its code and needs no Worklets install.
+An app whose JavaScript keeps the JS thread busy can move the engine's JavaScript to a separate Hermes runtime as well. `createNarsil` from `@delali/narsil-react-native/worklets` starts the engine on a [Worklets](https://docs.swmansion.com/react-native-worklets/) runtime and returns the same client. An app that never imports that entry point bundles none of its code and needs no Worklets install.
 
 The Worklets runtime makes inserts slower, because the client copies each batch across to the engine's runtime before the engine can index it. The client sends a batch of plain data as JSON text, which costs far less than copying the objects themselves. For 20,000 documents, the copy as JSON took 480 ms from start to end on a physical Android phone and 579 ms on a physical iPhone, and about 200 ms of that went on parsing on the engine's runtime, while copying the same documents as objects held the app's JS thread for 2.9 s to 3.3 s.
 
@@ -136,11 +136,11 @@ const { getBundleModeMetroConfig } = require('react-native-worklets/bundleMode')
 module.exports = getBundleModeMetroConfig(getDefaultConfig(__dirname))
 ```
 
-Bundle Mode writes each worklet to a new file under `react-native-worklets/.worklets` while Metro builds the bundle. When Metro has not yet indexed one of those files, the build stops with `Failed to get the SHA-1` for it, which is what happened on this repository's continuous integration runners. The [Bundle Mode setup guide](https://docs.swmansion.com/react-native-worklets/docs/bundleMode/setup/) recommends a patch to Metro for this and links a patch for each Metro version. This repository applies its own version of that patch through pnpm's `patchedDependencies`, in [`patches/metro@0.87.2.patch`](../patches/metro@0.87.2.patch), which hashes a Bundle Mode file from its contents whenever Metro has no record of it.
+Bundle Mode writes each worklet to a new file under `react-native-worklets/.worklets` while Metro builds the bundle. When Metro has not yet indexed one of those files, the build stops with `Failed to get the SHA-1` for it, which is what happened on this repository's continuous integration runners. The [Bundle Mode setup guide](https://docs.swmansion.com/react-native-worklets/docs/bundleMode/setup/) recommends a patch to Metro for this and links a patch for each Metro version. This repository applies an adapted version of that patch through pnpm's `patchedDependencies`, in [`patches/metro@0.87.2.patch`](../patches/metro@0.87.2.patch), which hashes a Bundle Mode file from its contents whenever Metro has no record of it.
 
 The app in [`packages/react-native/examples/bare`](../packages/react-native/examples/bare) uses these settings and runs its searches through this entry point.
 
-Each setting has to cross to that runtime as data, so this entry point leaves out every setting that holds a function. Pass those through the second argument, a function marked with the `'worklet'` directive, which runs on the engine's runtime before the engine starts and returns the settings that hold functions. Register a language module or a tokenizer inside that function too, because the engine's runtime keeps its own copy of each module.
+Each setting has to cross to that runtime as data, so this entry point leaves out every setting that holds a function. Pass those through the second argument, a function marked with the `'worklet'` directive, which runs on the engine's runtime before the engine starts and returns the settings that hold functions. Register a language module or a tokenizer inside that function too, because the engine's runtime keeps a separate copy of each module.
 
 ## Where the index lives
 
@@ -153,7 +153,7 @@ import { createNarsil } from '@delali/narsil-react-native'
 const narsil = await createNarsil({ durability: { directory: 'search' } })
 ```
 
-On iOS the engine syncs each file with `F_FULLFSYNC`, which asks the drive to write its own cache to storage as well. Under durability, the engine keeps a vector field's full-precision vectors in files and reads them when it ranks a search, as [Vector search](vector-search.md) describes.
+On iOS the engine syncs each file with `F_FULLFSYNC`, which asks the drive to write its cache to storage as well. Under durability, the engine keeps a vector field's full-precision vectors in files and reads them when it ranks a search, as [Vector search](vector-search.md) describes.
 
 ## Snapshots and exports
 

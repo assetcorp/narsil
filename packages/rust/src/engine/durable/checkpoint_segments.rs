@@ -225,7 +225,7 @@ fn held_earlier<'i>(
 
 /// Returns the IDs of `payload` that a segment in `earlier` holds a copy of, removed or not. A paged segment lists
 /// them as tombstones, because a reader applies a paged segment's tombstones to the segments before it and leaves
-/// the segment's own IDs unread.
+/// the IDs that the paged segment holds unread.
 pub(super) fn ids_held_earlier(
     earlier: &[&SegmentEntry],
     payload: &KeywordSegment,

@@ -76,7 +76,7 @@ function applySwap(swap: LeadershipSwap, previousPrimary: string): void {
  * Hands leadership of some partitions from the busiest nodes to quieter ones, changing the assignments in place.
  *
  * A node that leads many partitions takes every write for them, so the allocator moves leadership until no node
- * leads {@link LEADERSHIP_IMBALANCE_THRESHOLD} partitions more than one of its own in-sync replicas does, measured
+ * leads {@link LEADERSHIP_IMBALANCE_THRESHOLD} partitions more than one of the in-sync replicas of those partitions does, measured
  * against each node's share of the cluster's capacity. Each handover names a replica that is already in sync and
  * raises the term. The old primary rejoins both the replica list and the in-sync set, because it holds every write
  * the cluster acknowledged, so a failover straight afterwards may promote it back. The loop stops once it runs out

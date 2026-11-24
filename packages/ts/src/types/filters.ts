@@ -30,7 +30,7 @@ export type ComparisonFilter = {
  * range, or with the set, prefix, and pattern tests.
  *
  * On a `string[]`, `verbatim[]`, or `enum[]` field, the engine tests each
- * element of the list on its own. A document passes `eq`, `in`, `startsWith`,
+ * element of the list separately. A document passes `eq`, `in`, `startsWith`,
  * `endsWith`, `contains`, `wildcard`, or `regex` when one element passes the
  * test. However, a document passes `ne` or `nin` only when every element
  * differs from the values.
@@ -134,8 +134,8 @@ export type StringFilter = Pick<ComparisonFilter, 'eq' | 'ne'> & {
    * `endsWith`, `contains`, `wildcard`, and `regex`.
    *
    * Under `caseFold`, a set that does not open with `^` can also match a
-   * sequence of code points. When a member that the set holds on its own folds
-   * to several code points, the set matches that whole fold, so `[ß]` matches
+   * sequence of code points. When a single member of the set folds to several
+   * code points, the set matches that whole fold, so `[ß]` matches
    * `ss`.
    */
   caseFold?: boolean

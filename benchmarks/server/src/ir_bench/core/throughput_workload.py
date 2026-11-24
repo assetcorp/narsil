@@ -21,7 +21,7 @@ class Workload:
 
     A closure over a live HTTP client cannot cross a process boundary, so the
     load generator hands its worker processes this description instead of a
-    callable, and each worker builds its own driver from it. The fields after
+    callable, and each worker builds a separate driver from it. The fields after
     `ef` carry the search-time driver state the track's setup established, so a
     worker queries the operating point the recall tuning chose rather than the
     driver's defaults.
@@ -40,7 +40,7 @@ class Workload:
 
 def open_driver(workload: Workload):
     """Builds the driver a worker process issues its requests through, restoring
-    the search-time state the parent process set on its own driver during setup.
+    the search-time state that the parent process set on its driver during setup.
     The profile, the metric, and the rescore oversample each change what a vector
     request asks the engine for, so a worker that skipped them would measure a
     different operating point from the one the harness reports.

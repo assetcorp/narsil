@@ -74,7 +74,7 @@ fn checked_scores(scores: Vec<f64>, expected: usize, name: &str) -> Result<Vec<f
 /// unusable scores, or takes longer than the rerank timeout.
 ///
 /// The adapter works on a separate thread with copies of the query and the texts, so that an adapter that blocks
-/// holds up only its own query and can reach no index state.
+/// holds up only the query that called it and can reach no index state.
 pub(crate) fn score_documents(
     registry: &AdapterRegistry,
     name: &str,

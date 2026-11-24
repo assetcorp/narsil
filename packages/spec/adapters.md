@@ -1,12 +1,12 @@
 # Narsil Adapter Interface Contracts
 
-Adapters are how Narsil reaches anything outside its own memory: durable storage, coordination between instances, text analysis, and embedding models. This document defines each adapter contract. Every Narsil implementation must support these contracts, and every adapter, built in or contributed, must conform to them.
+Adapters are how Narsil reaches anything outside its memory: durable storage, coordination between instances, text analysis, and embedding models. This document defines each adapter contract. Every Narsil implementation must support these contracts, and every adapter, built in or contributed, must conform to them.
 
 ---
 
 ## Notation
 
-Type definitions here and throughout the specification use a language-neutral notation. It illustrates the contract, and each implementation expresses it in its own type system.
+Type definitions here and throughout the specification use a language-neutral notation. It illustrates the contract, and each implementation expresses it in the type system of its language.
 
 | Notation | Meaning |
 |----------|---------|
@@ -18,7 +18,7 @@ Type definitions here and throughout the specification use a language-neutral no
 | `boolean` | True or false |
 | `bytes` | A byte array |
 | `value` | A value of any type |
-| `T or absent` | A value that is either a `T` or missing; each language maps 'absent' to its own null, nil, None, or optional type |
+| `T or absent` | A value that is either a `T` or missing; each language maps 'absent' to its null, nil, None, or optional type |
 | `async ... -> T` | An asynchronous operation producing a `T` |
 | `-> nothing` | An operation that produces no value |
 | `uint8`, `uint16`, `uint32`, `uint64`, `float32`, `float64` | Exact widths in a byte layout or on the wire |
@@ -133,7 +133,7 @@ InvalidationAdapter {
 ### subscribe(handler)
 
 - Registers a callback that fires when an event arrives from another instance.
-- The engine's handler checks `sourceInstanceId` and drops the events this instance published itself. The adapter does no filtering of its own.
+- The engine's handler checks `sourceInstanceId` and drops the events this instance published itself. The adapter filters no events.
 - It may be called more than once to register several handlers.
 
 ### shutdown()
@@ -318,7 +318,7 @@ registerStopWords(name: string, stopWords: Set<string> or ((defaults: Set<string
 
 An index configuration that gives a string for `tokenizer` or for `stopWords` resolves that string against the registry when the caller creates the index, and an unknown name raises `CONFIG_INVALID` listing the names that are registered.
 
-Names exist because no boundary carries code. A tokeniser and a stop word function are both code, and a worker thread, a restart, and a second machine each receive data alone, so an index configured with either value runs in the calling thread and loses its analysis on recovery. An index configured with a name carries the name across instead, and each side resolves that name against its own registry. The `language` setting has always worked this way, and these two settings now match it.
+Names exist because no boundary carries code. A tokeniser and a stop word function are both code, and a worker thread, a restart, and a second machine each receive data alone, so an index configured with either value runs in the calling thread and loses its analysis on recovery. An index configured with a name carries the name across instead, and each side resolves that name against the registry on that side. The `language` setting has always worked this way, and these two settings now match it.
 
 An engine with durability configured refuses an index whose `tokenizer` is a `CustomTokenizer` or whose `stopWords` is a function, raising `CONFIG_INVALID` that names the registry as the alternative. A checkpoint re-analyses the raw documents, so an index whose analysis cannot be persisted would be rewritten with the language default on restart. A literal stop word set is data, so durability accepts it and persists the words themselves.
 
@@ -372,7 +372,7 @@ EmbeddingAdapter {
 
 - Converts one text string into a vector of 32-bit floats.
 - `purpose` says whether the input is a document being indexed or a query being searched. An asymmetric model, such as E5, BGE, Nomic, or a Cohere or Google Vertex AI model, uses it to apply the prefix or parameter that produces a different vector for a document than for a query. A symmetric model, such as MiniLM or GTE, ignores it.
-- `cancel` is an optional cancellation token for cooperative cancellation, and a cancelled call returns an abort error. Narsil passes a token during shutdown so that in-flight requests stop. Each runtime supplies its own mechanism for this.
+- `cancel` is an optional cancellation token for cooperative cancellation, and a cancelled call returns an abort error. Narsil passes a token during shutdown so that in-flight requests stop. Each runtime supplies a separate mechanism for this.
 - A failure returns an error, which Narsil wraps in `EMBEDDING_FAILED`.
 - Narsil must also raise `EMBEDDING_FAILED` when a vector that the adapter returns holds an element that is infinite or NaN, for a document and for a query alike.
 
@@ -449,7 +449,7 @@ Inserting a document into an index that configures embeddings runs this sequence
 
 1. Required field validation runs first, when the index configures a `required` list.
 2. For each mapped vector field:
-   1. A document that already carries the vector field keeps it as it is, and no embedding runs. That is the path for callers who bring their own vectors.
+   1. A document that already carries the vector field keeps it as it is, and no embedding runs. That is the path for callers who supply the vectors themselves.
    2. A document missing the vector field has its source field values collected.
    3. A missing or empty source field is skipped. When every source field for a mapping is missing or empty, Narsil raises `EMBEDDING_NO_SOURCE`.
    4. The source values that are present are joined with newlines and passed to the adapter with `purpose` set to `document`.
@@ -459,7 +459,7 @@ Inserting a document into an index that configures embeddings runs this sequence
 
 For a batch insert, an adapter that provides `embedBatch` receives all the texts of one mapped vector field in a single call, one call per field. An adapter without it falls back to concurrent `embed` calls.
 
-An embedding failure during insert raises `EMBEDDING_FAILED`. A single insert throws it. A batch insert moves that one document into the failed list and carries on with the rest. Each failed entry carries the document's own `id` as its `docId` when the document supplies a non-empty string id, and an empty string when it does not, because a document that was never indexed receives no generated identifier.
+An embedding failure during insert raises `EMBEDDING_FAILED`. A single insert throws it. A batch insert moves that one document into the failed list and carries on with the rest. Each failed entry carries the document's `id` as its `docId` when the document supplies a non-empty string id, and an empty string when it does not, because a document that was never indexed receives no generated identifier.
 
 ### Query Behaviour
 
@@ -530,7 +530,7 @@ An index can declare fields that every document must carry:
 ```
 
 - It works with any provider that serves the OpenAI `/v1/embeddings` endpoint, which includes OpenAI, Azure OpenAI, Mistral, Together AI, Fireworks, and Groq.
-- It uses the runtime's own HTTP client and pulls in no HTTP dependency.
+- It uses the HTTP client built into the runtime and pulls in no HTTP dependency.
 - `apiKey` takes a string for the simple case, or a function for a key resolved at call time from a vault or a rotation service.
 - It retries a transient failure, meaning status 429, 500, 502, or 503, with exponential backoff and jitter, and it never retries a permanent failure such as 400, 401, or 403.
 - It never logs, serialises, or embeds the API key in an error message.
@@ -589,7 +589,7 @@ RerankAdapter {
 
 - It must return one score for each document, in the order of `documents`, where a higher score marks a more relevant document.
 - A document string is empty where the document holds no text in the reranked fields.
-- The adapter must handle truncation, chunking, batching, retries, and rate limiting, because each model sets its own input and rate limits.
+- The adapter must handle truncation, chunking, batching, retries, and rate limiting, because each model sets separate input and rate limits.
 - Narsil must cancel the call through `cancel` once it has waited longer than `rerankTimeout`, an engine setting with a default of 30,000 ms, and it must then raise `RERANK_FAILED`.
 - Narsil must raise `RERANK_FAILED` when the call throws, returns a list whose length differs from `documents`, or returns a score that is not a finite number.
 
@@ -611,7 +611,7 @@ The engine setting `maxRerankWindow` sets the largest window that a query may re
 | HTTP, for a Cohere-compatible `/rerank` endpoint | `@delali/narsil/rerankers/http` | all | HTTP |
 | Transformers.js cross-encoder | `@delali/narsil-embeddings-transformers` | all | ONNX Runtime |
 
-The HTTP adapter sends `{ model, query, documents }` and reads `results[{ index, relevance_score }]`, which is the shape that Cohere, Jina, vLLM, and Infinity serve. It must retry, time out, cancel, and handle its API key the way the [OpenAI-compatible adapter](#openai-compatible-adapter) does. The HTTP adapter must be an entry of its own, so that a bundle which leaves it out carries none of its code.
+The HTTP adapter sends `{ model, query, documents }` and reads `results[{ index, relevance_score }]`, which is the shape that Cohere, Jina, vLLM, and Infinity serve. It must retry, time out, cancel, and handle its API key the way the [OpenAI-compatible adapter](#openai-compatible-adapter) does. The HTTP adapter must be a separate entry, so that a bundle which leaves it out carries none of its code.
 
 ### RerankAdapter Error Codes
 

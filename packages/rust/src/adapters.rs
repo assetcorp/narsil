@@ -1,6 +1,6 @@
 use std::error::Error;
 
-/// The error that an adapter returns, which the engine reports under its own error code.
+/// The error that an adapter returns, which the engine reports under a Narsil error code.
 pub type AdapterError = Box<dyn Error + Send + Sync>;
 
 /// Why the engine asks an embedding adapter for a vector.

@@ -267,7 +267,7 @@ async function writeRecoveryOutcome(
  * @param coordinator - The cluster coordinator that holds the allocation table and the index identity.
  * @param transport - The node transport the controller asks the returning nodes over.
  * @param indexName - The index whose unserved partitions this pass tries to recover.
- * @param controllerNodeId - The controller's own node id, which names the sender of every request.
+ * @param controllerNodeId - The node id of the controller, which names the sender of every request.
  * @param nodes - The nodes registered with the coordinator right now, whose addresses this pass sends to.
  * @param isActive - Reports whether this node still holds the controller lease.
  * @returns `promoted` where the controller promoted at least one node, and `askAgain` where a registered holder gave

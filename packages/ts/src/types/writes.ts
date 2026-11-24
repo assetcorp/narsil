@@ -17,14 +17,14 @@ export interface DocumentWriteOperations {
    * Adds one document to an index and returns the id it is stored under.
    *
    * The id comes from the `docId` argument when you pass one, otherwise from
-   * the document's own `id` field, and otherwise the engine generates it. Use
+   * the `id` field of the document, and otherwise the engine generates it. Use
    * {@link DocumentWriteOperations.insertBatch} for a large load, so that one
    * bad document cannot abandon the rest.
    *
    * @param indexName - The index that receives the document.
    * @param document - Its fields must match the types the schema declares.
    * @param docId - Pass an id to control it yourself, or omit it and read the
-   * returned value. An id that differs from the document's own `id` field
+   * returned value. An id that differs from the `id` field of the document
    * raises `DOC_VALIDATION_FAILED`, because the stored document would
    * otherwise contradict the key that it is stored under.
    * @param options - Per-write settings, such as skipping the defensive copy
@@ -40,7 +40,7 @@ export interface DocumentWriteOperations {
    * makes this the call to load a corpus with.
    *
    * @param indexName - The index that receives the documents.
-   * @param documents - The documents to write, each carrying its own id or
+   * @param documents - The documents to write, each carrying an id or
    * leaving the engine to generate one.
    * @param options - Per-write settings applied to every document.
    * @returns The ids written, and each rejection with its error.

@@ -4,8 +4,8 @@ import type { SerializablePartition } from '../types/internal'
 /**
  * Removes any vector value a partition payload stored beside its other document fields.
  *
- * A vector belongs to its own vector index payload, so a reader drops the copy an older
- * writer left in the documents rather than holding it in memory for the life of the index.
+ * The payload of the vector index stores every vector, so a reader drops the copy that an older writer left in
+ * the documents, and memory holds no second copy for the life of the index.
  *
  * @param documents - The documents the payload decoded, edited in place.
  * @param schema - The flat schema the payload carries, which names each vector field.

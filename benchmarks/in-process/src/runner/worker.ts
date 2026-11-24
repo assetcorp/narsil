@@ -81,7 +81,7 @@ async function runVectorJob(spec: VectorJobSpec): Promise<VectorRelevanceResult>
 
   // Orama nulls the embedding property of documents it returns as search hits, and
   // it stores caller docs by reference, so a docs array reused across phases would be
-  // corrupted after the first search. Each phase gets its own array; the build happens
+  // corrupted after the first search. Each phase builds a separate array; the build happens
   // outside the measured insert window, so insert throughput carries no extra cost.
   const buildDocs = (): VectorBenchDocument[] =>
     embedded.docIds.map((id, i) => ({ id, title: '', embedding: vectorRow(embedded.docVectors, i) }))

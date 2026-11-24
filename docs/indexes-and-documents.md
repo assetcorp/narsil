@@ -47,7 +47,7 @@ A pattern index takes memory in proportion to the text of its field. On the `tex
 
 ### Pattern value limit
 
-The engine raises `DOC_VALIDATION_FAILED` for a document whose value in a `verbatim` field, or in a field whose type includes `pattern`, is longer than the index's `patternValueLimit` in code points. It tests each element of a list on its own. Set `patternValueLimit` to a whole number from 1 to 65,536, or leave it unset for a limit of 8,192 code points. For any other value, `createIndex` throws `CONFIG_INVALID`. Where a developer sets a limit, the engine writes it into the index metadata and into each snapshot, so that it can apply the same limit after it reopens or restores the index.
+The engine raises `DOC_VALIDATION_FAILED` for a document whose value in a `verbatim` field, or in a field whose type includes `pattern`, is longer than the index's `patternValueLimit` in code points. It tests each element of a list separately. Set `patternValueLimit` to a whole number from 1 to 65,536, or leave it unset for a limit of 8,192 code points. For any other value, `createIndex` throws `CONFIG_INVALID`. Where a developer sets a limit, the engine writes it into the index metadata and into each snapshot, so that it can apply the same limit after it reopens or restores the index.
 
 ### Limits
 
@@ -74,7 +74,7 @@ The engine applies the first two limits and the configuration limit only to new 
 | `defaultScoring` | `'local' \| 'dfs' \| 'broadcast'` | Sets the scoring mode used when a query does not pass one. See [Scoring modes](full-text-search.md#scoring-modes). |
 | `bm25` | `BM25Params` | Sets the BM25 `k1` and `b` parameters for the index and for each text field in `fields`. You can replace the setting later with `updateBM25`. See [BM25 parameters](full-text-search.md#bm25-parameters). |
 | `stopWords` | `StopWordOverride \| string` | Replaces or transforms the language module's stop word set, inline or by the name of a set registered with `registerStopWords`. See [Named tokenizers and stop words](language-support.md#named-tokenizers-and-stop-words). |
-| `tokenizer` | `CustomTokenizer \| string` | Replaces the built-in tokenizer with your own `tokenize(text)` implementation, inline or by the name of a tokenizer registered with `registerTokenizer`. See [Named tokenizers and stop words](language-support.md#named-tokenizers-and-stop-words). |
+| `tokenizer` | `CustomTokenizer \| string` | Replaces the built-in tokenizer with a `tokenize(text)` implementation that you supply, inline or by the name of a tokenizer registered with `registerTokenizer`. See [Named tokenizers and stop words](language-support.md#named-tokenizers-and-stop-words). |
 | `trackPositions` | `boolean` | Stores token positions in each posting, which [phrase search](full-text-search.md#phrase-search) compares. The default is `true`. With `false`, the engine stores less and refuses a phrase with `SEARCH_INVALID_PHRASE`, while highlighting works either way. |
 | `surfaceForms` | `boolean` | Records the original spellings of stemmed words for suggestions and prefix completions. The default is `true`. See [Suggestions](full-text-search.md#suggestions). |
 | `returnVectors` | `boolean` | With `true`, every read returns the vector fields of each document unless the read sets `vectors: false` in its `document` projection. The default is `false`, under which a read leaves them out unless it asks for them. For a value other than `true` or `false`, `createIndex` throws `CONFIG_INVALID`. See [Choosing what comes back](full-text-search.md#choosing-what-comes-back). |
@@ -110,7 +110,7 @@ With durability configured, `close(indexName)` releases an index's memory and ke
 
 ### Insert
 
-`insert(indexName, document, docId?, options?)` takes the document id from the `docId` argument, or else from a string `id` field on the document itself. Where neither holds an id, Narsil generates a UUID v7. In every case, the method returns the id that it stored the document under. Where the call passes a `docId` and the document holds a different `id`, `insert` throws `DOC_VALIDATION_FAILED`, because the document would then contradict the id that the engine stores it under. `update` throws the same error for the same reason. For that reason too, a document's own `id` field must hold a non-empty string, so the engine raises `DOC_VALIDATION_FAILED` for an `id` that holds a number, an empty string, or `null`.
+`insert(indexName, document, docId?, options?)` takes the document id from the `docId` argument, or else from a string `id` field on the document itself. Where neither holds an id, Narsil generates a UUID v7. In every case, the method returns the id that it stored the document under. Where the call passes a `docId` and the document holds a different `id`, `insert` throws `DOC_VALIDATION_FAILED`, because the document would then contradict the id that the engine stores it under. `update` throws the same error for the same reason. For that reason too, the `id` field inside a document must hold a non-empty string, so the engine raises `DOC_VALIDATION_FAILED` for an `id` that holds a number, an empty string, or `null`.
 
 <!-- example setup
 import { createNarsil } from '@delali/narsil'

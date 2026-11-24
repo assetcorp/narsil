@@ -363,14 +363,14 @@ export interface Narsil
    * Reports what this engine and its host process are using, which is what you
    * size a host from.
    *
-   * @returns Process heap figures, the engine's own estimate, and one entry
+   * @returns Process heap figures, the estimate that the engine makes, and one entry
    * per worker once the engine has promoted.
    */
   getMemoryStats(): Promise<MemoryStats>
   /**
    * Starts delivering one kind of engine event to your listener.
    *
-   * These events report work the engine does on its own, away from the call
+   * These events report work that the engine does in the background, away from the call
    * that triggered it, so this is where a failed background save or a worker
    * crash reaches you.
    *

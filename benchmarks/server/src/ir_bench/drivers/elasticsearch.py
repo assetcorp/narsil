@@ -48,7 +48,7 @@ class ElasticsearchDriver(LuceneRestDriver):
         # Elasticsearch quantizes float dense_vectors by default (int8_hnsw since 8.14,
         # bbq_hnsw for >= 384 dims since 9.1), so equal-precision must force `hnsw`
         # explicitly to compare full float against the other engines. Best-config uses
-        # BBQ, Elastic's own recommended default at this dimensionality.
+        # BBQ, the default that Elastic recommends at this dimensionality.
         if params.profile == BEST_CONFIG:
             index_type = "bbq_hnsw"
             self.vector_quantization = "BBQ"

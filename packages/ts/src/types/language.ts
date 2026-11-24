@@ -2,7 +2,7 @@
  * Everything the engine needs to analyse one language: how to split text into
  * tokens, which words to drop, and how to reduce a word to its stem.
  *
- * Each language is its own module, so a bundle carries only the languages you
+ * Each language is a separate module, so a bundle carries only the languages you
  * import. Register one with {@link registerLanguage} before an index names it.
  *
  * @public

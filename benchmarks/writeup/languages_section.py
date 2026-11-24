@@ -126,7 +126,7 @@ def _worker_copy_sentences(results: dict) -> str:
     mechanism = (
         f"On {integer(most)} threads TypeScript answers through worker copies. Its {integer(most)} callers share the "
         "one Node.js main thread, which copies a query into a message to a free worker thread and copies the answer "
-        "back out of its reply, and which answers on its own copy only while every worker is busy. Rust answers on "
+        "back out of its reply, and which answers on the main copy only while every worker is busy. Rust answers on "
         "each caller's thread, and Go hands each query to a free goroutine of its query pool over a channel, so both "
         "search the one index in shared memory and copy neither the query nor the answer."
     )
@@ -138,7 +138,7 @@ def _worker_copy_sentences(results: dict) -> str:
         f"main thread, and TypeScript's keyword p50 reaches {_grouped(dig(shared, 'p50Us'), 1)} µs while its queries "
         "per second go from "
         f"{integer(dig(alone, 'queriesPerSecond', 'median'))} to {integer(dig(shared, 'queriesPerSecond', 'median'))}. "
-        "A worker copy runs the query itself off the main thread, so the application's own code on that thread keeps "
+        "A worker copy runs the query itself off the main thread, so the application code on that thread keeps "
         "running while a search is under way."
     )
 

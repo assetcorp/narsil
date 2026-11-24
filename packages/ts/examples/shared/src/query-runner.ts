@@ -1,7 +1,7 @@
 import type { ListParams, ListResult, QueryParams, QueryResult, SuggestParams, SuggestResult } from '@delali/narsil'
 import { createContext, useContext } from 'react'
 
-/** Runs one search and answers with the engine's own result. */
+/** Runs one search and answers with the result that the engine returns. */
 export type QueryRunner = (indexName: string, params: QueryParams, signal?: AbortSignal) => Promise<QueryResult>
 
 /** Completes one prefix against an index. */

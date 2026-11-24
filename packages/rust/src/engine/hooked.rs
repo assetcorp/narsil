@@ -113,7 +113,7 @@ pub(crate) fn before_remove(
     })
 }
 
-/// Moves each refusal of `failed` ahead of the batch's own failures, so that the result lists every refusal.
+/// Moves each refusal of `failed` ahead of the failures that the batch reports, so that the result lists every refusal.
 pub(crate) fn add_refusals(failed: Vec<BatchFailure>, result: &mut BatchResult) {
     let mut refused = failed;
     refused.append(&mut result.failed);

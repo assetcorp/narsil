@@ -160,7 +160,7 @@ The independent decoder of the suite also checks that `vectors` is the last entr
 
 ### Manifest
 
-[Manifest](durability.md#manifest) defines the payload. The JSON form is `{ header, payload }`, where `payload` mirrors the map and `dead` is `null` or an array of its bytes as `uint8` values. A manifest on its own keeps every value of each entry, `bytes` and `checksum` included.
+[Manifest](durability.md#manifest) defines the payload. The JSON form is `{ header, payload }`, where `payload` mirrors the map and `dead` is `null` or an array of its bytes as `uint8` values. A standalone manifest keeps every value of each entry, `bytes` and `checksum` included.
 
 ### Index metadata
 

@@ -102,7 +102,7 @@ A phrase holds at most 32 words, counting the stop words between its first and l
 
 A phrase matches inside one item of an array field, because the engine leaves a gap of 100 positions between items. An index that an earlier release saved holds its array positions without that gap, so the engine treats any such index with a `string[]` field as stale and rebuilds it from its stored documents, as [Analysis revisions](language-support.md#analysis-revisions) describes. Until the rebuild ends, a phrase on that index raises `SEARCH_PHRASE_NOT_READY`, while a query without a phrase keeps answering. Under `analysis: { rebuild: 'manual' }`, the rebuild waits for your call to `rebuildAnalysis`. A cluster raises the same error while any node that stores the index registers a specification version below 1.1.
 
-The engine keeps the code that matches a phrase in its own file, so a browser downloads that file only when the first query with a quote character arrives, and a query without one never downloads it. If a browser goes offline before it has that file, a query with a quote character raises `SEARCH_PHRASE_NOT_READY`, while a query without one keeps answering. The engine tries the download again with the next such query, although a browser can remember the failed download until the page reloads. An app that has to answer phrases offline should cache the file with its service worker, or send one query with a quote character while it is online.
+The engine keeps the code that matches a phrase in a separate file, so a browser downloads that file only when the first query with a quote character arrives, and a query without one never downloads it. If a browser goes offline before it has that file, a query with a quote character raises `SEARCH_PHRASE_NOT_READY`, while a query without one keeps answering. The engine tries the download again with the next such query, although a browser can remember the failed download until the page reloads. An app that has to answer phrases offline should cache the file with its service worker, or send one query with a quote character while it is online.
 
 ## Matching inside words
 
@@ -290,7 +290,7 @@ A cluster answers `ANALYSIS_CHANGE_NOT_READY` while any registered node has a sp
 
 ## Score and coverage thresholds
 
-With `minScore`, the engine drops every hit whose score is below that floor. BM25 scores have no fixed upper bound, so under a floor that works for one index and query, the engine can drop every hit of another. Choose the floor from scores that you have seen on your own corpus. With `termMatch`, you set how many query terms a document has to match. Under the default, `'any'`, a document has to match one term, under `'all'` every term, and under a number at least that many terms. The engine counts a query term as matched under the same `tolerance` and `prefixLength` that the search uses.
+With `minScore`, the engine drops every hit whose score is below that floor. BM25 scores have no fixed upper bound, so under a floor that works for one index and query, the engine can drop every hit of another. Choose the floor from scores that you have seen on your corpus. With `termMatch`, you set how many query terms a document has to match. Under the default, `'any'`, a document has to match one term, under `'all'` every term, and under a number at least that many terms. The engine counts a query term as matched under the same `tolerance` and `prefixLength` that the search uses.
 
 <!-- example setup
 import { createNarsil } from '@delali/narsil'
@@ -328,9 +328,9 @@ const results = await narsil.query('products', {
 
 ## Scoring modes
 
-When an index spans partitions or instances, each one holds its own term statistics, so the scores are approximate where partition sizes or term distributions differ. Choose one of three scoring modes, depending on how much of that skew you can accept:
+When an index spans partitions or instances, each one holds separate term statistics, so the scores are approximate where partition sizes or term distributions differ. Choose one of three scoring modes, depending on how much of that skew you can accept:
 
-- Under `'local'`, which is the default and the fastest mode, the engine scores each partition with its own statistics.
+- Under `'local'`, which is the default and the fastest mode, the engine scores each partition with the statistics of that partition.
 - Under `'dfs'`, the engine first collects the global term statistics in one round trip, then scores with unified IDF values in a second.
 - Under `'broadcast'`, the engine scores from the global statistics that the instances exchange through the invalidation adapter.
 

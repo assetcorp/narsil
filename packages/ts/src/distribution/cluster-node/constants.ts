@@ -21,8 +21,8 @@ export const DEFAULT_REPLICATION_FACTOR = 1
 
 /**
  * A node claims this much capacity when {@link ClusterNodeConfig} declares
- * none. Measure your own hosts and set it, because these figures are a
- * placeholder rather than a reading.
+ * none. Measure the hosts that you deploy on and set it, because these figures
+ * are a placeholder that nobody measured.
  *
  * @public
  */

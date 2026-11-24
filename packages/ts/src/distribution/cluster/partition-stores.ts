@@ -54,7 +54,7 @@ export function validatePartitionStoresResultPayload(decoded: unknown): Partitio
  * Builds the request a controller sends to ask one node which partitions of an index its local copy holds.
  *
  * @param payload - The index the controller asks about.
- * @param sourceNodeId - The controller's own node id, which names the sender.
+ * @param sourceNodeId - The node id of the controller, which names the sender.
  * @param requestId - The id that pairs the answer with this request.
  * @returns The message to send over the node transport.
  */
@@ -75,7 +75,7 @@ export function createPartitionStoresMessage(
  * Builds the answer a data node returns for a partition-stores request.
  *
  * @param result - The identity of this node's copy and the partitions that copy holds.
- * @param sourceNodeId - The answering node's own id.
+ * @param sourceNodeId - The id of the answering node.
  * @param requestId - The id the request carried.
  * @returns The message to send back over the node transport.
  */
