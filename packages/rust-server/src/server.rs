@@ -104,6 +104,7 @@ pub struct NarsilServer {
     port: u16,
     options: ServerOptions,
     running: Mutex<Option<Running>>,
+    closing: Mutex<()>,
 }
 
 impl NarsilServer {
@@ -219,6 +220,7 @@ impl NarsilServer {
             port: options.port.unwrap_or(DEFAULT_PORT),
             options,
             running: Mutex::new(None),
+            closing: Mutex::new(()),
         })
     }
 
@@ -263,6 +265,7 @@ impl NarsilServer {
     /// Stops accepting connections, closes every feed, and waits up to 30 seconds for the requests in progress,
     /// leaving the running tasks and the engine open.
     pub async fn close(&self) {
+        let _closing = self.closing.lock().await;
         self.state.ready.store(false, Ordering::Release);
         let Some(running) = self.running.lock().await.take() else {
             return;
@@ -284,18 +287,20 @@ impl NarsilServer {
     ///
     /// Returns the engine's error where its shutdown fails.
     pub async fn shutdown(&self) -> Result<(), NarsilError> {
-        let stopping = async {
+        let draining = async {
+            self.close().await;
             self.state.tasks.shutdown().await;
-            #[cfg(feature = "cluster")]
-            if let Some(node) = &self.state.cluster {
-                node.shutdown().await;
-            }
         };
         if self.state.fronts_cluster() {
-            tokio::join!(self.close(), stopping);
+            let stopping = async {
+                #[cfg(feature = "cluster")]
+                if let Some(node) = &self.state.cluster {
+                    node.shutdown().await;
+                }
+            };
+            tokio::join!(draining, stopping);
         } else {
-            self.close().await;
-            stopping.await;
+            draining.await;
         }
         let engine = Arc::clone(&self.state.engine);
         tokio::task::spawn_blocking(move || engine.shutdown())
