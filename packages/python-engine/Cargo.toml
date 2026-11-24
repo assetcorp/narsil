@@ -1,6 +1,6 @@
 [package]
 name = "narsil-python"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 rust-version = "1.88"
 description = "The Python extension module of the delali-narsil package, which hosts Narsil's Rust engine inside a Python process."

@@ -1,3 +1,17 @@
+## 0.2.1 (2026-11-24)
+
+### 🚀 Features
+
+- **python-engine:** take returnVectors in index config, vectors in read projections, and a projection on get and get_multiple ([1be97dd6](https://github.com/assetcorp/narsil/commit/1be97dd6))
+
+### 🩹 Fixes
+
+- refuse malformed read projections and boolean index settings, and keep null vector fields ([956e1cdf](https://github.com/assetcorp/narsil/commit/956e1cdf))
+
+### ❤️ Thank You
+
+- assetcorp @assetcorp
+
 ## 0.2.0 (2026-11-19)
 
 ### 🚀 Features
