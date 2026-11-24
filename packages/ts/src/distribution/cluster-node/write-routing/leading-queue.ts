@@ -120,8 +120,7 @@ async function currentScope(scope: PrimaryWriteScope): Promise<PrimaryWriteScope
 }
 
 export async function scopeInLeadingQueue(scope: PrimaryWriteScope): Promise<PrimaryWriteScope> {
-  const current = await currentScope(scope)
-  return (await startTermInQueue(current)) ? currentScope(scope) : current
+  return currentScope(scope)
 }
 
 export async function inLeadingPartitionQueue<T>(

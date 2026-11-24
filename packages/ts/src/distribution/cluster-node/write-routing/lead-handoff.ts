@@ -73,14 +73,21 @@ function claimLeadHold(deps: WriteRoutingDeps, handoff: LeadHandoffRequest, hold
     throw refused(deps, handoff, 'it is handing over the lead of that partition already')
   }
   const number = nextLeadHold++
+  let release: () => void = () => undefined
+  const released = new Promise<void>(resolve => {
+    release = resolve
+  })
   const hold: LeadHold = {
     primaryTerm: handoff.primaryTerm,
     target: handoff.targetNodeId,
     number,
     deadline: Date.now() + holdForMs,
     held: null,
+    released,
+    release,
   }
   holds.set(key, hold)
+  held?.release()
   return number
 }
 
@@ -100,15 +107,19 @@ async function confirmTarget(
     if (claimed === undefined) throw lifted()
     const deadline = Date.now() + holdForMs
     claimed.deadline = deadline
-    let scope: Awaited<ReturnType<typeof scopeInLeadingQueue>>
-    try {
-      scope = await scopeInLeadingQueue({ indexName, partitionId, assignment, deps })
-    } catch (error) {
-      throw refused(deps, handoff, error instanceof Error ? error.message : String(error))
+    async function confirm(): Promise<CopyEnd | null> {
+      let scope: Awaited<ReturnType<typeof scopeInLeadingQueue>>
+      try {
+        scope = await scopeInLeadingQueue({ indexName, partitionId, assignment, deps })
+      } catch (error) {
+        throw refused(deps, handoff, error instanceof Error ? error.message : String(error))
+      }
+      if (currentLeadHold(deps, indexName, partitionId, number) === undefined || Date.now() >= deadline) return null
+      const reason = refusalReason(scope.assignment, handoff, deps.nodeId)
+      if (reason !== null) throw refused(deps, handoff, reason)
+      return bringCopyToEnd(scope, handoff.targetNodeId)
     }
-    const reason = refusalReason(scope.assignment, handoff, deps.nodeId)
-    if (reason !== null) throw refused(deps, handoff, reason)
-    const end = await within(bringCopyToEnd(scope, handoff.targetNodeId), deadline - Date.now())
+    const end = await within(Promise.race([confirm(), claimed.released.then(() => null)]), deadline - Date.now())
     if (end === null) {
       throw refused(deps, handoff, 'the target did not confirm that it holds every entry of this copy')
     }

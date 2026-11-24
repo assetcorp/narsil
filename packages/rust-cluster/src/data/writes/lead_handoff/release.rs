@@ -82,13 +82,23 @@ impl PrimaryWrites {
                 }
                 continue;
             }
-            match self.view.read_live(&held.index_name).await {
+            let read = tokio::select! {
+                open = changed_or_closed(&mut table_changes) => {
+                    if !open { return }
+                    continue;
+                },
+                open = changed_or_closed(&mut hold_changes) => {
+                    if !open { return }
+                    continue;
+                },
+                _ = stopping.changed() => return,
+                read = self.view.read_live(&held.index_name) => read,
+            };
+            match read {
                 Ok(table) => {
-                    let extended = held
-                        .partition
-                        .lead_hold_deadline(held.number)
-                        .is_some_and(|deadline| Instant::now() < deadline);
-                    if !extended || !self.leads_in_table(held, table.as_ref()) {
+                    if !self.leads_in_table(held, table.as_ref())
+                        || held.partition.end_expired_lead_hold(held.number)
+                    {
                         return;
                     }
                 }

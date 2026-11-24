@@ -48,7 +48,6 @@ fn lead_moves(stored: &Table, next: &Table, nodes: &[NodeRegistration]) -> Vec<L
             || before.state != ACTIVE
             || after.state != ACTIVE
             || !before.holds_in_sync(target)
-            || !after.holds_replica(primary)
         {
             continue;
         }
@@ -138,10 +137,22 @@ async fn send_handoff(send: HandoffSend, lead_move: LeadMove, action: &'static s
         Err(_) => Err(unanswered(&send, &lead_move, action)),
     };
     answered.is_ok_and(|answer| {
-        matches!(
+        let (Some(Value::Number(partition)), Some(Value::Number(last)), Some(Value::Number(term))) = (
+            answer.get("partitionId"),
             answer.get("lastSeqNo"),
-            Some(Value::Number(last)) if last.is_finite() && last.fract() == 0.0 && *last >= 0.0
-        )
+            answer.get("lastPrimaryTerm"),
+        ) else {
+            return false;
+        };
+        *partition == lead_move.partition_id
+            && last.is_finite()
+            && last.fract() == 0.0
+            && *last >= 0.0
+            && term.is_finite()
+            && term.fract() == 0.0
+            && *term >= 0.0
+            && *term <= lead_move.primary_term
+            && (*last == 0.0) == (*term == 0.0)
     })
 }
 

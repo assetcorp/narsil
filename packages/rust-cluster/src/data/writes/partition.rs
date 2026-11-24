@@ -119,6 +119,20 @@ impl Partition {
         }
     }
 
+    pub(super) fn end_expired_lead_hold(&self, number: u64) -> bool {
+        let mut hold = lock(&self.lead_hold);
+        let Some(held) = hold.as_ref().filter(|held| held.number == number) else {
+            return true;
+        };
+        if Instant::now() < held.deadline {
+            return false;
+        }
+        *hold = None;
+        drop(hold);
+        self.signal_lead_hold_change();
+        true
+    }
+
     pub(super) fn note_accepted(&self, primary_term: u64) {
         let mut terms = lock(&self.terms);
         terms.accepted = terms.accepted.max(primary_term);

@@ -38,7 +38,7 @@ function leadMoves(stored: AllocationTable, next: AllocationTable, nodes: NodeRe
     const target = after?.primary ?? null
     if (after === undefined || primary === null || target === null || primary === target) continue
     if (before.state !== 'ACTIVE' || after.state !== 'ACTIVE') continue
-    if (!before.inSyncSet.includes(target) || !after.replicas.includes(primary)) continue
+    if (!before.inSyncSet.includes(target)) continue
     const node = nodes.find(registration => registration.nodeId === primary)
     if (node === undefined) continue
     moves.push({ partitionId, primary, target, primaryTerm: before.primaryTerm, draining: node.draining === true })
@@ -96,7 +96,16 @@ async function sendHandoff(ctx: LeadHandoffContext, move: LeadMove, action: Hand
   try {
     const answer = await Promise.race([exchange.catch(() => null), expired])
     const lastSeqNo = answer?.lastSeqNo
-    return isValidInteger(lastSeqNo) && lastSeqNo >= 0
+    const lastPrimaryTerm = answer?.lastPrimaryTerm
+    return (
+      answer?.partitionId === move.partitionId &&
+      isValidInteger(lastSeqNo) &&
+      lastSeqNo >= 0 &&
+      isValidInteger(lastPrimaryTerm) &&
+      lastPrimaryTerm >= 0 &&
+      lastPrimaryTerm <= move.primaryTerm &&
+      (lastSeqNo === 0) === (lastPrimaryTerm === 0)
+    )
   } finally {
     clearTimeout(timer)
   }

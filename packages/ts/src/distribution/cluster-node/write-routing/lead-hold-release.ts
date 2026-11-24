@@ -12,6 +12,8 @@ export interface LeadHold {
   number: number
   deadline: number
   held: { lastSeqNo: number; lastPrimaryTerm: number } | null
+  released: Promise<void>
+  release: () => void
 }
 
 export interface HeldLead {
@@ -42,8 +44,10 @@ export function currentLeadHold(deps: WriteRoutingDeps, indexName: string, parti
 }
 
 export function endLeadHold(deps: WriteRoutingDeps, indexName: string, partitionId: number, number: number): void {
-  if (currentLeadHold(deps, indexName, partitionId, number) !== undefined) {
+  const hold = currentLeadHold(deps, indexName, partitionId, number)
+  if (hold !== undefined) {
     leadHoldsOf(deps).delete(leadHoldKey(indexName, partitionId))
+    hold.release()
   }
 }
 
@@ -70,33 +74,59 @@ async function readLive(deps: WriteRoutingDeps, indexName: string): Promise<Allo
     : deps.coordinator.getAllocation(indexName)
 }
 
+type LiveRead = { outcome?: { table: AllocationTable | null } | { failed: true } }
+
+function startLiveRead(deps: WriteRoutingDeps, indexName: string): LiveRead {
+  const read: LiveRead = {}
+  readLive(deps, indexName).then(
+    table => {
+      read.outcome = { table }
+    },
+    () => {
+      read.outcome = { failed: true }
+    },
+  )
+  return read
+}
+
 async function waitForRelease(deps: WriteRoutingDeps, held: HeldLead): Promise<void> {
   let retryDelay = LEAD_HANDOFF_TABLE_READ_RETRY_INITIAL_DELAY_MS
+  let liveRead: LiveRead | undefined
   for (;;) {
     const hold = currentLeadHold(deps, held.indexName, held.partitionId, held.number)
     if (hold === undefined || deps.stopped?.() === true || deps.catchUp.stopped) return
     if (!(await leadsInView(deps, held))) return
     const remaining = hold.deadline - Date.now()
     if (remaining > 0) {
+      liveRead = undefined
       await sleep(Math.min(remaining, LEAD_HANDOFF_TABLE_POLL_INTERVAL_MS))
       continue
     }
-    let table: AllocationTable | null
-    try {
-      table = await readLive(deps, held.indexName)
-    } catch (_) {
+    liveRead ??= startLiveRead(deps, held.indexName)
+    const outcome = liveRead.outcome
+    if (outcome === undefined) {
+      await sleep(LEAD_HANDOFF_TABLE_POLL_INTERVAL_MS)
+      continue
+    }
+    liveRead = undefined
+    if ('failed' in outcome) {
       await sleep(retryDelay)
       retryDelay = Math.min(retryDelay * 2, LEAD_HANDOFF_TABLE_READ_RETRY_DELAY_CAP_MS)
       continue
     }
     const current = currentLeadHold(deps, held.indexName, held.partitionId, held.number)
-    if (current === undefined || current.deadline <= Date.now() || !leadsIn(table, deps, held)) return
+    if (current === undefined || current.deadline <= Date.now() || !leadsIn(outcome.table, deps, held)) {
+      endLeadHold(deps, held.indexName, held.partitionId, held.number)
+      return
+    }
   }
 }
 
 export async function holdUntilReleased(deps: WriteRoutingDeps, held: HeldLead): Promise<void> {
+  const hold = currentLeadHold(deps, held.indexName, held.partitionId, held.number)
+  if (hold === undefined) return
   try {
-    await waitForRelease(deps, held)
+    await Promise.race([waitForRelease(deps, held), hold.released])
   } finally {
     endLeadHold(deps, held.indexName, held.partitionId, held.number)
   }

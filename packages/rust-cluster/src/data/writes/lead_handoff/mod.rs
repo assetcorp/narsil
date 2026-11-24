@@ -203,15 +203,30 @@ impl PrimaryWrites {
         if !self.hold_is_current(partition, number, |held| held.deadline = deadline) {
             return Err(lifted());
         }
-        let scope = self
-            .scope_in_queue(partition, &handoff.index_name, handoff.partition_id)
-            .await
-            .map_err(|error| refused(handoff, &self.node_id, error.message()))?;
-        if let Some(reason) = refusal_reason(Some(&scope.assignment), handoff, &self.node_id) {
-            return Err(refused(handoff, &self.node_id, reason));
-        }
-        let confirming = self.bring_copy_to_end(&scope, &handoff.target);
-        let Ok(Some(end)) = tokio::time::timeout_at(deadline.into(), confirming).await else {
+        let mut changes = partition.lead_hold_changes.subscribe();
+        let confirming = async {
+            let scope = self
+                .current_scope(partition, &handoff.index_name, handoff.partition_id)
+                .await
+                .map_err(|error| refused(handoff, &self.node_id, error.message()))?;
+            if let Some(reason) = refusal_reason(Some(&scope.assignment), handoff, &self.node_id) {
+                return Err(refused(handoff, &self.node_id, reason));
+            }
+            Ok(self.bring_copy_to_end(&scope, &handoff.target).await)
+        };
+        let lifted_while_confirming = async {
+            while partition.lead_hold_deadline(number).is_some() {
+                if changes.changed().await.is_err() {
+                    break;
+                }
+            }
+        };
+        let confirmed = tokio::select! {
+            confirmed = tokio::time::timeout_at(deadline.into(), confirming) => confirmed,
+            () = lifted_while_confirming => return Err(lifted()),
+        };
+        let end = confirmed.ok().transpose()?.flatten();
+        let Some(end) = end else {
             return Err(refused(
                 handoff,
                 &self.node_id,
