@@ -225,7 +225,7 @@ The Compose file takes the image tag from `NARSIL_IMAGE_TAG` in `.env`, and it u
 
 <!-- release-version narsil-ts -->
 ```bash skip
-echo "NARSIL_IMAGE_TAG=0.4.5" >> .env
+echo "NARSIL_IMAGE_TAG=0.4.6" >> .env
 docker compose up -d
 ```
 <!-- /release-version -->
