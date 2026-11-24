@@ -131,6 +131,8 @@ describe('a three-node cluster on three etcd members under seeded faults', () =>
     ])
     if (table === null) return `the allocation table gave no answer within ${ALLOCATION_READ_TIMEOUT_MS} ms`
     for (const [partitionId, assignment] of table.assignments) {
+      if (assignment.primary === null && (assignment.lastHolders ?? []).includes(nodeId))
+        return `partition ${partitionId} has no primary and keeps its last copy on slot ${slot}`
       const holders = [assignment.primary, ...assignment.replicas].filter(holder => holder !== null)
       if (!holders.includes(nodeId)) continue
       const others = holders.filter(holder => holder !== nodeId)
