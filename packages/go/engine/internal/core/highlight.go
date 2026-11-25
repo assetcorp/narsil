@@ -12,6 +12,13 @@ type HighlightTerm struct {
 	Tolerance uint32
 }
 
+type FoldedHighlight struct {
+	Keys         []HighlightTerm
+	Prefix       []uint16
+	HasPrefix    bool
+	PartialWords [][]uint16
+}
+
 type HighlightQuery struct {
 	Terms        []HighlightTerm
 	PrefixLength uint32
@@ -19,6 +26,7 @@ type HighlightQuery struct {
 	HasPrefix    bool
 	Synonyms     [][]uint16
 	PartialWords [][]uint16
+	Folded       *FoldedHighlight
 }
 
 type HighlightRequest struct {
@@ -57,26 +65,52 @@ func highlightTexts(held *pins, texts [][]uint16) []C.narsil_highlight_text {
 	return natives
 }
 
-func (q *HighlightQuery) fits() bool {
-	if !queryTextsFit(q.Prefix) || !queryTextsFit(q.Synonyms...) || !queryTextsFit(q.PartialWords...) {
-		return false
-	}
-	for index := range q.Terms {
-		if !queryTextsFit(q.Terms[index].Term) {
+func termsFit(terms []HighlightTerm) bool {
+	for index := range terms {
+		if !queryTextsFit(terms[index].Term) {
 			return false
 		}
 	}
 	return true
 }
 
-func (q *HighlightQuery) native(held *pins) C.narsil_highlight_query {
-	terms := make([]C.narsil_highlight_term, len(q.Terms))
-	for index := range q.Terms {
-		terms[index] = C.narsil_highlight_term{
-			text:      highlightText(held, q.Terms[index].Term),
-			tolerance: C.uint32_t(q.Terms[index].Tolerance),
+func (q *HighlightQuery) fits() bool {
+	if !queryTextsFit(q.Prefix) || !queryTextsFit(q.Synonyms...) || !queryTextsFit(q.PartialWords...) ||
+		!termsFit(q.Terms) {
+		return false
+	}
+	return q.Folded == nil ||
+		(queryTextsFit(q.Folded.Prefix) && queryTextsFit(q.Folded.PartialWords...) && termsFit(q.Folded.Keys))
+}
+
+func highlightTerms(held *pins, terms []HighlightTerm) []C.narsil_highlight_term {
+	natives := make([]C.narsil_highlight_term, len(terms))
+	for index := range terms {
+		natives[index] = C.narsil_highlight_term{
+			text:      highlightText(held, terms[index].Term),
+			tolerance: C.uint32_t(terms[index].Tolerance),
 		}
 	}
+	return natives
+}
+
+func (f *FoldedHighlight) native(held *pins) *C.narsil_folded_highlight {
+	keys := highlightTerms(held, f.Keys)
+	partial := highlightTexts(held, f.PartialWords)
+	native := []C.narsil_folded_highlight{{
+		keys:          pinned(held, keys),
+		key_count:     C.size_t(len(keys)),
+		partial_words: pinned(held, partial),
+		partial_count: C.size_t(len(partial)),
+	}}
+	if f.HasPrefix {
+		native[0].prefix = highlightText(held, f.Prefix)
+	}
+	return pinned(held, native)
+}
+
+func (q *HighlightQuery) native(held *pins) C.narsil_highlight_query {
+	terms := highlightTerms(held, q.Terms)
 	synonyms := highlightTexts(held, q.Synonyms)
 	partial := highlightTexts(held, q.PartialWords)
 	native := C.narsil_highlight_query{
@@ -90,6 +124,9 @@ func (q *HighlightQuery) native(held *pins) C.narsil_highlight_query {
 	}
 	if q.HasPrefix {
 		native.prefix = highlightText(held, q.Prefix)
+	}
+	if q.Folded != nil {
+		native.folded = q.Folded.native(held)
 	}
 	return native
 }

@@ -1,16 +1,19 @@
 use std::sync::Arc;
 
 use super::analysis_change::{announce, rebuild_under, record_pending};
-use super::changes::analysis::{AnalysisChange, pending_of, pending_target, resolve_config_target};
+use super::changes::analysis::{
+    AnalysisChange, holds_target, pending_of, pending_target, resolve_config_target,
+};
 use super::changes::drive::KeepCurrent;
 use super::changes::hold::HeldRun;
 use super::changes::rebuild::Rebuild;
 use super::changes::{ChangeKind, replaced};
 use super::durable::switch::{SwitchFailure, checkpoint_switch};
+use super::fold_marks::switch_fold_marks;
 use super::index::IndexState;
 use super::memory::require_analysis_rebuild_memory;
 use super::stats::text_bytes;
-use super::sync::notify::announcing_epoch;
+use super::sync::notify::{announce_sync_settings, announcing_epoch};
 use super::synonyms::prepare_synonyms;
 use super::{EngineInner, Narsil};
 use crate::config::IndexConfig;
@@ -31,6 +34,8 @@ pub struct PendingAnalysisChange {
     pub stop_words: Option<String>,
     /// A list of stop words, which applies where `stop_words` gives no name.
     pub stop_word_list: Option<Vec<String>>,
+    /// The `fold_marks` setting, or `None` for the language's.
+    pub fold_marks: Option<bool>,
 }
 
 impl PendingAnalysisChange {
@@ -48,6 +53,7 @@ impl PendingAnalysisChange {
                 tokenizer: self.tokenizer.clone(),
                 stop_words: self.stop_words.clone(),
                 stop_word_list,
+                fold_marks: self.fold_marks,
             },
         }
     }
@@ -172,6 +178,19 @@ fn drive_held(engine: &EngineInner, index: &IndexState, run: &HeldRun) -> Result
         match checked {
             Err(error) => (Err(error), None),
             Ok(_) if run.is_stopped() => (Err(replaced(&index.name)), None),
+            Ok(target) if holds_target(&index.config(), &target) => {
+                let outcome = run
+                    .wait_for_release(&ticket, &index.name, &mut || Ok(()))
+                    .map_err(SwitchFailure::into_error)
+                    .and_then(|()| {
+                        switch_fold_marks(index, &target, run.pending.generation)
+                            .map_err(SwitchFailure::into_error)
+                    });
+                if outcome.is_ok() {
+                    announce_sync_settings(engine, &index.name);
+                }
+                (outcome, None)
+            }
             Ok(target) => {
                 let hold = |keep_current: &mut KeepCurrent<'_>| {
                     run.wait_for_release(&ticket, &index.name, keep_current)
@@ -202,7 +221,9 @@ fn start_held_run(
     let target = pending_target(engine, index, &pending)?;
     let synonyms = index.synonym_set();
     prepare_synonyms(Some(synonyms.rules.as_slice()), &target.analyser, true, "")?;
-    require_analysis_rebuild_memory(&index.name, text_bytes(index))?;
+    if !holds_target(&index.config(), &target) {
+        require_analysis_rebuild_memory(&index.name, text_bytes(index))?;
+    }
     let started = Arc::new(HeldRun::new(pending));
     let (run, replaced) = index.changes.hold_run(Arc::clone(&started));
     if !Arc::ptr_eq(&run, &started) {
@@ -252,6 +273,7 @@ pub(crate) fn check_analysis_change(
         tokenizer: analysis.tokenizer,
         stop_words: analysis.stop_words,
         stop_word_list: analysis.stop_word_list,
+        fold_marks: analysis.fold_marks,
     })
 }
 

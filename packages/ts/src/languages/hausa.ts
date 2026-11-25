@@ -260,4 +260,5 @@ export const hausa: LanguageModule = {
     normalizeDiacritics: false,
     minTokenLength: 1,
   },
+  folding: { letters: { ɓ: 'b', ɗ: 'd', ƙ: 'k', ƴ: 'y' } },
 }

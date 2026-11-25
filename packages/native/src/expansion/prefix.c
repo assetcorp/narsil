@@ -71,17 +71,19 @@ narsil_status expansion_rank(narsil_workspace *workspace, expansion_scratch *scr
   return NARSIL_OK;
 }
 
+int expansion_prefix_points(const narsil_prefix_request *request, size_t *own, size_t *typed) {
+  size_t stemmed = 0;
+  return expansion_point_count((term_cursor){request->own, NULL, 0, request->own_length}, own) &&
+         expansion_point_count((term_cursor){request->typed, NULL, 0, request->typed_length}, typed) &&
+         expansion_point_count((term_cursor){request->stemmed, NULL, 0, request->stemmed_length}, &stemmed);
+}
+
 narsil_status narsil_expand_prefix(narsil_workspace *workspace, const narsil_prefix_request *request,
                                    const narsil_expansion_output *output, uint32_t *count) {
   if (workspace == NULL || !expansion_regions(request, output, count)) { return NARSIL_INVALID_ARGUMENT; }
   size_t own = 0;
   size_t typed = 0;
-  size_t stemmed = 0;
-  if (!expansion_point_count((term_cursor){request->own, NULL, 0, request->own_length}, &own) ||
-      !expansion_point_count((term_cursor){request->typed, NULL, 0, request->typed_length}, &typed) ||
-      !expansion_point_count((term_cursor){request->stemmed, NULL, 0, request->stemmed_length}, &stemmed)) {
-    return NARSIL_INVALID_ARGUMENT;
-  }
+  if (!expansion_prefix_points(request, &own, &typed)) { return NARSIL_INVALID_ARGUMENT; }
   if (typed == 0) {
     *count = 0;
     return NARSIL_OK;
@@ -90,6 +92,11 @@ narsil_status narsil_expand_prefix(narsil_workspace *workspace, const narsil_pre
   narsil_status status = expansion_collect(workspace, scratch, request);
   if (status == NARSIL_OK) { status = expansion_rank(workspace, scratch, request); }
   if (status != NARSIL_OK) { return status; }
+  return expansion_answer(scratch, own, output, count);
+}
+
+narsil_status expansion_answer(const expansion_scratch *scratch, size_t own, const narsil_expansion_output *output,
+                               uint32_t *count) {
   size_t needed = scratch->count < PREFIX_BUDGET ? scratch->count : PREFIX_BUDGET;
   if (needed > output->segment_capacity || needed > output->token_capacity || needed > output->factor_capacity) {
     return NARSIL_NEEDS_ROOM;

@@ -12,10 +12,12 @@ use tokio::sync::{Mutex, watch};
 use tokio::task::JoinHandle;
 
 use crate::constants::{
-    CONNECTION_IDLE_TIMEOUT_MS, DEFAULT_HOST, DEFAULT_PORT, SERVER_CLOSE_DRAIN_DEADLINE_MS,
+    CONNECTION_IDLE_TIMEOUT_MS, DEFAULT_ACCEPT_QUEUE_LENGTH, DEFAULT_HOST, DEFAULT_PORT,
+    SERVER_CLOSE_DRAIN_DEADLINE_MS,
 };
 use crate::errors::config_invalid_error;
 use crate::feeds::Feeds;
+use crate::http::bind::bind;
 use crate::http::budget::{BodyBudget, RequestGate};
 use crate::http::cors::ResolvedCors;
 use crate::http::in_flight::RequestsInFlight;
@@ -25,7 +27,8 @@ use crate::http::stall_guard::WriteStallGuard;
 use crate::ids::random_uuid;
 use crate::options::ServerOptions;
 use crate::state::{
-    ResolvedBuild, ServerState, check_limits, check_secure_binding, resolve_limits,
+    ResolvedBuild, ServerState, check_accept_queue_length, check_limits, check_secure_binding,
+    resolve_limits,
 };
 use crate::tasks::{InMemoryTaskStore, TaskRegistry};
 
@@ -113,7 +116,8 @@ impl NarsilServer {
     ///
     /// # Errors
     ///
-    /// Returns `CONFIG_INVALID` where a limit or a feed setting holds a value outside its range, the engine's error
+    /// Returns `CONFIG_INVALID` where a limit, a feed setting, or the accept queue length holds a value outside its
+    /// range, the engine's error
     /// where it refuses an adapter, and `INTERNAL_ERROR` where the system refuses the threads that answer searches.
     pub fn new(engine: Arc<Narsil>, options: ServerOptions) -> Result<NarsilServer, NarsilError> {
         let rerank_window = engine.max_rerank_window();
@@ -157,6 +161,7 @@ impl NarsilServer {
         cluster: Option<ClusterHandle>,
     ) -> Result<NarsilServer, NarsilError> {
         check_limits(&options.limits, rerank_window as u64)?;
+        check_accept_queue_length(options.accept_queue_length)?;
         let feeds = Feeds::of(&options)?;
         register_adapters(&engine, cluster.as_ref(), &options)?;
         let limits = resolve_limits(&engine, &options.limits, rerank_window as u64);
@@ -238,7 +243,11 @@ impl NarsilServer {
         }
         self.state.feeds.check_authentication(&self.options)?;
         check_secure_binding(&self.host, &self.options)?;
-        let listener = TcpListener::bind((self.host.as_str(), self.port))
+        let accept_queue_length = self
+            .options
+            .accept_queue_length
+            .unwrap_or(DEFAULT_ACCEPT_QUEUE_LENGTH);
+        let listener = bind(self.host.as_str(), self.port, accept_queue_length)
             .await
             .map_err(|failure| {
                 config_invalid_error(format!(

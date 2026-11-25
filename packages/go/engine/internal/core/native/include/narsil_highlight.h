@@ -22,6 +22,14 @@ typedef struct {
 } narsil_highlight_term;
 
 typedef struct {
+  const narsil_highlight_term *keys;
+  size_t key_count;
+  narsil_highlight_text prefix;
+  const narsil_highlight_text *partial_words;
+  size_t partial_count;
+} narsil_folded_highlight;
+
+typedef struct {
   const narsil_highlight_term *terms;
   size_t term_count;
   uint32_t prefix_length;
@@ -30,6 +38,7 @@ typedef struct {
   size_t synonym_count;
   const narsil_highlight_text *partial_words;
   size_t partial_count;
+  const narsil_folded_highlight *folded;
 } narsil_highlight_query;
 
 typedef struct {

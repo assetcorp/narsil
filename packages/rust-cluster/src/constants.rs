@@ -14,6 +14,7 @@ pub const DEFAULT_TCP_PORT: u16 = 9300;
 pub const DEFAULT_GRPC_PORT: u16 = 9301;
 pub const DEFAULT_MAX_CONNECTIONS: usize = 256;
 pub const ACCEPT_RETRY_DELAY_MS: u64 = 10;
+pub const ACCEPT_QUEUE_LENGTH: u32 = 2_147_483_647;
 
 pub const LENGTH_PREFIX_BYTES: usize = 4;
 pub const FRAME_READ_CHUNK_BYTES: usize = 65_536;
@@ -42,7 +43,7 @@ pub const INDEX_METADATA_KEY_SUFFIX: &str = "/config";
 pub const LEASE_RENEWALS_PER_TTL: u32 = 3;
 
 /// The version of the cluster specification that this crate speaks, which a node writes into its registration.
-pub const SPEC_VERSION: &str = "1.5";
+pub const SPEC_VERSION: &str = "1.6";
 pub const ETCD_ENDPOINT_FAILURE_THRESHOLD: u32 = 3;
 pub const ETCD_ENDPOINT_SKIP_MS: u64 = 5_000;
 pub const ETCD_CALL_RETRIES: u32 = 3;
@@ -172,6 +173,7 @@ pub const BM25_TUNING_SPEC_VERSION: &str = "1.1";
 pub const PHRASE_SEARCH_SPEC_VERSION: &str = "1.1";
 
 pub const CHANGE_CAPTURE_SPEC_VERSION: &str = "1.5";
+pub const FOLDED_MATCHING_SPEC_VERSION: &str = "1.6";
 pub const HIDDEN_GENERATION_PREFIX: &str = "narsil-generation-";
 pub const REBALANCE_RECORD_KEY_SUFFIX: &str = "/rebalance";
 pub const RESHARD_CUTOVER_LAG_ENTRIES: u64 = 1_000;

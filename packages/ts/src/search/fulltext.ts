@@ -1,4 +1,5 @@
 import { bitsetIsEmpty } from '../core/bitset'
+import { resolveFoldedPhrases, resolveFoldedTerms } from '../core/folding/code'
 import type { PartitionIndex, PartitionSearchMatches } from '../core/partition'
 import type { PatternWorkMeter } from '../core/pattern-index/types'
 import { createPatternWorkMeter } from '../core/pattern-index/work-meter'
@@ -6,14 +7,14 @@ import type { SynonymLookup } from '../core/synonyms/types'
 import { tokenize } from '../core/tokenizer'
 import { ErrorCodes, NarsilError } from '../errors'
 import { flattenSchema, isWordIndexedFieldType } from '../schema/validator'
-import type { AnalysedPhrase, GlobalStatistics, InternalSearchResult } from '../types/internal'
+import type { AnalysedPhrase, FoldedQueryTerm, GlobalStatistics, InternalSearchResult } from '../types/internal'
 import type { LanguageModule } from '../types/language'
 import type { BM25Params, CustomTokenizer, FieldType, SchemaDefinition } from '../types/schema'
 import type { QueryParams } from '../types/search'
 import { DEFAULT_FUZZY_PREFIX_LENGTH, DEFAULT_PAGE_SIZE } from './constants'
 import { clampRowCount } from './pagination'
 import { analyseQueryPhrases, requireLoadedPhraseCode } from './phrase-code'
-import { type ResolvedTermGroups, resolveTermGroups } from './term-groups'
+import { type ResolvedTermGroups, resolveTermGroups, writtenWordsByPosition } from './term-groups'
 
 export interface FulltextSearchOptions {
   bm25Params?: BM25Params
@@ -23,6 +24,7 @@ export interface FulltextSearchOptions {
   patternWork?: PatternWorkMeter
   synonyms?: SynonymLookup | null
   turns?: ScanTurns
+  folds?: boolean
 }
 
 /** How a scan across partitions shares the thread with writes while one search answers from one state. */
@@ -33,6 +35,7 @@ export interface ScanTurns {
 
 interface PreparedFulltextQuery extends ResolvedTermGroups {
   queryTokens: Array<{ token: string; position: number }>
+  foldedTerms?: FoldedQueryTerm[]
   phrases?: readonly AnalysedPhrase[]
   filterBitset?: Uint32Array
 }
@@ -73,12 +76,17 @@ function prepareFulltextQuery(
     validateSearchFields(params.fields, flatSchema)
   }
 
-  const quoted = analyseQueryPhrases(params.term, language, {
-    stopWords: options?.stopWords,
-    customTokenizer: options?.customTokenizer,
-  })
+  const folds = options?.folds === true && params.exact !== true
+  const quoted = analyseQueryPhrases(
+    params.term,
+    language,
+    { stopWords: options?.stopWords, customTokenizer: options?.customTokenizer },
+    folds,
+  )
   const wordParams = quoted === null ? params : requireLoadedPhraseCode().withWordsOnly(params, quoted)
-  const phrases = quoted !== null && quoted.phrases.length > 0 ? quoted.phrases : undefined
+  const quotedPhrases = quoted !== null && quoted.phrases.length > 0 ? quoted.phrases : undefined
+  const phrases =
+    folds && quotedPhrases !== undefined ? resolveFoldedPhrases(partition, language, quotedPhrases) : quotedPhrases
 
   const words = wordParams.term ?? ''
   const analysedTokens = quoted !== null && words.trim().length === 0 ? [] : analysedWords(words, language, options)
@@ -101,7 +109,18 @@ function prepareFulltextQuery(
   const lastToken = analysedTokens[analysedTokens.length - 1]
   const synonyms = params.exact === true ? undefined : options?.synonyms?.expand(queryTokens.map(qt => qt.token))
   const groups = resolveTermGroups(partition, wordParams, language, schema, queryTokens, lastToken, options, synonyms)
-  return { queryTokens, phrases, ...groups, filterBitset }
+  const foldedTerms = folds
+    ? resolveFoldedTerms({
+        partition,
+        language,
+        queryTokens,
+        written: writtenWordsByPosition(words, language, options),
+        tolerance: params.tolerance ?? 0,
+        prefixLength: params.prefixLength ?? DEFAULT_FUZZY_PREFIX_LENGTH,
+        termGroups: groups.termGroups,
+      })
+    : undefined
+  return { queryTokens, phrases, ...groups, foldedTerms, filterBitset }
 }
 
 /**
@@ -131,6 +150,7 @@ export function fulltextMatches(
     phrases: prepared.phrases,
     phraseWork: options?.patternWork,
     termGroups: prepared.termGroups,
+    foldedTerms: prepared.foldedTerms,
     partialFields: prepared.partialFields,
     fields: params.fields,
     tolerance: params.tolerance ?? 0,
@@ -151,7 +171,7 @@ export function fulltextSearch(
   if (prepared === null) {
     return { scored: [], totalMatched: 0 }
   }
-  const { queryTokens, phrases, termGroups, partialFields, filterBitset } = prepared
+  const { queryTokens, phrases, termGroups, foldedTerms, partialFields, filterBitset } = prepared
 
   const needsAllResults = returnsEveryMatch(params)
   const maxResults = needsAllResults
@@ -166,6 +186,7 @@ export function fulltextSearch(
     phrases,
     phraseWork: options?.patternWork,
     termGroups,
+    foldedTerms,
     partialFields,
     fields: params.fields,
     boost: params.boost,

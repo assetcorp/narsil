@@ -129,4 +129,5 @@ export const danish: LanguageModule = {
   stopWords: withNormalisedSpellings(stopWords, normalize),
   normalizer: normalize,
   tokenizer: { splitPattern: /[^a-z0-9æøåé]+/gi },
+  folding: {},
 }

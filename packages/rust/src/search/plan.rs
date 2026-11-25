@@ -2,9 +2,9 @@ use std::collections::BTreeMap;
 
 use super::core_call::{FieldScoring, Pool};
 use super::lookup::{TermList, lookup};
-use super::query::{KeywordQuery, PhraseRows, TermGroup};
+use super::query::{FoldedQueryTerm, KeywordQuery, PhraseRows, TermGroup};
 use super::request::{FIELD_AVERAGE_LENGTHS, FIELD_B, FIELD_BOOSTS, FIELD_K1, RequestBuilder, Row};
-use super::stats::{QueryStats, typo_tokens_for};
+use super::stats::{QueryStats, term_matches_for};
 use crate::config::{DEFAULT_BM25_B, DEFAULT_BM25_K1};
 use crate::error::Result;
 use crate::ffi;
@@ -223,18 +223,31 @@ pub(crate) fn plan_segment(
     for (term, token) in query.tokens.iter().enumerate() {
         let group = query.group_of(token);
         builder.term_slot(term as u32);
-        for found in typo_tokens_for(entry, token, group, query)? {
+        for found in term_matches_for(entry, token, group, query)? {
             builder.term_list(found.list, stats.frequency(&found.token), 0.0, &found.token)?;
         }
         if let Some(group) = group {
             plan_group(entry, stats, builder, group, term as u32)?;
+        }
+        if let Some(group) = query.folded_of(token).and_then(FoldedQueryTerm::group) {
+            plan_group(entry, stats, builder, &group, term as u32)?;
         }
     }
     for phrase in phrases {
         let frequencies: Vec<f64> = phrase
             .tokens
             .iter()
-            .map(|token| stats.frequency(token))
+            .enumerate()
+            .map(|(at, token)| {
+                phrase
+                    .variants
+                    .get(at)
+                    .into_iter()
+                    .flatten()
+                    .fold(stats.frequency(token), |most, variant| {
+                        most.max(stats.frequency(variant))
+                    })
+            })
             .collect();
         builder.phrase_slot(&frequencies, &phrase.rows, phrase.key.clone());
     }

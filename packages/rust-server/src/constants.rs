@@ -1,5 +1,7 @@
 pub const DEFAULT_HOST: &str = "127.0.0.1";
 pub const DEFAULT_PORT: u16 = 9876;
+pub const DEFAULT_ACCEPT_QUEUE_LENGTH: u32 = 2_147_483_647;
+pub const MIN_ACCEPT_QUEUE_LENGTH: u32 = 1;
 
 pub const DEFAULT_MAX_BODY_BYTES: u64 = 16 * 1024 * 1024;
 pub const DEFAULT_MAX_IMPORT_BYTES: u64 = 100 * 1024 * 1024;

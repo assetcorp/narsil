@@ -1,9 +1,15 @@
 import { requireLoadedPhraseCode } from '../../search/phrase-code'
-import type { InternalSearchParams, InternalSearchResult, PostingListView } from '../../types/internal'
+import type {
+  ExpandedTermGroup,
+  InternalSearchParams,
+  InternalSearchResult,
+  PostingListView,
+} from '../../types/internal'
 import { bitsetHas, bitsetIsEmpty, bitsetSet, createBitSet } from '../bitset'
 import { computeBM25WithIDF, computeIDF } from '../scorer'
 import { fieldRun, orderRunByFieldName } from './field-order'
 import { fieldLengthOf, loadFieldScoring } from './field-scoring'
+import { foldedTermOf, withFoldedTypoMatches } from './folded-matches'
 import {
   addGroupScores,
   computeGroupContributions,
@@ -115,10 +121,18 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
     return globalStats ? globalDocFreqFor(globalStats.docFrequencies, token, list.docIdSet.size) : list.docIdSet.size
   }
 
+  function phraseFrequency(rows: PhraseRows, entry: number): number {
+    let most = documentFrequency(rows.phrase.tokens[entry], rows.lists[entry])
+    const shared = globalStats?.docFrequencies ?? {}
+    for (const variant of rows.phrase.variants?.[entry] ?? [])
+      most = Math.max(most, globalDocFreqFor(shared, variant, state.invertedIdx.documentFrequency(variant)))
+    return most
+  }
+
   function scorePhraseRows(rows: PhraseRows, matched: Uint32Array): void {
     let idf = 0
     for (let entry = 0; entry < rows.phrase.tokens.length; entry++) {
-      idf += computeIDF(documentFrequency(rows.phrase.tokens[entry], rows.lists[entry]), totalDocs)
+      idf += computeIDF(phraseFrequency(rows, entry), totalDocs)
     }
     for (let start = 0; start < rows.docIds.length; start += fieldRun.length) {
       const entries = orderRunByFieldName(
@@ -260,8 +274,16 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
     }
   }
 
-  function scoreGroup(group: ResolvedTokenPostings['group'], only: Uint32Array | null): void {
-    if (group === null) return
+  function termMatchesOf(token: string, group: ExpandedTermGroup | undefined) {
+    return withFoldedTypoMatches(
+      state.invertedIdx,
+      typoMatchesFor(state.invertedIdx, token, group, exact, tolerance, prefixLength),
+      foldedTermOf(params.foldedTerms, token),
+    )
+  }
+
+  function scoreGroup(group: ResolvedTokenPostings['group'] | undefined, only: Uint32Array | null): void {
+    if (group === null || group === undefined) return
     if (components !== null) {
       for (const [internalId, contribution] of computeGroupContributions(groupContext, group)) {
         if (only !== null && !bitsetHas(only, internalId)) continue
@@ -303,19 +325,24 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
     for (const qt of queryTokens) {
       const group = termGroupOf(termGroups, qt.token)
       const groupMatches = group === undefined ? null : resolveGroupMatches(groupContext, group)
-      let totalPostings = groupMatches === null ? 0 : groupPostingCount(groupMatches)
+      const folded = foldedTermOf(params.foldedTerms, qt.token)
+      const foldedMatches = folded?.group ? resolveGroupMatches(groupContext, folded.group) : null
+      let totalPostings =
+        (groupMatches === null ? 0 : groupPostingCount(groupMatches)) +
+        (foldedMatches === null ? 0 : groupPostingCount(foldedMatches))
       const matches: ResolvedMatch[] = []
-      for (const m of typoMatchesFor(state.invertedIdx, qt.token, group, exact, tolerance, prefixLength)) {
+      for (const m of termMatchesOf(qt.token, group)) {
         totalPostings += m.postingList.length
         matches.push(resolveMatch(m.token, m.postingList))
       }
-      resolved.push({ token: qt.token, matches, totalPostings, group: groupMatches })
+      resolved.push({ token: qt.token, matches, totalPostings, group: groupMatches, folded: foldedMatches })
     }
 
     let anchor = resolved[0]
     for (const term of resolved) if (term.totalPostings < anchor.totalPostings) anchor = term
     for (const match of anchor.matches) scorePostings(match, null)
     scoreGroup(anchor.group, null)
+    scoreGroup(anchor.folded, null)
     const anchorDocuments = createBitSet(state.docStore.internalIdCapacity())
     for (let index = 0; index < scoreBuffer.touchedCount; index++) {
       bitsetSet(anchorDocuments, scoreBuffer.touched[index])
@@ -327,15 +354,18 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
       coverage?.nextTerm()
       for (const match of term.matches) scorePostings(match, anchorDocuments)
       scoreGroup(term.group, anchorDocuments)
+      scoreGroup(term.folded, anchorDocuments)
     }
   } else {
     for (const qt of queryTokens) {
       coverage?.nextTerm()
       const group = termGroupOf(termGroups, qt.token)
-      for (const m of typoMatchesFor(state.invertedIdx, qt.token, group, exact, tolerance, prefixLength)) {
+      for (const m of termMatchesOf(qt.token, group)) {
         scorePostings(resolveMatch(m.token, m.postingList), null)
       }
       if (group !== undefined) scoreGroup(resolveGroupMatches(groupContext, group), null)
+      const folded = foldedTermOf(params.foldedTerms, qt.token)
+      if (folded?.group) scoreGroup(resolveGroupMatches(groupContext, folded.group), null)
     }
   }
 

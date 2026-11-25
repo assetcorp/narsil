@@ -22,6 +22,7 @@ export interface SyncSettings {
   tokenizer?: string
   stopWords?: string
   stopWordList?: string[]
+  foldMarks?: boolean
   analysisRevision?: string
   bm25?: BM25Params
   synonyms?: SynonymRule[]

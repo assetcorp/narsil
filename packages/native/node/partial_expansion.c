@@ -13,28 +13,14 @@
 #include <stdlib.h>
 
 enum { SOURCES, WORDS, OUT_STARTS, OUT_SEGMENTS, OUT_TOKENS, OUT_FACTORS, ARGUMENT_COUNT };
-enum { RUN_POINTS, RUN_OFFSETS, RUN_MEMBERS, RUN_REGIONS };
-static const char *const RUN_PROPERTIES[RUN_REGIONS] = {"runs", "offsets", "members"};
-
-typedef struct {
-  expansion_handles source;
-  napi_value runs[RUN_REGIONS];
-  int has_runs;
-} partial_handles;
-
-typedef struct {
-  napi_value written;
-  napi_value own;
-  uint32_t tolerance;
-  uint32_t prefix_length;
-} word_handles;
+static const char *const RUN_PROPERTIES[PARTIAL_RUN_REGIONS] = {"runs", "offsets", "members"};
 
 static int array_length(napi_env env, napi_value value, uint32_t *length) {
   bool array = false;
   return napi_is_array(env, value, &array) == napi_ok && array && napi_get_array_length(env, value, length) == napi_ok;
 }
 
-static int prepare_source(napi_env env, napi_value value, partial_handles *handles) {
+int prepare_partial_source(napi_env env, napi_value value, partial_handles *handles) {
   napi_value source;
   napi_value runs;
   napi_valuetype type;
@@ -46,14 +32,14 @@ static int prepare_source(napi_env env, napi_value value, partial_handles *handl
   handles->has_runs = type != napi_null;
   if (handles->has_runs) {
     if (type != napi_object || handles->source.has_growing) { return 0; }
-    for (size_t at = 0; at < RUN_REGIONS; at++) {
+    for (size_t at = 0; at < PARTIAL_RUN_REGIONS; at++) {
       if (napi_get_named_property(env, runs, RUN_PROPERTIES[at], handles->runs + at) != napi_ok) { return 0; }
     }
   }
   return 1;
 }
 
-static int prepare_word(napi_env env, napi_value value, word_handles *handles) {
+int prepare_partial_word(napi_env env, napi_value value, partial_word_handles *handles) {
   napi_value tolerance;
   napi_value prefix;
   return napi_get_named_property(env, value, "written", &handles->written) == napi_ok &&
@@ -64,19 +50,19 @@ static int prepare_word(napi_env env, napi_value value, word_handles *handles) {
          segment_uint_argument(env, prefix, &handles->prefix_length);
 }
 
-static int read_runs(napi_env env, const partial_handles *handles, narsil_frozen_runs *runs) {
+int read_partial_runs(napi_env env, const partial_handles *handles, narsil_frozen_runs *runs) {
   if (!handles->has_runs) { return 1; }
-  void *data[RUN_REGIONS] = {0};
-  size_t lengths[RUN_REGIONS] = {0};
-  for (size_t at = 0; at < RUN_REGIONS; at++) {
+  void *data[PARTIAL_RUN_REGIONS] = {0};
+  size_t lengths[PARTIAL_RUN_REGIONS] = {0};
+  for (size_t at = 0; at < PARTIAL_RUN_REGIONS; at++) {
     if (!possibly_empty_typed_data(env, handles->runs[at], napi_uint32_array, data + at, lengths + at)) { return 0; }
   }
-  *runs = (narsil_frozen_runs){data[RUN_POINTS],     lengths[RUN_POINTS], data[RUN_OFFSETS],
-                               lengths[RUN_OFFSETS], data[RUN_MEMBERS],   lengths[RUN_MEMBERS]};
+  *runs = (narsil_frozen_runs){data[PARTIAL_RUN_POINTS],     lengths[PARTIAL_RUN_POINTS], data[PARTIAL_RUN_OFFSETS],
+                               lengths[PARTIAL_RUN_OFFSETS], data[PARTIAL_RUN_MEMBERS],   lengths[PARTIAL_RUN_MEMBERS]};
   return 1;
 }
 
-static int read_word(napi_env env, const word_handles *handles, narsil_partial_word *word) {
+int read_partial_word(napi_env env, const partial_word_handles *handles, narsil_partial_word *word) {
   void *written = NULL;
   void *own = NULL;
   if (!possibly_empty_typed_data(env, handles->written, napi_uint16_array, &written, &word->written_length) ||
@@ -106,16 +92,17 @@ static narsil_status execute(napi_env env, thread_state *thread, const napi_valu
 }
 
 static narsil_status prepare_inputs(napi_env env, const napi_value *argv, partial_handles *sources,
-                                    uint32_t source_count, word_handles *words, uint32_t word_count) {
+                                    uint32_t source_count, partial_word_handles *words, uint32_t word_count) {
   for (uint32_t at = 0; at < source_count; at++) {
     napi_value value;
-    if (napi_get_element(env, argv[SOURCES], at, &value) != napi_ok || !prepare_source(env, value, sources + at)) {
+    if (napi_get_element(env, argv[SOURCES], at, &value) != napi_ok ||
+        !prepare_partial_source(env, value, sources + at)) {
       return NARSIL_INVALID_ARGUMENT;
     }
   }
   for (uint32_t at = 0; at < word_count; at++) {
     napi_value value;
-    if (napi_get_element(env, argv[WORDS], at, &value) != napi_ok || !prepare_word(env, value, words + at)) {
+    if (napi_get_element(env, argv[WORDS], at, &value) != napi_ok || !prepare_partial_word(env, value, words + at)) {
       return NARSIL_INVALID_ARGUMENT;
     }
   }
@@ -135,7 +122,7 @@ napi_value expand_partial_words(napi_env env, napi_callback_info info) {
   size_t word_size = word_count == 0 ? 1 : word_count;
   if (source_size > SIZE_MAX / sizeof(partial_handles) || source_size > SIZE_MAX / sizeof(expansion_storage) ||
       source_size > SIZE_MAX / sizeof(narsil_expansion_segment) ||
-      source_size > SIZE_MAX / sizeof(narsil_frozen_runs) || word_size > SIZE_MAX / sizeof(word_handles) ||
+      source_size > SIZE_MAX / sizeof(narsil_frozen_runs) || word_size > SIZE_MAX / sizeof(partial_word_handles) ||
       word_size > SIZE_MAX / sizeof(narsil_partial_word)) {
     return number_of(env, -NARSIL_OUT_OF_MEMORY);
   }
@@ -143,7 +130,7 @@ napi_value expand_partial_words(napi_env env, napi_callback_info info) {
   expansion_storage *storage = calloc(source_size, sizeof *storage);
   narsil_expansion_segment *segments = calloc(source_size, sizeof *segments);
   narsil_frozen_runs *runs = calloc(source_size, sizeof *runs);
-  word_handles *handles = calloc(word_size, sizeof *handles);
+  partial_word_handles *handles = calloc(word_size, sizeof *handles);
   narsil_partial_word *words = calloc(word_size, sizeof *words);
   narsil_status status =
       sources == NULL || storage == NULL || segments == NULL || runs == NULL || handles == NULL || words == NULL
@@ -152,12 +139,12 @@ napi_value expand_partial_words(napi_env env, napi_callback_info info) {
   if (status == NARSIL_OK) { status = prepare_inputs(env, argv, sources, source_count, handles, word_count); }
   for (uint32_t at = 0; status == NARSIL_OK && at < source_count; at++) {
     if (!read_expansion_source(env, &sources[at].source, storage + at, segments + at) ||
-        !read_runs(env, sources + at, runs + at)) {
+        !read_partial_runs(env, sources + at, runs + at)) {
       status = NARSIL_INVALID_ARGUMENT;
     }
   }
   for (uint32_t at = 0; status == NARSIL_OK && at < word_count; at++) {
-    if (!read_word(env, handles + at, words + at)) { status = NARSIL_INVALID_ARGUMENT; }
+    if (!read_partial_word(env, handles + at, words + at)) { status = NARSIL_INVALID_ARGUMENT; }
   }
   uint32_t count = 0;
   narsil_partial_request request = {segments, runs, source_count, words, word_count};

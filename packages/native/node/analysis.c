@@ -4,6 +4,7 @@
 
 #include "../include/narsil_analysis.h"
 #include "../include/narsil_core.h"
+#include "../include/narsil_folding.h"
 #include "../include/narsil_packed_tokens.h"
 
 #include <js_native_api.h>
@@ -332,6 +333,26 @@ static napi_value transform(napi_env env, napi_callback_info info) {
   return utf16_string(env, term.units, term.length);
 }
 
+static napi_value fold_spelling(napi_env env, napi_callback_info info) {
+  napi_value argv[TRANSFORM_ARGUMENT_COUNT];
+  thread_state *state = thread_state_of(env);
+  uint32_t language = 0;
+  uint32_t flags = 0;
+  uint32_t length = 0;
+  if (state == NULL || !callback_arguments(env, info, TRANSFORM_ARGUMENT_COUNT, argv) ||
+      napi_get_value_uint32(env, argv[TRANSFORM_LANGUAGE], &language) != napi_ok ||
+      napi_get_value_uint32(env, argv[TRANSFORM_FLAGS], &flags) != napi_ok ||
+      !read_text(env, state, argv[TRANSFORM_TEXT], &length)) {
+    return throw_error(env, "foldSpelling takes a language, flags, and a spelling of at most the analysed length");
+  }
+  narsil_analyser *analyser = analyser_of(state);
+  if (analyser == NULL) { return number_of(env, -(int32_t)NARSIL_OUT_OF_MEMORY); }
+  narsil_term term = {NULL, 0};
+  narsil_status status = narsil_fold_spelling(analyser, language, state->text_units, length, flags, &term);
+  if (status != NARSIL_OK) { return number_of(env, -(int32_t)status); }
+  return utf16_string(env, term.units, term.length);
+}
+
 int define_analysis(napi_env env, napi_value exports) {
   napi_property_descriptor properties[] = {
       {"languageCount", NULL, language_count, NULL, NULL, NULL, napi_default_method, NULL},
@@ -342,6 +363,7 @@ int define_analysis(napi_env env, napi_value exports) {
       {"analyse", NULL, analyse, NULL, NULL, NULL, napi_default_method, NULL},
       {"analysePacked", NULL, analyse_packed, NULL, NULL, NULL, napi_default_method, NULL},
       {"transform", NULL, transform, NULL, NULL, NULL, napi_default_method, NULL},
+      {"foldSpelling", NULL, fold_spelling, NULL, NULL, NULL, napi_default_method, NULL},
   };
   return napi_define_properties(env, exports, sizeof properties / sizeof properties[0], properties) == napi_ok;
 }

@@ -151,6 +151,24 @@ export function readPartialWordTable(
     return narrowest
   }
 
+  function entryOf(spelling: string, token?: string): number {
+    const probe = partialWordProbe(spelling)
+    if (probe.codePoints.length <= PARTIAL_WORD_RUN_CODE_POINTS) return -1
+    const run = narrowestRun(probe.codePoints)
+    if (run < 0) return -1
+    let exhausted = -1
+    for (let member = runOffsets[run]; member < runOffsets[run + 1]; member++) {
+      const entry = runEntries[member]
+      if (token !== undefined && tokenTable.tokenAt(spellingTokens[entry]) !== token) continue
+      const start = spellingOffsets[entry]
+      const end = spellingOffsets[entry + 1]
+      if (end - start !== probe.utf8.length || !utf8Contains(spellings, start, end, probe.utf8)) continue
+      if (removedCounts[entry] < spellingCounts[entry]) return entry
+      if (exhausted < 0) exhausted = entry
+    }
+    return exhausted
+  }
+
   return {
     forEachContaining(probe: PartialWordProbe, visit: PartialWordVisitor): void {
       if (probe.codePoints.length < PARTIAL_WORD_RUN_CODE_POINTS) return
@@ -169,22 +187,11 @@ export function readPartialWordTable(
       }
     },
 
-    entryOf(spelling: string, token?: string): number {
-      const probe = partialWordProbe(spelling)
-      if (probe.codePoints.length <= PARTIAL_WORD_RUN_CODE_POINTS) return -1
-      const run = narrowestRun(probe.codePoints)
-      if (run < 0) return -1
-      let exhausted = -1
-      for (let member = runOffsets[run]; member < runOffsets[run + 1]; member++) {
-        const entry = runEntries[member]
-        if (token !== undefined && tokenTable.tokenAt(spellingTokens[entry]) !== token) continue
-        const start = spellingOffsets[entry]
-        const end = spellingOffsets[entry + 1]
-        if (end - start !== probe.utf8.length || !utf8Contains(spellings, start, end, probe.utf8)) continue
-        if (removedCounts[entry] < spellingCounts[entry]) return entry
-        if (exhausted < 0) exhausted = entry
-      }
-      return exhausted
+    entryOf,
+
+    holdsSpelling(spelling: string, token: string): boolean {
+      const entry = entryOf(spelling, token)
+      return entry >= 0 && removedCounts[entry] < spellingCounts[entry]
     },
 
     bytes(): number {

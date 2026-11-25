@@ -164,6 +164,7 @@ pub(crate) fn metadata_of(index: &IndexState, base: &IndexMetadata) -> IndexMeta
         Some(StopWordsSetting::Words(StopWords::Set(words))) => Some(stop_word_list(words)),
         _ => None,
     };
+    metadata.analysis.fold_marks = config.fold_marks;
     metadata.partition_limits = config.partitions.map(|limits| PartitionLimits {
         max_docs_per_partition: limits.max_docs_per_partition,
         max_partitions: limits.max_partitions,
@@ -275,6 +276,7 @@ pub(crate) fn config_of(metadata: &IndexMetadata) -> Result<IndexConfig> {
         ))),
         (None, None) => None,
     };
+    config.fold_marks = metadata.analysis.fold_marks;
     config.partitions = metadata
         .partition_limits
         .as_ref()

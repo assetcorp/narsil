@@ -16,7 +16,20 @@ use crate::errors::{Outcome, ServerError};
 use crate::http::pipeline::RouteContext;
 use crate::http::respond::HttpResponse;
 use crate::http::routes::Route;
+#[cfg(feature = "cluster")]
+use crate::options::BoxFuture;
 use crate::state::ServerState;
+
+#[cfg(feature = "cluster")]
+#[inline(never)]
+fn dispatch_to_cluster(
+    state: Arc<ServerState>,
+    node: Arc<narsil_cluster::node::ClusterNode>,
+    route: Route,
+    context: RouteContext,
+) -> BoxFuture<Outcome<HttpResponse>> {
+    Box::pin(crate::cluster::dispatch(state, node, route, context))
+}
 
 pub(crate) async fn dispatch(
     state: Arc<ServerState>,
@@ -25,7 +38,7 @@ pub(crate) async fn dispatch(
 ) -> Outcome<HttpResponse> {
     #[cfg(feature = "cluster")]
     if let Some(node) = state.cluster.clone() {
-        return crate::cluster::dispatch(state, node, route, context).await;
+        return dispatch_to_cluster(state, node, route, context).await;
     }
     use Route::*;
     match route {

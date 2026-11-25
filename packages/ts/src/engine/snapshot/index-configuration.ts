@@ -62,6 +62,7 @@ export function configurationPayloadOf(
     ...(typeof config.tokenizer === 'string' ? { tokenizer: config.tokenizer } : {}),
     ...(typeof config.stopWords === 'string' ? { stopWords: config.stopWords } : {}),
     ...(config.stopWords instanceof Set ? { stopWordList: [...config.stopWords].sort(compareCodePoints) } : {}),
+    ...(typeof config.foldMarks === 'boolean' ? { foldMarks: config.foldMarks } : {}),
     ...(analysisGeneration > 0 ? { analysisGeneration } : {}),
     ...(bm25 !== undefined
       ? {

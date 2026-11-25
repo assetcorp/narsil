@@ -26,6 +26,7 @@ export interface IndexSettings extends ClusterSyncSettings, ClusterQuerySuggesti
   tokenizer?: string
   stopWords?: string
   stopWordList?: string[]
+  foldMarks?: boolean
   analysisGeneration?: number
   pendingAnalysis?: PendingClusterAnalysis
   analysisFailure?: AnalysisFailure
@@ -101,6 +102,7 @@ function settingsFieldsOf(source: SettingsSource): Omit<IndexSettings, 'language
     ...(tokenizer !== undefined ? { tokenizer } : {}),
     ...(typeof stopWords === 'string' ? { stopWords } : {}),
     ...(stopWords instanceof Set ? { stopWordList: [...stopWords].sort(compareCodePoints) } : {}),
+    ...(typeof source.foldMarks === 'boolean' ? { foldMarks: source.foldMarks } : {}),
     ...(bm25 !== undefined
       ? {
           bm25: {
@@ -170,7 +172,8 @@ function decodePendingAnalysis(raw: unknown, reject: ConfigFieldRejection): Pend
     !isOptionalString(raw.tokenizer) ||
     !isOptionalString(raw.stopWords) ||
     (raw.stopWordList !== undefined &&
-      (!Array.isArray(raw.stopWordList) || raw.stopWordList.some(word => typeof word !== 'string')))
+      (!Array.isArray(raw.stopWordList) || raw.stopWordList.some(word => typeof word !== 'string'))) ||
+    (raw.foldMarks !== undefined && typeof raw.foldMarks !== 'boolean')
   ) {
     return reject('pendingAnalysis is malformed')
   }

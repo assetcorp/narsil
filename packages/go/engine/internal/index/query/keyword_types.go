@@ -16,9 +16,11 @@ type TermGroup struct {
 }
 
 type Phrase struct {
-	Key     string
-	Tokens  []string
-	Offsets []uint32
+	Key      string
+	Tokens   []string
+	Offsets  []uint32
+	Written  []string
+	Variants [][]string
 }
 
 type FieldBM25 struct {
@@ -49,6 +51,7 @@ const (
 type KeywordQuery struct {
 	Tokens        []string
 	Groups        []TermGroup
+	Folded        []FoldedTerm
 	PartialFields []string
 	Phrases       []Phrase
 	Fields        []string

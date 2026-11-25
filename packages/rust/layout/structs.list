@@ -66,6 +66,11 @@ narsil_frozen_runs points point_count offsets offset_count members member_count
 narsil_partial_word written written_length own own_length tolerance prefix_length
 narsil_partial_request segments runs segment_count words word_count
 narsil_partial_output additions starts start_capacity
+narsil_folded_word key key_length own own_length excluded excluded_count tolerance prefix_length
+narsil_folded_request segments tables segment_count words word_count
+narsil_folded_output segments segment_capacity tokens token_capacity starts start_capacity
+narsil_folded_prefix_request prefix tables folded folded_length
+narsil_folded_partial_request partial tables folded
 narsil_phrase_postings documents fields position_starts position_counts count positions position_count ordered
 narsil_phrase_request postings token_count starts phrase_count tokens offsets entry_count searchable field_count filter filter_words removed removed_words ordinal_count collect meter
 narsil_phrase_output matched matched_words starts start_capacity documents fields frequencies document_capacity field_capacity frequency_capacity
@@ -115,7 +120,8 @@ narsil_pinned_output entries capacity count
 narsil_page_request count sorted has_scores has_anchor_score scores scores_length score_present score_present_length after_anchor after_anchor_length anchor_score
 narsil_highlight_text units length
 narsil_highlight_term text tolerance
-narsil_highlight_query terms term_count prefix_length prefix synonyms synonym_count partial_words partial_count
+narsil_folded_highlight keys key_count prefix partial_words partial_count
+narsil_highlight_query terms term_count prefix_length prefix synonyms synonym_count partial_words partial_count folded
 narsil_highlight_request language text query pre_tag post_tag maximum
 narsil_highlight_output snippet snippet_capacity positions position_words snippet_length length_capacity
 narsil_fusion_leg keys scores count

@@ -256,7 +256,8 @@ func (n *Narsil) runStaleRebuild(entry *indexEntry, run *staleRebuild) error {
 	described.revision = core.LanguageRevision(analyzer.Language())
 	config := entry.currentConfig()
 	side := sideRebuild{
-		analyzer: analyzer,
+		analyzer:  analyzer,
+		foldMarks: func() model.Optional[bool] { return entry.currentConfig().FoldMarks },
 		proceed: func() error {
 			if run.abandoned.Load() {
 				return errStaleRebuildAbandoned

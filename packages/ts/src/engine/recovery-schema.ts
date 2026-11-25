@@ -51,6 +51,9 @@ export function reconstructSchemaFromMetadata(metadata: IndexMetadata): IndexCon
   } else if (metadata.stopWordList !== undefined) {
     config.stopWords = new Set(metadata.stopWordList)
   }
+  if (metadata.foldMarks !== undefined) {
+    config.foldMarks = metadata.foldMarks
+  }
   if (metadata.partitionLimits !== undefined) {
     config.partitions = metadata.partitionLimits
   }

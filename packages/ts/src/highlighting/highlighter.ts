@@ -9,10 +9,24 @@ import { DEFAULT_MAX_SNIPPET_LENGTH } from './constants'
 import { type CharRange, originalTokenOffsets } from './offsets'
 import { renderHighlight } from './render'
 
+export interface FoldedPartialWords {
+  foldOf(spelling: string): string
+  words: readonly string[]
+}
+
 export interface PartialWordHighlight {
   words: readonly string[]
   customTokenizer?: CustomTokenizer
   stopWordOverride?: StopWordOverride
+  folded?: FoldedPartialWords
+}
+
+export interface FoldedHighlight {
+  keyOf(spelling: string): string
+  foldOf(spelling: string): string
+  keys: ReadonlyArray<{ key: string; tolerance: number }>
+  phraseKeys: ReadonlySet<string>
+  prefix?: string
 }
 
 export interface HighlightOptions {
@@ -25,6 +39,14 @@ export interface HighlightOptions {
   prefixLength?: number
   partialWords?: PartialWordHighlight
   synonyms?: readonly string[]
+  folding?: FoldedHighlight
+}
+
+function matchesFolded(folding: FoldedHighlight, spelling: string, prefixLength: number): boolean {
+  const key = folding.keyOf(spelling)
+  if (folding.phraseKeys.has(key)) return true
+  if (folding.keys.some(entry => fuzzyTermMatches(entry.key, key, entry.tolerance, prefixLength))) return true
+  return folding.prefix !== undefined && folding.foldOf(spelling).startsWith(folding.prefix)
 }
 
 export function highlightField(
@@ -43,6 +65,7 @@ export function highlightField(
   const prefixLength = options?.prefixLength ?? 0
   const completedToken = options?.completedToken
   const queryTolerances = queryTokens.map(query => (query.token === completedToken ? 0 : tolerance))
+  const folding = options?.folding
   const native = nativeHighlight(
     text,
     stemmedQueryTokens.map((token, index) => ({ token, tolerance: queryTolerances[index] })),
@@ -62,7 +85,8 @@ export function highlightField(
       synonyms?.includes(stemmedField) === true ||
       stemmedQueryTokens.some((query, index) =>
         fuzzyTermMatches(query, stemmedField, queryTolerances[index], prefixLength),
-      )
+      ) ||
+      (folding !== undefined && matchesFolded(folding, fieldToken, prefixLength))
     matchByFieldToken.set(fieldToken, matches)
     return matches
   }

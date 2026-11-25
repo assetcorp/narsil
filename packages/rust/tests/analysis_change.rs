@@ -296,6 +296,7 @@ fn a_configuration_past_sixteen_mebibytes_is_refused_at_creation_and_on_an_analy
                 language: None,
                 tokenizer: AnalysisSetting::Keep,
                 stop_words: AnalysisSetting::Set(stop_word_set(OVERSIZED_STOP_WORDS)),
+                fold_marks: AnalysisSetting::Keep,
             },
         )
         .expect_err("an analysis change past the limit is refused");

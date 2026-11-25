@@ -2,6 +2,7 @@
  * Stop words sourced from:
  *   - stopwords-iso/stopwords-yo (https://github.com/stopwords-iso/stopwords-yo), MIT
  *   - Diacritized function words curated for Narsil
+ *   - ati, awon, awọn, and àwon, the spellings of àti and àwọn that Yoruba Wikipedia writes most often
  *
  * Diacritics (tone marks and subdots) are preserved as they are phonemically distinct in Yoruba.
  */
@@ -97,6 +98,10 @@ const stopWords = new Set([
   'nìkan',
   'pàápàá',
   'síbẹ̀',
+  'ati',
+  'awon',
+  'awọn',
+  'àwon',
 ])
 
 /**
@@ -111,7 +116,7 @@ const stopWords = new Set([
  */
 export const yoruba: LanguageModule = {
   name: 'yoruba',
-  revision: 'b03320c630f0283a',
+  revision: 'c8419ae97bcb6021',
   stemmer: null,
   stopWords,
   tokenizer: {
@@ -119,4 +124,5 @@ export const yoruba: LanguageModule = {
     normalizeDiacritics: false,
     minTokenLength: 1,
   },
+  folding: {},
 }

@@ -54,16 +54,19 @@ export function analyseQueryPhrases(
   term: string,
   language: LanguageModule,
   analysis: PhraseAnalysis,
+  keepsWrittenWords = false,
 ): QueryPhrases | null {
   if (!holdsQuoteCharacter(term)) return null
+  const analyse = (stem: boolean) => (text: string) =>
+    tokenize(text, language, {
+      stem,
+      removeStopWords: true,
+      customTokenizer: analysis.customTokenizer,
+      stopWordOverride: analysis.stopWords,
+    }).tokens
   return requireLoadedPhraseCode().analyseQueryPhrases(
     term.split(QUOTE_CHARACTER),
-    text =>
-      tokenize(text, language, {
-        stem: true,
-        removeStopWords: true,
-        customTokenizer: analysis.customTokenizer,
-        stopWordOverride: analysis.stopWords,
-      }).tokens,
+    analyse(true),
+    keepsWrittenWords ? analyse(false) : undefined,
   )
 }

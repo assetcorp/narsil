@@ -291,4 +291,5 @@ export const vietnamese: LanguageModule = {
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^\p{Script=Latin}0-9]+/giu },
+  folding: { letters: { đ: 'd' } },
 }

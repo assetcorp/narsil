@@ -4,6 +4,14 @@ use narsil::{FeedChange, Map, Value};
 use super::held::HeldSyncIndex;
 use crate::constants::MAX_SAFE_INTEGER;
 
+const COMPARED_FEED_SETTINGS: [&str; 5] = [
+    "language",
+    "tokenizer",
+    "stopWords",
+    "stopWordList",
+    "foldMarks",
+];
+
 fn feature<'s>(settings: &'s Map, key: &str) -> Option<&'s Map> {
     match settings.get(key) {
         Some(Value::Object(feature)) if feature.get("enabled") == Some(&Value::Bool(true)) => {
@@ -72,7 +80,7 @@ fn same_feed_settings(held: &HeldSyncIndex, next: &HeldSyncIndex) -> bool {
         _ => 0.0,
     };
     held.synonyms_generation == next.synonyms_generation
-        && ["language", "tokenizer", "stopWords", "stopWordList"]
+        && COMPARED_FEED_SETTINGS
             .iter()
             .all(|key| field(held, key) == field(next, key))
         && bm25_revision(held) == bm25_revision(next)

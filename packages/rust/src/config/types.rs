@@ -289,6 +289,9 @@ pub struct IndexConfig {
     pub pattern_value_limit: Option<u64>,
     /// The synonym set.
     pub synonyms: Option<Vec<SynonymRule>>,
+    /// Whether a query typed without marks also matches the words that carry them, such as `oko` matching `ọkọ̀`.
+    /// Where it is `None`, the index folds where its language sets folding.
+    pub fold_marks: Option<bool>,
 }
 
 impl std::fmt::Debug for IndexConfig {

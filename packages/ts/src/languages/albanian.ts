@@ -114,4 +114,5 @@ export const albanian: LanguageModule = {
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9çë]+/gi },
+  folding: {},
 }

@@ -195,6 +195,7 @@ type IndexConfig struct {
 	Embedding         *EmbeddingFieldConfig
 	Required          []string
 	SurfaceForms      Optional[bool]
+	FoldMarks         Optional[bool]
 	PatternValueLimit Optional[int]
 	Synonyms          []SynonymRule
 }

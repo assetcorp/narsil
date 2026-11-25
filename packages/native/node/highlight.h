@@ -8,12 +8,23 @@
 
 typedef struct {
   napi_value prefix;
+  napi_value *keys;
+  napi_value *partial;
+  narsil_highlight_term *key_values;
+  narsil_highlight_text *partial_values;
+  narsil_folded_highlight query;
+} folded_highlight_handles;
+
+typedef struct {
+  napi_value prefix;
   napi_value *terms;
   napi_value *synonyms;
   napi_value *partial;
   narsil_highlight_term *term_values;
   narsil_highlight_text *synonym_values;
   narsil_highlight_text *partial_values;
+  int folds;
+  folded_highlight_handles folded;
   narsil_highlight_query query;
 } highlight_handles;
 

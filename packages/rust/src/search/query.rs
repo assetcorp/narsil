@@ -26,12 +26,42 @@ impl TermGroup {
     }
 }
 
-/// The rows of one quoted phrase in one segment, found by the phrase matcher, with each phrase token's document
-/// frequency across the partition.
+/// A query term that folded matching widens in one partition: the words that fold to its key, and the words within
+/// its typo tolerance of that key, each in code point order.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct FoldedQueryTerm {
+    pub(crate) token: String,
+    pub(crate) variants: Vec<String>,
+    pub(crate) typo_matches: Vec<String>,
+}
+
+impl FoldedQueryTerm {
+    /// Returns the group that scores the term's token together with its variants, as one combined term.
+    pub(crate) fn group(&self) -> Option<TermGroup> {
+        (!self.variants.is_empty()).then(|| TermGroup {
+            token: self.token.clone(),
+            members: vec![GroupMember {
+                token: self.token.clone(),
+                factor: 1.0,
+                partial_factor: 1.0,
+            }],
+            typo_matches: false,
+            synonyms: Some(self.variants.clone()),
+        })
+    }
+
+    pub(crate) fn is_variant(&self, token: &str) -> bool {
+        self.variants.iter().any(|variant| variant == token)
+    }
+}
+
+/// The rows of one quoted phrase in one segment, found by the phrase matcher, with the tokens that each position
+/// of the phrase matches.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct PhraseRows {
     pub(crate) key: String,
     pub(crate) tokens: Vec<String>,
+    pub(crate) variants: Vec<Vec<String>>,
     pub(crate) rows: Vec<super::request::Row>,
 }
 
@@ -39,6 +69,7 @@ pub(crate) struct PhraseRows {
 pub(crate) struct KeywordQuery<'a> {
     pub(crate) tokens: &'a [String],
     pub(crate) groups: &'a [TermGroup],
+    pub(crate) folded: &'a [FoldedQueryTerm],
     pub(crate) phrases: &'a [super::phrase::AnalysedPhrase],
     pub(crate) exact: bool,
     pub(crate) tolerance: u32,
@@ -55,5 +86,9 @@ pub(crate) struct KeywordQuery<'a> {
 impl KeywordQuery<'_> {
     pub(crate) fn group_of(&self, token: &str) -> Option<&TermGroup> {
         self.groups.iter().find(|group| group.token == token)
+    }
+
+    pub(crate) fn folded_of(&self, token: &str) -> Option<&FoldedQueryTerm> {
+        self.folded.iter().find(|folded| folded.token == token)
     }
 }

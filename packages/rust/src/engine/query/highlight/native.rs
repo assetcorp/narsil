@@ -13,9 +13,31 @@ pub(super) struct CoreHighlightQuery {
     pub(super) prefix_length: u32,
     pub(super) prefix: Option<Vec<u16>>,
     pub(super) synonyms: Vec<Vec<u16>>,
+    pub(super) partial_words: Vec<Vec<u16>>,
+    pub(super) folded: Option<CoreFoldedQuery>,
     pub(super) pre_tag: Vec<u16>,
     pub(super) post_tag: Vec<u16>,
     pub(super) maximum: u32,
+}
+
+pub(super) struct CoreFoldedQuery {
+    pub(super) keys: Vec<(Vec<u16>, u32)>,
+    pub(super) prefix: Option<Vec<u16>>,
+    pub(super) partial_words: Vec<Vec<u16>>,
+}
+
+fn terms_of(terms: &[(Vec<u16>, u32)]) -> Vec<ffi::narsil_highlight_term> {
+    terms
+        .iter()
+        .map(|(term, tolerance)| ffi::narsil_highlight_term {
+            text: text_of(term),
+            tolerance: *tolerance,
+        })
+        .collect()
+}
+
+fn texts_of(words: &[Vec<u16>]) -> Vec<ffi::narsil_highlight_text> {
+    words.iter().map(|word| text_of(word)).collect()
 }
 
 fn text_of(units: &[u16]) -> ffi::narsil_highlight_text {
@@ -82,21 +104,33 @@ impl CoreHighlightQuery {
         &self,
         language: u32,
         text: &str,
-        partial_words: &[Vec<u16>],
+        partial_field: bool,
     ) -> Result<HighlightMatch> {
         let units: Vec<u16> = text.encode_utf16().collect();
-        let terms: Vec<ffi::narsil_highlight_term> = self
-            .terms
-            .iter()
-            .map(|(term, tolerance)| ffi::narsil_highlight_term {
-                text: text_of(term),
-                tolerance: *tolerance,
-            })
-            .collect();
-        let synonyms: Vec<ffi::narsil_highlight_text> =
-            self.synonyms.iter().map(|word| text_of(word)).collect();
-        let partial_words: Vec<ffi::narsil_highlight_text> =
-            partial_words.iter().map(|word| text_of(word)).collect();
+        let terms = terms_of(&self.terms);
+        let synonyms = texts_of(&self.synonyms);
+        let partial_words = match partial_field {
+            true => texts_of(&self.partial_words),
+            false => Vec::new(),
+        };
+        let folded_keys = self
+            .folded
+            .as_ref()
+            .map_or_else(Vec::new, |folded| terms_of(&folded.keys));
+        let folded_partial_words = match (&self.folded, partial_field) {
+            (Some(folded), true) => texts_of(&folded.partial_words),
+            _ => Vec::new(),
+        };
+        let folded = self
+            .folded
+            .as_ref()
+            .map(|folded| ffi::narsil_folded_highlight {
+                keys: folded_keys.as_ptr(),
+                key_count: folded_keys.len(),
+                prefix: folded.prefix.as_deref().map_or_else(absent_text, text_of),
+                partial_words: folded_partial_words.as_ptr(),
+                partial_count: folded_partial_words.len(),
+            });
         let request = ffi::narsil_highlight_request {
             language,
             text: text_of(&units),
@@ -109,6 +143,7 @@ impl CoreHighlightQuery {
                 synonym_count: synonyms.len(),
                 partial_words: partial_words.as_ptr(),
                 partial_count: partial_words.len(),
+                folded: folded.as_ref().map_or(ptr::null(), ptr::from_ref),
             },
             pre_tag: text_of(&self.pre_tag),
             post_tag: text_of(&self.post_tag),

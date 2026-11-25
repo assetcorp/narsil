@@ -76,7 +76,7 @@ export type {
   PresenceFilter,
   StringFilter,
 } from './types/filters'
-export type { LanguageModule, TokenizerConfig } from './types/language'
+export type { LanguageFolding, LanguageModule, TokenizerConfig } from './types/language'
 export type { IndexLifecycleOperations } from './types/lifecycle'
 export type { HeldCheckpointReport, MemoryStats, ProcessMemoryReport, WorkerCopyReport } from './types/memory'
 export type { PartialWordSearch } from './types/partial-words'
@@ -175,6 +175,11 @@ export type {
 } from './vector/native/types/field-merge'
 export type { NativeFilterCore, NativeFilterRegion } from './vector/native/types/filters'
 export type {
+  NativeFoldedWord,
+  NativeFoldingCore,
+  NativeFoldTableHandle,
+} from './vector/native/types/folding'
+export type {
   NativeFrozenPagedRemovals,
   NativeFrozenRegionArguments,
   NativeFrozenRemovalIndex,
@@ -184,7 +189,11 @@ export type {
   NativeFrozenStrings,
 } from './vector/native/types/frozen-segments'
 export type { NativeGroupCore } from './vector/native/types/groups'
-export type { NativeHighlightCore, NativeHighlightQuery } from './vector/native/types/highlight'
+export type {
+  NativeFoldedHighlight,
+  NativeHighlightCore,
+  NativeHighlightQuery,
+} from './vector/native/types/highlight'
 export type {
   NativePageCache,
   NativePagedCore,

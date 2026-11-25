@@ -69,7 +69,7 @@ static const uint32_t keep_ranges[726] = {
 
 const narsil_language narsil_language_ewe = {
   .name = "ewe",
-  .revision = "ebb21a269520d5c8",
+  .revision = "572aab18a2c420da",
   .stop_word_units = stop_word_units,
   .stop_word_offsets = stop_word_offsets,
   .stop_word_count = 70,

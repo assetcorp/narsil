@@ -1,3 +1,4 @@
+pub(crate) mod bind;
 pub(crate) mod body;
 pub(crate) mod budget;
 pub(crate) mod cors;

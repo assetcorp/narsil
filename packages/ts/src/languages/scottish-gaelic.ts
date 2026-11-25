@@ -382,4 +382,5 @@ export const scottishGaelic: LanguageModule = {
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9àáèéìòóù'-]+/gi },
+  folding: {},
 }

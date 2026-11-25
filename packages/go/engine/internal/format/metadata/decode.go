@@ -82,6 +82,7 @@ func readPending(value any) *PendingAnalysis {
 	if list, ok := is.AsStrings(record["stop_word_list"]); ok {
 		pending.StopWordList = model.Some(list)
 	}
+	pending.FoldMarks = optionalBool(record, "fold_marks")
 	return pending
 }
 

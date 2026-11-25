@@ -66,25 +66,44 @@ static narsil_stop_word_set *fuzz_stop_words(fuzz_input *input) {
   return set;
 }
 
-static void highlight(narsil_analyser *analyser, narsil_workspace *workspace, fuzz_input *input,
-                      narsil_analysis_request analysis) {
-  size_t term_count = fuzz_below(input, MAX_QUERY_TERMS + 1);
-  narsil_highlight_term *terms = FUZZ_ROOM(input, narsil_highlight_term, term_count);
-  for (size_t at = 0; terms != NULL && at < term_count; at++) {
+static narsil_highlight_term *fuzz_terms(fuzz_input *input, size_t *count) {
+  *count = fuzz_below(input, MAX_QUERY_TERMS + 1);
+  narsil_highlight_term *terms = FUZZ_ROOM(input, narsil_highlight_term, *count);
+  for (size_t at = 0; terms != NULL && at < *count; at++) {
     terms[at] = (narsil_highlight_term){fuzz_text(input, MAX_QUERY_UNITS), fuzz_byte(input)};
   }
-  size_t synonym_count = fuzz_below(input, MAX_QUERY_TERMS + 1);
-  narsil_highlight_text *synonyms = FUZZ_ROOM(input, narsil_highlight_text, synonym_count);
-  for (size_t at = 0; synonyms != NULL && at < synonym_count; at++) {
-    synonyms[at] = fuzz_text(input, MAX_QUERY_UNITS);
-  }
-  size_t partial_count = fuzz_below(input, MAX_QUERY_TERMS + 1);
-  narsil_highlight_text *partials = FUZZ_ROOM(input, narsil_highlight_text, partial_count);
-  for (size_t at = 0; partials != NULL && at < partial_count; at++) {
-    partials[at] = fuzz_text(input, MAX_QUERY_UNITS);
-  }
-  narsil_highlight_query query = {terms,    term_count,    fuzz_u32(input), fuzz_text(input, MAX_QUERY_UNITS),
-                                  synonyms, synonym_count, partials,        partial_count};
+  return terms;
+}
+
+static narsil_highlight_text *fuzz_texts(fuzz_input *input, size_t *count) {
+  *count = fuzz_below(input, MAX_QUERY_TERMS + 1);
+  narsil_highlight_text *texts = FUZZ_ROOM(input, narsil_highlight_text, *count);
+  for (size_t at = 0; texts != NULL && at < *count; at++) { texts[at] = fuzz_text(input, MAX_QUERY_UNITS); }
+  return texts;
+}
+
+static const narsil_folded_highlight *fuzz_folded(fuzz_input *input, narsil_folded_highlight *folded) {
+  if ((fuzz_byte(input) & 1U) == 0) { return NULL; }
+  folded->keys = fuzz_terms(input, &folded->key_count);
+  folded->prefix = fuzz_text(input, MAX_QUERY_UNITS);
+  folded->partial_words = fuzz_texts(input, &folded->partial_count);
+  return folded;
+}
+
+static void highlight(narsil_analyser *analyser, narsil_workspace *workspace, fuzz_input *input,
+                      narsil_analysis_request analysis) {
+  size_t term_count = 0;
+  size_t synonym_count = 0;
+  size_t partial_count = 0;
+  narsil_highlight_term *terms = fuzz_terms(input, &term_count);
+  narsil_highlight_text *synonyms = fuzz_texts(input, &synonym_count);
+  narsil_highlight_text *partials = fuzz_texts(input, &partial_count);
+  uint32_t prefix_length = fuzz_u32(input);
+  narsil_highlight_text prefix = fuzz_text(input, MAX_QUERY_UNITS);
+  narsil_folded_highlight folded = {0};
+  narsil_highlight_query query = {terms,    term_count,    prefix_length,
+                                  prefix,   synonyms,      synonym_count,
+                                  partials, partial_count, fuzz_folded(input, &folded)};
   narsil_highlight_request request = {analysis.language,
                                       {analysis.text, analysis.length},
                                       query,

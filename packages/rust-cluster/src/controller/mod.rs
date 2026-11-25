@@ -1,5 +1,6 @@
 mod allocation;
 mod analysis_change;
+mod analysis_epoch;
 mod analysis_metadata;
 mod bootstrap;
 mod departures;

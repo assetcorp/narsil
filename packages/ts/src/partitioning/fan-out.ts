@@ -69,6 +69,7 @@ export async function fanOutQuery(
         stopWords: searchOptions?.stopWords,
         customTokenizer: searchOptions?.customTokenizer,
         synonyms: searchOptions?.synonyms,
+        folds: searchOptions?.folds,
       }
       globalStats = collectQueryTermStats(manager, params.term, language, analysis, config.partitionIds, {
         expansion: { options: params, schema },

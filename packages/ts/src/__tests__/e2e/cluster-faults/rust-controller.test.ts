@@ -136,7 +136,7 @@ describe.skipIf(process.env[RUST_NODE_VARIABLE] === undefined).each(['tcp', 'grp
       expect(refused).toBeInstanceOf(Error)
       const output = started().fleet.nodes[RUST_NODE_ON_ANOTHER_MAJOR]?.output() ?? ''
       expect(output).toContain('NODE_VERSION_INCOMPATIBLE')
-      expect(output).toContain(`the active controller '${nodeIdOf(FIRST_RUST_CONTROLLER)}' follows 1.5`)
+      expect(output).toContain(`the active controller '${nodeIdOf(FIRST_RUST_CONTROLLER)}' follows 1.6`)
       const registered = (await started().coordinator.listNodes()).map(node => node.version)
       expect(registered).not.toContain('2.0')
     }, 120_000)

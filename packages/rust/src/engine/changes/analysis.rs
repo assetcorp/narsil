@@ -37,15 +37,29 @@ pub struct AnalysisChange {
     /// A stop word set that the engine holds by name, or a set of words. A stop word function survives no restart,
     /// so the engine refuses one.
     pub stop_words: AnalysisSetting<StopWordsSetting>,
+    /// Whether queries typed without marks also match the words that carry them. A change of this setting alone
+    /// switches the index with no rebuild, because folded matching changes no stored token.
+    pub fold_marks: AnalysisSetting<bool>,
 }
 
-/// The analysis that a change moves an index to: its language, its tokenizer and stop word settings, and the
-/// analyser that they resolve to.
+/// The analysis that a change moves an index to: its language, its tokenizer and stop word settings, its
+/// `fold_marks` setting, and the analyser that they resolve to.
 pub(crate) struct AnalysisTarget {
     pub(crate) language: Language,
     pub(crate) tokenizer: Option<TokenizerSetting>,
     pub(crate) stop_words: Option<StopWordsSetting>,
+    pub(crate) fold_marks: Option<bool>,
     pub(crate) analyser: Analyser,
+}
+
+pub(crate) fn refused_during_rebalance(index_name: &str) -> NarsilError {
+    NarsilError::new(
+        ErrorCode::PARTITION_REBALANCING_BACKPRESSURE,
+        format!(
+            "Index \"{index_name}\" is being rebalanced, so try its analysis change again once the rebalance ends"
+        ),
+    )
+    .with_details([("indexName", crate::value::Value::from(index_name))])
 }
 
 fn refused_stop_words(index_name: &str) -> NarsilError {
@@ -66,31 +80,38 @@ fn kept<T: Clone>(setting: &AnalysisSetting<T>, current: Option<&T>) -> Option<T
     }
 }
 
-/// Returns `config` with the language, tokenizer, and stop words of `target`.
+/// Returns `config` with the language, tokenizer, stop words, and `fold_marks` setting of `target`.
 pub(crate) fn config_under(config: &IndexConfig, target: &AnalysisTarget) -> IndexConfig {
     let mut next = config.clone();
     next.language = Some(target.language.name().to_string());
     next.tokenizer = target.tokenizer.clone();
     next.stop_words = target.stop_words.clone();
+    next.fold_marks = target.fold_marks;
     next
+}
+
+struct TargetSettings {
+    tokenizer: Option<TokenizerSetting>,
+    stop_words: Option<StopWordsSetting>,
+    fold_marks: Option<bool>,
 }
 
 fn build_target(
     engine: &EngineInner,
     config: &IndexConfig,
     language: Language,
-    tokenizer: Option<TokenizerSetting>,
-    stop_words: Option<StopWordsSetting>,
+    settings: TargetSettings,
 ) -> Result<AnalysisTarget> {
     let mut resolved_config = config.clone();
-    resolved_config.tokenizer = tokenizer.clone();
-    resolved_config.stop_words = stop_words.clone();
+    resolved_config.tokenizer = settings.tokenizer.clone();
+    resolved_config.stop_words = settings.stop_words.clone();
     let analysis = resolved_analysis(engine, &resolved_config)?;
     let analyser = Analyser::new(language.clone(), &analysis)?;
     Ok(AnalysisTarget {
         language,
-        tokenizer,
-        stop_words,
+        tokenizer: settings.tokenizer,
+        stop_words: settings.stop_words,
+        fold_marks: settings.fold_marks,
         analyser,
     })
 }
@@ -136,7 +157,17 @@ pub(crate) fn resolve_config_target(
         ..config.clone()
     };
     require_configuration_within_size_limit(&changed, &language)?;
-    build_target(engine, config, language, tokenizer, stop_words)
+    let fold_marks = kept(&change.fold_marks, config.fold_marks.as_ref());
+    build_target(
+        engine,
+        config,
+        language,
+        TargetSettings {
+            tokenizer,
+            stop_words,
+            fold_marks,
+        },
+    )
 }
 
 /// Resolves the analysis that a change recorded as pending moves `index` to.
@@ -155,7 +186,16 @@ pub(crate) fn pending_target(
         ))),
         (None, None) => None,
     };
-    build_target(engine, &index.config(), language, tokenizer, stop_words)
+    build_target(
+        engine,
+        &index.config(),
+        language,
+        TargetSettings {
+            tokenizer,
+            stop_words,
+            fold_marks: named.fold_marks,
+        },
+    )
 }
 
 /// Returns the analysis settings that a pending change records for `target`.
@@ -173,6 +213,7 @@ pub(crate) fn pending_of(target: &AnalysisTarget, generation: u64) -> PendingAna
         }
         _ => {}
     }
+    analysis.fold_marks = target.fold_marks;
     PendingAnalysis {
         generation,
         language: target.language.name().to_string(),
@@ -216,6 +257,11 @@ pub(crate) fn holds_target(config: &IndexConfig, target: &AnalysisTarget) -> boo
     config.language.as_deref().unwrap_or(DEFAULT_LANGUAGE) == target.language.name()
         && same_tokenizer(config.tokenizer.as_ref(), target.tokenizer.as_ref())
         && same_stop_words(config.stop_words.as_ref(), target.stop_words.as_ref())
+}
+
+/// Reports whether `config` already gives the `fold_marks` setting of `target`.
+pub(crate) fn holds_fold_marks(config: &IndexConfig, target: &AnalysisTarget) -> bool {
+    config.fold_marks == target.fold_marks
 }
 
 /// Reports whether the stored terms of `index` came from another analysis than its language module and settings

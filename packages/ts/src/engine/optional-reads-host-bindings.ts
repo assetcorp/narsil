@@ -11,6 +11,7 @@ type OptionalReadsHost = Pick<
   | 'checkedSize'
   | 'clampLimit'
   | 'clampRowCount'
+  | 'combinePostingLists'
   | 'codePointCount'
   | 'compareCodePoints'
   | 'compareScores'
@@ -24,6 +25,9 @@ type OptionalReadsHost = Pick<
   | 'ErrorCodes'
   | 'everyValueFacetConfig'
   | 'expansionSource'
+  | 'foldedSpellingSinks'
+  | 'fuzzyPrefixOf'
+  | 'fuzzyTermMatches'
   | 'flattenSchema'
   | 'fulltextMatches'
   | 'getFlatSchema'
@@ -94,6 +98,7 @@ export let clampLimit: OptionalReadsHost['clampLimit']
 export let clampRowCount: OptionalReadsHost['clampRowCount']
 export let codePointCount: OptionalReadsHost['codePointCount']
 export let compareCodePoints: OptionalReadsHost['compareCodePoints']
+export let combinePostingLists: OptionalReadsHost['combinePostingLists']
 export let compareScores: OptionalReadsHost['compareScores']
 export let createBitSet: OptionalReadsHost['createBitSet']
 export let createPatternWorkMeter: OptionalReadsHost['createPatternWorkMeter']
@@ -105,6 +110,9 @@ export let encodePageCursor: OptionalReadsHost['encodePageCursor']
 export let ErrorCodes: OptionalReadsHost['ErrorCodes']
 export let everyValueFacetConfig: OptionalReadsHost['everyValueFacetConfig']
 export let expansionSource: OptionalReadsHost['expansionSource']
+export let foldedSpellingSinks: OptionalReadsHost['foldedSpellingSinks']
+export let fuzzyPrefixOf: OptionalReadsHost['fuzzyPrefixOf']
+export let fuzzyTermMatches: OptionalReadsHost['fuzzyTermMatches']
 export let flattenSchema: OptionalReadsHost['flattenSchema']
 export let fulltextMatches: OptionalReadsHost['fulltextMatches']
 export let getFlatSchema: OptionalReadsHost['getFlatSchema']
@@ -178,6 +186,7 @@ export function bindOptionalReadsHost(host: OptionalReadsHost): void {
     clampRowCount,
     codePointCount,
     compareCodePoints,
+    combinePostingLists,
     compareScores,
     createBitSet,
     createPatternWorkMeter,
@@ -189,6 +198,9 @@ export function bindOptionalReadsHost(host: OptionalReadsHost): void {
     ErrorCodes,
     everyValueFacetConfig,
     expansionSource,
+    foldedSpellingSinks,
+    fuzzyPrefixOf,
+    fuzzyTermMatches,
     flattenSchema,
     fulltextMatches,
     getFlatSchema,

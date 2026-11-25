@@ -138,6 +138,7 @@ pub(crate) fn restored_config_fields(payload: &Map, reject: Rejection<'_>) -> Re
         config.bm25 = Some(restored_bm25(bm25, reject)?);
     }
     config.surface_forms = boolean(payload.get("surfaceForms"), "surfaceForms", reject)?;
+    config.fold_marks = boolean(payload.get("foldMarks"), "foldMarks", reject)?;
     match payload.get("defaultScoring") {
         None => {}
         Some(Value::String(name)) if ScoringMode::parse(name).is_some() => {

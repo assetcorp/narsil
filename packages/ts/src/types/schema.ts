@@ -273,6 +273,15 @@ export interface IndexConfig {
    */
   surfaceForms?: boolean
   /**
+   * Setting this to true lets a query typed without marks find the words that
+   * carry them, so `oko` finds `ọkọ` and `cafe` finds `café`, while a word
+   * typed as written still ranks first. False turns that off. Leave it unset
+   * to take the language's default, which is on for most languages written
+   * in the Latin script and off for English. The index stores nothing extra,
+   * so {@link AnalysisOperations.changeAnalysis} switches it without a rebuild.
+   */
+  foldMarks?: boolean
+  /**
    * The engine raises `DOC_VALIDATION_FAILED` for a document whose value in a
    * `verbatim` field, or in a field whose type includes `pattern`, is longer
    * than this many code points. It tests each element of a list separately.

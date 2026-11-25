@@ -1,3 +1,4 @@
+import { indexFolds, loadFoldingForQuery } from '../core/folding/code'
 import { loadPrefixFor } from '../core/partition/suggestion-code'
 import { joinPatternWorkMeter } from '../core/pattern-index/work-meter'
 import { fillHits, rankPage } from '../engine/query/assemble'
@@ -51,6 +52,7 @@ function withCopyReads(
     analysis: manager.analysis,
     schema: manager.schema,
     synonyms: manager.synonyms,
+    folds: indexFolds(manager.config.foldMarks, manager.language),
   })
   const answer: FanOutResult = {
     scored: [],
@@ -85,7 +87,14 @@ export async function runQueryAction(
   const loadingFacetCode = loadFacetMergesFor(action.params.facets)
   const loadingSortingCode = loadSortingFor(action.params.sort, action.params.filters)
   const loadingPrefixCode = loadPrefixFor(action.params.prefix)
+  const loadingFoldingCode = loadFoldingForQuery(
+    action.params.term,
+    action.params.exact,
+    entry.manager.config.foldMarks,
+    entry.manager.language,
+  )
   if (
+    loadingFoldingCode !== null ||
     loadingPhraseCode !== null ||
     loadingCursorCode !== null ||
     loadingGroupingCode !== null ||
@@ -95,6 +104,7 @@ export async function runQueryAction(
     loadingPrefixCode !== null
   ) {
     await Promise.all([
+      loadingFoldingCode,
       loadingPhraseCode,
       loadingCursorCode,
       loadingGroupingCode,

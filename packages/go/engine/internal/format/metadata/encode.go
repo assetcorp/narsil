@@ -28,6 +28,7 @@ func pendingValue(pending PendingAnalysis) codec.OrderedMap {
 	is.PutOptional(&entries, "tokenizer", pending.Tokenizer, is.Text)
 	is.PutOptional(&entries, "stop_words", pending.StopWords, is.Text)
 	is.PutOptional(&entries, "stop_word_list", pending.StopWordList, is.Texts)
+	is.PutOptional(&entries, "fold_marks", pending.FoldMarks, is.Flag)
 	return entries
 }
 
@@ -82,6 +83,7 @@ func (meta Metadata) Value() codec.OrderedMap {
 	is.PutOptional(&entries, "tokenizer", meta.Tokenizer, is.Text)
 	is.PutOptional(&entries, "stop_words", meta.StopWords, is.Text)
 	is.PutOptional(&entries, "stop_word_list", meta.StopWordList, is.Texts)
+	is.PutOptional(&entries, "fold_marks", meta.FoldMarks, is.Flag)
 	is.PutOptional(&entries, "analysis_generation", meta.AnalysisGeneration, is.Number[uint64])
 	if meta.PendingAnalysis != nil {
 		is.Put(&entries, "pending_analysis", pendingValue(*meta.PendingAnalysis))

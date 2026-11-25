@@ -29,6 +29,8 @@ export const persianFixture = defineLanguageFixture({
   equivalent: [
     ['كتاب', 'کتاب'],
     ['ايران', 'ایران'],
+    ['شاخهٔ', 'شاخه'],
+    ['خانوادۀ', 'خانواده'],
   ],
   retrievable: [
     {

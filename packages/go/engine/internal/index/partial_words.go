@@ -90,7 +90,18 @@ func mergeAddedWords(members []query.GroupMember, added []query.PrefixCompletion
 	return members
 }
 
-func addPartialWordMembers(groups *[]query.TermGroup, view *query.View, term *analysedTerm, written map[int]string, options partialWordOptions) error {
+func expandPartialWordsOf(view *query.View, requests []query.PartialWordRequest, folding *foldedWords) ([][]query.PrefixCompletion, error) {
+	if folding == nil {
+		return query.ExpandPartialWords(view, requests)
+	}
+	folds := make([]string, len(requests))
+	for at, request := range requests {
+		folds[at] = folding.partialFolds[request.Written]
+	}
+	return query.ExpandFoldedPartialWords(view, folding.language, requests, folds)
+}
+
+func addPartialWordMembers(groups *[]query.TermGroup, view *query.View, term *analysedTerm, written map[int]string, options partialWordOptions, folding *foldedWords) error {
 	prefixToken, hasPrefix := "", false
 	if last, hasLast := term.lastToken(); hasLast {
 		for _, group := range *groups {
@@ -103,7 +114,7 @@ func addPartialWordMembers(groups *[]query.TermGroup, view *query.View, term *an
 	if len(requests) == 0 {
 		return nil
 	}
-	added, err := query.ExpandPartialWords(view, requests)
+	added, err := expandPartialWordsOf(view, requests, folding)
 	if err != nil {
 		return err
 	}

@@ -373,6 +373,7 @@ pub(crate) fn index_config_dict<'py>(
     set_some(&dict, "returnVectors", config.return_vectors)?;
     set_some(&dict, "required", config.required.clone())?;
     set_some(&dict, "surfaceForms", config.surface_forms)?;
+    set_some(&dict, "foldMarks", config.fold_marks)?;
     set_some(&dict, "patternValueLimit", config.pattern_value_limit)?;
     if let Some(rules) = &config.synonyms {
         dict.set_item("synonyms", synonyms(py, rules)?)?;

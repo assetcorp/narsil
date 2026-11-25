@@ -1,7 +1,9 @@
 #ifndef NARSIL_EXPANSION_INTERNAL_H
 #define NARSIL_EXPANSION_INTERNAL_H
 
+#include "../../include/narsil_analysis.h"
 #include "../../include/narsil_expansion.h"
+#include "../../include/narsil_folding.h"
 #include "../../include/narsil_terms.h"
 #include "../analysis/text.h"
 #include "../segments/regions.h"
@@ -54,7 +56,11 @@ int partial_members(const narsil_expansion_segment *source, const narsil_frozen_
 int partial_spelling(const narsil_expansion_segment *source, uint32_t entry, term_cursor *text, uint32_t *token,
                      size_t *length);
 narsil_status partial_collect(narsil_workspace *workspace, expansion_scratch *scratch,
-                              const narsil_partial_request *request, const narsil_partial_word *word);
+                              const narsil_partial_request *request, const narsil_fold_table *const *tables,
+                              const narsil_partial_word *word);
+narsil_status partial_expand(narsil_workspace *workspace, const narsil_partial_request *request,
+                             const narsil_fold_table *const *tables, const narsil_term *folded,
+                             const narsil_partial_output *output, uint32_t *count);
 double expansion_occurrences(const narsil_expansion_segment *source, uint32_t token, double surface_occurrences);
 int expansion_surface(const narsil_expansion_segment *source, uint32_t entry, term_cursor *spelling, term_cursor *token,
                       uint32_t *count);
@@ -64,6 +70,11 @@ narsil_status expansion_find(narsil_workspace *workspace, expansion_scratch *scr
                              uint32_t *found);
 narsil_status expansion_collect(narsil_workspace *workspace, expansion_scratch *scratch,
                                 const narsil_prefix_request *request);
+narsil_status expansion_collect_more(narsil_workspace *workspace, expansion_scratch *scratch,
+                                     const narsil_prefix_request *request);
+int expansion_prefix_points(const narsil_prefix_request *request, size_t *own, size_t *typed);
+narsil_status expansion_answer(const expansion_scratch *scratch, size_t own, const narsil_expansion_output *output,
+                               uint32_t *count);
 narsil_status expansion_rank(narsil_workspace *workspace, expansion_scratch *scratch,
                              const narsil_prefix_request *request);
 int expansion_point_count(term_cursor cursor, size_t *count);

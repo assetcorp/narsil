@@ -91,6 +91,7 @@ impl IndexState {
             partitions,
             analyser,
             synonyms: Arc::new(synonyms),
+            fold_marks: config.fold_marks,
         };
         IndexState {
             name,
@@ -183,6 +184,10 @@ impl IndexState {
     /// Returns the synonym set as it stands, which stays valid for the caller while an update replaces it.
     pub(crate) fn synonym_set(&self) -> Arc<SynonymSet> {
         Arc::clone(&self.partitions().synonyms)
+    }
+
+    pub(crate) fn publish_switched_layout(&self, layout: TextLayout) {
+        self.publish_layout(Arc::new(layout));
     }
 
     pub(crate) fn replace_synonyms(&self, synonyms: SynonymSet) {

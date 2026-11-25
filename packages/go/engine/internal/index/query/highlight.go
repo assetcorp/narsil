@@ -30,6 +30,19 @@ type HighlightOptions struct {
 	PrefixLength     uint32
 	Synonyms         []string
 	PartialWords     []string
+	Folded           *FoldedHighlightOptions
+}
+
+type FoldedHighlightKey struct {
+	Key       string
+	Tolerance uint32
+}
+
+type FoldedHighlightOptions struct {
+	Keys         []FoldedHighlightKey
+	Prefix       string
+	HasPrefix    bool
+	PartialWords []string
 }
 
 type HighlightSpan struct {
@@ -74,6 +87,15 @@ func highlightQuery(tokens []string, options *HighlightOptions) core.HighlightQu
 	}
 	if options.HasPrefixToken {
 		query.HasPrefix, query.Prefix = true, unitsOf(options.PrefixToken)
+	}
+	if folded := options.Folded; folded != nil {
+		query.Folded = &core.FoldedHighlight{
+			Keys: make([]core.HighlightTerm, len(folded.Keys)), Prefix: unitsOf(folded.Prefix), HasPrefix: folded.HasPrefix,
+			PartialWords: unitsOfEach(folded.PartialWords),
+		}
+		for at, key := range folded.Keys {
+			query.Folded.Keys[at] = core.HighlightTerm{Term: unitsOf(key.Key), Tolerance: key.Tolerance}
+		}
 	}
 	return query
 }

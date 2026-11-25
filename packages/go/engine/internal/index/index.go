@@ -31,6 +31,7 @@ type Settings struct {
 	Slots           *vector.Slots
 	PatternLimit    uint32
 	TextOnDisk      bool
+	FoldMarks       model.Optional[bool]
 }
 
 type Index struct {
@@ -41,6 +42,7 @@ type Index struct {
 	partitions  []*partition.Partition
 	synonyms    atomic.Pointer[synonyms.Lookup]
 	bm25        atomic.Pointer[model.BM25Params]
+	foldMarks   atomic.Pointer[model.Optional[bool]]
 	compactions compactionScheduler
 	released    atomic.Bool
 }
@@ -132,6 +134,7 @@ func New(settings Settings) (*Index, error) {
 	}
 	ix.synonyms.Store(settings.Synonyms)
 	ix.bm25.Store(settings.BM25)
+	ix.SetFoldMarks(settings.FoldMarks)
 	return ix, nil
 }
 

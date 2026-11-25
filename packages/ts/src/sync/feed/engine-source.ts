@@ -20,6 +20,7 @@ export function syncSettingsOf(entry: IndexRegistryEntry): SyncSettings {
     ...(typeof config.tokenizer === 'string' ? { tokenizer: config.tokenizer } : {}),
     ...(typeof config.stopWords === 'string' ? { stopWords: config.stopWords } : {}),
     ...(config.stopWords instanceof Set ? { stopWordList: [...config.stopWords].sort(compareCodePoints) } : {}),
+    ...(typeof config.foldMarks === 'boolean' ? { foldMarks: config.foldMarks } : {}),
     ...(entry.analysisRevision !== null ? { analysisRevision: entry.analysisRevision } : {}),
     ...(config.bm25 !== undefined ? { bm25: config.bm25 } : {}),
     ...(synonyms.length > 0 ? { synonyms } : {}),

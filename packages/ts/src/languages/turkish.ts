@@ -268,4 +268,5 @@ export const turkish: LanguageModule = {
   stemmer: stem,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9çğıöşüâî]+/gi },
+  folding: {},
 }

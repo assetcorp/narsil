@@ -34,7 +34,11 @@ export interface Session {
 }
 
 function settingsKey(settings: SyncSettings): string {
-  return JSON.stringify({ bm25: settings.bm25 ?? null, synonyms: settings.synonyms ?? [] })
+  return JSON.stringify({
+    bm25: settings.bm25 ?? null,
+    synonyms: settings.synonyms ?? [],
+    foldMarks: settings.foldMarks ?? null,
+  })
 }
 
 export function createSession(context: DeviceContext, progress: Progress, state: SessionState): Session {
@@ -62,6 +66,7 @@ export function createSession(context: DeviceContext, progress: Progress, state:
     await context.work.run(async () => {
       await engine.updateBM25(indexName, settings.bm25 ?? {})
       await engine.updateSynonyms(indexName, settings.synonyms ?? [])
+      await engine.changeAnalysis(indexName, { foldMarks: settings.foldMarks ?? null })
     })
     appliedSettings = key
   }

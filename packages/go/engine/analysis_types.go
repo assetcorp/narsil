@@ -3,8 +3,26 @@ package engine
 import "github.com/assetcorp/narsil/packages/go/engine/internal/model"
 
 // AnalysisChange lists the analysis settings that ChangeAnalysis replaces. A
-// zero Language, Tokenizer, or StopWords keeps the current value.
+// zero Language, Tokenizer, StopWords, or FoldMarks keeps the current value.
 type AnalysisChange = model.AnalysisChange
+
+// FoldMarksChange is the folded matching part of an AnalysisChange. Its zero
+// value keeps the current setting.
+type FoldMarksChange = model.FoldMarksChange
+
+// ResetFoldMarks returns a change that goes back to the language's default
+// for folded matching.
+func ResetFoldMarks() FoldMarksChange {
+	return model.ResetFoldMarks()
+}
+
+// ChangeFoldMarks returns a change that turns folded matching on or off, so
+// that a query typed without marks matches the words that carry them only
+// where on is true. The engine applies it from the next query with no
+// rebuild, because folded matching changes no stored term.
+func ChangeFoldMarks(on bool) FoldMarksChange {
+	return model.ChangeFoldMarks(on)
+}
 
 // TokenizerChange is the tokeniser part of an AnalysisChange. Its zero value
 // keeps the current tokeniser.

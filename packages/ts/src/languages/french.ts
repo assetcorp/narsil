@@ -192,4 +192,5 @@ export const french: LanguageModule = {
   tokenizer: {
     splitPattern: /[^a-z0-9äâàéèëêïîöôùüûœçÿæ-]+/gi,
   },
+  folding: {},
 }

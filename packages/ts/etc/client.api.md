@@ -91,6 +91,7 @@ export const CHANGE_ANALYSIS_CAPABILITY = "indexes.changeAnalysis";
 
 // @public
 export interface ChangeAnalysisBody {
+    foldMarks?: boolean | null;
     language?: string;
     stopWords?: string | string[] | null;
     tokenizer?: string | null;
@@ -400,6 +401,7 @@ export interface HttpIndexConfig {
     bm25?: BM25Params;
     defaultScoring?: 'local' | 'dfs' | 'broadcast';
     embedding?: CreateIndexEmbedding;
+    foldMarks?: boolean;
     language?: string;
     partitions?: {
         maxDocsPerPartition?: number;

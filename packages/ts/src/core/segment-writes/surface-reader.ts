@@ -32,6 +32,14 @@ export function growingSurfaceReader(segment: GrowingSegment): SurfaceRegistryRe
       return results
     },
 
+    formOf(surface: string): SurfaceFormCandidate | undefined {
+      const table = segment.surfaces
+      if (table === null) return undefined
+      const ordinal = table.strings.get(surface)
+      if (ordinal === undefined || table.count[ordinal] === 0) return undefined
+      return { surface, token: segment.postings.terms.tokens[table.token[ordinal]], occurrences: table.count[ordinal] }
+    },
+
     stemChangedTotalFor(token: string): number {
       const terms = segment.postings.terms
       const ordinal = terms.ids.get(token)

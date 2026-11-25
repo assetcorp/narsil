@@ -89,6 +89,16 @@ impl Language {
     pub(crate) fn core_index(&self) -> u32 {
         self.index
     }
+
+    /// Returns whether the language's module sets folding, which an index folds by where it sets no `fold_marks`.
+    pub(crate) fn folds(&self) -> bool {
+        core::language_folds(self.index)
+    }
+
+    /// Returns the fold of `spelling` under this language, or its key where `stem` is set.
+    pub(crate) fn fold_spelling(&self, spelling: &str, stem: bool) -> Result<String> {
+        core::fold_spelling(self.index, spelling, stem)
+    }
 }
 
 pub(crate) use core::with_core_analyser;

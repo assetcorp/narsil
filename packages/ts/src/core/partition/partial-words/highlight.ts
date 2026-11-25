@@ -4,7 +4,7 @@ import { tokenize } from '../../tokenizer/tokenize'
 
 function containsPartialWord(spelling: string, words: readonly string[]): boolean {
   for (const word of words) {
-    if (spelling.length > word.length && spelling.includes(word)) return true
+    if (word.length > 0 && spelling.length > word.length && spelling.includes(word)) return true
   }
   return false
 }
@@ -23,9 +23,14 @@ export function partialWordMatcher(
   })
   const positions = new Set<number>()
   const spellings = new Set<string>()
+  const folded = partial.folded
   for (let at = 0; at < indexed.tokens.length; at++) {
     const spelling = indexed.surfaces?.[at] ?? indexed.tokens[at].token
-    if (!containsPartialWord(spelling, partial.words)) continue
+    if (
+      !containsPartialWord(spelling, partial.words) &&
+      (folded === undefined || !containsPartialWord(folded.foldOf(spelling), folded.words))
+    )
+      continue
     positions.add(indexed.tokens[at].position)
     spellings.add(spelling)
   }

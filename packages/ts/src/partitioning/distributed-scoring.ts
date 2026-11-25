@@ -15,6 +15,7 @@ export interface QueryTermAnalysis {
   stopWords?: StopWordOverride
   customTokenizer?: CustomTokenizer
   synonyms?: SynonymLookup | null
+  folds?: boolean
 }
 
 function analysedQueryTokens(term: string, language: LanguageModule, analysis: QueryTermAnalysis): Set<string> {

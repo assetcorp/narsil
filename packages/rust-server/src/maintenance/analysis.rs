@@ -4,7 +4,7 @@ use narsil::{AnalysisChange, AnalysisSetting, Map, StopWords, StopWordsSetting, 
 
 use crate::errors::ServerError;
 
-const ANALYSIS_CHANGE_MEMBERS: [&str; 3] = ["language", "tokenizer", "stopWords"];
+const ANALYSIS_CHANGE_MEMBERS: [&str; 4] = ["language", "tokenizer", "stopWords", "foldMarks"];
 
 fn is_word_list(value: &Value) -> bool {
     matches!(value, Value::Array(words) if words.iter().all(|word| matches!(word, Value::String(_))))
@@ -31,6 +31,14 @@ fn validate(fields: &Map) -> Result<(), ServerError> {
     {
         return Err(ServerError::invalid(
             "Field \"tokenizer\" must be a registered name or null",
+        ));
+    }
+    if fields
+        .get("foldMarks")
+        .is_some_and(|fold_marks| !matches!(fold_marks, Value::Null | Value::Bool(_)))
+    {
+        return Err(ServerError::invalid(
+            "Field \"foldMarks\" must be true, false, or null",
         ));
     }
     match fields.get("stopWords") {
@@ -74,5 +82,10 @@ pub(crate) fn analysis_change_of(body: &Value) -> Result<AnalysisChange, ServerE
             Some(_) => AnalysisSetting::LanguageDefault,
         },
         stop_words: stop_words_of(fields.get("stopWords")),
+        fold_marks: match fields.get("foldMarks") {
+            None => AnalysisSetting::Keep,
+            Some(Value::Bool(fold_marks)) => AnalysisSetting::Set(*fold_marks),
+            Some(_) => AnalysisSetting::LanguageDefault,
+        },
     })
 }

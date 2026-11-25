@@ -22,8 +22,8 @@ pub struct SyncFeedState {
     /// The number of partitions of the index.
     pub partition_count: u32,
     /// The settings that a device applies to its copy, under the keys of the index configuration payload:
-    /// `language`, and where the index sets them, `tokenizer`, `stopWords`, `stopWordList`, `analysisRevision`,
-    /// `bm25`, and `synonyms`.
+    /// `language`, and where the index sets them, `tokenizer`, `stopWords`, `stopWordList`, `foldMarks`,
+    /// `analysisRevision`, `bm25`, and `synonyms`.
     pub settings: Map,
 }
 

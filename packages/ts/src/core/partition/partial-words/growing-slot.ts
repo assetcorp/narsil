@@ -221,6 +221,11 @@ export function createGrowingPartialWordSlot(view: GrowingPartialWordView): Grow
       }
     },
 
+    holdsSpelling(spelling: string, token: string): boolean {
+      const entry = entriesByToken.get(token)?.get(spelling)
+      return entry !== undefined && entryCounts[entry] > 0
+    },
+
     bytes(): number {
       return slot.bytes()
     },
