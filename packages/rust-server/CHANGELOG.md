@@ -1,3 +1,22 @@
+## 0.1.6 (2026-11-25)
+
+### 🚀 Features
+
+- **rust-server:** accept foldMarks when an index is created and when its analysis changes ([6524a294](https://github.com/assetcorp/narsil/commit/6524a294))
+
+### 🩹 Fixes
+
+- **server:** drain concurrent shutdowns without blocking node cancellation ([189c2f10](https://github.com/assetcorp/narsil/commit/189c2f10))
+- **cluster:** end forward waits and handover holds as soon as a node starts to shut down ([8927bf02](https://github.com/assetcorp/narsil/commit/8927bf02))
+- **rust-server:** hand the cluster routes a boxed future, so a crate that builds with the cluster feature stays under the compiler's query depth ([7a6f50e4](https://github.com/assetcorp/narsil/commit/7a6f50e4))
+- **rust:** bound file descriptors in accept queue tests ([a63c21fa](https://github.com/assetcorp/narsil/commit/a63c21fa))
+- **rust:** respect kernel caps in accept queue tests ([e536ad25](https://github.com/assetcorp/narsil/commit/e536ad25))
+- **rust-server:** listen with the largest accept queue that the system allows, and add accept_queue_length to change it ([5266c6ce](https://github.com/assetcorp/narsil/commit/5266c6ce))
+
+### ❤️ Thank You
+
+- assetcorp @assetcorp
+
 ## 0.1.5 (2026-11-24)
 
 ### 🩹 Fixes

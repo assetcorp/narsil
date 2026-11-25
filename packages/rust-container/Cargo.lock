@@ -218,7 +218,7 @@ dependencies = [
 
 [[package]]
 name = "delali-narsil-server"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "bytes",
  "delali-narsil",
