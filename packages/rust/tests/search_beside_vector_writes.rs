@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{TrySendError, sync_channel};
 
 use narsil::{
     DocumentProjection, IndexConfig, Map, Narsil, QueryParams, QueryResult, Value, VectorQuery,
@@ -11,8 +11,6 @@ const NOTE_COUNT: u32 = 48;
 const REVISION_ROUNDS: u32 = 120;
 const CHURNED_NOTES: u32 = 12;
 const CHURN_ROUNDS: u32 = 300;
-const SEARCH_THREADS: usize = 3;
-const SEARCHES_THAT_PROVE_OVERLAP: u64 = 50;
 
 fn note(number: u32, revision: u32) -> Map {
     let mut map = Map::new();
@@ -91,64 +89,58 @@ fn revision_mismatch(result: &QueryResult) -> Option<String> {
     })
 }
 
-fn searched_until_written(
+fn search_during_writes(
     engine: &Narsil,
-    written: &AtomicBool,
-    params: &QueryParams,
-    broken: impl Fn(&QueryResult) -> Option<String>,
-) -> (u64, Option<String>) {
-    let mut searches = 0;
-    while !written.load(Ordering::Acquire) {
-        let result = engine.query(INDEX, params).expect("the search answers");
-        searches += 1;
-        if let Some(found) = broken(&result) {
-            return (searches, Some(found));
+    terms: [Option<&str>; 3],
+    rounds: u32,
+    write_round: impl Fn(u32),
+    broken: fn(&QueryResult) -> Option<String>,
+) {
+    std::thread::scope(|scope| {
+        let readers: Vec<_> = terms
+            .into_iter()
+            .map(|term| {
+                let params = every_note_by_vector(term);
+                let (searched, completed) = sync_channel(1);
+                scope.spawn(move || {
+                    loop {
+                        let result = engine.query(INDEX, &params).expect("the search answers");
+                        if let Some(problem) = broken(&result) {
+                            panic!("a search mixed two states: {problem}");
+                        }
+                        if let Err(TrySendError::Disconnected(())) = searched.try_send(()) {
+                            break;
+                        }
+                    }
+                });
+                completed
+            })
+            .collect();
+        for round in 0..rounds {
+            write_round(round);
+            for reader in &readers {
+                reader.recv().expect("the search thread finished a query");
+            }
         }
-    }
-    (searches, None)
-}
-
-fn require_whole_answers(outcomes: Vec<(u64, Option<String>)>) {
-    let searches: u64 = outcomes.iter().map(|(searches, _)| searches).sum();
-    let broken: Vec<&String> = outcomes
-        .iter()
-        .filter_map(|(_, found)| found.as_ref())
-        .collect();
-    assert!(broken.is_empty(), "a search mixed two states: {broken:?}");
-    assert!(
-        searches >= SEARCHES_THAT_PROVE_OVERLAP,
-        "only {searches} searches ran beside the writes, so the test proved nothing"
-    );
+    });
 }
 
 #[test]
 fn a_hit_carries_the_text_and_the_vector_of_one_write() {
     let engine = engine_with_notes();
-    let written = AtomicBool::new(false);
-    let outcomes = std::thread::scope(|scope| {
-        let searchers: Vec<_> = (0..SEARCH_THREADS)
-            .map(|thread| {
-                let params = every_note_by_vector((thread % 2 == 1).then_some("field"));
-                let (engine, written) = (&engine, &written);
-                scope.spawn(move || {
-                    searched_until_written(engine, written, &params, revision_mismatch)
-                })
-            })
-            .collect();
-        for revision in 2..REVISION_ROUNDS + 2 {
+    search_during_writes(
+        &engine,
+        [None, Some("field"), None],
+        REVISION_ROUNDS,
+        |round| {
             for number in 0..NOTE_COUNT {
                 engine
-                    .update(INDEX, &format!("note-{number:03}"), note(number, revision))
+                    .update(INDEX, &format!("note-{number:03}"), note(number, round + 2))
                     .expect("the note is updated");
             }
-        }
-        written.store(true, Ordering::Release);
-        searchers
-            .into_iter()
-            .map(|searcher| searcher.join().expect("the search thread returns"))
-            .collect::<Vec<_>>()
-    });
-    require_whole_answers(outcomes);
+        },
+        revision_mismatch,
+    );
 }
 
 fn miscounted(result: &QueryResult) -> Option<String> {
@@ -165,16 +157,11 @@ fn miscounted(result: &QueryResult) -> Option<String> {
 #[test]
 fn a_vector_search_returns_every_document_that_it_counts() {
     let engine = engine_with_notes();
-    let written = AtomicBool::new(false);
-    let outcomes = std::thread::scope(|scope| {
-        let searchers: Vec<_> = (0..SEARCH_THREADS)
-            .map(|_| {
-                let params = every_note_by_vector(None);
-                let (engine, written) = (&engine, &written);
-                scope.spawn(move || searched_until_written(engine, written, &params, miscounted))
-            })
-            .collect();
-        for round in 0..CHURN_ROUNDS {
+    search_during_writes(
+        &engine,
+        [None; 3],
+        CHURN_ROUNDS,
+        |round| {
             for number in 0..CHURNED_NOTES {
                 engine
                     .remove(INDEX, &format!("note-{number:03}"))
@@ -185,12 +172,7 @@ fn a_vector_search_returns_every_document_that_it_counts() {
                     .insert(INDEX, note(number, round + 2), None)
                     .expect("the note is inserted again");
             }
-        }
-        written.store(true, Ordering::Release);
-        searchers
-            .into_iter()
-            .map(|searcher| searcher.join().expect("the search thread returns"))
-            .collect::<Vec<_>>()
-    });
-    require_whole_answers(outcomes);
+        },
+        miscounted,
+    );
 }
