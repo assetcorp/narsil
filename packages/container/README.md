@@ -33,7 +33,7 @@ The image serves one node outside any cluster. To run the nodes of a cluster, bu
 | Tag | What it holds |
 |-----|---------------|
 | `latest` | The newest release of `@delali/narsil`. |
-| `<major>.<minor>`, such as `0.4` | The newest patch release of that minor version. |
+| `<major>.<minor>` | The newest patch release of that minor version. |
 | `<version>` | One release, which never changes once it is published. |
 | `next` | The newest prerelease, which the publish workflow builds from each push to `main`. |
 | `sha-<commit>` | The image that the publish workflow built from that commit. |
@@ -41,11 +41,7 @@ The image serves one node outside any cluster. To run the nodes of a cluster, bu
 
 You can switch a node between the TypeScript server and the Rust server by changing the tag alone. The Rust image leaves out the `transformers` kind of embedder and reranker, so its startup program exits with status 1 when a variable sets that kind.
 
-Pin a version in production, so that a new release reaches your nodes only when you change the tag:
-
-<!-- release-version narsil-ts -->
-`docker pull ghcr.io/assetcorp/narsil:0.4.6`
-<!-- /release-version -->
+For a production deployment with Compose, set `NARSIL_IMAGE_TAG` in `.env` to the full release tag from the [container registry](https://github.com/assetcorp/narsil/pkgs/container/narsil). Your nodes then use that release until you change the tag.
 
 Each tag covers `linux/amd64` and `linux/arm64`, and each image carries provenance and SBOM attestations from its build.
 

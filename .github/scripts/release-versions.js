@@ -52,6 +52,9 @@ function markedRegions(path, text) {
   lines.forEach((line, index) => {
     const opening = MARKER_OPENING.exec(line)
     if (opening !== null) {
+      if (/(^|\/)README\.md$/i.test(path)) {
+        throw new Error(`${path}:${index + 1} must use a version-free install command or a registry link`)
+      }
       if (open !== null) throw new Error(`${path}:${index + 1} opens a release-version marker inside another one`)
       if (RELEASED_PROJECTS[opening[1]] === undefined) {
         const known = Object.keys(RELEASED_PROJECTS).join(', ')

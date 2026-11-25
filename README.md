@@ -12,7 +12,7 @@
 
 The search engine that scales with your data.
 
-Narsil is an open source search engine with full-text, vector, hybrid, and geosearch on one typed index. You can embed the engine in a TypeScript, Rust, Python, or Go program, where it searches without a network hop, or you can deploy the TypeScript package as a search server or a multi-node cluster, which Python, Go, and TypeScript programs call through typed clients. Every implementation reads and writes indexes in one binary format (`.nrsl`), so you can save an index from one implementation and open it in another.
+Narsil is an open source search engine with full-text, vector, hybrid, and geosearch on one typed index. You can embed the engine in a TypeScript, Rust, Python, or Go program, where it searches without a network hop, or you can serve it over HTTP with TypeScript or Rust. A cluster can contain TypeScript nodes, Rust nodes, or both. Python, Go, and TypeScript programs can call either server through typed clients. Every implementation reads and writes indexes in one binary format (`.nrsl`), so you can save an index from one implementation and open it in another.
 
 Outside a browser, every implementation analyses text and scores its keyword and vector searches through one native core in C, so a query returns the same documents with the same scores in each language.
 
@@ -31,7 +31,9 @@ Try it in your browser at [narsil.sondelali.com/demo](https://narsil.sondelali.c
 | Your program | Package | What it gives you |
 | --- | --- | --- |
 | TypeScript or JavaScript | [`@delali/narsil`](packages/ts) | The reference implementation embeds the engine in Node.js, Bun, Deno, or a browser. Its `server` subpath serves the engine as a REST API, its `distribution` subpath spreads an index across a cluster of nodes, and its `client` and `react` subpaths call that server. |
-| Rust | [`delali-narsil`](packages/rust) | The crate embeds the engine in a Rust program. |
+| Rust, searching in the process | [`delali-narsil`](packages/rust) | The crate embeds the engine in a Rust program. |
+| Rust, serving over HTTP | [`delali-narsil-server`](packages/rust-server) | The crate serves one node over HTTP and WebSocket. Enable its `cluster` feature to serve a cluster. |
+| Rust, joining a cluster | [`delali-narsil-cluster`](packages/rust-cluster) | A Rust process can join a cluster and replicate data with Rust or TypeScript peers. |
 | Go, searching in the process | [`github.com/assetcorp/narsil/packages/go/engine`](packages/go/engine) | The module embeds the engine in a Go program through cgo. |
 | Go, calling a server | [`github.com/assetcorp/narsil/packages/go`](packages/go) | The client calls a Narsil server, or every node of a cluster, with the standard library alone. |
 | Python, searching in the process | [`delali-narsil`](packages/python-engine) | The package embeds the engine in a Python program through the Rust crate, with a blocking API and an asyncio API. |
@@ -57,9 +59,9 @@ The packages below hold the parts that the packages above share or call:
 | Embedded engine in TypeScript (`@delali/narsil`) | Stable | You embed the engine in your process for full-text, vector, hybrid, and geosearch. It reports failures through typed error codes. Continuous integration tests it on Node 22 and 24. |
 | Single-node server (`@delali/narsil/server`) | Stable | A REST API wraps the same engine, with a write-ahead log, bulk NDJSON import, and snapshot and restore. |
 | Multi-node cluster (`@delali/narsil/distribution`) | Stable | The cluster adds node roles, replication, and query routing over an in-process transport, TCP with mTLS, or gRPC, and it can keep its shared state in etcd over TLS. |
-| Rust crate and Go engine | First release, 0.1 | Each one covers the single-node operations of the TypeScript package, and continuous integration tests each one on Linux, macOS, and Windows, on arm64 and x64. |
-| Python package (`delali-narsil` on PyPI) | First release, 0.1 | The package wraps the Rust crate, and continuous integration tests its wheels on Linux with glibc and with musl, on macOS, and on Windows, each on arm64 and x64. |
-| Python and Go clients | First release, 0.1 | A generator writes each client's typed methods from the server's `openapi.json`, so each client holds one method for every route of the HTTP server. |
+| Rust crate and Go engine | Released | Each one covers the single-node operations of the TypeScript package, and continuous integration tests each one on Linux, macOS, and Windows, on arm64 and x64. |
+| Python package (`delali-narsil` on PyPI) | Released | The package wraps the Rust crate, and continuous integration tests its wheels on Linux with glibc and with musl, on macOS, and on Windows, each on arm64 and x64. |
+| Python and Go clients | Released | A generator writes each client's typed methods from the server's `openapi.json`, so each client holds one method for every route of the HTTP server. |
 
 ## Add Narsil with a coding agent
 

@@ -4,12 +4,9 @@
 
 ## Install
 
-<!-- release-version narsil-rust -->
-```toml
-[dependencies]
-delali-narsil = "0.2.3"
+```bash
+cargo add delali-narsil
 ```
-<!-- /release-version -->
 
 The crate needs Rust 1.88 or later and a C11 compiler, and its library is called `narsil`.
 

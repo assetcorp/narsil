@@ -21,7 +21,7 @@ function main() {
   if (problems.length > 0) {
     console.error(problems.join('\n'))
     console.error(
-      'Wrap each line that names a released Narsil version in <!-- release-version <project> --> and <!-- /release-version -->, and keep the version equal to that project manifest.',
+      'Use version-free installation instructions in READMEs. In other Markdown files, wrap each line that names a released Narsil version in <!-- release-version <project> --> and <!-- /release-version -->, and keep the version equal to that project manifest.',
     )
     process.exit(1)
   }
