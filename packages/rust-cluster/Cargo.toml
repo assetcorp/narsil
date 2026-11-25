@@ -1,6 +1,6 @@
 [package]
 name = "delali-narsil-cluster"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 rust-version = "1.88"
 description = "Join a Rust process to a Narsil cluster, with the TCP and gRPC node transports that TypeScript nodes speak."

@@ -280,7 +280,7 @@ dependencies = [
 
 [[package]]
 name = "delali-narsil-cluster"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "bytes",
  "crc32fast",
