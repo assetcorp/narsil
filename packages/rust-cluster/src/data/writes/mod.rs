@@ -59,6 +59,7 @@ pub(crate) struct PrimaryWrites {
     reshard: ReshardState,
     catch_up_bytes: Semaphore,
     stopping: watch::Sender<bool>,
+    shutting_down: watch::Sender<bool>,
     on_error: Option<NodeErrorHandler>,
     log_retention_bytes: u64,
     spool_directory: PathBuf,
@@ -91,6 +92,7 @@ impl PrimaryWrites {
             reshard: ReshardState::default(),
             catch_up_bytes: catch_up_budget(),
             stopping: watch::Sender::new(false),
+            shutting_down: watch::Sender::new(false),
             on_error: settings.on_error,
             log_retention_bytes: settings.log_retention_bytes,
             spool_directory: settings.spool_directory,
@@ -117,6 +119,10 @@ impl PrimaryWrites {
         self.catch_up_bytes.close();
         self.cancel_catch_up_feeds();
         self.view.stop();
+    }
+
+    pub(super) fn end_lead_holds(&self) {
+        self.shutting_down.send_replace(true);
     }
 
     fn is_stopping(&self) -> bool {

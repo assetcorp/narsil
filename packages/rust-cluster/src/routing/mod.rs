@@ -6,6 +6,7 @@ mod rules;
 mod sent_fields;
 mod settle;
 mod wait;
+mod window;
 mod write;
 
 use std::sync::{Arc, Mutex};
@@ -88,8 +89,12 @@ impl WriteRouter {
         }))
     }
 
-    pub(crate) fn stop(&self) {
+    pub(crate) fn stop_waiting(&self) {
         self.stopping.send_replace(true);
+    }
+
+    pub(crate) fn stop(&self) {
+        self.stop_waiting();
         if let Some(handle) = lock(&self.watch).take() {
             handle.stop();
             self.view.stop();

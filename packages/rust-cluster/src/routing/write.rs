@@ -57,6 +57,7 @@ pub(super) struct Refused {
     pub(super) error: ClusterError,
     pub(super) abandoned: Option<AbandonedWrite>,
     pub(super) withheld: bool,
+    pub(super) unsent: bool,
 }
 
 impl Refused {
@@ -65,6 +66,16 @@ impl Refused {
             error,
             abandoned: None,
             withheld: false,
+            unsent: false,
+        })
+    }
+
+    pub(super) fn unsent(error: ClusterError) -> Box<Refused> {
+        Box::new(Refused {
+            error,
+            abandoned: None,
+            withheld: false,
+            unsent: true,
         })
     }
 
@@ -73,6 +84,7 @@ impl Refused {
             error: failure.error,
             abandoned: failure.abandoned,
             withheld: false,
+            unsent: false,
         })
     }
 }

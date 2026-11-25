@@ -12,6 +12,7 @@ import { decommissionNode } from './decommission'
 import { createClusterDeviceSync } from './device-sync'
 import { createAllocationErrorForwarder, createErrorForwarder } from './error-forwarding'
 import { servingNameOf } from './generation-routing'
+import { createNodeLifecycleCalls } from './lifecycle-operations'
 import { forgetClosedCopy, forgetDroppedCopy } from './local-copy-state'
 import { type ClusterLocalEngine, createClusterLocalEngine } from './local-engine'
 import { seedReopenedPrimaryLogs } from './local-replication'
@@ -118,7 +119,8 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
   let unregisterNotReadyHandler: (() => void) | null = null
   const searchContexts = hasDataRole ? createSearchContextRegistry() : undefined
   let serving = false
-  let isShutdown = false
+  const shuttingDown = new AbortController()
+  const lifecycleCalls = createNodeLifecycleCalls(nodeId, shuttingDown, () => lifecycle.shutdown())
 
   const localCopies = createNodeCopies({
     ...cleanupDeps,
@@ -127,7 +129,8 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
       clearBootstrapSyncIndex(bootstrapSyncState, indexName, partitionId)
       replicationLogs.delete(buildReplicationLogKey(indexName, partitionId))
     },
-    isShutdown: () => isShutdown,
+    isShutdown: () => shuttingDown.signal.aborted,
+    shutdownSignal: shuttingDown.signal,
     settleAdopted: indexName => analysisView.settle(indexName),
     standForElection: () => controllerTenure.standEarly(),
   })
@@ -167,7 +170,7 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
   })
 
   function guardShutdown(): void {
-    if (isShutdown) {
+    if (shuttingDown.signal.aborted) {
       throw new NarsilError(ErrorCodes.NODE_NOT_JOINED, `Cluster node '${nodeId}' has been shut down`, { nodeId })
     }
   }
@@ -234,7 +237,7 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
     coordinator: config.coordinator,
     lifecycle: () => lifecycle,
     controller: () => controller,
-    isShutdown: () => isShutdown,
+    isShutdown: () => shuttingDown.signal.aborted,
     isServing: () => serving,
     trackOp,
     requestReplicationFactor: async (indexName, factor) =>
@@ -284,49 +287,50 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
 
     cluster,
 
-    async start() {
-      guardShutdown()
-      await allocationView.start()
-      await readViews.start()
-      await deviceSync.start()
+    start: () =>
+      lifecycleCalls.start(async () => {
+        guardShutdown()
+        await allocationView.start()
+        await readViews.start()
+        await deviceSync.start()
 
-      await localCopies.settle()
+        await localCopies.settle()
 
-      unregisterNotReadyHandler = await listenUntilJoined(config, nodeId, controllerTransport)
+        unregisterNotReadyHandler = await listenUntilJoined(config, nodeId, controllerTransport)
 
-      await memoryReporting.start()
-      await controllerTenure.withdrawOnFailure(lifecycle.join())
-      await suggestions.start()
-      await controllerTenure.start()
+        await memoryReporting.start()
+        await controllerTenure.withdrawOnFailure(lifecycle.join())
+        await suggestions.start()
+        await controllerTenure.start()
 
-      unregisterHandler = await listenForPeers({
-        config,
-        nodeId,
-        hasControllerRole,
-        controllerTransport,
-        answerQueryCounts: suggestions.answerCounts,
-        dataHandler: hasDataRole
-          ? {
-              nodeId,
-              engine,
-              coordinator: config.coordinator,
-              allocations: allocationView,
-              analysisView,
-              writeDeps,
-              snapshotSyncState: snapshotSyncHandlerState,
-              searchContexts,
-              snapshotSpoolDirectory: snapshotSpool.path,
-              backups: backups.primary,
-              isOrphaned: localCopies.isOrphaned,
-              isBootstrapSynced: (indexName: string, partitionId: number) =>
-                hasCompletedBootstrapSync(bootstrapSyncState, indexName, partitionId),
-              onError: forwardOnError,
-            }
-          : null,
-      })
-      if (hasDataRole) startCatchUpPump(writeDeps.catchUp, writeDeps)
-      serving = true
-    },
+        unregisterHandler = await listenForPeers({
+          config,
+          nodeId,
+          hasControllerRole,
+          controllerTransport,
+          answerQueryCounts: suggestions.answerCounts,
+          dataHandler: hasDataRole
+            ? {
+                nodeId,
+                engine,
+                coordinator: config.coordinator,
+                allocations: allocationView,
+                analysisView,
+                writeDeps,
+                snapshotSyncState: snapshotSyncHandlerState,
+                searchContexts,
+                snapshotSpoolDirectory: snapshotSpool.path,
+                backups: backups.primary,
+                isOrphaned: localCopies.isOrphaned,
+                isBootstrapSynced: (indexName: string, partitionId: number) =>
+                  hasCompletedBootstrapSync(bootstrapSyncState, indexName, partitionId),
+                onError: forwardOnError,
+              }
+            : null,
+        })
+        if (hasDataRole) startCatchUpPump(writeDeps.catchUp, writeDeps)
+        serving = true
+      }),
 
     async decommission(options?: { signal?: AbortSignal }) {
       guardShutdown()
@@ -336,41 +340,36 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
       )
     },
 
-    async shutdown() {
-      if (isShutdown) {
-        return
-      }
-      isShutdown = true
-      serving = false
-      stopEveryReshardJob(reshard)
-      await stopCatchUpPump(writeDeps.catchUp)
-      backups.stop()
+    shutdown: () =>
+      lifecycleCalls.shutdown(async () => {
+        serving = false
+        stopEveryReshardJob(reshard)
+        await stopCatchUpPump(writeDeps.catchUp)
+        backups.stop()
 
-      await operationTracker.drain()
-      await suggestions.stop()
-      allocationView.stop()
-      readViews.stop()
-      await deviceSync.stop()
+        await operationTracker.drain()
+        await suggestions.stop()
+        allocationView.stop()
+        readViews.stop()
+        await deviceSync.stop()
 
-      unregisterHandler?.()
-      unregisterHandler = null
-      unregisterNotReadyHandler?.()
-      unregisterNotReadyHandler = null
-      searchContexts?.stop()
+        unregisterHandler?.()
+        unregisterHandler = null
+        unregisterNotReadyHandler?.()
+        unregisterNotReadyHandler = null
+        searchContexts?.stop()
 
-      await lifecycle.shutdown()
-      memoryReporting.stop()
+        await lifecycle.shutdown()
+        memoryReporting.stop()
 
-      if (controller !== null) {
-        await controller.shutdown()
-      }
+        await controller?.shutdown()
 
-      await heldPartitionWrites.settled()
-      await localCopies.failures.settled()
+        await heldPartitionWrites.settled()
+        await localCopies.failures.settled()
 
-      await engine.shutdown()
-      await snapshotSpool.dispose()
-    },
+        await engine.shutdown()
+        await snapshotSpool.dispose()
+      }),
   }
 
   bindNodeSources(node, {
@@ -379,6 +378,7 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
     memoryView: memoryReporting.view,
     syncServing: deviceSync.serving,
     changesServing: deviceSync.changesServing,
+    startShutdown: lifecycleCalls.begin,
   })
   suggestions.bind(node, { engine: clusterNodeEngine(node), dropIndex: name => node.dropIndex(name) })
   return node

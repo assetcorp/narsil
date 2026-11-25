@@ -2,10 +2,10 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use narsil::Value;
-use tokio::time::Instant;
 
 use super::WriteRouter;
 use super::remote::unsent_after_window;
+use super::window::AttemptWindow;
 use super::write::{Attempted, PendingWrite, Refused};
 use crate::data::{routed_partition, unassigned};
 use crate::error::{ClusterError, ClusterResult, codes};
@@ -55,7 +55,7 @@ impl WriteRouter {
         serving_name: Arc<str>,
         writes: Vec<PendingWrite>,
         batch: bool,
-        deadline: Instant,
+        window: Arc<AttemptWindow>,
     ) -> ClusterResult<Vec<(usize, Attempted)>> {
         let table = self.routable_table(&serving_name).await.map_err(|error| {
             if batch {
@@ -91,11 +91,11 @@ impl WriteRouter {
             }
         }
         if !here.is_empty() {
-            let applied = if Instant::now() < deadline {
+            let applied = if window.start() {
                 self.apply_here(&serving_name, table.index_uuid.clone(), &here)
                     .await
             } else {
-                unsent_after_window(&serving_name, &here)
+                unsent_after_window(&serving_name, &here, false)
             };
             outcomes.extend(applied);
         }
@@ -106,7 +106,7 @@ impl WriteRouter {
                     table.index_uuid.as_deref(),
                     &primary,
                     &forwarded,
-                    deadline,
+                    &window,
                 )
                 .await;
             outcomes.extend(answered);

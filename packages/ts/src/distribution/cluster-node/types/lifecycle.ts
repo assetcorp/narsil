@@ -39,6 +39,10 @@ export interface ClusterNodeLifecycle {
    * The controller treats the node as failed, so it promotes a replica for each partition that the node led and waits
    * `nodeLeftDelayMs` before it moves the node's replicas, which lets a node that restarts in place take them back.
    * Call {@link ClusterNodeLifecycle.decommission} to move the copies off the node first.
+   *
+   * Once the shutdown starts, a write that the node forwarded stops waiting for its primary. It answers with its last
+   * refusal, or with `REPLICATION_OUTCOME_UNKNOWN` and the reason `forward_window_ended` where the primary may have
+   * applied it, and the node sends no further part of that write.
    */
   shutdown(): Promise<void>
 }

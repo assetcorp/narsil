@@ -1,7 +1,15 @@
 import type { WriteCondition } from '../../../transport/types'
 import { FORWARD_RETRY_INITIAL_DELAY_MS, PRIMARY_CHANGE_RETRY_WINDOW_MS } from '../../constants'
 import type { BatchWrite } from '../batch-write'
-import { beforeWindowEnds, WINDOW_ENDED, windowEndedOutcome } from '../forward-window'
+import {
+  type AttemptWindow,
+  openAttemptWindow,
+  startedBeforeWindowEnds,
+  unsentWindowEndedOutcome,
+  WINDOW_ENDED,
+  windowEndedBeforeSending,
+  windowEndedOutcome,
+} from '../forward-window'
 import type { WriteRoutingDeps } from '../types'
 import { emptyHistory, finalError, nextCondition, recordAttempt, retriable, retriedAfterDelay } from './rules'
 import { type SettleRetried, settledBeforeWindowEnds } from './settlement'
@@ -9,7 +17,7 @@ import { awaitNewPrimary, nextRetryDelay, pauseAndRereadTable, primaryFor, table
 
 const NONE_ACKNOWLEDGED: ReadonlySet<string> = new Set()
 
-export type SingleAttempt<T> = (condition: WriteCondition | undefined, deadline: number) => Promise<T>
+export type SingleAttempt<T> = (condition: WriteCondition | undefined, window: AttemptWindow) => Promise<T>
 
 export async function retryOnPrimaryChange<T, V>(
   deps: WriteRoutingDeps,
@@ -33,13 +41,19 @@ export async function retryOnPrimaryChange<T, V>(
       throw finalError(history, indexName, docId, lastRefusal.error)
     }
     const refusing = primaryFor(table, docId)
-    let outcome: T | typeof WINDOW_ENDED
+    const window = openAttemptWindow(deadline)
     try {
-      outcome = await beforeWindowEnds(attempt(condition, deadline), deadline)
+      const outcome = await startedBeforeWindowEnds(attempt(condition, window), window, deps.shutdownSignal)
+      if (outcome !== WINDOW_ENDED) return outcome
+      throw unsentWindowEndedOutcome(indexName, docId, deps.shutdownSignal)
     } catch (error) {
+      if (windowEndedBeforeSending(error)) {
+        if (lastRefusal === undefined) throw error
+        throw finalError(history, indexName, docId, lastRefusal.error)
+      }
       if (history.mayHaveApplied) {
         const settling = settleRetried([{ write, error }], NONE_ACKNOWLEDGED)
-        const settlement = await settledBeforeWindowEnds(settling, deadline)
+        const settlement = await settledBeforeWindowEnds(settling, deadline, deps.shutdownSignal)
         if (settlement.settled.has(write)) return settledValue()
         if (settlement.unverified.has(write) && history.abandonedAttempt !== undefined) {
           throw finalError(history, indexName, docId, history.abandonedAttempt)
@@ -57,9 +71,6 @@ export async function retryOnPrimaryChange<T, V>(
       if (!retryable) throw finalError(history, indexName, docId, error)
       lastRefusal = { error }
       condition = nextCondition(error, condition)
-      continue
     }
-    if (outcome === WINDOW_ENDED) throw windowEndedOutcome(indexName, docId)
-    return outcome
   }
 }

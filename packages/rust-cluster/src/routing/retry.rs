@@ -7,6 +7,7 @@ use tokio::time::{Instant, timeout_at};
 use super::WriteRouter;
 use super::rules::{History, next_condition, retriable, retried_after_delay, window_ended_outcome};
 use super::wait::{RefusingPrimary, next_retry_delay, primary_for};
+use super::window::AttemptWindow;
 use super::write::{Attempted, PendingWrite, Refused};
 use crate::constants::FORWARD_RETRY_INITIAL_DELAY_MS;
 use crate::error::{ClusterError, ClusterResult, codes};
@@ -44,19 +45,24 @@ impl WriteRouter {
         deadline: Instant,
         batch: bool,
     ) -> ClusterResult<Option<HashMap<usize, Attempted>>> {
-        let attempt = tokio::spawn(Arc::clone(self).attempt(
+        let window = Arc::new(AttemptWindow::new(deadline));
+        let mut attempt = tokio::spawn(Arc::clone(self).attempt(
             Arc::clone(serving_name),
             pending.to_vec(),
             batch,
-            deadline,
+            Arc::clone(&window),
         ));
-        match timeout_at(deadline, attempt).await {
-            Err(_) => Ok(None),
-            Ok(Err(stopped)) => Err(ClusterError::new(
+        let joined = match self.until_stopped(timeout_at(deadline, &mut attempt)).await {
+            Some(Ok(joined)) => joined,
+            _ if window.abandon() => return Ok(None),
+            _ => attempt.await,
+        };
+        match joined {
+            Err(stopped) => Err(ClusterError::new(
                 codes::INTERNAL_ERROR,
                 format!("A write to index '{serving_name}' stopped before it answered: {stopped}"),
             )),
-            Ok(Ok(outcomes)) => Ok(Some(outcomes?.into_iter().collect())),
+            Ok(outcomes) => Ok(Some(outcomes?.into_iter().collect())),
         }
     }
 
@@ -81,7 +87,10 @@ impl WriteRouter {
             return HashSet::new();
         }
         let settling = self.settle_equal_inserts(serving_name, &uncertain, acknowledged);
-        timeout_at(deadline, settling).await.unwrap_or_default()
+        self.until_stopped(timeout_at(deadline, settling))
+            .await
+            .and_then(Result::ok)
+            .unwrap_or_default()
     }
 
     pub(super) async fn retry_group(
@@ -98,8 +107,13 @@ impl WriteRouter {
         let mut last_refusals: HashMap<usize, ClusterError> = HashMap::new();
         let mut delay = Duration::from_millis(FORWARD_RETRY_INITIAL_DELAY_MS);
         while !pending.is_empty() {
-            let read = timeout_at(deadline, self.view.read(&serving_name)).await;
-            let Some(read) = read.ok().filter(|_| Instant::now() < deadline) else {
+            let read = self
+                .until_stopped(timeout_at(deadline, self.view.read(&serving_name)))
+                .await;
+            let Some(read) = read
+                .and_then(Result::ok)
+                .filter(|_| Instant::now() < deadline)
+            else {
                 for write in &pending {
                     let error = last_answer(
                         &serving_name,
@@ -119,8 +133,13 @@ impl WriteRouter {
                 Ok(Some(outcomes)) => outcomes,
                 Ok(None) => {
                     for write in &pending {
-                        let ended = window_ended_outcome(&serving_name, write.document_id());
-                        answered.push((write.position, Err(ended)));
+                        let error = last_answer(
+                            &serving_name,
+                            write,
+                            &histories,
+                            last_refusals.remove(&write.position),
+                        );
+                        answered.push((write.position, Err(error)));
                     }
                     break;
                 }
@@ -165,6 +184,14 @@ impl WriteRouter {
                 if settled.contains(&position) {
                     acknowledged.insert(document_id.to_string());
                     answered.push((position, Ok(())));
+                    continue;
+                }
+                if refused.unsent {
+                    let error = match last_refusals.remove(&position) {
+                        Some(last) => last_answer(&serving_name, write, &histories, Some(last)),
+                        None => refused.error,
+                    };
+                    answered.push((position, Err(error)));
                     continue;
                 }
                 let history = histories.entry(position).or_default();

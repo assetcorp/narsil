@@ -122,6 +122,14 @@ function isNodeAssigned(assignment: PartitionAssignment, nodeId: string): boolea
   return assignment.replicas.includes(nodeId)
 }
 
+function abortActiveBootstrap(state: AllocationWatcherState, key: string): void {
+  const active = state.activeBootstraps.get(key)
+  if (active !== undefined) {
+    abortBootstrapState(active)
+    state.activeBootstraps.delete(key)
+  }
+}
+
 function handleNewAssignment(
   state: AllocationWatcherState,
   config: NodeLifecycleConfig,
@@ -159,12 +167,12 @@ function handleExistingAssignment(
   settleAwaitedAdmission(state, partitionKey(indexName, partitionId), assignment, nodeId)
 
   if (existing.isPrimary && assignment.primary !== nodeId && assignment.primaryTerm > existing.primaryTerm) {
+    abortActiveBootstrap(state, partitionKey(indexName, partitionId))
     if (assignment.primary !== null) {
-      if (config.onPrimaryDemotion !== undefined) {
-        config.onPrimaryDemotion(indexName, partitionId, assignment.primary)
+      config.onPrimaryDemotion?.(indexName, partitionId, assignment.primary)
+      if (!alreadyHoldsData(assignment, nodeId)) {
+        startBootstrap(state, config, indexName, partitionId, assignment.primary, assignment.primaryTerm)
       }
-
-      startBootstrap(state, config, indexName, partitionId, assignment.primary, assignment.primaryTerm)
     }
     return
   }
@@ -315,11 +323,7 @@ function removeDroppedPartitions(
     state.pendingPartitions.delete(key)
     forgetAwaitedAdmission(state, key)
 
-    const activeBootstrap = state.activeBootstraps.get(key)
-    if (activeBootstrap !== undefined) {
-      abortBootstrapState(activeBootstrap)
-      state.activeBootstraps.delete(key)
-    }
+    abortActiveBootstrap(state, key)
 
     if (keepsCopyForRecovery(table, tracked.partitionId, config.registration.nodeId)) {
       state.retainedPartitions.add(key)

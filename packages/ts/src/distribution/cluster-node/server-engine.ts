@@ -4,6 +4,7 @@ import { bindRerankWindowSource, rerankWindowCapOf } from '../../narsil/internal
 import { bindEngineWriteBlock } from '../../narsil/write-blocks'
 import { bindQuerySuggestions, boundQuerySuggestionsOf } from '../../query-suggestions/providers'
 import { bindChangesServing, changesServingSourceOf } from '../../server/changes/serving'
+import { bindShutdownStart, shutdownStartOf } from '../../server/shutdown-start'
 import { bindSyncServing, syncServingSourceOf } from '../../server/sync/serving'
 import type { Narsil } from '../../types/engine'
 import type { AnyDocument, BM25Params, IndexConfig, InsertOptions, WriteOptions } from '../../types/schema'
@@ -237,6 +238,8 @@ export function clusterNodeEngine(node: ClusterNode, options?: ClusterEngineOpti
   if (syncServing !== undefined) bindSyncServing(engine, syncServing)
   const changesServing = changesServingSourceOf(node)
   if (changesServing !== undefined) bindChangesServing(engine, changesServing)
+  const startShutdown = shutdownStartOf(node)
+  if (startShutdown !== undefined) bindShutdownStart(engine, startShutdown)
   const suggestions = boundQuerySuggestionsOf(node)
   if (suggestions !== undefined) bindQuerySuggestions(engine, suggestions)
   return engine

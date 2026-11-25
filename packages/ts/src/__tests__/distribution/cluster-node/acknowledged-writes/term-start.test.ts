@@ -37,6 +37,7 @@ const RETRIED_REMOVALS = 3
 const REMOVAL_OUTAGE_BEYOND_TIMEOUT_MS = 2_000
 const MAX_REMOVAL_REQUESTS_IN_OUTAGE = 60
 const TERM_END_QUIET_MS = 2_000
+const TERM_START_DELIVERY_DELAY_MS = 1_500
 const REDUCED_REPLICATION_TIMEOUT_MS = 2_000
 const SHORT_REPLICATION_TIMEOUT_MS = 500
 const LATE_REMOVAL_REPLICATION_TIMEOUT_MS = 40_000
@@ -694,18 +695,30 @@ describe('a new primary that starts its term on every in-sync copy', () => {
     const oldPrimary = settled.primary ?? ''
     const transport = running.transport(oldPrimary)
     const lateEntries = transport.holdWhen(onLinksTo(settled.inSyncSet, entryForDocument('late')))
+    const termStarts = settled.inSyncSet.map(nodeId =>
+      running.transport(nodeId).holdWhen(ofType('replication.term_start', oldPrimary)),
+    )
+    const syncsBeforeDemotion = transport.syncTiers().length
     const late = outcomeOf(running.node(oldPrimary).insert(INDEX, fields('late', 2), 'late'))
     await waitUntil('the late write to wait on both replicas', () => lateEntries.count() >= settled.inSyncSet.length)
     const oldPrimaryWatch = await watchInSync(running, oldPrimary)
 
-    await drainLeadership(running, settled)
-    await waitUntil('the old primary to leave the in-sync set', () => oldPrimaryWatch.leftAt())
-    lateEntries.release()
+    try {
+      await drainLeadership(running, settled)
+      await waitUntil('the new primary to send the term start', () => termStarts.some(gate => gate.count() > 0))
+      await sleep(TERM_START_DELIVERY_DELAY_MS)
+      expect(transport.syncTiers().slice(syncsBeforeDemotion)).toEqual([])
+      for (const gate of termStarts) gate.release()
+      await waitUntil('the old primary to leave the in-sync set', () => oldPrimaryWatch.leftAt())
+    } finally {
+      for (const gate of termStarts) gate.release()
+      lateEntries.release()
+    }
     expect(await late).toEqual({ state: 'acknowledged' })
     ledger.set('late', fields('late', 2))
 
     await expectEveryCopyHolds(running, ledger, [oldPrimary])
-    expect(transport.syncTiers()).toContain('snapshot')
+    expect(transport.syncTiers().slice(syncsBeforeDemotion)).toContain('snapshot')
   }, 90_000)
 
   it('removes an older copy that never answers the term start, then resyncs it, and holds writes no longer than the replication timeout', async () => {

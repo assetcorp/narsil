@@ -107,6 +107,7 @@ pub struct NarsilServer {
     port: u16,
     options: ServerOptions,
     running: Mutex<Option<Running>>,
+    closing: Mutex<()>,
 }
 
 impl NarsilServer {
@@ -224,6 +225,7 @@ impl NarsilServer {
             port: options.port.unwrap_or(DEFAULT_PORT),
             options,
             running: Mutex::new(None),
+            closing: Mutex::new(()),
         })
     }
 
@@ -272,6 +274,7 @@ impl NarsilServer {
     /// Stops accepting connections, closes every feed, and waits up to 30 seconds for the requests in progress,
     /// leaving the running tasks and the engine open.
     pub async fn close(&self) {
+        let _closing = self.closing.lock().await;
         self.state.ready.store(false, Ordering::Release);
         let Some(running) = self.running.lock().await.take() else {
             return;
@@ -284,15 +287,29 @@ impl NarsilServer {
     /// Closes the server as [`NarsilServer::close`] does, stops every running task and waits for it, then shuts the
     /// engine down.
     ///
+    /// A server that fronts a cluster node shuts the node down while it closes, because a node that has started to shut
+    /// down stops waiting for the primary of each write that it forwarded. Such a write answers with its last refusal,
+    /// or with `REPLICATION_OUTCOME_UNKNOWN` where the primary may have applied it, so that every running request can
+    /// finish before the node leaves the cluster.
+    ///
     /// # Errors
     ///
     /// Returns the engine's error where its shutdown fails.
     pub async fn shutdown(&self) -> Result<(), NarsilError> {
-        self.close().await;
-        self.state.tasks.shutdown().await;
-        #[cfg(feature = "cluster")]
-        if let Some(node) = &self.state.cluster {
-            node.shutdown().await;
+        let draining = async {
+            self.close().await;
+            self.state.tasks.shutdown().await;
+        };
+        if self.state.fronts_cluster() {
+            let stopping = async {
+                #[cfg(feature = "cluster")]
+                if let Some(node) = &self.state.cluster {
+                    node.shutdown().await;
+                }
+            };
+            tokio::join!(draining, stopping);
+        } else {
+            draining.await;
         }
         let engine = Arc::clone(&self.state.engine);
         tokio::task::spawn_blocking(move || engine.shutdown())

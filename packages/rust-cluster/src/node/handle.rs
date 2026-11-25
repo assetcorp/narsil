@@ -114,11 +114,17 @@ impl ClusterNode {
     /// return, gives up the controller lease where it holds it, stops renewing its registration, deregisters, stops
     /// listening, and closes the engine of its `data` role.
     ///
+    /// Once the shutdown starts, a write that the node forwarded stops waiting for its primary. It answers with its last
+    /// refusal, or with `REPLICATION_OUTCOME_UNKNOWN` and the reason `forward_window_ended` where the primary may have
+    /// applied it, and the node sends no further part of that write. A partition that the node leads stops holding its
+    /// writes for a lead handover.
+    ///
     /// A shutdown during a start ends the wait for an earlier registration, and the start then fails with
     /// `NODE_NOT_JOINED`. The coordinator and the transport stay open, because the caller owns them. A second
     /// call does nothing.
     pub async fn shutdown(&self) {
         self.inner.stopping.send_replace(true);
+        self.inner.stop_waiting();
         self.inner.operations.drain().await;
         let _turn = self.inner.lifecycle.lock().await;
         let earlier = std::mem::replace(&mut *lock(&self.inner.phase), Phase::Shutdown);

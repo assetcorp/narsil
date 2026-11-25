@@ -103,8 +103,7 @@ let stopping = false
 async function stop() {
   if (stopping) return
   stopping = true
-  await server.close()
-  await node.shutdown()
+  await server.shutdown()
   await transport.shutdown()
   await coordinator.shutdown()
   if (process.env.NARSIL_FAULT_CAMPAIGN === '1') {

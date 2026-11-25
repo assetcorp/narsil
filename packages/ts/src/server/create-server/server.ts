@@ -45,6 +45,7 @@ import { type Authorizer, authorizerFor, createRouteRunner } from '../request'
 import { type RequestThreadHost, startRequestThreads } from '../request-threads/host'
 import { registerServerRoutes } from '../routes'
 import { loadUWebSockets, type UWebSockets } from '../runtime'
+import { shutdownStartOf } from '../shutdown-start'
 import type { FeedHost } from '../sync/feed-host'
 import { CHANGES_FEED_ROUTE, registerFeedRoute, SYNC_FEED_ROUTE } from '../sync/feed-route'
 import { assertFeedHasAuthentication, type ResolvedFeedOptions, resolveFeedOptions } from '../sync/options'
@@ -108,6 +109,7 @@ class NarsilHttpServer implements NarsilServer {
   private stopIdleHeapCleanup: () => void = () => undefined
   private listening: Promise<void> | null = null
   private closing: Promise<void> | null = null
+  private shuttingDown: Promise<void> | null = null
   private cancelListen: (() => void) | null = null
 
   constructor(engine: Narsil, options: ServerOptions = {}) {
@@ -230,10 +232,15 @@ class NarsilHttpServer implements NarsilServer {
     }
   }
 
-  async shutdown(): Promise<void> {
-    await this.close()
-    await this.deps.tasks.shutdown()
-    await this.engine.shutdown()
+  shutdown(): Promise<void> {
+    if (this.shuttingDown !== null) return this.shuttingDown
+    this.shuttingDown = Promise.resolve().then(async () => {
+      shutdownStartOf(this.engine)?.()
+      await this.close()
+      await this.deps.tasks.shutdown()
+      await this.engine.shutdown()
+    })
+    return this.shuttingDown
   }
 
   get listeningPort(): number {

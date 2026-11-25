@@ -39,6 +39,7 @@ export interface WriteRoutingDeps {
   copyUnlisted?: (indexName: string, partitionId: number) => boolean
   vectorFieldPathsOf?: (indexName: string) => ReadonlySet<string>
   stopped?: () => boolean
+  shutdownSignal?: AbortSignal
   replicaFeedClock?: ReplicaFeedClock
 }
 

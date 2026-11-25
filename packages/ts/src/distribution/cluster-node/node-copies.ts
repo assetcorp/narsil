@@ -8,6 +8,7 @@ export interface NodeCopiesDeps extends CopyFailureDeps {
   engine: ClusterLocalEngine
   coordinator: ClusterCoordinator
   nodeId: string
+  shutdownSignal: AbortSignal
   settleAdopted(indexName: string): Promise<unknown>
   standForElection(): Promise<void>
 }
@@ -34,6 +35,7 @@ export function createNodeCopies(deps: NodeCopiesDeps): NodeCopies {
   writeDeps.failCopy = failures.record
   writeDeps.copyUnlisted = failures.isUnlisted
   writeDeps.stopped = deps.isShutdown
+  writeDeps.shutdownSignal = deps.shutdownSignal
   engine.isolateCopyFailures(failures.record)
 
   return {

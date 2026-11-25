@@ -110,7 +110,9 @@ fn existing_assignment(
         && assignment.primary_term > existing.primary_term;
     if demoted {
         state.abort_bootstrap(key);
-        if let Some(primary_node_id) = assignment.primary.as_deref() {
+        if !already_holds_data(assignment, node_id)
+            && let Some(primary_node_id) = assignment.primary.as_deref()
+        {
             actions.push(bootstrap_toward(key, primary_node_id, assignment));
         }
         return;

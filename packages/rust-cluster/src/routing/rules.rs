@@ -144,6 +144,17 @@ pub(super) fn window_ended_outcome(index_name: &str, document_id: &str) -> Clust
     )
 }
 
+pub(super) fn shutdown_outcome(index_name: &str, document_id: &str) -> ClusterError {
+    outcome_unknown(
+        format!(
+            "This node stopped waiting for the primary of index '{index_name}' to answer the write to document '{document_id}' once it began to shut down, so the write may or may not have taken effect. Read the document before you retry the write."
+        ),
+        index_name,
+        document_id,
+        FORWARD_WINDOW_ENDED,
+    )
+}
+
 fn interrupted_outcome(index_name: &str, document_id: &str, cause: &ClusterError) -> ClusterError {
     outcome_unknown(
         format!(
