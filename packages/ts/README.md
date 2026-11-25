@@ -191,12 +191,15 @@ The [browser example](https://github.com/assetcorp/narsil/blob/main/packages/ts/
 | Package | What it does |
 | --- | --- |
 | [`delali-narsil`](https://github.com/assetcorp/narsil/tree/main/packages/rust) | The Rust crate creates, changes, and searches an index inside a Rust program. |
+| [`delali-narsil-server`](https://github.com/assetcorp/narsil/tree/main/packages/rust-server) | The Rust server serves the HTTP API and can join a cluster when you enable its `cluster` feature. |
+| [`delali-narsil-cluster`](https://github.com/assetcorp/narsil/tree/main/packages/rust-cluster) | The crate connects a Rust process to a cluster with Rust or TypeScript nodes. |
+| [`delali-narsil`](https://github.com/assetcorp/narsil/tree/main/packages/python-engine) on PyPI | The Python package embeds the engine and offers blocking and async APIs. |
 | [`github.com/assetcorp/narsil/packages/go/engine`](https://github.com/assetcorp/narsil/tree/main/packages/go/engine) | The Go engine creates, changes, and searches an index inside a Go program. |
 | [`github.com/assetcorp/narsil/packages/go`](https://github.com/assetcorp/narsil/tree/main/packages/go) | The Go client calls a Narsil server, or every node of a cluster, from Go. |
 | [`narsil-client`](https://github.com/assetcorp/narsil/tree/main/packages/python) | The Python client calls a Narsil server, or every node of a cluster, from Python. |
 | [`@delali/narsil-react-native`](https://github.com/assetcorp/narsil/tree/main/packages/react-native) | The driver puts the engine inside an iOS or Android app. |
 
-The Rust crate and the Go engine save every file in the same layouts as this package, so this package can open an index that either one saves, and either one can open an index that this package saves. Only this package holds the HTTP server and cluster mode.
+The Rust crate and the Go engine save every file in the same layouts as this package, so this package can open an index that either one saves, and either one can open an index that this package saves.
 
 ## License
 
