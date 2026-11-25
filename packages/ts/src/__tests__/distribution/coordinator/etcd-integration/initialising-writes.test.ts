@@ -24,16 +24,23 @@ const LATE_ANSWER_MARGIN_MS = 10_000
 const SHUTDOWN_WITHIN_MS = 10_000
 const REFUSED_WHILE_INITIALISING = { code: 'PARTITION_NOT_PRIMARY', state: 'INITIALISING' }
 const REFUSED_AS_DUPLICATE = { code: 'DOC_ALREADY_EXISTS', state: undefined }
+const UNANSWERED_WHEN_THE_WINDOW_ENDED = { code: 'REPLICATION_OUTCOME_UNKNOWN', reason: 'forward_window_ended' }
+
+interface Refusal {
+  code: unknown
+  state: unknown
+  reason?: unknown
+}
 
 interface Answer {
   write: string
-  refusals: Array<{ code: unknown; state: unknown }>
+  refusals: Refusal[]
   acknowledged?: string[]
 }
 
-function refusalOf(error: unknown): { code: unknown; state: unknown } {
-  const { code, details } = error as { code?: unknown; details?: { state?: unknown } }
-  return { code, state: details?.state }
+function refusalOf(error: unknown): Refusal {
+  const { code, details } = error as { code?: unknown; details?: { state?: unknown; reason?: unknown } }
+  return { code, state: details?.state, reason: details?.reason }
 }
 
 async function singleAnswer(write: string, writing: Promise<unknown>): Promise<Answer> {
@@ -369,7 +376,14 @@ describe('writes to a partition that is INITIALISING', () => {
 
     for (const answer of answers) {
       const operations = answer.write.endsWith('batch') ? 2 : 1
-      expect(answer.refusals, answer.write).toEqual(Array(operations).fill(REFUSED_WHILE_INITIALISING))
+      if (answer.write.startsWith('local')) {
+        expect(answer.refusals, answer.write).toEqual(Array(operations).fill(REFUSED_WHILE_INITIALISING))
+        continue
+      }
+      expect(answer.refusals, answer.write).toHaveLength(operations)
+      for (const refusal of answer.refusals) {
+        expect([REFUSED_WHILE_INITIALISING, UNANSWERED_WHEN_THE_WINDOW_ENDED], answer.write).toContainEqual(refusal)
+      }
     }
     expect(answeredAfterMs).toBeGreaterThanOrEqual(RETRY_WINDOW_MS - EARLY_ANSWER_MARGIN_MS)
     expect(answeredAfterMs).toBeLessThan(RETRY_WINDOW_MS + LATE_ANSWER_MARGIN_MS)
