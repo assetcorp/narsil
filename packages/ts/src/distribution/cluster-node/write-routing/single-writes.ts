@@ -5,7 +5,7 @@ import type { WriteCondition } from '../../transport/types'
 import { requireWritableIndex } from '../memory/write-block'
 import { estimateDocumentBytes, withAdmittedWrite } from '../memory/write-pressure'
 import { resolvePrimaryAssignment } from './assignment'
-import { requireOpenWindow } from './forward-window'
+import { type AttemptWindow, requireOpenWindow, startWithinWindow } from './forward-window'
 import { forwardInsertToRemote, forwardRemoveToRemote, forwardUpdateToRemote } from './forwarding'
 import { writeLocalOnly } from './numbered-write'
 import { retryOnPrimaryChange, settleEqualInserts, settleNothing } from './primary-change'
@@ -39,7 +39,7 @@ async function routeAdmittedInsert(
     deps,
     indexName,
     { docId: resolvedDocId, value: document },
-    (_, deadline) => insertOnce(indexName, document, resolvedDocId, deps, deadline, options),
+    (_, window) => insertOnce(indexName, document, resolvedDocId, deps, window, options),
     settleEqualInserts(deps, indexName),
     () => resolvedDocId,
     true,
@@ -51,19 +51,21 @@ async function insertOnce(
   document: AnyDocument,
   resolvedDocId: string,
   deps: WriteRoutingDeps,
-  deadline: number,
+  window: AttemptWindow,
   options?: InsertOptions,
 ): Promise<string> {
   const resolution = await resolvePrimaryAssignment(indexName, resolvedDocId, deps, false)
 
   if (resolution === null) {
+    startWithinWindow(window, indexName, resolvedDocId)
     return writeLocalOnly(deps, indexName, () => deps.engine.insert(indexName, document, resolvedDocId, options))
   }
 
   requireWritableIndex(resolution.table, deps.memoryView)
-  requireOpenWindow(deadline, indexName, resolvedDocId)
+  requireOpenWindow(window, indexName, resolvedDocId)
   const primaryNodeId = resolution.assignment.primary
   if (primaryNodeId === deps.nodeId) {
+    startWithinWindow(window, indexName, resolvedDocId)
     return applyPrimaryInsert(
       indexName,
       document,
@@ -81,7 +83,7 @@ async function insertOnce(
     resolvedDocId,
     primaryNodeId,
     deps,
-    deadline,
+    window,
     resolution.table.indexUuid,
   )
 }
@@ -91,7 +93,7 @@ export function routeRemove(indexName: string, docId: string, deps: WriteRouting
     deps,
     indexName,
     { docId, value: null },
-    (condition, deadline) => removeOnce(indexName, docId, deps, condition, deadline),
+    (condition, window) => removeOnce(indexName, docId, deps, condition, window),
     settleNothing,
     () => undefined,
   )
@@ -102,21 +104,23 @@ async function removeOnce(
   docId: string,
   deps: WriteRoutingDeps,
   condition: WriteCondition | undefined,
-  deadline: number,
+  window: AttemptWindow,
 ): Promise<void> {
   const resolution = await resolvePrimaryAssignment(indexName, docId, deps, false)
 
   if (resolution === null) {
+    startWithinWindow(window, indexName, docId)
     return writeLocalOnly(deps, indexName, () => deps.engine.remove(indexName, docId))
   }
 
-  requireOpenWindow(deadline, indexName, docId)
+  requireOpenWindow(window, indexName, docId)
   const primaryNodeId = resolution.assignment.primary
   if (primaryNodeId === deps.nodeId) {
+    startWithinWindow(window, indexName, docId)
     return applyPrimaryRemove(indexName, docId, resolution.partitionId, resolution.assignment, deps, condition)
   }
 
-  return forwardRemoveToRemote(indexName, docId, primaryNodeId, deps, deadline, resolution.table.indexUuid, condition)
+  return forwardRemoveToRemote(indexName, docId, primaryNodeId, deps, window, resolution.table.indexUuid, condition)
 }
 
 export function routeUpdate(
@@ -134,7 +138,7 @@ export function routeUpdate(
         deps,
         indexName,
         { docId, value: document },
-        (condition, deadline) => routeAdmittedUpdate(indexName, docId, document, deps, condition, deadline),
+        (condition, window) => routeAdmittedUpdate(indexName, docId, document, deps, condition, window),
         settleNothing,
         () => undefined,
       ),
@@ -147,18 +151,20 @@ async function routeAdmittedUpdate(
   document: AnyDocument,
   deps: WriteRoutingDeps,
   condition: WriteCondition | undefined,
-  deadline: number,
+  window: AttemptWindow,
 ): Promise<void> {
   const resolution = await resolvePrimaryAssignment(indexName, docId, deps, false)
 
   if (resolution === null) {
+    startWithinWindow(window, indexName, docId)
     return writeLocalOnly(deps, indexName, () => deps.engine.update(indexName, docId, document))
   }
 
   requireWritableIndex(resolution.table, deps.memoryView)
-  requireOpenWindow(deadline, indexName, docId)
+  requireOpenWindow(window, indexName, docId)
   const primaryNodeId = resolution.assignment.primary
   if (primaryNodeId === deps.nodeId) {
+    startWithinWindow(window, indexName, docId)
     return applyPrimaryUpdate(
       indexName,
       docId,
@@ -176,7 +182,7 @@ async function routeAdmittedUpdate(
     docId,
     primaryNodeId,
     deps,
-    deadline,
+    window,
     resolution.table.indexUuid,
     condition,
   )

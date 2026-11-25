@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use narsil::{Map, Value};
 
 use super::WriteRouter;
+use super::remote::Unanswered;
 use super::sent_fields::stored_copy_matches_sent;
 use super::write::{PendingWrite, Refused};
 use crate::constants::MAX_FETCH_DOCUMENT_IDS;
@@ -62,9 +63,19 @@ impl WriteRouter {
         documents: &[(String, u32)],
     ) -> ClusterResult<Vec<(String, Map)>> {
         let payload = encode_fetch_request(serving_name, documents);
-        let answer = self
-            .send_to_primary(primary, message_types::QUERY_FETCH, payload, || Ok(()))
-            .await?;
+        let answer = match self
+            .send_to_primary(primary, message_types::QUERY_FETCH, payload, None)
+            .await
+        {
+            Ok(answer) => answer,
+            Err(Unanswered::Failed(error)) => return Err(error),
+            Err(Unanswered::WindowEnded { .. }) => {
+                return Err(ClusterError::new(
+                    codes::QUERY_ROUTING_FAILED,
+                    format!("Node '{primary}' did not answer a document fetch"),
+                ));
+            }
+        };
         let decoded = decode_answer(&answer, serving_name).map_err(|failure| failure.error)?;
         fetched_documents(&decoded)
     }

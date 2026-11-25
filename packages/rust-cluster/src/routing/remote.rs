@@ -1,14 +1,14 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
 
 use narsil::Value;
-use tokio::time::Instant;
+use tokio::time::sleep_until;
 
 use super::WriteRouter;
 use super::rules::{
     forward_interrupted, forward_unsent, retriable, shutdown_outcome, transport_failure,
     unsent_after, window_ended_outcome,
 };
+use super::window::AttemptWindow;
 use super::write::{Attempted, PendingWrite, Refused};
 use crate::error::{ClusterError, ClusterResult, codes};
 use crate::message::{CARRIER_ERROR_TYPE, TransportMessage, message_types};
@@ -37,21 +37,14 @@ pub(super) fn unsent_after_window(
         .iter()
         .map(|write| {
             let ended = ended_window(serving_name, write.document_id(), shutting_down);
-            (write.position, Err(Refused::of(ended)))
+            (write.position, Err(Refused::unsent(ended)))
         })
         .collect()
 }
 
-fn require_open_window(
-    serving_name: &str,
-    document_id: &str,
-    deadline: Instant,
-    shutting_down: bool,
-) -> ClusterResult<()> {
-    if shutting_down || Instant::now() >= deadline {
-        return Err(ended_window(serving_name, document_id, shutting_down));
-    }
-    Ok(())
+pub(super) enum Unanswered {
+    Failed(ClusterError),
+    WindowEnded { sent: bool },
 }
 
 impl WriteRouter {
@@ -74,27 +67,32 @@ impl WriteRouter {
         primary: &str,
         message_type: &str,
         payload: Vec<u8>,
-        assert_sending: impl Fn() -> ClusterResult<()>,
-    ) -> ClusterResult<TransportMessage> {
+        window: Option<&AttemptWindow>,
+    ) -> Result<TransportMessage, Unanswered> {
         let message = TransportMessage::new(
             message_type,
             self.node_id.as_str(),
-            generate_node_id()?,
+            generate_node_id().map_err(Unanswered::Failed)?,
             payload,
         );
         let mut failure = None;
-        let mut shutting_down = self.stopping.subscribe();
         for target in self.view.targets(primary) {
-            assert_sending()?;
             let sending = self.transport.send(&target, message.clone());
-            tokio::pin!(sending);
-            let mut watching_shutdown = true;
-            let answered = loop {
-                tokio::select! {
-                    answered = &mut sending => break answered,
-                    _ = shutting_down.wait_for(|stopping| *stopping), if watching_shutdown => {
-                        assert_sending()?;
-                        watching_shutdown = false;
+            let answered = match window {
+                None => sending.await,
+                Some(window) => {
+                    if self.is_stopping() || !window.start() {
+                        return Err(Unanswered::WindowEnded { sent: false });
+                    }
+                    let mut shutting_down = self.stopping.subscribe();
+                    tokio::select! {
+                        answered = sending => answered,
+                        _ = shutting_down.wait_for(|stopping| *stopping) => {
+                            return Err(Unanswered::WindowEnded { sent: true });
+                        }
+                        () = sleep_until(window.deadline) => {
+                            return Err(Unanswered::WindowEnded { sent: true });
+                        }
                     }
                 }
             };
@@ -119,11 +117,11 @@ impl WriteRouter {
                 format!("Node '{primary}' has no address to send to"),
             )
         });
-        Err(transport_failure(
+        Err(Unanswered::Failed(transport_failure(
             error,
             format!("Node '{primary}' did not answer a forwarded write"),
             primary,
-        ))
+        )))
     }
 
     async fn forward_one(
@@ -132,20 +130,29 @@ impl WriteRouter {
         index_uuid: Option<&str>,
         primary: &str,
         write: &PendingWrite,
-        deadline: Instant,
+        window: &AttemptWindow,
     ) -> Attempted {
         let payload = encode_forward_request(serving_name, index_uuid, &write.outgoing());
-        let answer = self
-            .send_to_primary(primary, message_types::REPLICATION_FORWARD, payload, || {
-                require_open_window(
-                    serving_name,
-                    write.document_id(),
-                    deadline,
-                    self.is_stopping(),
-                )
-            })
-            .await
-            .map_err(Refused::of)?;
+        let sent = self
+            .send_to_primary(
+                primary,
+                message_types::REPLICATION_FORWARD,
+                payload,
+                Some(window),
+            )
+            .await;
+        let answer = match sent {
+            Ok(answer) => answer,
+            Err(Unanswered::Failed(error)) => return Err(Refused::of(error)),
+            Err(Unanswered::WindowEnded { sent }) => {
+                let ended = ended_window(serving_name, write.document_id(), self.is_stopping());
+                return Err(if sent {
+                    Refused::of(ended)
+                } else {
+                    Refused::unsent(ended)
+                });
+            }
+        };
         let decoded = decode_answer(&answer, serving_name)
             .map_err(|failure| self.refusal_from(failure, serving_name, primary))?;
         if write.write.kind == ForwardKind::Insert {
@@ -160,40 +167,41 @@ impl WriteRouter {
         index_uuid: Option<&str>,
         primary: &str,
         chunk: &[PendingWrite],
-        deadline: Instant,
+        window: &AttemptWindow,
     ) -> ClusterResult<Vec<Attempted>> {
-        let Some(first) = chunk.first() else {
+        if chunk.is_empty() {
             return Ok(Vec::new());
-        };
+        }
         let operations: Vec<_> = chunk.iter().map(PendingWrite::outgoing).collect();
         let payload = encode_forward_batch_request(serving_name, index_uuid, &operations);
-        let window_ended_at_send = AtomicBool::new(false);
         let sent = self
             .send_to_primary(
                 primary,
                 message_types::REPLICATION_FORWARD_BATCH,
                 payload,
-                || {
-                    let open = require_open_window(
-                        serving_name,
-                        first.document_id(),
-                        deadline,
-                        self.is_stopping(),
-                    );
-                    if open.is_err() {
-                        window_ended_at_send.store(true, Ordering::Release);
-                    }
-                    open
-                },
+                Some(window),
             )
             .await;
-        if sent.is_err() && window_ended_at_send.load(Ordering::Acquire) {
-            return Ok(unsent_after_window(serving_name, chunk, self.is_stopping())
-                .into_iter()
-                .map(|(_, attempted)| attempted)
-                .collect());
-        }
-        let answer = sent?;
+        let answer = match sent {
+            Ok(answer) => answer,
+            Err(Unanswered::Failed(error)) => return Err(error),
+            Err(Unanswered::WindowEnded { sent: false }) => {
+                return Ok(unsent_after_window(serving_name, chunk, self.is_stopping())
+                    .into_iter()
+                    .map(|(_, attempted)| attempted)
+                    .collect());
+            }
+            Err(Unanswered::WindowEnded { sent: true }) => {
+                let shutting_down = self.is_stopping();
+                return Ok(chunk
+                    .iter()
+                    .map(|write| {
+                        let ended = ended_window(serving_name, write.document_id(), shutting_down);
+                        Err(Refused::of(ended))
+                    })
+                    .collect());
+            }
+        };
         let decoded = decode_answer(&answer, serving_name)
             .map_err(|failure| self.refusal_from(failure, serving_name, primary).error)?;
         let results = forwarded_batch_results(&decoded)?;
@@ -237,14 +245,14 @@ impl WriteRouter {
         index_uuid: Option<&str>,
         primary: &str,
         writes: &[PendingWrite],
-        deadline: Instant,
+        window: &AttemptWindow,
     ) -> Vec<(usize, Attempted)> {
-        if self.is_stopping() || Instant::now() >= deadline {
+        if self.is_stopping() || window.closed() {
             return unsent_after_window(serving_name, writes, self.is_stopping());
         }
         if let [only] = writes {
             let attempted = self
-                .forward_one(serving_name, index_uuid, primary, only, deadline)
+                .forward_one(serving_name, index_uuid, primary, only, window)
                 .await;
             return vec![(only.position, attempted)];
         }
@@ -255,7 +263,7 @@ impl WriteRouter {
         let mut awaiting_retry: HashMap<String, Box<Refused>> = HashMap::new();
         let mut undelivered: Option<ClusterError> = None;
         for planned in wire_batches(writes, PendingWrite::wire_bytes, |_, _| true) {
-            if self.is_stopping() || Instant::now() >= deadline {
+            if self.is_stopping() || window.closed() {
                 outcomes.extend(unsent_after_window(
                     serving_name,
                     planned,
@@ -286,7 +294,7 @@ impl WriteRouter {
                 continue;
             }
             let answered = match self
-                .forward_chunk(serving_name, index_uuid, primary, &chunk, deadline)
+                .forward_chunk(serving_name, index_uuid, primary, &chunk, window)
                 .await
             {
                 Ok(answered) => answered,

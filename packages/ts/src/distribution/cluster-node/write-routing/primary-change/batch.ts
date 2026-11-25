@@ -8,7 +8,15 @@ import {
 } from '../../constants'
 import { resolvePartitionId } from '../assignment'
 import { type BatchOutcome, type BatchWrite, batchResultOf, type WriteFailure } from '../batch-write'
-import { beforeWindowEnds, WINDOW_ENDED, windowEndedOutcome } from '../forward-window'
+import {
+  type AttemptWindow,
+  openAttemptWindow,
+  startedBeforeWindowEnds,
+  unsentAfterWindow,
+  WINDOW_ENDED,
+  windowEndedBeforeSending,
+  windowEndedOutcome,
+} from '../forward-window'
 import type { WriteRoutingDeps } from '../types'
 import {
   type AttemptHistory,
@@ -29,7 +37,7 @@ import {
   tableBeforeWindowEnds,
 } from './wait'
 
-export type BatchAttempt<V> = (writes: BatchWrite<V>[], deadline: number) => Promise<BatchOutcome<V>>
+export type BatchAttempt<V> = (writes: BatchWrite<V>[], window: AttemptWindow) => Promise<BatchOutcome<V>>
 
 interface RefusedWrite<V> {
   failure: WriteFailure<V>
@@ -86,16 +94,17 @@ async function retryBatchOnPrimaryChange<V>(
       }
       break
     }
-    let result: BatchOutcome<V> | typeof WINDOW_ENDED
+    const window = openAttemptWindow(deadline)
+    let result: BatchOutcome<V>
     try {
-      result = await beforeWindowEnds(attempt(pending, deadline), deadline)
+      const outcome = await startedBeforeWindowEnds(attempt(pending, window), window, deps.shutdownSignal)
+      result =
+        outcome === WINDOW_ENDED
+          ? { succeeded: [], failed: unsentAfterWindow(indexName, pending, deps.shutdownSignal) }
+          : outcome
     } catch (reason) {
       const error = stoppedBatchError(indexName, reason)
       for (const write of pending) failWith({ write, error })
-      break
-    }
-    if (result === WINDOW_ENDED) {
-      for (const write of pending) failed.push({ write, error: windowEndedOutcome(indexName, write.docId) })
       break
     }
     for (const write of result.succeeded) succeeded.push(write)
@@ -106,6 +115,12 @@ async function retryBatchOnPrimaryChange<V>(
       const { write, error, withheld } = failure
       if (settlement.settled.has(write)) {
         succeeded.push(write)
+        continue
+      }
+      if (windowEndedBeforeSending(error)) {
+        const lastRefusal = lastRefusals.get(write)
+        if (lastRefusal === undefined) failed.push(failure)
+        else failWith({ write, error: lastRefusal })
         continue
       }
       let history = histories.get(write)

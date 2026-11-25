@@ -6,6 +6,7 @@ mod rules;
 mod sent_fields;
 mod settle;
 mod wait;
+mod window;
 mod write;
 
 use std::sync::{Arc, Mutex};

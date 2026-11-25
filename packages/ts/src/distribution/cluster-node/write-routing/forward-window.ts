@@ -4,27 +4,38 @@ import type { BatchWrite, WriteFailure } from './batch-write'
 
 export const WINDOW_ENDED: unique symbol = Symbol('forward window ended')
 
-export async function beforeWindowEnds<T>(
+export function beforeWindowEnds<T>(
   work: Promise<T>,
   deadline: number,
   shutdownSignal?: AbortSignal,
 ): Promise<T | typeof WINDOW_ENDED> {
-  work.catch(() => undefined)
-  if (shutdownSignal?.aborted === true) return WINDOW_ENDED
-  let timer: ReturnType<typeof setTimeout> | undefined
-  const waiters = shutdownSignal === undefined ? undefined : shutdownWaitersOf(shutdownSignal)
-  let wake: (() => void) | undefined
-  const ended = new Promise<typeof WINDOW_ENDED>(resolve => {
-    wake = () => resolve(WINDOW_ENDED)
-    waiters?.add(wake)
-    timer = setTimeout(wake, Math.max(0, deadline - Date.now()))
-  })
-  try {
-    return await Promise.race([work, ended])
-  } finally {
-    clearTimeout(timer)
-    if (wake !== undefined) waiters?.delete(wake)
+  if (shutdownSignal?.aborted === true) {
+    work.catch(() => undefined)
+    return Promise.resolve(WINDOW_ENDED)
   }
+  const waiters = shutdownSignal === undefined ? undefined : shutdownWaitersOf(shutdownSignal)
+  return new Promise<T | typeof WINDOW_ENDED>((resolve, reject) => {
+    const wake = (): void => {
+      forget()
+      resolve(WINDOW_ENDED)
+    }
+    const timer = setTimeout(wake, Math.max(0, deadline - Date.now()))
+    const forget = (): void => {
+      clearTimeout(timer)
+      waiters?.delete(wake)
+    }
+    waiters?.add(wake)
+    work.then(
+      value => {
+        forget()
+        resolve(value)
+      },
+      error => {
+        forget()
+        reject(error)
+      },
+    )
+  })
 }
 
 export async function pauseBeforeShutdown(delayMs: number, shutdownSignal?: AbortSignal): Promise<void> {
@@ -49,30 +60,16 @@ function shutdownWaitersOf(shutdownSignal: AbortSignal): Set<() => void> {
   return waiters
 }
 
-export function beforeShutdown<T>(
-  work: Promise<T>,
-  shutdownSignal: AbortSignal | undefined,
-): Promise<T | typeof WINDOW_ENDED> {
-  if (shutdownSignal === undefined) return work
-  if (shutdownSignal.aborted) {
-    work.catch(() => undefined)
-    return Promise.resolve(WINDOW_ENDED)
-  }
-  const waiters = shutdownWaitersOf(shutdownSignal)
-  return new Promise<T | typeof WINDOW_ENDED>((resolve, reject) => {
-    const wake = (): void => resolve(WINDOW_ENDED)
-    waiters.add(wake)
-    work.then(
-      value => {
-        waiters.delete(wake)
-        resolve(value)
-      },
-      error => {
-        waiters.delete(wake)
-        reject(error)
-      },
-    )
-  })
+const endedBeforeSending = new WeakSet<NarsilError>()
+
+export function unsentWindowEndedOutcome(indexName: string, docId: string, shutdownSignal?: AbortSignal): NarsilError {
+  const outcome = windowEndedOutcome(indexName, docId, shutdownSignal)
+  endedBeforeSending.add(outcome)
+  return outcome
+}
+
+export function windowEndedBeforeSending(error: unknown): boolean {
+  return error instanceof NarsilError && endedBeforeSending.has(error)
 }
 
 export function windowEndedOutcome(indexName: string, docId: string, shutdownSignal?: AbortSignal): NarsilError {
@@ -91,13 +88,84 @@ export function windowClosed(deadline: number, shutdownSignal?: AbortSignal): bo
   return Date.now() >= deadline || shutdownSignal?.aborted === true
 }
 
+export interface AttemptWindow {
+  readonly deadline: number
+  started: boolean
+  closed: boolean
+  ending: Set<() => void> | undefined
+}
+
+export function openAttemptWindow(deadline: number): AttemptWindow {
+  return { deadline, started: false, closed: false, ending: undefined }
+}
+
+export function attemptWindowClosed(window: AttemptWindow, shutdownSignal?: AbortSignal): boolean {
+  return window.closed || windowClosed(window.deadline, shutdownSignal)
+}
+
+export function beforeAttemptEnds<T>(
+  work: Promise<T>,
+  window: AttemptWindow,
+  shutdownSignal?: AbortSignal,
+): Promise<T | typeof WINDOW_ENDED> {
+  if (window.closed || shutdownSignal?.aborted === true) {
+    work.catch(() => undefined)
+    return Promise.resolve(WINDOW_ENDED)
+  }
+  const shutdownWaiters = shutdownSignal === undefined ? undefined : shutdownWaitersOf(shutdownSignal)
+  window.ending ??= new Set()
+  const ending = window.ending
+  return new Promise<T | typeof WINDOW_ENDED>((resolve, reject) => {
+    const wake = (): void => resolve(WINDOW_ENDED)
+    const forget = (): void => {
+      ending.delete(wake)
+      shutdownWaiters?.delete(wake)
+    }
+    ending.add(wake)
+    shutdownWaiters?.add(wake)
+    work.then(
+      value => {
+        forget()
+        resolve(value)
+      },
+      error => {
+        forget()
+        reject(error)
+      },
+    )
+  })
+}
+
 export function requireOpenWindow(
-  deadline: number,
+  window: AttemptWindow,
   indexName: string,
   docId: string,
   shutdownSignal?: AbortSignal,
 ): void {
-  if (windowClosed(deadline, shutdownSignal)) throw windowEndedOutcome(indexName, docId, shutdownSignal)
+  if (attemptWindowClosed(window, shutdownSignal)) throw unsentWindowEndedOutcome(indexName, docId, shutdownSignal)
+}
+
+export function startWithinWindow(
+  window: AttemptWindow,
+  indexName: string,
+  docId: string,
+  shutdownSignal?: AbortSignal,
+): void {
+  requireOpenWindow(window, indexName, docId, shutdownSignal)
+  window.started = true
+}
+
+export async function startedBeforeWindowEnds<T>(
+  attempt: Promise<T>,
+  window: AttemptWindow,
+  shutdownSignal?: AbortSignal,
+): Promise<T | typeof WINDOW_ENDED> {
+  const answer = await beforeWindowEnds(attempt, window.deadline, shutdownSignal)
+  if (answer !== WINDOW_ENDED) return answer
+  window.closed = true
+  if (!window.started) return WINDOW_ENDED
+  if (window.ending !== undefined) for (const wake of window.ending) wake()
+  return attempt
 }
 
 export function unsentAfterWindow<V>(
@@ -105,7 +173,7 @@ export function unsentAfterWindow<V>(
   writes: readonly BatchWrite<V>[],
   shutdownSignal?: AbortSignal,
 ): WriteFailure<V>[] {
-  return writes.map(write => ({ write, error: windowEndedOutcome(indexName, write.docId, shutdownSignal) }))
+  return writes.map(write => ({ write, error: unsentWindowEndedOutcome(indexName, write.docId, shutdownSignal) }))
 }
 
 export function interruptedOutcome(indexName: string, docId: string, error: unknown): NarsilError {
