@@ -1,3 +1,18 @@
+## 0.2.4 (2026-11-25)
+
+### 🚀 Features
+
+- **rust:** match marked words from a query typed without marks through the native core ([17e5d2f6](https://github.com/assetcorp/narsil/commit/17e5d2f6))
+- **native:** highlight marked words that a query typed without marks matches ([da332b40](https://github.com/assetcorp/narsil/commit/da332b40))
+
+### 🩹 Fixes
+
+- **rust:** checkpoint a foldMarks switch so a crash after it recovers ([e8c7e940](https://github.com/assetcorp/narsil/commit/e8c7e940))
+
+### ❤️ Thank You
+
+- assetcorp @assetcorp
+
 ## 0.2.3 (2026-11-24)
 
 ### 🚀 Features

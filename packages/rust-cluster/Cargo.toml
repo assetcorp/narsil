@@ -18,7 +18,7 @@ path = "src/lib.rs"
 [dependencies]
 bytes = "=1.12.1"
 crc32fast = "=1.5.4"
-delali-narsil = { path = "../rust", version = "0.2.3" }
+delali-narsil = { path = "../rust", version = "0.2.4" }
 etcd-client = { version = "=0.21.1", features = ["tls"] }
 futures-core = "=0.3.34"
 getrandom = "=0.4.3"
