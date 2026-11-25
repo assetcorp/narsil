@@ -3,6 +3,7 @@
 use std::collections::HashSet;
 use std::sync::Mutex;
 
+use narsil::replication::PartitionCopies;
 use narsil::{
     BatchFailure, ErrorCode, IndexConfig, Map, MemoryConfig, Narsil, NarsilConfig, NarsilError,
     Value,
@@ -406,7 +407,6 @@ fn concurrent_inserts_into_separate_indexes_leave_no_memory_reserved_once_they_f
     let _serial = SERIAL
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let ballast = std::hint::black_box(vec![1u8; BALLAST_BYTES]);
     let Some(engine) = bounded_engine() else {
         return;
     };
@@ -434,16 +434,10 @@ fn concurrent_inserts_into_separate_indexes_leave_no_memory_reserved_once_they_f
             INSERTS_PER_WRITER as u64
         );
     }
-    let filling = titled(&distinct_text(FILLING_TOKENS));
-    let refused = engine
-        .insert(INDEX, filling.clone(), Some("filling"))
-        .expect_err("the bound passes the block fraction");
-    assert_would_fill(&refused, &filling);
     assert_eq!(
-        number_of(details_of(&refused), "projectedBytes"),
-        0.0,
+        PartitionCopies::new(&engine).reserved_memory_bytes(),
+        0,
         "every finished write gives back exactly the bytes that it reserved"
     );
     engine.shutdown().expect("stops");
-    drop(ballast);
 }
